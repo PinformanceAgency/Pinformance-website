@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(head -60 /Users/tycho/Downloads/pinformance/src/app/\\\\\\(dashboard\\\\\\)/overview/page.tsx)",
+      "Bash(ls -la /Users/tycho/Downloads/pinformance/src/app/\\\\\\(dashboard\\\\\\)/)",
+      "WebSearch",
+      "Bash(git init:*)",
+      "Bash(git remote:*)",
+      "Bash(git fetch:*)",
+      "Bash(gh auth:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
