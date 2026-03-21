@@ -237,7 +237,7 @@ export default function ClientsPage() {
                 <td className="p-4">
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      client.onboarding_step === 7
+                      client.onboarding_step === 5
                         ? "bg-green-100 text-green-700"
                         : "bg-yellow-100 text-yellow-700"
                     }`}
