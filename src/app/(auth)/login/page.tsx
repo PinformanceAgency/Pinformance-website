@@ -1,13 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const code = searchParams.get("code");
+    if (code) {
+      const supabase = createClient();
+      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+        if (!error) {
+          router.push("/overview");
+        } else {
+          setError("Login link expired. Please request a new one.");
+        }
+      });
+    }
+  }, [searchParams, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -18,7 +35,7 @@ export default function LoginPage() {
     const { error: authError } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/overview`,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
 
@@ -113,5 +130,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-muted">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }
