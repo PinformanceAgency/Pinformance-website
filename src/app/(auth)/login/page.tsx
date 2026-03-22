@@ -107,7 +107,7 @@ function LoginForm() {
         <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl shadow-2xl border border-white/[0.08] p-8">
           <div className="flex items-center gap-3 mb-8">
             <img
-              src="/logo.svg"
+              src="/logo.png"
               alt="Pinformance"
               className="w-11 h-11 rounded-xl"
               onError={(e) => {

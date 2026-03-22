@@ -13,7 +13,8 @@
       "Bash(git push:*)",
       "Bash(npx next:*)",
       "Bash(npm install:*)",
-      "Bash(pbcopy)"
+      "Bash(pbcopy)",
+      "Bash(ls /Users/tycho/Desktop/*.png)"
     ]
   }
 }
