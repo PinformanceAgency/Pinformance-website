@@ -79,7 +79,7 @@ export function Sidebar() {
         <Link href="/overview" className="flex items-center gap-3 group">
           <div className="relative">
             <img
-              src="/logo.png"
+              src="/logo.svg"
               alt="Pinformance"
               className="w-9 h-9 rounded-xl transition-transform group-hover:scale-105"
               onError={(e) => {
