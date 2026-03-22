@@ -51,10 +51,10 @@ export interface OrgSettings {
 }
 
 export const DEFAULT_ORG_SETTINGS: OrgSettings = {
-  pins_per_day: 10,
+  pins_per_day: 7, // Pinterest ideal: 1 pin/day
   auto_approve: false,
-  timezone: "UTC",
-  posting_hours: [7, 9, 11, 13, 15, 17, 19, 21],
+  timezone: "Europe/Amsterdam",
+  posting_hours: [17, 18, 19, 20, 21], // Pinterest optimal: evenings (peak engagement)
   content_mix: { static: 70, video: 20, carousel: 10 },
 };
 

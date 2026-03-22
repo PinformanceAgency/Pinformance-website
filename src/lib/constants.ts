@@ -20,15 +20,55 @@ export const PINTEREST_SCOPES = [
   "user_accounts:read",
 ] as const;
 
-export const POSTING_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes between posts
+export const POSTING_INTERVAL_MS = 30 * 1000; // 30 seconds minimum between API calls (Pinterest recommendation)
 
-// Pinterest algorithm-friendly posting cadence
+// Pinterest algorithm-friendly posting cadence (based on Pinterest's official guidance)
 export const RECOMMENDED_PINS_PER_DAY = {
-  new_account: 3, // < 1 month, < 500 followers
-  growing: 8, // 1-6 months or 500-5000 followers
-  established: 15, // 6+ months and 5000+ followers
+  new_account: 3, // < 1 month, < 500 followers — start slow
+  growing: 5, // 1-6 months or 500-5000 followers
+  established: 7, // 6+ months and 5000+ followers — ideal: 1 pin/day
   max_safe: 25, // absolute max to avoid spam detection
 } as const;
+
+// Content pillar distribution (Pinterest recommended)
+export const DEFAULT_CONTENT_PILLARS = [
+  { name: "Education & Value", percentage: 40, description: "Educational content, tips, how-tos about the niche" },
+  { name: "Proof & Results", percentage: 30, description: "Before/after, testimonials, case studies, results" },
+  { name: "Savings & Benefits", percentage: 20, description: "Cost savings, ROI, deals, value propositions" },
+  { name: "Tips & Inspiration", percentage: 10, description: "Quick tips, inspiration boards, seasonal content" },
+] as const;
+
+// Board architecture rules
+export const BOARD_RULES = {
+  MIN_BOARDS_PER_BRAND: 5,
+  MAX_BOARDS_PER_BRAND: 10,
+  SEED_PINS_PER_BOARD: 8, // Minimum pins to seed a new board
+  TARGET_PINS_PER_BOARD: 40, // Long-term target per board
+  NAME_FORMAT: "[Primary Keyword] — [Benefit] | [Brand Name]",
+} as const;
+
+// Pin content rules (Pinterest guidelines)
+export const PIN_CONTENT_RULES = {
+  MAX_TITLE_LENGTH: 100,
+  MAX_DESCRIPTION_LENGTH: 500,
+  TEXT_OVERLAY_MAX_WORDS: 8, // Headline max words
+  IMAGE_WIDTH: 1000,
+  IMAGE_HEIGHT: 1500,
+  ASPECT_RATIO: "2:3",
+  NO_HASHTAGS: true, // Pinterest explicitly recommends no hashtags
+  BRAND_NAME_IN_DESCRIPTION: true, // Brand name must be in first sentence
+  SEASONAL_LEAD_DAYS: 40, // Post seasonal content 30-45 days early
+  REPIN_COOLDOWN_DAYS: 90, // Evergreen content can be re-pinned after 90 days
+} as const;
+
+// Pin image templates
+export const PIN_TEMPLATES = [
+  { id: "educational", name: "Educational", layout: "headline-image-logo", pillar: "Education & Value" },
+  { id: "before-after", name: "Before/After", layout: "split-comparison", pillar: "Proof & Results" },
+  { id: "stat-data", name: "Stat/Data", layout: "large-number-context", pillar: "Savings & Benefits" },
+  { id: "tips-howto", name: "Tips/How-To", layout: "numbered-tips", pillar: "Tips & Inspiration" },
+  { id: "product-feature", name: "Product Feature", layout: "lifestyle-benefit-cta", pillar: "Proof & Results" },
+] as const;
 
 export const ONBOARDING_STEPS = [
   { step: 1, title: "Intake Form", description: "Fill in your onboarding form to get started", icon: "clipboard-list", estimatedMinutes: 5 },

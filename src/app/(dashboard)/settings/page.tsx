@@ -420,8 +420,8 @@ export default function SettingsPage() {
           </div>
           <input
             type="range"
-            min={5}
-            max={50}
+            min={1}
+            max={25}
             value={settings.pins_per_day}
             onChange={(e) =>
               setSettings({
@@ -432,9 +432,12 @@ export default function SettingsPage() {
             className="w-full accent-primary"
           />
           <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-            <span>5</span>
-            <span>50</span>
+            <span>1</span>
+            <span>25</span>
           </div>
+          <p className="text-[10px] text-muted-foreground/70 mt-1.5">
+            Pinterest recommends 3-7 pins/day for optimal reach. New accounts should start with 3.
+          </p>
         </div>
 
         <div className="flex items-center justify-between">
