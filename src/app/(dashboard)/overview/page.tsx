@@ -255,24 +255,26 @@ export default function OverviewPage() {
   const userName = user?.full_name || org.name;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 dot-grid-bg min-h-full -m-8 p-8">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">
-            {getGreeting()}, {userName} 👋
+          <h1 className="text-2xl font-bold tracking-tight">
+            {getGreeting()}, {userName}
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-muted-foreground mt-1 text-sm">
             Here&apos;s how your Pinterest is performing
           </p>
         </div>
-        <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+        <div className="flex items-center gap-1 glass-card rounded-xl p-1 !border-border/50">
           {(["7d", "30d", "90d"] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                period === p ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                period === p
+                  ? "bg-primary text-white shadow-sm glow-btn"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {p === "7d" ? "7D" : p === "30d" ? "30D" : "90D"}
@@ -302,71 +304,71 @@ export default function OverviewPage() {
 
       {/* Key Metrics - Pinterest Performance */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#3b82f6" } as React.CSSProperties}>
           <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 bg-blue-50 rounded-lg flex items-center justify-center">
-              <Eye className="w-4.5 h-4.5 text-blue-600" />
+            <div className="w-9 h-9 bg-blue-500/10 rounded-lg flex items-center justify-center">
+              <Eye className="w-4 h-4 text-blue-600" />
             </div>
             <TrendBadge trend={impressionsTrend} />
           </div>
           <div className="text-2xl font-bold tracking-tight">
             {formatNumber(stats?.impressions.current || 0)}
           </div>
-          <div className="text-xs text-muted-foreground mt-1">Impressions</div>
-          <div className="text-[10px] text-muted-foreground/60 mt-0.5">vs previous {periodLabel}</div>
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Impressions</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">vs previous {periodLabel}</div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#8b5cf6" } as React.CSSProperties}>
           <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 bg-purple-50 rounded-lg flex items-center justify-center">
-              <Bookmark className="w-4.5 h-4.5 text-purple-600" />
+            <div className="w-9 h-9 bg-purple-500/10 rounded-lg flex items-center justify-center">
+              <Bookmark className="w-4 h-4 text-purple-600" />
             </div>
             <TrendBadge trend={savesTrend} />
           </div>
           <div className="text-2xl font-bold tracking-tight">
             {formatNumber(stats?.saves.current || 0)}
           </div>
-          <div className="text-xs text-muted-foreground mt-1">Saves</div>
-          <div className="text-[10px] text-muted-foreground/60 mt-0.5">
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Saves</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">
             {(stats?.save_rate || 0).toFixed(1)}% save rate
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#f97316" } as React.CSSProperties}>
           <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 bg-orange-50 rounded-lg flex items-center justify-center">
-              <MousePointer className="w-4.5 h-4.5 text-orange-600" />
+            <div className="w-9 h-9 bg-orange-500/10 rounded-lg flex items-center justify-center">
+              <MousePointer className="w-4 h-4 text-orange-600" />
             </div>
             <TrendBadge trend={clicksTrend} />
           </div>
           <div className="text-2xl font-bold tracking-tight">
             {formatNumber(stats?.clicks.current || 0)}
           </div>
-          <div className="text-xs text-muted-foreground mt-1">Pin Clicks</div>
-          <div className="text-[10px] text-muted-foreground/60 mt-0.5">
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Pin Clicks</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">
             {(stats?.engagement_rate || 0).toFixed(1)}% engagement
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#22c55e" } as React.CSSProperties}>
           <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 bg-green-50 rounded-lg flex items-center justify-center">
-              <ExternalLink className="w-4.5 h-4.5 text-green-600" />
+            <div className="w-9 h-9 bg-green-500/10 rounded-lg flex items-center justify-center">
+              <ExternalLink className="w-4 h-4 text-green-600" />
             </div>
             <TrendBadge trend={outboundTrend} />
           </div>
           <div className="text-2xl font-bold tracking-tight">
             {formatNumber(stats?.outbound_clicks.current || 0)}
           </div>
-          <div className="text-xs text-muted-foreground mt-1">Website Clicks</div>
-          <div className="text-[10px] text-muted-foreground/60 mt-0.5">clicks to your store</div>
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Website Clicks</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">clicks to your store</div>
         </div>
       </div>
 
       {/* Content Pipeline + Performance Score */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Content Pipeline */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6">
+        <div className="lg:col-span-2 glass-card rounded-xl p-6">
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="font-semibold">Content Pipeline</h2>
@@ -430,7 +432,7 @@ export default function OverviewPage() {
         </div>
 
         {/* Performance Score */}
-        <div className="bg-card border border-border rounded-xl p-6">
+        <div className="glass-card rounded-xl p-6">
           <h2 className="font-semibold mb-1">Pinterest Health</h2>
           <p className="text-xs text-muted-foreground mb-5">Account performance indicators</p>
 
@@ -446,7 +448,7 @@ export default function OverviewPage() {
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-purple-500 rounded-full transition-all"
+                  className="h-full bg-purple-500 rounded-full transition-all progress-animate"
                   style={{ width: `${Math.min((stats?.save_rate || 0) * 10, 100)}%` }}
                 />
               </div>
@@ -466,7 +468,7 @@ export default function OverviewPage() {
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-orange-500 rounded-full transition-all"
+                  className="h-full bg-orange-500 rounded-full transition-all progress-animate"
                   style={{ width: `${Math.min((stats?.engagement_rate || 0) * 5, 100)}%` }}
                 />
               </div>
@@ -486,7 +488,7 @@ export default function OverviewPage() {
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-green-500 rounded-full transition-all"
+                  className="h-full bg-green-500 rounded-full transition-all progress-animate"
                   style={{ width: `${Math.min(((stats?.posted_pins || 0) / Math.max(((org.settings as unknown as Record<string, number>)?.pins_per_day ?? 40) * 30, 1)) * 100, 100)}%` }}
                 />
               </div>
@@ -506,7 +508,7 @@ export default function OverviewPage() {
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-blue-500 rounded-full transition-all"
+                  className="h-full bg-blue-500 rounded-full transition-all progress-animate"
                   style={{ width: `${Math.min(((stats?.total_boards || 0) / 20) * 100, 100)}%` }}
                 />
               </div>
@@ -521,7 +523,7 @@ export default function OverviewPage() {
       {/* Top Performing Pins + Quick Links */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Top Pins */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6">
+        <div className="lg:col-span-2 glass-card rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="font-semibold">Top Performing Pins</h2>
@@ -592,7 +594,7 @@ export default function OverviewPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="bg-card border border-border rounded-xl p-6">
+        <div className="glass-card rounded-xl p-6">
           <h2 className="font-semibold mb-1">Quick Actions</h2>
           <p className="text-xs text-muted-foreground mb-4">Jump to key areas</p>
 
