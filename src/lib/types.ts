@@ -65,6 +65,9 @@ export interface User {
   avatar_url: string | null;
   org_id: string;
   role: UserRole;
+  onboarding_step: OnboardingStep;
+  onboarding_completed_at: string | null;
+  onboarding_video_watched: boolean;
   created_at: string;
   updated_at: string;
 }

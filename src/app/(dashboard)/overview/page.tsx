@@ -86,14 +86,15 @@ export default function OverviewPage() {
   useEffect(() => {
     if (!org) return;
 
-    if (!org.onboarding_completed_at) {
+    // Per-user onboarding check
+    if (!user?.onboarding_completed_at) {
       router.push("/onboarding");
       return;
     }
 
-    setVideoWatched(!!org.onboarding_video_watched);
+    setVideoWatched(!!user?.onboarding_video_watched);
 
-    if (!org.onboarding_video_watched) {
+    if (!user?.onboarding_video_watched) {
       setShowVideoModal(true);
     }
 
@@ -686,6 +687,7 @@ export default function OverviewPage() {
       {showVideoModal && (
         <OnboardingVideoModal
           orgId={org.id}
+          userId={user?.id}
           onClose={() => setShowVideoModal(false)}
           onComplete={handleVideoComplete}
         />

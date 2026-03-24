@@ -6,12 +6,14 @@ import { X, Play } from "lucide-react";
 
 interface OnboardingVideoModalProps {
   orgId: string;
+  userId?: string;
   onClose: () => void;
   onComplete: () => void;
 }
 
 export function OnboardingVideoModal({
   orgId,
+  userId,
   onClose,
   onComplete,
 }: OnboardingVideoModalProps) {
@@ -20,10 +22,21 @@ export function OnboardingVideoModal({
   async function handleWatched() {
     setMarking(true);
     const supabase = createClient();
+
+    // Update per-user video watched status
+    if (userId) {
+      await supabase
+        .from("users")
+        .update({ onboarding_video_watched: true })
+        .eq("id", userId);
+    }
+
+    // Also keep org-level in sync
     await supabase
       .from("organizations")
       .update({ onboarding_video_watched: true })
       .eq("id", orgId);
+
     setMarking(false);
     onComplete();
   }

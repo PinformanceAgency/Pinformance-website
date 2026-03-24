@@ -14,7 +14,8 @@
       "Bash(npx next:*)",
       "Bash(npm install:*)",
       "Bash(pbcopy)",
-      "Bash(ls /Users/tycho/Desktop/*.png)"
+      "Bash(ls /Users/tycho/Desktop/*.png)",
+      "Bash(npm run:*)"
     ]
   }
 }

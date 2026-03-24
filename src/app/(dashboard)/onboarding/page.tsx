@@ -32,21 +32,23 @@ const STEP_ICONS: Record<string, React.ElementType> = {
 };
 
 export default function OnboardingPage() {
-  const { org, loading } = useOrg();
+  const { org, user, loading } = useOrg();
   const router = useRouter();
   const [step, setStep] = useState<OnboardingStep>(1);
 
   useEffect(() => {
-    if (org) {
-      if (org.onboarding_completed_at) {
+    if (user) {
+      // Per-user onboarding check
+      if (user.onboarding_completed_at) {
         router.push("/overview");
         return;
       }
-      setStep((org.onboarding_step || 1) as OnboardingStep);
+      setStep((user.onboarding_step || 1) as OnboardingStep);
     }
-  }, [org, router]);
+  }, [user, router]);
 
   async function advanceStep() {
+    if (!user || !org) return;
     const nextStep = (step + 1) as OnboardingStep;
     const supabase = createClient();
 
@@ -55,7 +57,22 @@ export default function OnboardingPage() {
       update.onboarding_completed_at = new Date().toISOString();
     }
 
-    await supabase.from("organizations").update(update).eq("id", org!.id);
+    // Update user-level onboarding
+    await supabase.from("users").update(update).eq("id", user.id);
+
+    // Also keep org-level in sync (highest step of any user)
+    if (nextStep > (org.onboarding_step || 0)) {
+      const orgUpdate: Record<string, unknown> = { onboarding_step: Math.min(nextStep, 5) };
+      if (nextStep > 5) {
+        orgUpdate.onboarding_completed_at = new Date().toISOString();
+      }
+      await supabase.from("organizations").update(orgUpdate).eq("id", org.id);
+    }
+
+    // Save onboarding completion as a document
+    if (nextStep > 5) {
+      await saveOnboardingDocument(supabase);
+    }
 
     if (nextStep > 5) {
       router.push("/overview");
@@ -64,7 +81,50 @@ export default function OnboardingPage() {
     }
   }
 
-  if (loading || !org) {
+  async function saveOnboardingDocument(supabase: ReturnType<typeof createClient>) {
+    if (!org || !user) return;
+
+    const completionDate = new Date().toLocaleString("nl-NL", {
+      dateStyle: "long",
+      timeStyle: "short",
+    });
+
+    const stepSummary = ONBOARDING_STEPS.map(
+      (s) => `Step ${s.step}: ${s.title} - Completed`
+    ).join("\n");
+
+    const docContent = [
+      `Onboarding Report - ${user.full_name || user.email}`,
+      `Completed: ${completionDate}`,
+      `Organization: ${org.name}`,
+      "",
+      "Steps Completed:",
+      stepSummary,
+    ].join("\n");
+
+    // Create a text blob and upload as document
+    const blob = new Blob([docContent], { type: "text/plain" });
+    const fileName = `onboarding-${user.email.split("@")[0]}-${Date.now()}.txt`;
+    const filePath = `${org.id}/documents/${fileName}`;
+
+    await supabase.storage.from("uploads").upload(filePath, blob);
+
+    const { data: urlData } = supabase.storage
+      .from("uploads")
+      .getPublicUrl(filePath);
+
+    await supabase.from("client_documents").insert({
+      org_id: org.id,
+      title: `Onboarding Report - ${user.full_name || user.email}`,
+      description: `Onboarding completed on ${completionDate}. All 5 steps finished successfully.`,
+      file_url: urlData.publicUrl,
+      file_type: "text/plain",
+      file_size: blob.size,
+      uploaded_by: user.id,
+    });
+  }
+
+  if (loading || !org || !user) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-3">
@@ -77,8 +137,6 @@ export default function OnboardingPage() {
 
   const completedCount = Math.max(0, step - 1);
   const progressPercent = Math.round((completedCount / ONBOARDING_STEPS.length) * 100);
-
-  const noop = () => {};
 
   const stepComponents: Record<number, React.ReactNode> = {
     1: <IntakeFormStep org={org} onNext={advanceStep} />,
