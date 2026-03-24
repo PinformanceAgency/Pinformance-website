@@ -75,7 +75,7 @@ function getTrend(current: number, previous: number): { value: number; direction
 }
 
 export default function OverviewPage() {
-  const { org, user, loading } = useOrg();
+  const { org, user, loading, error } = useOrg();
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [topPins, setTopPins] = useState<TopPin[]>([]);
@@ -83,19 +83,25 @@ export default function OverviewPage() {
   const [videoWatched, setVideoWatched] = useState(true);
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
 
+  // Redirect to onboarding if user hasn't completed it
   useEffect(() => {
-    if (!org) return;
+    if (loading) return;
+    if (!user) return;
 
     // Per-user onboarding check — each user must complete their own onboarding
-    const userCompleted = user?.onboarding_completed_at;
-
+    const userCompleted = user.onboarding_completed_at;
     if (!userCompleted) {
       router.push("/onboarding");
       return;
     }
+  }, [loading, user, router]);
+
+  useEffect(() => {
+    if (!org || !user) return;
+    if (!user.onboarding_completed_at) return;
 
     const videoWatchedByUser = user?.onboarding_video_watched;
-    const videoWatchedByOrg = org.onboarding_video_watched;
+    const videoWatchedByOrg = org?.onboarding_video_watched;
     const watched = !!videoWatchedByUser || !!videoWatchedByOrg;
 
     setVideoWatched(watched);

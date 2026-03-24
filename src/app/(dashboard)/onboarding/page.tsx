@@ -10,7 +10,7 @@ import { TrelloAssetsStep } from "./steps/trello-assets";
 import { TrackingSetupStep } from "./steps/tracking-setup";
 import { TestSaleStep } from "./steps/test-sale";
 import { ONBOARDING_STEPS } from "@/lib/constants";
-import type { OnboardingStep } from "@/lib/types";
+import type { OnboardingStep, Organization } from "@/lib/types";
 import {
   Loader2,
   Check,
@@ -37,23 +37,22 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<OnboardingStep>(1);
 
   useEffect(() => {
-    if (user && org) {
-      // Per-user onboarding check — only skip if THIS user completed it
-      const userCompleted = user.onboarding_completed_at;
+    if (loading) return;
+    if (!user) return;
 
-      if (userCompleted) {
-        router.push("/overview");
-        return;
-      }
-
-      // Use user-level step if available, fallback to org-level
-      const currentStep = user.onboarding_step || org.onboarding_step || 1;
-      setStep((currentStep || 1) as OnboardingStep);
+    // Per-user onboarding check — only skip if THIS user completed it
+    if (user.onboarding_completed_at) {
+      router.push("/overview");
+      return;
     }
-  }, [user, org, router]);
+
+    // Use user-level step, fallback to org-level, then default 1
+    const currentStep = user.onboarding_step || org?.onboarding_step || 1;
+    setStep((currentStep || 1) as OnboardingStep);
+  }, [loading, user, org, router]);
 
   async function advanceStep() {
-    if (!user || !org) return;
+    if (!user) return;
     const nextStep = (step + 1) as OnboardingStep;
     const supabase = createClient();
 
@@ -65,8 +64,8 @@ export default function OnboardingPage() {
     // Update user-level onboarding
     await supabase.from("users").update(update).eq("id", user.id);
 
-    // Also keep org-level in sync (highest step of any user)
-    if (nextStep > (org.onboarding_step || 0)) {
+    // Also keep org-level in sync if org is available
+    if (org && nextStep > (org.onboarding_step || 0)) {
       const orgUpdate: Record<string, unknown> = { onboarding_step: Math.min(nextStep, 5) };
       if (nextStep > 5) {
         orgUpdate.onboarding_completed_at = new Date().toISOString();
@@ -76,7 +75,12 @@ export default function OnboardingPage() {
 
     // Save onboarding completion as a document
     if (nextStep > 5) {
-      await saveOnboardingDocument(supabase);
+      try {
+        await saveOnboardingDocument(supabase);
+      } catch (e) {
+        console.error("Failed to save onboarding document:", e);
+        // Don't block onboarding completion
+      }
     }
 
     if (nextStep > 5) {
@@ -87,7 +91,7 @@ export default function OnboardingPage() {
   }
 
   async function saveOnboardingDocument(supabase: ReturnType<typeof createClient>) {
-    if (!org || !user) return;
+    if (!user) return;
 
     const completionDate = new Date().toLocaleString("nl-NL", {
       dateStyle: "long",
@@ -101,7 +105,7 @@ export default function OnboardingPage() {
     const docContent = [
       `Onboarding Report - ${user.full_name || user.email}`,
       `Completed: ${completionDate}`,
-      `Organization: ${org.name}`,
+      `Organization: ${org?.name || "Unknown"}`,
       "",
       "Steps Completed:",
       stepSummary,
@@ -109,8 +113,9 @@ export default function OnboardingPage() {
 
     // Create a text blob and upload as document
     const blob = new Blob([docContent], { type: "text/plain" });
+    const orgId = org?.id || user.org_id;
     const fileName = `onboarding-${user.email.split("@")[0]}-${Date.now()}.txt`;
-    const filePath = `${org.id}/documents/${fileName}`;
+    const filePath = `${orgId}/documents/${fileName}`;
 
     await supabase.storage.from("uploads").upload(filePath, blob);
 
@@ -119,7 +124,7 @@ export default function OnboardingPage() {
       .getPublicUrl(filePath);
 
     await supabase.from("client_documents").insert({
-      org_id: org.id,
+      org_id: orgId,
       title: `Onboarding Report - ${user.full_name || user.email}`,
       description: `Onboarding completed on ${completionDate}. All 5 steps finished successfully.`,
       file_url: urlData.publicUrl,
@@ -129,7 +134,7 @@ export default function OnboardingPage() {
     });
   }
 
-  if (loading || !org || !user) {
+  if (loading || !user) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-3">
@@ -143,12 +148,24 @@ export default function OnboardingPage() {
   const completedCount = Math.max(0, step - 1);
   const progressPercent = Math.round((completedCount / ONBOARDING_STEPS.length) * 100);
 
+  // Create a fallback org object if org is null (RLS might block it for non-admins)
+  const effectiveOrg = org || {
+    id: user.org_id,
+    name: "Your Organization",
+    slug: "",
+    onboarding_step: step,
+    onboarding_completed_at: null,
+    onboarding_video_watched: false,
+    settings: {},
+    created_at: new Date().toISOString(),
+  } as Organization;
+
   const stepComponents: Record<number, React.ReactNode> = {
-    1: <IntakeFormStep org={org} onNext={advanceStep} />,
-    2: <PinterestSetupStep org={org} onNext={advanceStep} />,
-    3: <TrelloAssetsStep org={org} onNext={advanceStep} />,
-    4: <TrackingSetupStep org={org} onNext={advanceStep} />,
-    5: <TestSaleStep org={org} onNext={advanceStep} />,
+    1: <IntakeFormStep org={effectiveOrg} onNext={advanceStep} />,
+    2: <PinterestSetupStep org={effectiveOrg} onNext={advanceStep} />,
+    3: <TrelloAssetsStep org={effectiveOrg} onNext={advanceStep} />,
+    4: <TrackingSetupStep org={effectiveOrg} onNext={advanceStep} />,
+    5: <TestSaleStep org={effectiveOrg} onNext={advanceStep} />,
   };
 
   return (
