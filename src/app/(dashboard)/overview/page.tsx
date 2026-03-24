@@ -13,7 +13,6 @@ import {
   TrendingDown,
   Minus,
   ArrowRight,
-  Play,
   Sparkles,
   Clock,
   CheckCircle2,
@@ -25,7 +24,6 @@ import {
   CircleDot,
 } from "lucide-react";
 import Link from "next/link";
-import { OnboardingVideoModal } from "@/components/shared/onboarding-video-modal";
 
 interface DashboardStats {
   total_pins: number;
@@ -79,8 +77,6 @@ export default function OverviewPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [topPins, setTopPins] = useState<TopPin[]>([]);
-  const [showVideoModal, setShowVideoModal] = useState(false);
-  const [videoWatched, setVideoWatched] = useState(true);
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
 
   // Redirect to onboarding if neither user nor org has completed it
@@ -117,16 +113,6 @@ export default function OverviewPage() {
   useEffect(() => {
     if (!org || !user) return;
     if (!user.onboarding_completed_at && !org.onboarding_completed_at) return;
-
-    const videoWatchedByUser = user?.onboarding_video_watched;
-    const videoWatchedByOrg = org?.onboarding_video_watched;
-    const watched = !!videoWatchedByUser || !!videoWatchedByOrg;
-
-    setVideoWatched(watched);
-
-    if (!watched) {
-      setShowVideoModal(true);
-    }
 
     async function loadStats() {
       const supabase = createClient();
@@ -289,11 +275,6 @@ export default function OverviewPage() {
     );
   }
 
-  function handleVideoComplete() {
-    setShowVideoModal(false);
-    setVideoWatched(true);
-  }
-
   const userName = user?.full_name || org.name;
 
   return (
@@ -325,24 +306,6 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* Onboarding video banner */}
-      {!videoWatched && (
-        <button
-          onClick={() => setShowVideoModal(true)}
-          className="w-full bg-primary/5 border border-primary/20 rounded-xl p-4 flex items-center gap-4 hover:bg-primary/10 transition-colors text-left"
-        >
-          <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
-            <Play className="w-6 h-6 text-primary ml-0.5" />
-          </div>
-          <div className="flex-1">
-            <div className="font-medium text-sm">Watch the platform walkthrough</div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              Learn how to get the most out of your Pinformance dashboard
-            </div>
-          </div>
-          <ArrowRight className="w-4 h-4 text-primary flex-shrink-0" />
-        </button>
-      )}
 
       {/* Key Metrics - Pinterest Performance */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -724,15 +687,6 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* Onboarding Video Modal */}
-      {showVideoModal && (
-        <OnboardingVideoModal
-          orgId={org.id}
-          userId={user?.id}
-          onClose={() => setShowVideoModal(false)}
-          onComplete={handleVideoComplete}
-        />
-      )}
     </div>
   );
 }
