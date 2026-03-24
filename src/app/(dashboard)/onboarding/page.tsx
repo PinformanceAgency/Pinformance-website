@@ -46,9 +46,11 @@ export default function OnboardingPage() {
       return;
     }
 
-    // Use user-level step, fallback to org-level, then default 1
-    const currentStep = user.onboarding_step || org?.onboarding_step || 1;
-    setStep((currentStep || 1) as OnboardingStep);
+    // Use user-level step only — each user has their own progress
+    const currentStep = (user.onboarding_step != null && user.onboarding_step > 0)
+      ? user.onboarding_step
+      : 1;
+    setStep(currentStep as OnboardingStep);
   }, [loading, user, org, router]);
 
   async function advanceStep() {
