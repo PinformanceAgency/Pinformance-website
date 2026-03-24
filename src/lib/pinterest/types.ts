@@ -42,6 +42,7 @@ export interface PinterestAnalytics {
 }
 
 export interface PinterestUserAccount {
+  id: string;
   username: string;
   profile_image: string;
   website_url: string | null;

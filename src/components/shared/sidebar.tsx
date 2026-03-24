@@ -19,6 +19,8 @@ import {
   FileText,
   LogOut,
   ChevronRight,
+  Zap,
+  Key,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -32,8 +34,10 @@ const clientNav = [
   { href: "/pins", label: "Pins", icon: Image },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/keywords", label: "Keywords", icon: Search },
+  { href: "/pipeline", label: "Pipeline", icon: Zap },
   { href: "/affiliates", label: "Affiliates", icon: Link2 },
   { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/integrations", label: "Integrations", icon: Key },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

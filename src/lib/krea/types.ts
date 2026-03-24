@@ -1,5 +1,5 @@
 export interface KreaGenerateRequest {
-  model: string;
+  model?: string;
   prompt: string;
   aspect_ratio?: string;
   width?: number;
@@ -9,6 +9,7 @@ export interface KreaGenerateRequest {
 
 export interface KreaTaskResponse {
   id: string;
+  task_id?: string;
   status: "pending" | "processing" | "completed" | "failed";
   result?: {
     url: string;
