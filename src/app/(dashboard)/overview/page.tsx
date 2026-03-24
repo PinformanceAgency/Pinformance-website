@@ -83,22 +83,40 @@ export default function OverviewPage() {
   const [videoWatched, setVideoWatched] = useState(true);
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
 
-  // Redirect to onboarding if user hasn't completed it
+  // Redirect to onboarding if neither user nor org has completed it
   useEffect(() => {
     if (loading) return;
     if (!user) return;
 
-    // Per-user onboarding check — each user must complete their own onboarding
-    const userCompleted = user.onboarding_completed_at;
-    if (!userCompleted) {
+    // Check if user OR org has completed onboarding
+    const userCompleted = !!user.onboarding_completed_at;
+    const orgCompleted = !!org?.onboarding_completed_at;
+
+    // If neither completed, redirect to onboarding
+    if (!userCompleted && !orgCompleted) {
       router.push("/onboarding");
       return;
     }
-  }, [loading, user, router]);
+
+    // If org completed but user not yet marked, auto-mark the user
+    if (orgCompleted && !userCompleted) {
+      const supabase = createClient();
+      supabase
+        .from("users")
+        .update({
+          onboarding_step: 5,
+          onboarding_completed_at: org.onboarding_completed_at,
+        })
+        .eq("id", user.id)
+        .then(() => {
+          // Silently update — user sees the dashboard
+        });
+    }
+  }, [loading, user, org, router]);
 
   useEffect(() => {
     if (!org || !user) return;
-    if (!user.onboarding_completed_at) return;
+    if (!user.onboarding_completed_at && !org.onboarding_completed_at) return;
 
     const videoWatchedByUser = user?.onboarding_video_watched;
     const videoWatchedByOrg = org?.onboarding_video_watched;

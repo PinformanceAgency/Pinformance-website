@@ -40,8 +40,22 @@ export default function OnboardingPage() {
     if (loading) return;
     if (!user) return;
 
-    // Per-user onboarding check — only skip if THIS user completed it
-    if (user.onboarding_completed_at) {
+    // If user OR org already completed onboarding, go to overview
+    const userCompleted = !!user.onboarding_completed_at;
+    const orgCompleted = !!org?.onboarding_completed_at;
+
+    if (userCompleted || orgCompleted) {
+      // Auto-mark user as complete if org is done but user isn't
+      if (orgCompleted && !userCompleted) {
+        const supabase = createClient();
+        supabase
+          .from("users")
+          .update({
+            onboarding_step: 5,
+            onboarding_completed_at: org.onboarding_completed_at,
+          })
+          .eq("id", user.id);
+      }
       router.push("/overview");
       return;
     }
