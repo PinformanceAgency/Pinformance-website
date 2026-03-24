@@ -15,7 +15,8 @@
       "Bash(npm install:*)",
       "Bash(pbcopy)",
       "Bash(ls /Users/tycho/Desktop/*.png)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(gh api:*)"
     ]
   }
 }

@@ -210,7 +210,7 @@ export default function OverviewPage() {
     loadStats();
   }, [org, router, period]);
 
-  if (loading || !org) {
+  if (loading) {
     return (
       <div className="space-y-6">
         <div className="h-10 w-72 bg-muted animate-pulse rounded" />
@@ -223,6 +223,17 @@ export default function OverviewPage() {
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-48 bg-muted animate-pulse rounded-xl" />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!org || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">Unable to load your workspace.</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">Please try refreshing the page or signing out and back in.</p>
         </div>
       </div>
     );
