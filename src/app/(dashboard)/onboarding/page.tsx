@@ -37,15 +37,21 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<OnboardingStep>(1);
 
   useEffect(() => {
-    if (user) {
-      // Per-user onboarding check
-      if (user.onboarding_completed_at) {
+    if (user && org) {
+      // Per-user onboarding check (fallback to org-level)
+      const userCompleted = user.onboarding_completed_at;
+      const orgCompleted = org.onboarding_completed_at;
+
+      if (userCompleted || orgCompleted) {
         router.push("/overview");
         return;
       }
-      setStep((user.onboarding_step || 1) as OnboardingStep);
+
+      // Use user-level step if available, fallback to org-level
+      const currentStep = user.onboarding_step || org.onboarding_step || 1;
+      setStep((currentStep || 1) as OnboardingStep);
     }
-  }, [user, router]);
+  }, [user, org, router]);
 
   async function advanceStep() {
     if (!user || !org) return;

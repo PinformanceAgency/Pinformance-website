@@ -86,15 +86,22 @@ export default function OverviewPage() {
   useEffect(() => {
     if (!org) return;
 
-    // Per-user onboarding check
-    if (!user?.onboarding_completed_at) {
+    // Per-user onboarding check (fallback to org-level for backwards compatibility)
+    const userCompleted = user?.onboarding_completed_at;
+    const orgCompleted = org.onboarding_completed_at;
+
+    if (!userCompleted && !orgCompleted) {
       router.push("/onboarding");
       return;
     }
 
-    setVideoWatched(!!user?.onboarding_video_watched);
+    const videoWatchedByUser = user?.onboarding_video_watched;
+    const videoWatchedByOrg = org.onboarding_video_watched;
+    const watched = !!videoWatchedByUser || !!videoWatchedByOrg;
 
-    if (!user?.onboarding_video_watched) {
+    setVideoWatched(watched);
+
+    if (!watched) {
       setShowVideoModal(true);
     }
 
