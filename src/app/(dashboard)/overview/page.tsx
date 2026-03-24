@@ -86,11 +86,10 @@ export default function OverviewPage() {
   useEffect(() => {
     if (!org) return;
 
-    // Per-user onboarding check (fallback to org-level for backwards compatibility)
+    // Per-user onboarding check — each user must complete their own onboarding
     const userCompleted = user?.onboarding_completed_at;
-    const orgCompleted = org.onboarding_completed_at;
 
-    if (!userCompleted && !orgCompleted) {
+    if (!userCompleted) {
       router.push("/onboarding");
       return;
     }

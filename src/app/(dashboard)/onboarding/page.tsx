@@ -38,11 +38,10 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (user && org) {
-      // Per-user onboarding check (fallback to org-level)
+      // Per-user onboarding check — only skip if THIS user completed it
       const userCompleted = user.onboarding_completed_at;
-      const orgCompleted = org.onboarding_completed_at;
 
-      if (userCompleted || orgCompleted) {
+      if (userCompleted) {
         router.push("/overview");
         return;
       }
