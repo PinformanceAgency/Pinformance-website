@@ -33,6 +33,49 @@ export default function IntegrationsPage() {
   const { org } = useOrg();
   const [loading, setLoading] = useState(false);
   const [connectingPinterest, setConnectingPinterest] = useState(false);
+  const [pinterestAppId, setPinterestAppId] = useState("");
+  const [pinterestAppSecret, setPinterestAppSecret] = useState("");
+  const [savingCredentials, setSavingCredentials] = useState(false);
+  const [credentialsSaved, setCredentialsSaved] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+
+  // Load existing credentials when org data is available
+  useEffect(() => {
+    if (org?.pinterest_app_id) {
+      setPinterestAppId(org.pinterest_app_id);
+      setCredentialsSaved(true);
+    }
+  }, [org?.pinterest_app_id]);
+
+  async function saveCredentials() {
+    if (!pinterestAppId.trim() || !pinterestAppSecret.trim()) {
+      alert("Please enter both App ID and App Secret.");
+      return;
+    }
+    setSavingCredentials(true);
+    try {
+      const res = await fetch("/api/pinterest/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          app_id: pinterestAppId.trim(),
+          app_secret: pinterestAppSecret.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to save credentials");
+        return;
+      }
+      setCredentialsSaved(true);
+      setPinterestAppSecret("");
+      setShowSecret(false);
+    } catch {
+      alert("Failed to save credentials");
+    } finally {
+      setSavingCredentials(false);
+    }
+  }
 
   const pinterestConnected = !!org?.pinterest_user_id;
   const pinterestExpired =
@@ -213,6 +256,77 @@ export default function IntegrationsPage() {
                 )}
               </div>
             </div>
+
+            {/* Per-org Pinterest credentials */}
+            {integration.id === "pinterest" && (
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5" />
+                  Per-organization Pinterest API Credentials (optional)
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">App ID</label>
+                    <input
+                      type="text"
+                      value={pinterestAppId}
+                      onChange={(e) => setPinterestAppId(e.target.value)}
+                      placeholder="Pinterest App ID"
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      App Secret {credentialsSaved && <span className="text-green-600">(saved)</span>}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showSecret ? "text" : "password"}
+                        value={pinterestAppSecret}
+                        onChange={(e) => setPinterestAppSecret(e.target.value)}
+                        placeholder={credentialsSaved ? "****  (enter new value to update)" : "Pinterest App Secret"}
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 pr-9"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSecret(!showSecret)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={saveCredentials}
+                    disabled={savingCredentials}
+                    className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {savingCredentials ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        Save Credentials
+                      </>
+                    )}
+                  </button>
+                  {credentialsSaved && (
+                    <span className="text-xs text-green-600 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Credentials saved
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mt-2">
+                  Override the global Pinterest API credentials for this organization. The secret is encrypted at rest. Leave empty to use the global environment variable credentials.
+                </p>
+              </div>
+            )}
           </div>
         ))}
       </div>

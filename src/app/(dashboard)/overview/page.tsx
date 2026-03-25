@@ -93,21 +93,6 @@ export default function OverviewPage() {
       router.push("/onboarding");
       return;
     }
-
-    // If org completed but user not yet marked, auto-mark the user
-    if (orgCompleted && !userCompleted) {
-      const supabase = createClient();
-      supabase
-        .from("users")
-        .update({
-          onboarding_step: 5,
-          onboarding_completed_at: org.onboarding_completed_at,
-        })
-        .eq("id", user.id)
-        .then(() => {
-          // Silently update — user sees the dashboard
-        });
-    }
   }, [loading, user, org, router]);
 
   useEffect(() => {

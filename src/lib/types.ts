@@ -30,6 +30,8 @@ export interface Organization {
   shopify_domain: string | null;
   pinterest_user_id: string | null;
   pinterest_token_expires_at: string | null;
+  pinterest_app_id: string | null;
+  pinterest_app_secret_encrypted: string | null;
   onboarding_step: OnboardingStep;
   onboarding_completed_at: string | null;
   onboarding_video_watched: boolean;

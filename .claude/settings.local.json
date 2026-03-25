@@ -19,7 +19,9 @@
       "Bash(gh api:*)",
       "Bash(kill %1)",
       "Bash(curl -s \"https://pinformance-website-live-2.vercel.app/overview\" -o /dev/null -w \"HTTP Status: %{http_code}\\\\nRedirect: %{redirect_url}\\\\n\" -L --max-redirs 0)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(grep -r \"pinterest\\\\|credentials\" /Users/tycho/Downloads/pinformance/.env*)",
+      "Bash(grep -r \"encrypted\\\\|token_expires\\\\|refresh_token\" /Users/tycho/Downloads/pinformance/src --include=*.ts --include=*.tsx)"
     ]
   }
 }

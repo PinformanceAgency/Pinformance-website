@@ -45,17 +45,6 @@ export default function OnboardingPage() {
     const orgCompleted = !!org?.onboarding_completed_at;
 
     if (userCompleted || orgCompleted) {
-      // Auto-mark user as complete if org is done but user isn't
-      if (orgCompleted && !userCompleted) {
-        const supabase = createClient();
-        supabase
-          .from("users")
-          .update({
-            onboarding_step: 5,
-            onboarding_completed_at: org.onboarding_completed_at,
-          })
-          .eq("id", user.id);
-      }
       router.push("/overview");
       return;
     }

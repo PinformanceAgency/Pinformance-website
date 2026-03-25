@@ -14,16 +14,30 @@ export async function POST(request: NextRequest) {
     // Decrypt state to get org_id
     const orgId = decrypt(state);
 
+    // Fetch per-org Pinterest credentials if available
+    const admin = createAdminClient();
+    const { data: orgData } = await admin
+      .from("organizations")
+      .select("pinterest_app_id, pinterest_app_secret_encrypted")
+      .eq("id", orgId)
+      .single();
+
+    let orgAppId: string | undefined;
+    let orgAppSecret: string | undefined;
+    if (orgData?.pinterest_app_id && orgData?.pinterest_app_secret_encrypted) {
+      orgAppId = orgData.pinterest_app_id;
+      orgAppSecret = decrypt(orgData.pinterest_app_secret_encrypted);
+    }
+
     // Exchange code for tokens
     const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/callback/pinterest`;
-    const tokens = await PinterestClient.exchangeCode(code, redirectUri);
+    const tokens = await PinterestClient.exchangeCode(code, redirectUri, orgAppId, orgAppSecret);
 
     // Get Pinterest user info
     const client = new PinterestClient(tokens.access_token);
     const pinterestUser = await client.getUser();
 
     // Store encrypted tokens in database
-    const admin = createAdminClient();
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
     const { error: updateError } = await admin

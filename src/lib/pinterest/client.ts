@@ -79,10 +79,14 @@ export class PinterestClient {
 
   static async exchangeCode(
     code: string,
-    redirectUri: string
+    redirectUri: string,
+    appId?: string,
+    appSecret?: string
   ): Promise<PinterestTokens> {
+    const effectiveAppId = appId || process.env.PINTEREST_APP_ID;
+    const effectiveAppSecret = appSecret || process.env.PINTEREST_APP_SECRET;
     const credentials = Buffer.from(
-      `${process.env.PINTEREST_APP_ID}:${process.env.PINTEREST_APP_SECRET}`
+      `${effectiveAppId}:${effectiveAppSecret}`
     ).toString("base64");
 
     const res = await fetch(`${PINTEREST_API}/oauth/token`, {
@@ -105,9 +109,15 @@ export class PinterestClient {
     return res.json();
   }
 
-  static async refreshToken(refreshToken: string): Promise<PinterestTokens> {
+  static async refreshToken(
+    refreshToken: string,
+    appId?: string,
+    appSecret?: string
+  ): Promise<PinterestTokens> {
+    const effectiveAppId = appId || process.env.PINTEREST_APP_ID;
+    const effectiveAppSecret = appSecret || process.env.PINTEREST_APP_SECRET;
     const credentials = Buffer.from(
-      `${process.env.PINTEREST_APP_ID}:${process.env.PINTEREST_APP_SECRET}`
+      `${effectiveAppId}:${effectiveAppSecret}`
     ).toString("base64");
 
     const res = await fetch(`${PINTEREST_API}/oauth/token`, {
@@ -129,9 +139,10 @@ export class PinterestClient {
     return res.json();
   }
 
-  static getAuthUrl(state: string): string {
+  static getAuthUrl(state: string, appId?: string): string {
+    const effectiveAppId = appId || process.env.PINTEREST_APP_ID!;
     const params = new URLSearchParams({
-      client_id: process.env.PINTEREST_APP_ID!,
+      client_id: effectiveAppId,
       redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/callback/pinterest`,
       response_type: "code",
       scope: "boards:read,boards:write,pins:read,pins:write,user_accounts:read",
