@@ -72,10 +72,9 @@ export const PIN_TEMPLATES = [
 
 export const ONBOARDING_STEPS = [
   { step: 1, title: "Intake Form", description: "Fill in your onboarding form to get started", icon: "clipboard-list", estimatedMinutes: 5 },
-  { step: 2, title: "Pinterest Business Account", description: "Grant access, claim your domain, set up billing & profile", icon: "pin", estimatedMinutes: 15 },
+  { step: 2, title: "Pinterest Business Account", description: "Claim domain, billing, profile, catalog & give us access", icon: "pin", estimatedMinutes: 15 },
   { step: 3, title: "Trello Board & Creative Assets", description: "Upload your product links, images, and campaign materials", icon: "layout", estimatedMinutes: 15 },
   { step: 4, title: "Connect Tracking Partner", description: "Link your tracking tool so we can measure performance", icon: "bar-chart-3", estimatedMinutes: 10 },
-  { step: 5, title: "Test Sale & Campaign Setup", description: "Perform a test sale to finalise your setup and launch", icon: "rocket", estimatedMinutes: 5 },
 ] as const;
 
 export const INDUSTRIES = [

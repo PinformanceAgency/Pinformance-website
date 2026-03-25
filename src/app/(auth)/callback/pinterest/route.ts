@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
         pinterest_refresh_token_encrypted: encrypt(tokens.refresh_token),
         pinterest_token_expires_at: expiresAt,
         pinterest_user_id: pinterestUser.username,
-        onboarding_step: 5,
+        onboarding_step: 4,
         updated_at: new Date().toISOString(),
       })
       .eq("id", orgId);

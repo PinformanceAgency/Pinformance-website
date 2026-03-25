@@ -7,25 +7,16 @@ import type { Organization } from "@/lib/types";
 
 const TEAM_EMAILS = [
   "info@tt-advertisingbv.com",
-  "generaltytech@gmail.com",
+  "tycho@tt-advertisingbv.com",
   "janner@tt-advertisingbv.com",
   "dylan@tt-advertisingbv.com",
 ];
 
 const SUB_STEPS = [
   {
-    id: "access",
-    number: "2.1",
-    title: "Give our team access to your ad account & profiles",
-    description:
-      "Add the following email addresses as collaborators on your Pinterest Business account.",
-    loom: "https://www.loom.com/share/11f17baa853d478cb88e6806e9289fdb",
-    hasEmails: true,
-  },
-  {
     id: "domain",
-    number: "2.2",
-    title: "Claim your domain within Pinterest",
+    number: "2.1",
+    title: "Claiming your domain within Pinterest",
     description:
       "Claiming your website improves pin distribution and shows your brand on all pins.",
     loom: "https://www.loom.com/share/eba786bef20b45daa3b30e972b11bda9",
@@ -33,8 +24,8 @@ const SUB_STEPS = [
   },
   {
     id: "billing",
-    number: "2.3",
-    title: "Set up your billing profile",
+    number: "2.2",
+    title: "Setting up your billing profile",
     description:
       "Add a payment method to your Pinterest Business account so campaigns can run.",
     loom: "https://www.loom.com/share/2dd163faf165440dbf423c6c08922f71",
@@ -42,12 +33,30 @@ const SUB_STEPS = [
   },
   {
     id: "profile",
-    number: "2.4",
-    title: "Set up your Pinterest profile",
+    number: "2.3",
+    title: "Setting up your Pinterest Profile",
     description:
       "Make sure your profile photo, name, and bio are set up and professional.",
     loom: "https://www.loom.com/share/9223b371f70b4272ba91eafa6c26e6d8",
     hasEmails: false,
+  },
+  {
+    id: "catalog",
+    number: "2.4",
+    title: "Setting up your Pinterest Catalog",
+    description:
+      "Connect your product catalog to Pinterest for shopping pins.",
+    loom: "https://www.loom.com/share/b411bfe9af6d4d218b5ec6e7bd853432",
+    hasEmails: false,
+  },
+  {
+    id: "access",
+    number: "2.5",
+    title: "Giving access to us for your ad account & profiles",
+    description:
+      "Add the following email addresses as collaborators on your Pinterest Business account.",
+    loom: "https://www.loom.com/share/11f17baa853d478cb88e6806e9289fdb",
+    hasEmails: true,
   },
 ];
 

@@ -14,7 +14,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { Organization } from "@/lib/types";
 
-const LOOM_URL = "https://www.loom.com/share/cb22c6265e60405db32a5bcf261c5802";
+const LOOM_URL_1 = "https://www.loom.com/share/cb22c6265e60405db32a5bcf261c5802";
+const LOOM_URL_2 = "https://www.loom.com/share/cc17d5cf8a03402ab5b5414a4edfa6f8";
 
 const UPLOAD_ITEMS = [
   {
@@ -52,24 +53,39 @@ export function TrelloAssetsStep({
   return (
     <div className="space-y-6">
       {/* Intro + Loom */}
-      <div className="flex items-start justify-between gap-4 bg-muted/40 border border-border rounded-xl p-5">
+      <div className="bg-muted/40 border border-border rounded-xl p-5">
         <div>
           <h4 className="text-sm font-semibold">We've created a Trello board for your store</h4>
           <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
             Use the Trello board to upload all your creatives, product links, and
-            campaign materials. Watch the video to learn how to use it correctly.
+            campaign materials. Watch the videos below to learn how to use it correctly.
+          </p>
+          <p className="text-sm font-semibold text-primary mt-2">
+            Important to watch both videos
           </p>
         </div>
-        <a
-          href={LOOM_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-background border border-border hover:border-primary/30 transition-all"
-        >
-          <Video className="w-3.5 h-3.5 text-red-500" />
-          Watch video
-          <ExternalLink className="w-3 h-3 text-muted-foreground" />
-        </a>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <a
+            href={LOOM_URL_1}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-background border border-border hover:border-primary/30 transition-all"
+          >
+            <Video className="w-3.5 h-3.5 text-red-500" />
+            Watch video 1
+            <ExternalLink className="w-3 h-3 text-muted-foreground" />
+          </a>
+          <a
+            href={LOOM_URL_2}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-background border border-border hover:border-primary/30 transition-all"
+          >
+            <Video className="w-3.5 h-3.5 text-red-500" />
+            Watch video 2
+            <ExternalLink className="w-3 h-3 text-muted-foreground" />
+          </a>
+        </div>
       </div>
 
       {/* What to upload */}

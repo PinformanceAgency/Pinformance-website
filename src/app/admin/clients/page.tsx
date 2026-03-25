@@ -112,13 +112,10 @@ export default function ClientsPage() {
   const onboardingLabel = (step: number) => {
     const labels: Record<number, string> = {
       0: "Not started",
-      1: "Brand info",
-      2: "Shopify",
-      3: "Brand assets",
-      4: "Competitors",
-      5: "Pinterest",
-      6: "kie.ai",
-      7: "Complete",
+      1: "Intake form",
+      2: "Pinterest setup",
+      3: "Trello & assets",
+      4: "Tracking",
     };
     return labels[step] || `Step ${step}`;
   };
@@ -237,7 +234,7 @@ export default function ClientsPage() {
                 <td className="p-4">
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      client.onboarding_step === 5
+                      client.onboarding_step === 4
                         ? "bg-green-100 text-green-700"
                         : "bg-yellow-100 text-yellow-700"
                     }`}

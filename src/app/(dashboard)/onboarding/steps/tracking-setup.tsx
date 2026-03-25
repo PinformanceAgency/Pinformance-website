@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, BarChart3 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, BarChart3, Rocket, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Organization } from "@/lib/types";
 
@@ -20,6 +20,13 @@ export function TrackingSetupStep({
   onNext: () => void;
 }) {
   const [confirmed, setConfirmed] = useState(false);
+  const [launching, setLaunching] = useState(false);
+
+  async function handleLaunch() {
+    setLaunching(true);
+    await new Promise((r) => setTimeout(r, 600)); // brief visual feedback
+    onNext();
+  }
 
   return (
     <div className="space-y-6">
@@ -138,19 +145,31 @@ export function TrackingSetupStep({
         </div>
       </label>
 
-      {/* Navigation */}
+      {/* Launch button */}
       <div className="flex justify-end pt-1">
         <button
-          onClick={onNext}
-          disabled={!confirmed}
+          onClick={handleLaunch}
+          disabled={!confirmed || launching}
           className={cn(
-            "px-8 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200",
-            "bg-primary text-primary-foreground hover:bg-primary/90",
+            "flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-semibold transition-all duration-200",
+            "bg-gradient-to-r from-primary to-primary/80 text-primary-foreground",
+            "hover:shadow-lg hover:shadow-primary/20",
             "disabled:opacity-40 disabled:cursor-not-allowed",
-            "shadow-sm hover:shadow-md"
+            "shadow-sm"
           )}
         >
-          Continue
+          {launching ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Finalising setup…
+            </>
+          ) : (
+            <>
+              <Rocket className="w-4 h-4" />
+              Complete Onboarding
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
         </button>
       </div>
     </div>

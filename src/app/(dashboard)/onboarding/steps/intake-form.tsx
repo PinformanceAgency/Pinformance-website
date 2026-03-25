@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import type { Organization } from "@/lib/types";
 
 const FORM_URL =
-  "https://docs.google.com/forms/d/e/1FAIpQLScikiDgy9ZEsi56TiR8qi-Bqrk_YPyScbHHwC8AzzU3Ygscqw/viewform";
+  "https://docs.google.com/forms/d/e/1FAIpQLScikiDgy9ZEsi56TiR8qi-Bqrk_YPyScbHHwC8AzzU3Ygscqw/viewform?usp=sharing&ouid=104690770576347118109";
 
 export function IntakeFormStep({
   org,
