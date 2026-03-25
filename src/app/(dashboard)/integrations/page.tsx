@@ -53,6 +53,12 @@ export default function IntegrationsPage() {
   const [showKreaKey, setShowKreaKey] = useState(false);
   const [kreaExpanded, setKreaExpanded] = useState(false);
 
+  // Shopify per-org credentials
+  const [shopifyDomain, setShopifyDomain] = useState("");
+  const [shopifyAccessToken, setShopifyAccessToken] = useState("");
+  const [savingShopify, setSavingShopify] = useState(false);
+  const [showShopifyToken, setShowShopifyToken] = useState(false);
+
   // Load existing credentials when org data is available
   useEffect(() => {
     if (org?.pinterest_app_id) {
@@ -154,6 +160,44 @@ export default function IntegrationsPage() {
       alert("Failed to save credentials");
     } finally {
       setSavingKrea(false);
+    }
+  }
+
+  // Load Shopify domain
+  useEffect(() => {
+    if (org?.shopify_domain) {
+      setShopifyDomain(org.shopify_domain);
+    }
+  }, [org?.shopify_domain]);
+
+  async function saveShopify() {
+    if (!shopifyDomain.trim() || !shopifyAccessToken.trim()) {
+      alert("Please enter both the Shopify domain and access token.");
+      return;
+    }
+    setSavingShopify(true);
+    try {
+      const res = await fetch("/api/shopify/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopify_domain: shopifyDomain.trim(),
+          shopify_access_token: shopifyAccessToken.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to connect Shopify");
+        return;
+      }
+      setShopifyAccessToken("");
+      setShowShopifyToken(false);
+      alert("Shopify connected successfully! Products will sync shortly.");
+      window.location.reload();
+    } catch {
+      alert("Failed to connect Shopify");
+    } finally {
+      setSavingShopify(false);
     }
   }
 
@@ -480,6 +524,77 @@ export default function IntegrationsPage() {
             )}
 
             {/* Per-org Krea credentials */}
+            {/* Shopify credentials */}
+            {integration.id === "shopify" && (
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5" />
+                  Shopify Store Connection
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Store Domain</label>
+                    <input
+                      type="text"
+                      value={shopifyDomain}
+                      onChange={(e) => setShopifyDomain(e.target.value)}
+                      placeholder="your-store.myshopify.com"
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Admin API Access Token {org?.shopify_domain && <span className="text-green-600">(connected)</span>}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showShopifyToken ? "text" : "password"}
+                        value={shopifyAccessToken}
+                        onChange={(e) => setShopifyAccessToken(e.target.value)}
+                        placeholder={org?.shopify_domain ? "**** (enter new value to update)" : "shpat_..."}
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 pr-9"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowShopifyToken(!showShopifyToken)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showShopifyToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={saveShopify}
+                    disabled={savingShopify}
+                    className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {savingShopify ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        Connect Shopify
+                      </>
+                    )}
+                  </button>
+                  {org?.shopify_domain && (
+                    <span className="text-xs text-green-600 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Connected: {org.shopify_domain}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mt-2">
+                  Get your access token from Shopify Admin → Settings → Apps → Develop apps → Your app → API credentials. The token is encrypted at rest.
+                </p>
+              </div>
+            )}
+
             {integration.id === "krea" && (
               <div className="mt-4 pt-4 border-t border-border/50">
                 <button
