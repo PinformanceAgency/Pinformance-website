@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { decrypt } from "@/lib/encryption";
 import { runStrategyPipeline } from "@/lib/ai/pipelines/strategy-pipeline";
 import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
 import { runFeedbackPipeline } from "@/lib/ai/pipelines/feedback-pipeline";
@@ -23,13 +25,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Profile not found" }, { status: 404 });
   }
 
+  // Fetch org's per-org Anthropic key if set
+  const admin = createAdminClient();
+  const { data: orgData } = await admin
+    .from("organizations")
+    .select("anthropic_api_key_encrypted")
+    .eq("id", profile.org_id)
+    .single();
+
+  let anthropicApiKey: string | undefined;
+  if (orgData?.anthropic_api_key_encrypted) {
+    try {
+      anthropicApiKey = decrypt(orgData.anthropic_api_key_encrypted);
+    } catch {
+      // Fall back to global env var key
+    }
+  }
+
   const body = await request.json();
   const { pipeline, options } = body;
 
   try {
     switch (pipeline) {
       case "strategy": {
-        const result = await runStrategyPipeline(profile.org_id);
+        const result = await runStrategyPipeline(profile.org_id, anthropicApiKey);
         return NextResponse.json({
           success: true,
           pipeline: "strategy",
@@ -44,7 +63,7 @@ export async function POST(request: NextRequest) {
 
       case "content": {
         const days = options?.days || 7;
-        const result = await runContentPipeline(profile.org_id, days);
+        const result = await runContentPipeline(profile.org_id, days, anthropicApiKey);
         return NextResponse.json({
           success: true,
           pipeline: "content",
@@ -53,7 +72,7 @@ export async function POST(request: NextRequest) {
       }
 
       case "feedback": {
-        const result = await runFeedbackPipeline(profile.org_id);
+        const result = await runFeedbackPipeline(profile.org_id, anthropicApiKey);
         return NextResponse.json({
           success: true,
           pipeline: "feedback",

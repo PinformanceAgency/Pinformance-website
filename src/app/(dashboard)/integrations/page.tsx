@@ -39,6 +39,20 @@ export default function IntegrationsPage() {
   const [credentialsSaved, setCredentialsSaved] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
 
+  // Anthropic per-org credentials
+  const [anthropicApiKey, setAnthropicApiKey] = useState("");
+  const [savingAnthropic, setSavingAnthropic] = useState(false);
+  const [anthropicSaved, setAnthropicSaved] = useState(false);
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
+  const [anthropicExpanded, setAnthropicExpanded] = useState(false);
+
+  // Krea per-org credentials
+  const [kreaApiKey, setKreaApiKey] = useState("");
+  const [savingKrea, setSavingKrea] = useState(false);
+  const [kreaSaved, setKreaSaved] = useState(false);
+  const [showKreaKey, setShowKreaKey] = useState(false);
+  const [kreaExpanded, setKreaExpanded] = useState(false);
+
   // Load existing credentials when org data is available
   useEffect(() => {
     if (org?.pinterest_app_id) {
@@ -46,6 +60,18 @@ export default function IntegrationsPage() {
       setCredentialsSaved(true);
     }
   }, [org?.pinterest_app_id]);
+
+  useEffect(() => {
+    if (org?.anthropic_api_key_encrypted) {
+      setAnthropicSaved(true);
+    }
+  }, [org?.anthropic_api_key_encrypted]);
+
+  useEffect(() => {
+    if (org?.krea_api_key_encrypted) {
+      setKreaSaved(true);
+    }
+  }, [org?.krea_api_key_encrypted]);
 
   async function saveCredentials() {
     if (!pinterestAppId.trim() || !pinterestAppSecret.trim()) {
@@ -74,6 +100,60 @@ export default function IntegrationsPage() {
       alert("Failed to save credentials");
     } finally {
       setSavingCredentials(false);
+    }
+  }
+
+  async function saveAnthropicKey() {
+    if (!anthropicApiKey.trim()) {
+      alert("Please enter an API key.");
+      return;
+    }
+    setSavingAnthropic(true);
+    try {
+      const res = await fetch("/api/ai/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ anthropic_api_key: anthropicApiKey.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to save credentials");
+        return;
+      }
+      setAnthropicSaved(true);
+      setAnthropicApiKey("");
+      setShowAnthropicKey(false);
+    } catch {
+      alert("Failed to save credentials");
+    } finally {
+      setSavingAnthropic(false);
+    }
+  }
+
+  async function saveKreaKey() {
+    if (!kreaApiKey.trim()) {
+      alert("Please enter an API key.");
+      return;
+    }
+    setSavingKrea(true);
+    try {
+      const res = await fetch("/api/ai/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ krea_api_key: kreaApiKey.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to save credentials");
+        return;
+      }
+      setKreaSaved(true);
+      setKreaApiKey("");
+      setShowKreaKey(false);
+    } catch {
+      alert("Failed to save credentials");
+    } finally {
+      setSavingKrea(false);
     }
   }
 
@@ -123,9 +203,11 @@ export default function IntegrationsPage() {
       name: "Anthropic (Claude AI)",
       description: "Powers keyword research, content generation, and performance optimization",
       icon: "🧠",
-      status: "not_connected",
+      status: anthropicSaved ? "connected" : "not_connected",
       envKey: "ANTHROPIC_API_KEY",
-      statusMessage: "Add ANTHROPIC_API_KEY to Vercel environment variables",
+      statusMessage: anthropicSaved
+        ? "Per-org API key saved"
+        : "Add ANTHROPIC_API_KEY to Vercel environment variables, or set a per-org key below",
       docsUrl: "https://console.anthropic.com/settings/keys",
     },
     {
@@ -133,9 +215,11 @@ export default function IntegrationsPage() {
       name: "Krea AI (kie.ai)",
       description: "Generates Pinterest-optimized 2:3 images from AI prompts",
       icon: "🎨",
-      status: "not_connected",
+      status: kreaSaved ? "connected" : "not_connected",
       envKey: "KREA_API_KEY",
-      statusMessage: "Add KREA_API_KEY to Vercel environment variables",
+      statusMessage: kreaSaved
+        ? "Per-org API key saved"
+        : "Add KREA_API_KEY to Vercel environment variables, or set a per-org key below",
       docsUrl: "https://www.krea.ai/apps/image/flux",
     },
     {
@@ -325,6 +409,140 @@ export default function IntegrationsPage() {
                 <p className="text-[11px] text-muted-foreground/60 mt-2">
                   Override the global Pinterest API credentials for this organization. The secret is encrypted at rest. Leave empty to use the global environment variable credentials.
                 </p>
+              </div>
+            )}
+
+            {/* Per-org Anthropic credentials */}
+            {integration.id === "anthropic" && (
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <button
+                  onClick={() => setAnthropicExpanded(!anthropicExpanded)}
+                  className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5 hover:text-foreground transition"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  Per-organization API Key (optional)
+                  <span className="ml-1">{anthropicExpanded ? "\u25B2" : "\u25BC"}</span>
+                </button>
+                {anthropicExpanded && (
+                  <div className="mt-3">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        Anthropic API Key {anthropicSaved && <span className="text-green-600">(saved)</span>}
+                      </label>
+                      <div className="relative max-w-md">
+                        <input
+                          type={showAnthropicKey ? "text" : "password"}
+                          value={anthropicApiKey}
+                          onChange={(e) => setAnthropicApiKey(e.target.value)}
+                          placeholder={anthropicSaved ? "****  (enter new value to update)" : "sk-ant-..."}
+                          className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 pr-9"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showAnthropicKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-3">
+                      <button
+                        onClick={saveAnthropicKey}
+                        disabled={savingAnthropic}
+                        className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {savingAnthropic ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            Save API Key
+                          </>
+                        )}
+                      </button>
+                      {anthropicSaved && (
+                        <span className="text-xs text-green-600 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Key saved
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/60 mt-2">
+                      Override the global Anthropic API key for this organization. The key is encrypted at rest. Leave empty to use the global environment variable.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Per-org Krea credentials */}
+            {integration.id === "krea" && (
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <button
+                  onClick={() => setKreaExpanded(!kreaExpanded)}
+                  className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5 hover:text-foreground transition"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  Per-organization API Key (optional)
+                  <span className="ml-1">{kreaExpanded ? "\u25B2" : "\u25BC"}</span>
+                </button>
+                {kreaExpanded && (
+                  <div className="mt-3">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        Krea API Key {kreaSaved && <span className="text-green-600">(saved)</span>}
+                      </label>
+                      <div className="relative max-w-md">
+                        <input
+                          type={showKreaKey ? "text" : "password"}
+                          value={kreaApiKey}
+                          onChange={(e) => setKreaApiKey(e.target.value)}
+                          placeholder={kreaSaved ? "****  (enter new value to update)" : "Krea API Key"}
+                          className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 pr-9"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowKreaKey(!showKreaKey)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showKreaKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-3">
+                      <button
+                        onClick={saveKreaKey}
+                        disabled={savingKrea}
+                        className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {savingKrea ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            Save API Key
+                          </>
+                        )}
+                      </button>
+                      {kreaSaved && (
+                        <span className="text-xs text-green-600 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Key saved
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/60 mt-2">
+                      Override the global Krea API key for this organization. The key is encrypted at rest. Leave empty to use the global environment variable.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

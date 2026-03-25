@@ -2,7 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 
 let client: Anthropic | null = null;
 
-export function getAnthropicClient(): Anthropic {
+export function getAnthropicClient(apiKey?: string): Anthropic {
+  // If a per-org key is provided, create a new (non-singleton) client
+  if (apiKey) {
+    return new Anthropic({ apiKey });
+  }
+  // Otherwise use the global singleton backed by env var
   if (!client) {
     client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
@@ -12,9 +17,10 @@ export function getAnthropicClient(): Anthropic {
 export async function generateJSON<T>(
   systemPrompt: string,
   userPrompt: string,
-  model = "claude-sonnet-4-20250514"
+  model = "claude-sonnet-4-20250514",
+  apiKey?: string
 ): Promise<T> {
-  const anthropic = getAnthropicClient();
+  const anthropic = getAnthropicClient(apiKey);
   const response = await anthropic.messages.create({
     model,
     max_tokens: 8192,

@@ -35,6 +35,8 @@ export interface Organization {
   onboarding_step: OnboardingStep;
   onboarding_completed_at: string | null;
   onboarding_video_watched: boolean;
+  anthropic_api_key_encrypted: string | null;
+  krea_api_key_encrypted: string | null;
   settings: OrgSettings;
   created_at: string;
   updated_at: string;

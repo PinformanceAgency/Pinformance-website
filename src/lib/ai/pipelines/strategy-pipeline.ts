@@ -9,7 +9,7 @@ import {
   type BoardPlanOutput,
 } from "@/lib/ai/prompts/board-plan";
 
-export async function runStrategyPipeline(orgId: string) {
+export async function runStrategyPipeline(orgId: string, apiKey?: string) {
   const supabase = createAdminClient();
   const startedAt = new Date().toISOString();
 
@@ -61,7 +61,9 @@ export async function runStrategyPipeline(orgId: string) {
 
   const keywordStrategy = await generateJSON<KeywordStrategyOutput>(
     kwPrompts.systemPrompt,
-    kwPrompts.userPrompt
+    kwPrompts.userPrompt,
+    undefined,
+    apiKey
   );
 
   // Step 2: Generate board plan
@@ -78,7 +80,9 @@ export async function runStrategyPipeline(orgId: string) {
 
   const boardPlan = await generateJSON<BoardPlanOutput>(
     bpPrompts.systemPrompt,
-    bpPrompts.userPrompt
+    bpPrompts.userPrompt,
+    undefined,
+    apiKey
   );
 
   // Step 3: Save keywords to DB

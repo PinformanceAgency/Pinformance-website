@@ -6,7 +6,7 @@ import {
 } from "@/lib/ai/prompts/feedback-analysis";
 import { subDays, format } from "date-fns";
 
-export async function runFeedbackPipeline(orgId: string) {
+export async function runFeedbackPipeline(orgId: string, apiKey?: string) {
   const supabase = createAdminClient();
   const startedAt = new Date().toISOString();
   const sevenDaysAgo = format(subDays(new Date(), 7), "yyyy-MM-dd");
@@ -43,7 +43,9 @@ export async function runFeedbackPipeline(orgId: string) {
 
   const analysis = await generateJSON<FeedbackAnalysisOutput>(
     prompts.systemPrompt,
-    prompts.userPrompt
+    prompts.userPrompt,
+    undefined,
+    apiKey
   );
 
   // Update keyword scores

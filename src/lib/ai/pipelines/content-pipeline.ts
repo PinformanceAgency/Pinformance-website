@@ -50,7 +50,7 @@ function findBestBoardForProduct(
   return bestBoard;
 }
 
-export async function runContentPipeline(orgId: string, days = 7) {
+export async function runContentPipeline(orgId: string, days = 7, apiKey?: string) {
   const supabase = createAdminClient();
   const startedAt = new Date().toISOString();
 
@@ -159,7 +159,9 @@ export async function runContentPipeline(orgId: string, days = 7) {
 
         const pinContent = await generateJSON<PinContentOutput>(
           contentPrompts.systemPrompt,
-          contentPrompts.userPrompt
+          contentPrompts.userPrompt,
+          undefined,
+          apiKey
         );
 
         // Generate image prompt
@@ -172,7 +174,9 @@ export async function runContentPipeline(orgId: string, days = 7) {
 
         const imagePrompt = await generateJSON<ImagePromptOutput>(
           imgPrompts.systemPrompt,
-          imgPrompts.userPrompt
+          imgPrompts.userPrompt,
+          undefined,
+          apiKey
         );
 
         return { slot, pinContent, imagePrompt };

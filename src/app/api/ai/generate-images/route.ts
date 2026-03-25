@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { KreaClient } from "@/lib/krea/client";
+import { decrypt } from "@/lib/encryption";
 
 export async function POST(request: NextRequest) {
   const cronSecret = request.headers.get("x-cron-secret");
@@ -18,13 +19,7 @@ export async function POST(request: NextRequest) {
   const orgId = body.org_id;
 
   const admin = createAdminClient();
-  const kreaApiKey = process.env.KREA_API_KEY;
-
-  if (!kreaApiKey) {
-    return NextResponse.json({ error: "KREA_API_KEY not configured" }, { status: 500 });
-  }
-
-  const krea = new KreaClient(kreaApiKey);
+  const globalKreaApiKey = process.env.KREA_API_KEY;
 
   // Find pins that have generation_prompt but no image yet
   const query = admin
@@ -50,6 +45,40 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "No pins need image generation", generated: 0 });
   }
 
+  // Group pins by org_id
+  const pinsByOrg = new Map<string, typeof pins>();
+  for (const pin of pins) {
+    const existing = pinsByOrg.get(pin.org_id) || [];
+    existing.push(pin);
+    pinsByOrg.set(pin.org_id, existing);
+  }
+
+  // Build a KreaClient per org (use per-org key if available, else global)
+  const kreaClients = new Map<string, KreaClient>();
+  for (const orgKey of pinsByOrg.keys()) {
+    const { data: orgData } = await admin
+      .from("organizations")
+      .select("krea_api_key_encrypted")
+      .eq("id", orgKey)
+      .single();
+
+    let kreaKey = globalKreaApiKey;
+    if (orgData?.krea_api_key_encrypted) {
+      try {
+        kreaKey = decrypt(orgData.krea_api_key_encrypted);
+      } catch {
+        // Fall back to global key if decryption fails
+      }
+    }
+
+    if (!kreaKey) {
+      // No key available for this org at all — skip
+      continue;
+    }
+
+    kreaClients.set(orgKey, new KreaClient(kreaKey));
+  }
+
   const webhookUrl = process.env.NEXT_PUBLIC_APP_URL
     ? `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/krea`
     : undefined;
@@ -58,6 +87,15 @@ export async function POST(request: NextRequest) {
   const errors: { pin_id: string; error: string }[] = [];
 
   for (const pin of pins) {
+    const krea = kreaClients.get(pin.org_id);
+    if (!krea) {
+      errors.push({
+        pin_id: pin.id,
+        error: "No KREA_API_KEY configured for this organization",
+      });
+      continue;
+    }
+
     try {
       // Mark as generating
       await admin
