@@ -26,12 +26,26 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/callback/pinterest`;
 
   try {
-    const tokens = await PinterestClient.exchangeCode(code, redirectUri);
+    // Fetch per-org Pinterest credentials
+    const admin = createAdminClient();
+    const { data: orgData } = await admin
+      .from("organizations")
+      .select("pinterest_app_id, pinterest_app_secret_encrypted")
+      .eq("id", orgId)
+      .single();
+
+    let orgAppId: string | undefined;
+    let orgAppSecret: string | undefined;
+    if (orgData?.pinterest_app_id && orgData?.pinterest_app_secret_encrypted) {
+      orgAppId = orgData.pinterest_app_id;
+      orgAppSecret = decrypt(orgData.pinterest_app_secret_encrypted);
+    }
+
+    const tokens = await PinterestClient.exchangeCode(code, redirectUri, orgAppId, orgAppSecret);
 
     const client = new PinterestClient(tokens.access_token);
     const pinterestUser = await client.getUser();
 
-    const admin = createAdminClient();
     const expiresAt = new Date(
       Date.now() + tokens.expires_in * 1000
     ).toISOString();
@@ -55,7 +69,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.redirect(
-      new URL("/onboarding?pinterest=connected", request.url)
+      new URL("/integrations?pinterest=connected", request.url)
     );
   } catch {
     return NextResponse.redirect(
