@@ -181,8 +181,8 @@ export default function IntegrationsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shopify_domain: shopifyDomain.trim(),
-          shopify_access_token: shopifyAccessToken.trim(),
+          domain: shopifyDomain.trim(),
+          access_token: shopifyAccessToken.trim(),
         }),
       });
       const data = await res.json();
