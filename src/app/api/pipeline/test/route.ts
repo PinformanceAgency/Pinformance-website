@@ -365,69 +365,32 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const kreaApiBase = "https://api.kie.ai/api/v1";
-
-      // Direct API call to see raw response
-      const genResponse = await fetch(`${kreaApiBase}/flux/kontext/generate`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${kreaKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt: pin.generation_prompt,
-          aspectRatio: "3:4",
-          outputFormat: "png",
-          model: "flux-kontext-pro",
-          safetyTolerance: 3,
-        }),
+      const krea = new KreaClient(kreaKey);
+      const result = await krea.generateImage({
+        prompt: pin.generation_prompt,
+        width: 1000,
+        height: 1500,
       });
 
-      const genRaw = await genResponse.json();
-
-      if (!genResponse.ok) {
-        return NextResponse.json({
-          success: false,
-          step: "generate-image",
-          error: `Krea API ${genResponse.status}`,
-          raw: genRaw,
-          prompt_used: pin.generation_prompt?.substring(0, 200) + "...",
-        }, { status: 500 });
-      }
-
-      // Extract taskId from response
-      const taskId = genRaw?.data?.taskId || genRaw?.taskId || genRaw?.id;
-
+      const taskId = result.id || result.task_id;
       if (!taskId) {
-        return NextResponse.json({
-          success: true,
-          step: "generate-image",
-          message: "No taskId in response — check raw",
-          raw: genRaw,
-          pin_id: pin.id,
-          prompt_used: pin.generation_prompt?.substring(0, 200) + "...",
-        });
+        return NextResponse.json({ success: false, step: "generate-image", error: "No job_id returned from Krea" }, { status: 500 });
       }
 
       // Poll for completion (max 90 seconds)
       let imageUrl: string | null = null;
-      let lastStatus: unknown = null;
+      let finalStatus = "processing";
 
       for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 3000));
-        const statusRes = await fetch(`${kreaApiBase}/flux/kontext/record-info?taskId=${taskId}`, {
-          headers: { Authorization: `Bearer ${kreaKey}` },
-        });
-        const statusRaw = await statusRes.json();
-        lastStatus = statusRaw;
-
-        const flag = statusRaw?.data?.successFlag;
-        if (flag === 1) {
-          imageUrl = statusRaw?.data?.output?.imageUrl || statusRaw?.data?.imageUrl || statusRaw?.data?.output?.images?.[0]?.url;
+        const status = await krea.getTaskStatus(taskId);
+        if (status.status === "completed" && status.result?.url) {
+          imageUrl = status.result.url;
+          finalStatus = "completed";
           break;
         }
-        if (flag === 2) {
-          return NextResponse.json({ success: false, step: "generate-image", error: "Image generation failed", raw: statusRaw }, { status: 500 });
+        if (status.status === "failed") {
+          return NextResponse.json({ success: false, step: "generate-image", error: "Image generation failed" }, { status: 500 });
         }
       }
 
@@ -440,9 +403,9 @@ export async function POST(request: NextRequest) {
         step: "generate-image",
         pin_id: pin.id,
         title: pin.title,
-        image_url: imageUrl || null,
-        task_id: taskId,
-        last_poll_status: lastStatus,
+        image_url: imageUrl,
+        job_id: taskId,
+        status: finalStatus,
         prompt_used: pin.generation_prompt?.substring(0, 200) + "...",
       });
     } catch (err) {
