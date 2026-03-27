@@ -488,7 +488,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Failed to decrypt Pinterest token" }, { status: 500 });
     }
 
-    const pinterest = new PinterestClient(accessToken);
+    // Use sandbox for Trial access orgs
+    const useSandbox = body.sandbox !== false; // default to sandbox for test endpoint
+    const pinterest = new PinterestClient(accessToken, useSandbox);
 
     try {
       // First check if board exists on Pinterest, if not create it

@@ -5,13 +5,18 @@ import type {
   PinterestUserAccount,
 } from "./types";
 
-const PINTEREST_API = "https://api.pinterest.com/v5";
+const PINTEREST_API_PROD = "https://api.pinterest.com/v5";
+const PINTEREST_API_SANDBOX = "https://api-sandbox.pinterest.com/v5";
 
 export class PinterestClient {
-  constructor(private accessToken: string) {}
+  private baseUrl: string;
+
+  constructor(private accessToken: string, sandbox = false) {
+    this.baseUrl = sandbox ? PINTEREST_API_SANDBOX : PINTEREST_API_PROD;
+  }
 
   private async request<T>(path: string, options?: RequestInit): Promise<T> {
-    const res = await fetch(`${PINTEREST_API}${path}`, {
+    const res = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
@@ -89,7 +94,7 @@ export class PinterestClient {
       `${effectiveAppId}:${effectiveAppSecret}`
     ).toString("base64");
 
-    const res = await fetch(`${PINTEREST_API}/oauth/token`, {
+    const res = await fetch(`${PINTEREST_API_PROD}/oauth/token`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${credentials}`,
@@ -120,7 +125,7 @@ export class PinterestClient {
       `${effectiveAppId}:${effectiveAppSecret}`
     ).toString("base64");
 
-    const res = await fetch(`${PINTEREST_API}/oauth/token`, {
+    const res = await fetch(`${PINTEREST_API_PROD}/oauth/token`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${credentials}`,
