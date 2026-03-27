@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { decrypt } from "@/lib/encryption";
+import { decrypt, encrypt } from "@/lib/encryption";
 import { runStrategyPipeline } from "@/lib/ai/pipelines/strategy-pipeline";
 import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
 
@@ -128,6 +128,17 @@ export async function POST(request: NextRequest) {
 
   if (step === "diagnose") {
     return NextResponse.json({ success: true, step: "diagnose", diagnosis });
+  }
+
+  // === UPDATE-KEY: Update per-org API key ===
+  if (step === "update-key") {
+    const { anthropic_api_key, krea_api_key } = body;
+    const updatePayload: Record<string, string> = { updated_at: new Date().toISOString() };
+    if (anthropic_api_key) updatePayload.anthropic_api_key_encrypted = encrypt(anthropic_api_key);
+    if (krea_api_key) updatePayload.krea_api_key_encrypted = encrypt(krea_api_key);
+    const { error } = await supabase.from("organizations").update(updatePayload).eq("id", org.id);
+    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, step: "update-key", updated: Object.keys(updatePayload).filter(k => k !== "updated_at") });
   }
 
   // === SEED: Create brand profile and test products ===
