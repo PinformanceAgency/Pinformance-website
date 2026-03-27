@@ -5,7 +5,7 @@ import { PinterestClient } from "@/lib/pinterest/client";
 
 export async function POST(request: NextRequest) {
   const cronSecret = request.headers.get("x-cron-secret");
-  if (cronSecret !== process.env.CRON_SECRET) {
+  if (cronSecret !== (process.env.CRON_SECRET || process.env.CRON_SET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

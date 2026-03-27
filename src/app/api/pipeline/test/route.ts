@@ -14,7 +14,7 @@ import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
  */
 export async function POST(request: NextRequest) {
   const secret = request.headers.get("x-cron-secret");
-  if (secret !== process.env.CRON_SECRET) {
+  if (secret !== (process.env.CRON_SECRET || process.env.CRON_SET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -5,7 +5,7 @@ import { decrypt } from "@/lib/encryption";
 
 export async function POST(request: NextRequest) {
   const cronSecret = request.headers.get("x-cron-secret");
-  const isAuthed = cronSecret === process.env.CRON_SECRET;
+  const isAuthed = cronSecret === (process.env.CRON_SECRET || process.env.CRON_SET);
 
   // Also allow authenticated users to trigger
   if (!isAuthed) {
