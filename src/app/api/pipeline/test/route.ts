@@ -1,0 +1,244 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { decrypt } from "@/lib/encryption";
+import { runStrategyPipeline } from "@/lib/ai/pipelines/strategy-pipeline";
+import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
+
+/**
+ * Test/diagnostic endpoint for running the full pipeline for a specific org.
+ * Authenticated via CRON_SECRET to avoid needing a user session.
+ *
+ * Usage: POST /api/pipeline/test
+ * Headers: { "x-cron-secret": "..." }
+ * Body: { "org_slug": "fit-cherries", "step": "diagnose" | "strategy" | "content" | "full" }
+ */
+export async function POST(request: NextRequest) {
+  const secret = request.headers.get("x-cron-secret");
+  if (secret !== process.env.CRON_SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json();
+  const { org_slug, step = "diagnose" } = body;
+
+  if (!org_slug) {
+    return NextResponse.json({ error: "org_slug is required" }, { status: 400 });
+  }
+
+  const supabase = createAdminClient();
+
+  // Find org
+  const { data: org, error: orgError } = await supabase
+    .from("organizations")
+    .select("*")
+    .eq("slug", org_slug)
+    .single();
+
+  if (!org || orgError) {
+    return NextResponse.json({ error: `Organization '${org_slug}' not found`, detail: orgError }, { status: 404 });
+  }
+
+  // Get per-org Anthropic key
+  let anthropicApiKey: string | undefined;
+  if (org.anthropic_api_key_encrypted) {
+    try {
+      anthropicApiKey = decrypt(org.anthropic_api_key_encrypted);
+    } catch {
+      // fall back to global
+    }
+  }
+
+  // === DIAGNOSE: Check what data exists ===
+  const [brandRes, productsRes, boardsRes, keywordsRes, pinsRes, feedbackRes] = await Promise.all([
+    supabase.from("brand_profiles").select("*").eq("org_id", org.id).single(),
+    supabase.from("products").select("id, title, status, product_type, tags, collections").eq("org_id", org.id),
+    supabase.from("boards").select("id, name, status, keywords, category").eq("org_id", org.id),
+    supabase.from("keywords").select("id, keyword, category, performance_score").eq("org_id", org.id).limit(20),
+    supabase.from("pins").select("id, title, status, board_id, scheduled_at, generation_prompt, image_url").eq("org_id", org.id).order("created_at", { ascending: false }).limit(20),
+    supabase.from("feedback_rules").select("*").eq("org_id", org.id).eq("is_active", true),
+  ]);
+
+  const diagnosis = {
+    org: {
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+      pinterest_connected: !!org.pinterest_user_id,
+      pinterest_user: org.pinterest_user_id || null,
+      pinterest_token_valid: org.pinterest_token_expires_at ? new Date(org.pinterest_token_expires_at) > new Date() : false,
+      shopify_connected: !!org.shopify_domain,
+      shopify_domain: org.shopify_domain || null,
+      anthropic_key: org.anthropic_api_key_encrypted ? "per-org (encrypted)" : process.env.ANTHROPIC_API_KEY ? "global env" : "MISSING",
+      krea_key: org.krea_api_key_encrypted ? "per-org (encrypted)" : process.env.KREA_API_KEY ? "global env" : "MISSING",
+      settings: org.settings,
+    },
+    brand_profile: brandRes.data
+      ? {
+          exists: true,
+          has_raw_data: !!brandRes.data.raw_data,
+          has_structured_data: !!brandRes.data.structured_data,
+          brand_voice: brandRes.data.brand_voice || brandRes.data.structured_data?.brand_voice || "not set",
+          industry: brandRes.data.raw_data?.industry || "not set",
+        }
+      : { exists: false, message: "NO BRAND PROFILE — strategy pipeline will fail" },
+    products: {
+      count: productsRes.data?.length || 0,
+      active: productsRes.data?.filter((p) => p.status === "active").length || 0,
+      items: productsRes.data?.slice(0, 5) || [],
+      message: !productsRes.data?.length ? "NO PRODUCTS — content pipeline will fail. Add products manually or connect Shopify." : "OK",
+    },
+    boards: {
+      count: boardsRes.data?.length || 0,
+      items: boardsRes.data || [],
+      message: !boardsRes.data?.length ? "No boards — run strategy pipeline first" : "OK",
+    },
+    keywords: {
+      count: keywordsRes.data?.length || 0,
+      sample: keywordsRes.data?.slice(0, 10) || [],
+      message: !keywordsRes.data?.length ? "No keywords — run strategy pipeline first" : "OK",
+    },
+    pins: {
+      count: pinsRes.data?.length || 0,
+      by_status: groupByStatus(pinsRes.data || []),
+      recent: pinsRes.data?.slice(0, 5).map((p) => ({
+        id: p.id,
+        title: p.title,
+        status: p.status,
+        has_image_prompt: !!p.generation_prompt,
+        has_image: !!p.image_url,
+        scheduled_at: p.scheduled_at,
+      })) || [],
+    },
+    feedback_rules: {
+      count: feedbackRes.data?.length || 0,
+      rules: feedbackRes.data || [],
+    },
+    readiness: {
+      strategy_pipeline: brandRes.data ? "READY" : "BLOCKED — needs brand_profile",
+      content_pipeline: (boardsRes.data?.length || 0) > 0 && (productsRes.data?.filter((p) => p.status === "active").length || 0) > 0
+        ? "READY"
+        : `BLOCKED — needs ${!boardsRes.data?.length ? "boards (run strategy first)" : ""} ${!(productsRes.data?.filter((p) => p.status === "active").length) ? "products" : ""}`.trim(),
+      image_generation: "Requires Krea API key",
+      posting: org.pinterest_user_id && org.pinterest_token_expires_at && new Date(org.pinterest_token_expires_at) > new Date()
+        ? "READY"
+        : "BLOCKED — Pinterest not connected or token expired",
+    },
+  };
+
+  if (step === "diagnose") {
+    return NextResponse.json({ success: true, step: "diagnose", diagnosis });
+  }
+
+  // === STRATEGY: Run strategy pipeline ===
+  if (step === "strategy" || step === "full") {
+    if (!brandRes.data) {
+      return NextResponse.json({
+        success: false,
+        step: "strategy",
+        error: "No brand profile found. Create one first.",
+        diagnosis,
+      }, { status: 400 });
+    }
+
+    try {
+      const strategyResult = await runStrategyPipeline(org.id, anthropicApiKey);
+
+      // Refresh boards/keywords after strategy
+      const [newBoards, newKeywords] = await Promise.all([
+        supabase.from("boards").select("id, name, status, keywords, category").eq("org_id", org.id),
+        supabase.from("keywords").select("id, keyword, category").eq("org_id", org.id).limit(30),
+      ]);
+
+      if (step === "strategy") {
+        return NextResponse.json({
+          success: true,
+          step: "strategy",
+          result: {
+            keywords_generated: strategyResult.keywordStrategy.primary_keywords.length +
+              strategyResult.keywordStrategy.secondary_keywords.length +
+              strategyResult.keywordStrategy.long_tail_keywords.length,
+            boards_generated: strategyResult.boardPlan.boards.length,
+            boards: newBoards.data?.map((b) => ({ name: b.name, category: b.category, keywords: b.keywords })),
+            keyword_sample: newKeywords.data?.slice(0, 15),
+          },
+        });
+      }
+
+      // Continue to content if "full"
+    } catch (err) {
+      return NextResponse.json({
+        success: false,
+        step: "strategy",
+        error: err instanceof Error ? err.message : "Strategy pipeline failed",
+      }, { status: 500 });
+    }
+  }
+
+  // === CONTENT: Run content pipeline ===
+  if (step === "content" || step === "full") {
+    // Check prerequisites
+    const { data: currentBoards } = await supabase.from("boards").select("id").eq("org_id", org.id);
+    const { data: currentProducts } = await supabase.from("products").select("id").eq("org_id", org.id).eq("status", "active");
+
+    if (!currentBoards?.length) {
+      return NextResponse.json({
+        success: false,
+        step: "content",
+        error: "No boards found. Run strategy pipeline first.",
+      }, { status: 400 });
+    }
+
+    if (!currentProducts?.length) {
+      return NextResponse.json({
+        success: false,
+        step: "content",
+        error: "No products found. Add products manually or connect Shopify.",
+      }, { status: 400 });
+    }
+
+    try {
+      const contentResult = await runContentPipeline(org.id, 3, anthropicApiKey); // 3 days for testing
+
+      // Get created pins
+      const { data: newPins } = await supabase
+        .from("pins")
+        .select("id, title, description, status, board_id, generation_prompt, scheduled_at, keywords")
+        .eq("org_id", org.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      return NextResponse.json({
+        success: true,
+        step: step === "full" ? "full" : "content",
+        result: {
+          pins_created: contentResult.pinsCreated,
+          days_planned: contentResult.daysPlanned,
+          sample_pins: newPins?.slice(0, 5).map((p) => ({
+            title: p.title,
+            description: p.description?.substring(0, 100) + "...",
+            status: p.status,
+            keywords: p.keywords,
+            has_image_prompt: !!p.generation_prompt,
+            scheduled_at: p.scheduled_at,
+          })),
+        },
+      });
+    } catch (err) {
+      return NextResponse.json({
+        success: false,
+        step: "content",
+        error: err instanceof Error ? err.message : "Content pipeline failed",
+      }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({ error: "Invalid step. Use: diagnose, strategy, content, full" }, { status: 400 });
+}
+
+function groupByStatus(pins: { status: string }[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const pin of pins) {
+    counts[pin.status] = (counts[pin.status] || 0) + 1;
+  }
+  return counts;
+}
