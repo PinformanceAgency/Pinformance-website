@@ -134,26 +134,26 @@ export async function POST(request: NextRequest) {
     const { brand_profile, products } = body;
 
     if (brand_profile) {
+      // Build upsert data with only columns that exist
+      const bpData: Record<string, unknown> = {
+        org_id: org.id,
+        raw_data: {
+          website: brand_profile.website || "",
+          industry: brand_profile.industry || "",
+          description: brand_profile.description || "",
+          brand_style: brand_profile.brand_style || "",
+        },
+      };
+      // Add optional columns if they exist in schema
+      if (brand_profile.brand_voice) bpData.brand_voice = brand_profile.brand_voice;
+      if (brand_profile.target_audience) bpData.target_audience = brand_profile.target_audience;
+      if (brand_profile.color_palette) bpData.color_palette = brand_profile.color_palette;
+      if (brand_profile.tone_keywords) bpData.tone_keywords = brand_profile.tone_keywords;
+      if (brand_profile.avoid_keywords) bpData.avoid_keywords = brand_profile.avoid_keywords;
+
       const { error: bpError } = await supabase
         .from("brand_profiles")
-        .upsert({
-          org_id: org.id,
-          brand_voice: brand_profile.brand_voice || "",
-          target_audience: brand_profile.target_audience || "",
-          color_palette: brand_profile.color_palette || [],
-          tone_keywords: brand_profile.tone_keywords || [],
-          avoid_keywords: brand_profile.avoid_keywords || [],
-          raw_data: {
-            website: brand_profile.website || "",
-            industry: brand_profile.industry || "",
-            description: brand_profile.description || "",
-          },
-          structured_data: {
-            brand_voice: brand_profile.brand_voice || "",
-            brand_style: brand_profile.brand_style || "",
-            target_audience: brand_profile.target_audience || "",
-          },
-        }, { onConflict: "org_id" });
+        .upsert(bpData, { onConflict: "org_id" });
 
       if (bpError) {
         return NextResponse.json({ success: false, step: "seed", error: "Failed to create brand profile", detail: bpError }, { status: 500 });
