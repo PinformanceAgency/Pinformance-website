@@ -3,9 +3,22 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
 
-export async function POST(request: NextRequest) {
+function verifyCron(request: NextRequest): boolean {
+  // Vercel native cron sends Authorization header
+  const authHeader = request.headers.get("authorization");
+  if (authHeader === `Bearer ${process.env.CRON_SECRET || process.env.CRON_SET}`) return true;
+  // Custom cron services send x-cron-secret
   const cronSecret = request.headers.get("x-cron-secret");
-  if (cronSecret !== (process.env.CRON_SECRET || process.env.CRON_SET)) {
+  if (cronSecret === (process.env.CRON_SECRET || process.env.CRON_SET)) return true;
+  return false;
+}
+
+// Support both GET (Vercel Cron) and POST (external cron services)
+export async function GET(request: NextRequest) { return handlePostPins(request); }
+export async function POST(request: NextRequest) { return handlePostPins(request); }
+
+async function handlePostPins(request: NextRequest) {
+  if (!verifyCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

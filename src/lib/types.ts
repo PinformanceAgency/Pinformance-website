@@ -19,7 +19,8 @@ export type OnboardingStep =
   | 1 // intake form
   | 2 // pinterest business account
   | 3 // trello board & assets
-  | 4; // tracking setup (final step)
+  | 4 // tracking setup
+  | 5; // brand assets (final step)
 
 export interface Organization {
   id: string;

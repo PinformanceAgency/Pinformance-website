@@ -3,9 +3,19 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
 
-export async function POST(request: NextRequest) {
+function verifyCron(request: NextRequest): boolean {
+  const authHeader = request.headers.get("authorization");
+  if (authHeader === `Bearer ${process.env.CRON_SECRET || process.env.CRON_SET}`) return true;
   const cronSecret = request.headers.get("x-cron-secret");
-  if (cronSecret !== (process.env.CRON_SECRET || process.env.CRON_SET)) {
+  if (cronSecret === (process.env.CRON_SECRET || process.env.CRON_SET)) return true;
+  return false;
+}
+
+export async function GET(request: NextRequest) { return handlePullAnalytics(request); }
+export async function POST(request: NextRequest) { return handlePullAnalytics(request); }
+
+async function handlePullAnalytics(request: NextRequest) {
+  if (!verifyCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

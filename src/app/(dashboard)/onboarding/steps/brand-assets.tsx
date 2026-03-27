@@ -1,343 +1,732 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
-  Upload,
+  Palette,
+  ShoppingBag,
+  Eye,
   FileText,
-  Image as ImageIcon,
+  ChevronDown,
+  ChevronUp,
+  Upload,
   X,
+  Plus,
+  Link2,
   Loader2,
-  Check,
-  Paintbrush,
-  Camera,
-  BookOpen,
-  Star,
+  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Organization } from "@/lib/types";
 
-interface UploadedFile {
-  name: string;
-  path: string;
-  type: string;
-  category: string;
-  status: "uploading" | "uploaded" | "parsing" | "parsed" | "error";
-  previewUrl?: string;
+/* ------------------------------------------------------------------ */
+/*  Visual style options                                               */
+/* ------------------------------------------------------------------ */
+
+const VISUAL_STYLE_OPTIONS = [
+  "Minimalist",
+  "Bold",
+  "Lifestyle",
+  "Flat-lay",
+  "Editorial",
+  "Infographic",
+] as const;
+
+type VisualStyle = (typeof VISUAL_STYLE_OPTIONS)[number];
+
+/* ------------------------------------------------------------------ */
+/*  Expandable section card                                            */
+/* ------------------------------------------------------------------ */
+
+function SectionCard({
+  icon: Icon,
+  title,
+  description,
+  defaultOpen = false,
+  children,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="rounded-xl border border-border bg-background overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-muted/30 transition-colors"
+      >
+        <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+          <Icon className="w-4 h-4 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="text-sm font-semibold">{title}</h4>
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+        </div>
+        {open ? (
+          <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        )}
+      </button>
+      {open && (
+        <div className="px-5 pb-5 pt-2 border-t border-border/60 space-y-4">
+          {children}
+        </div>
+      )}
+    </div>
+  );
 }
 
-const ASSET_CATEGORIES = [
-  {
-    id: "logo",
-    label: "Logo",
-    icon: Star,
-    description: "Your brand logo in various formats",
-    accept: ".png,.jpg,.jpeg,.svg,.pdf",
-  },
-  {
-    id: "guidelines",
-    label: "Brand Guidelines",
-    icon: BookOpen,
-    description: "Brand book, style guide, or design rules",
-    accept: ".pdf,.png,.jpg,.jpeg",
-  },
-  {
-    id: "moodboard",
-    label: "Mood Board",
-    icon: Paintbrush,
-    description: "Visual inspiration and aesthetic references",
-    accept: ".png,.jpg,.jpeg,.pdf",
-  },
-  {
-    id: "photography",
-    label: "Photography Style",
-    icon: Camera,
-    description: "Product photos or photography references",
-    accept: ".png,.jpg,.jpeg",
-  },
-];
+/* ------------------------------------------------------------------ */
+/*  File upload area                                                   */
+/* ------------------------------------------------------------------ */
+
+function FileUploadArea({
+  label,
+  accept,
+  multiple,
+  files,
+  onFilesChange,
+  helpText,
+}: {
+  label: string;
+  accept: string;
+  multiple?: boolean;
+  files: File[];
+  onFilesChange: (files: File[]) => void;
+  helpText?: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const dropped = Array.from(e.dataTransfer.files);
+    onFilesChange(multiple ? [...files, ...dropped] : dropped.slice(0, 1));
+  }
+
+  function handleSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files || []);
+    onFilesChange(multiple ? [...files, ...selected] : selected.slice(0, 1));
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
+  function removeFile(index: number) {
+    onFilesChange(files.filter((_, i) => i !== index));
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1.5">{label}</label>
+      <div
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary/40 hover:bg-muted/20 transition-all"
+      >
+        <Upload className="w-5 h-5 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">
+          Drag & drop or{" "}
+          <span className="text-primary font-medium">browse</span>
+        </span>
+        {helpText && (
+          <span className="text-xs text-muted-foreground/70">{helpText}</span>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          multiple={multiple}
+          onChange={handleSelect}
+          className="hidden"
+        />
+      </div>
+      {files.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {files.map((file, i) => (
+            <div
+              key={`${file.name}-${i}`}
+              className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-lg text-sm"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+              <span className="flex-1 truncate">{file.name}</span>
+              <span className="text-xs text-muted-foreground flex-shrink-0">
+                {(file.size / 1024).toFixed(0)} KB
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeFile(i);
+                }}
+                className="text-muted-foreground hover:text-destructive transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  URL list input (add / remove)                                      */
+/* ------------------------------------------------------------------ */
+
+function UrlListInput({
+  label,
+  placeholder,
+  maxItems,
+  urls,
+  onUrlsChange,
+}: {
+  label: string;
+  placeholder: string;
+  maxItems: number;
+  urls: string[];
+  onUrlsChange: (urls: string[]) => void;
+}) {
+  function updateUrl(index: number, value: string) {
+    const updated = [...urls];
+    updated[index] = value;
+    onUrlsChange(updated);
+  }
+
+  function addUrl() {
+    if (urls.length < maxItems) {
+      onUrlsChange([...urls, ""]);
+    }
+  }
+
+  function removeUrl(index: number) {
+    onUrlsChange(urls.filter((_, i) => i !== index));
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1.5">{label}</label>
+      <div className="space-y-2">
+        {urls.map((url, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => updateUrl(i, e.target.value)}
+                className="w-full pl-9 pr-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                placeholder={placeholder}
+              />
+            </div>
+            {urls.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeUrl(i)}
+                className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        ))}
+        {urls.length < maxItems && (
+          <button
+            type="button"
+            onClick={addUrl}
+            className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 font-medium transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add another ({urls.length}/{maxItems})
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main step component                                                */
+/* ------------------------------------------------------------------ */
 
 export function BrandAssetsStep({
   org,
   onNext,
-  onBack,
 }: {
   org: Organization;
   onNext: () => void;
-  onBack: () => void;
 }) {
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleUpload = useCallback(
-    async (fileList: FileList, category: string = "general") => {
-      setUploading(true);
-      const supabase = createClient();
+  // --- Brand Guidelines ---
+  const [logoFiles, setLogoFiles] = useState<File[]>([]);
+  const [primaryColor, setPrimaryColor] = useState("#000000");
+  const [secondaryColor, setSecondaryColor] = useState("#FFFFFF");
+  const [fontPreferences, setFontPreferences] = useState("");
+  const [brandVoiceDescription, setBrandVoiceDescription] = useState("");
 
-      for (const file of Array.from(fileList)) {
-        const fileName = `${Date.now()}-${file.name}`;
-        const filePath = `brand-assets/${org.id}/${fileName}`;
+  // --- Product Assets ---
+  const [productCatalogUrl, setProductCatalogUrl] = useState("");
+  const [heroProductImages, setHeroProductImages] = useState<File[]>([]);
+  const [productDescriptions, setProductDescriptions] = useState("");
 
-        // Generate preview for images
-        let previewUrl: string | undefined;
-        if (file.type.startsWith("image/")) {
-          previewUrl = URL.createObjectURL(file);
-        }
+  // --- Design References ---
+  const [pinterestBoards, setPinterestBoards] = useState<string[]>([""]);
+  const [competitorAccounts, setCompetitorAccounts] = useState<string[]>([""]);
+  const [visualStyles, setVisualStyles] = useState<VisualStyle[]>([]);
 
-        setFiles((prev) => [
-          ...prev,
-          {
-            name: file.name,
-            path: filePath,
-            type: file.type,
-            category,
-            status: "uploading",
-            previewUrl,
-          },
-        ]);
+  // --- Brand Research / Strategy ---
+  const [targetAudience, setTargetAudience] = useState("");
+  const [uniqueSellingPoints, setUniqueSellingPoints] = useState("");
+  const [keywords, setKeywords] = useState("");
+  const [seasonalCalendar, setSeasonalCalendar] = useState("");
+  const [anythingElse, setAnythingElse] = useState("");
 
-        const { error } = await supabase.storage
-          .from("uploads")
-          .upload(filePath, file);
-
-        if (error) {
-          setFiles((prev) =>
-            prev.map((f) =>
-              f.path === filePath ? { ...f, status: "error" } : f
-            )
-          );
-          continue;
-        }
-
-        await supabase.from("brand_documents").insert({
-          org_id: org.id,
-          file_path: filePath,
-          file_type: file.type,
-          parse_status: "pending",
-        });
-
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.path === filePath ? { ...f, status: "uploaded" } : f
-          )
-        );
-      }
-
-      setUploading(false);
-      setActiveCategory(null);
-    },
-    [org.id]
-  );
-
-  function removeFile(path: string) {
-    setFiles((prev) => prev.filter((f) => f.path !== path));
+  function toggleVisualStyle(style: VisualStyle) {
+    setVisualStyles((prev) =>
+      prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
+    );
   }
 
-  const getCategoryFiles = (categoryId: string) =>
-    files.filter((f) => f.category === categoryId);
+  /* Upload helper — returns metadata for each uploaded file */
+  async function uploadFiles(
+    supabase: ReturnType<typeof createClient>,
+    files: File[],
+    folder: string
+  ) {
+    const results: {
+      url: string;
+      name: string;
+      size: number;
+      type: string;
+    }[] = [];
+
+    for (const file of files) {
+      const timestamp = Date.now();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `${org.id}/${folder}/${timestamp}-${safeName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("uploads")
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        continue;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("uploads")
+        .getPublicUrl(filePath);
+
+      results.push({
+        url: urlData.publicUrl,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+    }
+
+    return results;
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    try {
+      const supabase = createClient();
+
+      // Upload logo files
+      const uploadedLogos = await uploadFiles(
+        supabase,
+        logoFiles,
+        "brand-assets/logos"
+      );
+
+      // Upload hero product images
+      const uploadedHeroImages = await uploadFiles(
+        supabase,
+        heroProductImages,
+        "brand-assets/products"
+      );
+
+      // Build the JSONB payload
+      const brandAssetsData = {
+        brand_guidelines: {
+          logos: uploadedLogos,
+          primary_color: primaryColor,
+          secondary_color: secondaryColor,
+          font_preferences: fontPreferences,
+          brand_voice_description: brandVoiceDescription,
+        },
+        product_assets: {
+          product_catalog_url: productCatalogUrl,
+          hero_product_images: uploadedHeroImages,
+          product_descriptions: productDescriptions,
+        },
+        design_references: {
+          pinterest_boards: pinterestBoards.filter(Boolean),
+          competitor_accounts: competitorAccounts.filter(Boolean),
+          visual_styles: visualStyles,
+        },
+        brand_research: {
+          target_audience: targetAudience,
+          unique_selling_points: uniqueSellingPoints,
+          keywords,
+          seasonal_calendar: seasonalCalendar,
+          anything_else: anythingElse,
+        },
+      };
+
+      // Merge with existing raw_data in brand_profiles
+      const { data: existingProfile } = await supabase
+        .from("brand_profiles")
+        .select("raw_data")
+        .eq("org_id", org.id)
+        .single();
+
+      const mergedRawData = {
+        ...(existingProfile?.raw_data || {}),
+        brand_assets: brandAssetsData,
+      };
+
+      await supabase.from("brand_profiles").upsert(
+        {
+          org_id: org.id,
+          raw_data: mergedRawData,
+        },
+        { onConflict: "org_id" }
+      );
+
+      // Create client_documents entries for every uploaded file
+      const allUploaded = [...uploadedLogos, ...uploadedHeroImages];
+
+      for (const file of allUploaded) {
+        await supabase.from("client_documents").insert({
+          org_id: org.id,
+          title: file.name,
+          description: "Brand asset uploaded during onboarding",
+          file_url: file.url,
+          file_type: file.type,
+          file_size: file.size,
+        });
+      }
+
+      onNext();
+    } catch (err) {
+      console.error("Failed to save brand assets:", err);
+      setError("Something went wrong saving your assets. Please try again.");
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Category Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {ASSET_CATEGORIES.map((cat) => {
-          const categoryFiles = getCategoryFiles(cat.id);
-          const hasFiles = categoryFiles.length > 0;
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {/* ---- Section 1: Brand Guidelines ---- */}
+      <SectionCard
+        icon={Palette}
+        title="Brand Guidelines"
+        description="Logo, colors, fonts, and tone of voice"
+        defaultOpen
+      >
+        <FileUploadArea
+          label="Logo"
+          accept=".png,.svg,image/png,image/svg+xml"
+          files={logoFiles}
+          onFilesChange={setLogoFiles}
+          helpText="PNG or SVG format recommended"
+        />
 
-          return (
-            <div
-              key={cat.id}
-              className={cn(
-                "relative border-2 rounded-xl p-4 transition-all duration-200",
-                hasFiles
-                  ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20"
-                  : "border-border hover:border-primary/30 bg-background"
-              )}
-            >
-              <div className="flex items-start gap-3 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">
+              Primary Brand Color
+            </label>
+            <div className="flex items-center gap-2">
+              <label className="relative w-10 h-10 rounded-lg border border-input cursor-pointer overflow-hidden flex-shrink-0">
                 <div
-                  className={cn(
-                    "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0",
-                    hasFiles
-                      ? "bg-emerald-100 dark:bg-emerald-900 text-emerald-600"
-                      : "bg-muted text-muted-foreground"
-                  )}
-                >
-                  {hasFiles ? (
-                    <Check className="w-4 h-4" />
-                  ) : (
-                    <cat.icon className="w-4 h-4" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-sm font-semibold">{cat.label}</h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {cat.description}
-                  </p>
-                </div>
-              </div>
-
-              {/* Thumbnails */}
-              {categoryFiles.length > 0 && (
-                <div className="flex gap-2 mb-3 flex-wrap">
-                  {categoryFiles.map((file) => (
-                    <div
-                      key={file.path}
-                      className="relative w-12 h-12 rounded-lg overflow-hidden bg-muted border border-border group"
-                    >
-                      {file.previewUrl ? (
-                        <img
-                          src={file.previewUrl}
-                          alt={file.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <FileText className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <button
-                        onClick={() => removeFile(file.path)}
-                        className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                      >
-                        <X className="w-3 h-3 text-white" />
-                      </button>
-                      {file.status === "uploading" && (
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                          <Loader2 className="w-3 h-3 text-white animate-spin" />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary cursor-pointer hover:text-primary/80 transition-colors">
-                <Upload className="w-3.5 h-3.5" />
-                {hasFiles ? "Add more" : "Upload files"}
+                  className="w-full h-full"
+                  style={{ backgroundColor: primaryColor }}
+                />
                 <input
-                  type="file"
-                  multiple
-                  accept={cat.accept}
-                  onChange={(e) =>
-                    e.target.files && handleUpload(e.target.files, cat.id)
-                  }
-                  className="hidden"
+                  type="color"
+                  value={primaryColor}
+                  onChange={(e) => setPrimaryColor(e.target.value)}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
                 />
               </label>
+              <input
+                type="text"
+                value={primaryColor}
+                onChange={(e) => setPrimaryColor(e.target.value)}
+                className="flex-1 px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                placeholder="#000000"
+              />
             </div>
-          );
-        })}
-      </div>
+          </div>
 
-      {/* General Drop Zone */}
-      <div
-        className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-primary/40 transition-all duration-200 group"
-        onDragOver={(e) => {
-          e.preventDefault();
-          setActiveCategory("general");
-        }}
-        onDragLeave={() => setActiveCategory(null)}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer.files.length)
-            handleUpload(e.dataTransfer.files, "general");
-        }}
-      >
-        <Upload
-          className={cn(
-            "w-8 h-8 mx-auto mb-3 transition-colors",
-            activeCategory === "general"
-              ? "text-primary"
-              : "text-muted-foreground group-hover:text-primary/60"
-          )}
-        />
-        <p className="text-sm text-muted-foreground mb-1">
-          Or drag and drop any brand files here
-        </p>
-        <p className="text-xs text-muted-foreground mb-4">
-          PDF, PNG, JPG, SVG
-        </p>
-        <label className="inline-flex items-center gap-2 bg-muted hover:bg-muted/80 text-foreground px-4 py-2 rounded-xl text-sm font-medium cursor-pointer transition-colors">
-          {uploading ? (
-            <span className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> Uploading...
-            </span>
-          ) : (
-            "Browse Files"
-          )}
+          <div>
+            <label className="block text-sm font-medium mb-1.5">
+              Secondary Brand Color
+            </label>
+            <div className="flex items-center gap-2">
+              <label className="relative w-10 h-10 rounded-lg border border-input cursor-pointer overflow-hidden flex-shrink-0">
+                <div
+                  className="w-full h-full"
+                  style={{ backgroundColor: secondaryColor }}
+                />
+                <input
+                  type="color"
+                  value={secondaryColor}
+                  onChange={(e) => setSecondaryColor(e.target.value)}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+              </label>
+              <input
+                type="text"
+                value={secondaryColor}
+                onChange={(e) => setSecondaryColor(e.target.value)}
+                className="flex-1 px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                placeholder="#FFFFFF"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Font Preferences
+          </label>
           <input
-            type="file"
-            multiple
-            accept=".pdf,.png,.jpg,.jpeg,.svg"
-            onChange={(e) =>
-              e.target.files && handleUpload(e.target.files, "general")
-            }
-            className="hidden"
+            type="text"
+            value={fontPreferences}
+            onChange={(e) => setFontPreferences(e.target.value)}
+            className="w-full px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+            placeholder="e.g. Montserrat for headings, Open Sans for body text"
           />
-        </label>
-      </div>
+        </div>
 
-      {/* General files list */}
-      {files.filter((f) => f.category === "general").length > 0 && (
-        <div className="space-y-2">
-          {files
-            .filter((f) => f.category === "general")
-            .map((file) => (
-              <div
-                key={file.path}
-                className="flex items-center gap-3 p-3 bg-muted/50 rounded-xl border border-border"
-              >
-                {file.previewUrl ? (
-                  <img
-                    src={file.previewUrl}
-                    alt={file.name}
-                    className="w-10 h-10 rounded-lg object-cover"
-                  />
-                ) : file.type.startsWith("image/") ? (
-                  <ImageIcon className="w-4 h-4 text-muted-foreground" />
-                ) : (
-                  <FileText className="w-4 h-4 text-muted-foreground" />
-                )}
-                <span className="text-sm flex-1 truncate">{file.name}</span>
-                <span
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Brand Voice / Tone Description
+          </label>
+          <textarea
+            value={brandVoiceDescription}
+            onChange={(e) => setBrandVoiceDescription(e.target.value)}
+            className="w-full px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[80px] resize-none"
+            placeholder="Describe how your brand communicates. e.g. friendly and approachable, but professional..."
+          />
+        </div>
+      </SectionCard>
+
+      {/* ---- Section 2: Product Assets ---- */}
+      <SectionCard
+        icon={ShoppingBag}
+        title="Product Assets"
+        description="Product catalog, hero images, and descriptions"
+      >
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Product Catalog Link
+          </label>
+          <div className="relative">
+            <Link2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="url"
+              value={productCatalogUrl}
+              onChange={(e) => setProductCatalogUrl(e.target.value)}
+              className="w-full pl-10 pr-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              placeholder="https://yourstore.com/collections"
+            />
+          </div>
+        </div>
+
+        <FileUploadArea
+          label="Hero Product Images"
+          accept="image/*"
+          multiple
+          files={heroProductImages}
+          onFilesChange={setHeroProductImages}
+          helpText="Upload your best product shots. Multiple files allowed."
+        />
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Product Descriptions
+          </label>
+          <textarea
+            value={productDescriptions}
+            onChange={(e) => setProductDescriptions(e.target.value)}
+            className="w-full px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[100px] resize-none"
+            placeholder="Brief descriptions of your key products or product lines..."
+          />
+        </div>
+      </SectionCard>
+
+      {/* ---- Section 3: Design References ---- */}
+      <SectionCard
+        icon={Eye}
+        title="Design References"
+        description="Pinterest inspiration, competitors, and visual style"
+      >
+        <UrlListInput
+          label="Pinterest Boards You Like"
+          placeholder="https://pinterest.com/user/board-name"
+          maxItems={5}
+          urls={pinterestBoards}
+          onUrlsChange={setPinterestBoards}
+        />
+
+        <UrlListInput
+          label="Competitor Pinterest Accounts"
+          placeholder="https://pinterest.com/competitor"
+          maxItems={3}
+          urls={competitorAccounts}
+          onUrlsChange={setCompetitorAccounts}
+        />
+
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Visual Style Preferences
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {VISUAL_STYLE_OPTIONS.map((style) => {
+              const selected = visualStyles.includes(style);
+              return (
+                <button
+                  key={style}
+                  type="button"
+                  onClick={() => toggleVisualStyle(style)}
                   className={cn(
-                    "text-xs capitalize px-2 py-0.5 rounded-full",
-                    file.status === "uploaded" &&
-                      "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
-                    file.status === "uploading" &&
-                      "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
-                    file.status === "error" &&
-                      "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                    "px-3.5 py-1.5 rounded-full text-sm font-medium border transition-all duration-200",
+                    selected
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
                   )}
                 >
-                  {file.status}
-                </span>
-                <button
-                  onClick={() => removeFile(file.path)}
-                  className="p-1 hover:bg-muted rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                  {style}
                 </button>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+          {visualStyles.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Selected: {visualStyles.join(", ")}
+            </p>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* ---- Section 4: Brand Research / Strategy ---- */}
+      <SectionCard
+        icon={FileText}
+        title="Brand Research & Strategy"
+        description="Audience, USPs, keywords, and seasonal planning"
+      >
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Target Audience Description
+          </label>
+          <textarea
+            value={targetAudience}
+            onChange={(e) => setTargetAudience(e.target.value)}
+            className="w-full px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[80px] resize-none"
+            placeholder="Who is your ideal customer? Demographics, interests, pain points..."
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Unique Selling Points
+          </label>
+          <textarea
+            value={uniqueSellingPoints}
+            onChange={(e) => setUniqueSellingPoints(e.target.value)}
+            className="w-full px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[80px] resize-none"
+            placeholder={"- Free shipping on all orders\n- 100% organic ingredients\n- Hand-crafted in small batches"}
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Use bullet points (one per line) for each unique selling point.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Keywords to Rank For
+          </label>
+          <textarea
+            value={keywords}
+            onChange={(e) => setKeywords(e.target.value)}
+            className="w-full px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[80px] resize-none"
+            placeholder="organic skincare, natural moisturizer, vegan beauty products..."
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Keywords people search for on Pinterest that relate to your brand.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Seasonal Calendar / Promotion Schedule
+          </label>
+          <textarea
+            value={seasonalCalendar}
+            onChange={(e) => setSeasonalCalendar(e.target.value)}
+            className="w-full px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[80px] resize-none"
+            placeholder="e.g. Spring collection launch in March, Black Friday sale in November, Holiday gift guides in December..."
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">
+            Anything Else
+          </label>
+          <textarea
+            value={anythingElse}
+            onChange={(e) => setAnythingElse(e.target.value)}
+            className="w-full px-3.5 py-2.5 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all min-h-[80px] resize-none"
+            placeholder="Any other information, brand guidelines documents, notes for our team..."
+          />
+        </div>
+      </SectionCard>
+
+      {/* Error message */}
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4">
+          <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
 
-      {/* Navigation */}
+      {/* Submit */}
       <div className="flex justify-end pt-2">
         <button
-          onClick={onNext}
+          type="submit"
+          disabled={saving}
           className={cn(
-            "px-8 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200",
+            "relative px-8 py-3 rounded-xl text-sm font-semibold transition-all duration-200",
             "bg-primary text-primary-foreground hover:bg-primary/90",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
             "shadow-sm hover:shadow-md"
           )}
         >
-          {files.length > 0 ? "Continue" : "Skip for now"}
+          {saving ? (
+            <span className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Saving assets...
+            </span>
+          ) : (
+            "Complete Step"
+          )}
         </button>
       </div>
-    </div>
+    </form>
   );
 }

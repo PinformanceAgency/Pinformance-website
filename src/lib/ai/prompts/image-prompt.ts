@@ -16,6 +16,7 @@ interface ImagePromptInput {
     name: string;
     style: BrandStyle;
   };
+  styleGuideRules?: string[];
 }
 
 export interface ImagePromptOutput {
@@ -67,7 +68,11 @@ ${styleDesc || "No specific brand style defined"}
 
 ${input.productImages.length ? `Reference product images available: ${input.productImages.map((i) => i.alt || "product photo").join(", ")}` : "No product images available — create a conceptual/lifestyle image"}
 
-Create a detailed image generation prompt optimized for a vertical Pinterest pin (2:3 ratio). The image should stop the scroll and drive engagement.`;
+Create a detailed image generation prompt optimized for a vertical Pinterest pin (2:3 ratio). The image should stop the scroll and drive engagement.${
+    input.styleGuideRules?.length
+      ? `\n\nStyle guide rules (apply these to the image):\n${input.styleGuideRules.map((r) => `- ${r}`).join("\n")}`
+      : ""
+  }`;
 
   return { systemPrompt, userPrompt };
 }

@@ -75,6 +75,7 @@ export const ONBOARDING_STEPS = [
   { step: 2, title: "Pinterest Business Account", description: "Claim domain, billing, profile, catalog & give us access", icon: "pin", estimatedMinutes: 15 },
   { step: 3, title: "Trello Board & Creative Assets", description: "Upload your product links, images, and campaign materials", icon: "layout", estimatedMinutes: 15 },
   { step: 4, title: "Connect Tracking Partner", description: "Link your tracking tool so we can measure performance", icon: "bar-chart-3", estimatedMinutes: 10 },
+  { step: 5, title: "Brand Assets", description: "Upload your brand guidelines, product assets, and design references", icon: "palette", estimatedMinutes: 10 },
 ] as const;
 
 export const INDUSTRIES = [

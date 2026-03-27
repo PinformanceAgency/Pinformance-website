@@ -8,6 +8,7 @@ import { IntakeFormStep } from "./steps/intake-form";
 import { PinterestSetupStep } from "./steps/pinterest-setup";
 import { TrelloAssetsStep } from "./steps/trello-assets";
 import { TrackingSetupStep } from "./steps/tracking-setup";
+import { BrandAssetsStep } from "./steps/brand-assets";
 import { ONBOARDING_STEPS } from "@/lib/constants";
 import type { OnboardingStep, Organization } from "@/lib/types";
 import {
@@ -17,6 +18,7 @@ import {
   Pin,
   Layout,
   BarChart3,
+  Palette,
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +28,7 @@ const STEP_ICONS: Record<string, React.ElementType> = {
   pin: Pin,
   layout: Layout,
   "bar-chart-3": BarChart3,
+  palette: Palette,
 };
 
 export default function OnboardingPage() {
@@ -59,7 +62,7 @@ export default function OnboardingPage() {
     const supabase = createClient();
 
     const update: Record<string, unknown> = { onboarding_step: nextStep };
-    if (nextStep > 4) {
+    if (nextStep > 5) {
       update.onboarding_completed_at = new Date().toISOString();
     }
 
@@ -68,15 +71,15 @@ export default function OnboardingPage() {
 
     // Also keep org-level in sync if org is available
     if (org && nextStep > (org.onboarding_step || 0)) {
-      const orgUpdate: Record<string, unknown> = { onboarding_step: Math.min(nextStep, 4) };
-      if (nextStep > 4) {
+      const orgUpdate: Record<string, unknown> = { onboarding_step: Math.min(nextStep, 5) };
+      if (nextStep > 5) {
         orgUpdate.onboarding_completed_at = new Date().toISOString();
       }
       await supabase.from("organizations").update(orgUpdate).eq("id", org.id);
     }
 
     // Save onboarding completion as a document
-    if (nextStep > 4) {
+    if (nextStep > 5) {
       try {
         await saveOnboardingDocument(supabase);
       } catch (e) {
@@ -85,7 +88,7 @@ export default function OnboardingPage() {
       }
     }
 
-    if (nextStep > 4) {
+    if (nextStep > 5) {
       router.push("/overview");
     } else {
       setStep(nextStep);
@@ -128,7 +131,7 @@ export default function OnboardingPage() {
     await supabase.from("client_documents").insert({
       org_id: orgId,
       title: `Onboarding Report - ${user.full_name || user.email}`,
-      description: `Onboarding completed on ${completionDate}. All 4 steps finished successfully.`,
+      description: `Onboarding completed on ${completionDate}. All ${ONBOARDING_STEPS.length} steps finished successfully.`,
       file_url: urlData.publicUrl,
       file_type: "text/plain",
       file_size: blob.size,
@@ -167,6 +170,7 @@ export default function OnboardingPage() {
     2: <PinterestSetupStep org={effectiveOrg} onNext={advanceStep} />,
     3: <TrelloAssetsStep org={effectiveOrg} onNext={advanceStep} />,
     4: <TrackingSetupStep org={effectiveOrg} onNext={advanceStep} />,
+    5: <BrandAssetsStep org={effectiveOrg} onNext={advanceStep} />,
   };
 
   return (

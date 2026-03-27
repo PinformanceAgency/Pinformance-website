@@ -128,15 +128,28 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
 
   let pinsCreated = 0;
 
+  // Categorize active feedback rules for logging and downstream use
+  const activeRules = feedbackRules.filter((r) => r.is_active);
+  const appliedRuleIds = activeRules.map((r) => r.id);
+  const styleGuideRules = activeRules
+    .filter((r) => r.rule_type === "style_guide")
+    .sort((a, b) => b.priority - a.priority)
+    .map((r) => r.rule_text);
+  const keywordBoostRules = activeRules
+    .filter((r) => r.rule_type === "keyword_boost")
+    .map((r) => r.rule_text);
+
   // Process slots in batches of 5 to avoid rate limits
   for (let i = 0; i < slots.length; i += 5) {
     const batch = slots.slice(i, i + 5);
 
     const settled = await Promise.allSettled(
       batch.map(async (slot) => {
-        // Generate pin content
+        // Generate pin content (feedbackRules are applied inside pinContentPrompts)
         const boardKeywords = [
           ...slot.board.keywords,
+          // Boost keywords from feedback rules get prioritized
+          ...keywordBoostRules,
           ...keywords
             .filter((k) => k.category === slot.board.category)
             .slice(0, 5)
@@ -164,12 +177,13 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
           apiKey
         );
 
-        // Generate image prompt
+        // Generate image prompt with style guide rules applied
         const imgPrompts = imagePromptPrompts({
           pinContent,
           productTitle: slot.product.title,
           productImages: slot.product.images,
           brand: { name: brandName, style: brandStyle },
+          styleGuideRules,
         });
 
         const imagePrompt = await generateJSON<ImagePromptOutput>(
@@ -231,7 +245,15 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
     completed_at: new Date().toISOString(),
     input_summary: `${days} days, ${boards.length} boards, ${products.length} products`,
     output_summary: `${pinsCreated} pins created`,
-    metadata: { days, pins_created: pinsCreated, slots_planned: slots.length },
+    metadata: {
+      days,
+      pins_created: pinsCreated,
+      slots_planned: slots.length,
+      feedback_rules_applied: appliedRuleIds,
+      feedback_rules_count: activeRules.length,
+      style_guide_rules: styleGuideRules.length,
+      keyword_boost_rules: keywordBoostRules.length,
+    },
   });
 
   return { pinsCreated, daysPlanned: days };
