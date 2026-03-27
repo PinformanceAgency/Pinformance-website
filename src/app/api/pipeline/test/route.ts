@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt, encrypt } from "@/lib/encryption";
 import { runStrategyPipeline } from "@/lib/ai/pipelines/strategy-pipeline";
 import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
+import { KreaClient } from "@/lib/krea/client";
+import { PinterestClient } from "@/lib/pinterest/client";
 
 /**
  * Test/diagnostic endpoint for running the full pipeline for a specific org.
@@ -325,7 +327,239 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ error: "Invalid step. Use: diagnose, strategy, content, full" }, { status: 400 });
+  // === GENERATE-IMAGE: Generate Krea AI image for 1 pin ===
+  if (step === "generate-image") {
+    const pinId = body.pin_id;
+
+    // Get a pin that has a generation_prompt but no image
+    let pin;
+    if (pinId) {
+      const { data } = await supabase.from("pins").select("*").eq("id", pinId).eq("org_id", org.id).single();
+      pin = data;
+    } else {
+      const { data } = await supabase
+        .from("pins")
+        .select("*")
+        .eq("org_id", org.id)
+        .eq("status", "generated")
+        .is("image_url", null)
+        .not("generation_prompt", "is", null)
+        .order("scheduled_at", { ascending: true })
+        .limit(1)
+        .single();
+      pin = data;
+    }
+
+    if (!pin) {
+      return NextResponse.json({ success: false, error: "No pin found with generation_prompt and no image" }, { status: 404 });
+    }
+
+    // Get Krea API key
+    let kreaKey: string | undefined;
+    if (org.krea_api_key_encrypted) {
+      try { kreaKey = decrypt(org.krea_api_key_encrypted); } catch {}
+    }
+    if (!kreaKey) kreaKey = process.env.KREA_API_KEY;
+    if (!kreaKey) {
+      return NextResponse.json({ success: false, error: "No Krea API key found" }, { status: 400 });
+    }
+
+    try {
+      const krea = new KreaClient(kreaKey);
+      const result = await krea.generateImage({
+        prompt: pin.generation_prompt,
+        aspect_ratio: "2:3",
+        width: 1000,
+        height: 1500,
+      });
+
+      // Poll for completion (max 60 seconds)
+      let task = result;
+      const taskId = task.id || task.task_id;
+      if (!taskId) {
+        // Image might be returned directly
+        if (task.result?.url) {
+          await supabase.from("pins").update({ image_url: task.result.url, status: "generated" }).eq("id", pin.id);
+          return NextResponse.json({
+            success: true,
+            step: "generate-image",
+            pin_id: pin.id,
+            title: pin.title,
+            image_url: task.result.url,
+            prompt_used: pin.generation_prompt?.substring(0, 200) + "...",
+          });
+        }
+        return NextResponse.json({ success: true, step: "generate-image", raw_response: task });
+      }
+
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        task = await krea.getTaskStatus(taskId);
+        if (task.status === "completed" || task.result?.url) break;
+        if (task.status === "failed") {
+          return NextResponse.json({ success: false, error: "Krea image generation failed", detail: task.error }, { status: 500 });
+        }
+      }
+
+      const imageUrl = task.result?.url;
+      if (imageUrl) {
+        await supabase.from("pins").update({ image_url: imageUrl, krea_job_id: taskId }).eq("id", pin.id);
+      }
+
+      return NextResponse.json({
+        success: true,
+        step: "generate-image",
+        pin_id: pin.id,
+        title: pin.title,
+        image_url: imageUrl || null,
+        task_status: task.status,
+        prompt_used: pin.generation_prompt?.substring(0, 200) + "...",
+      });
+    } catch (err) {
+      return NextResponse.json({
+        success: false,
+        step: "generate-image",
+        error: err instanceof Error ? err.message : "Image generation failed",
+      }, { status: 500 });
+    }
+  }
+
+  // === APPROVE-PIN: Approve a pin for posting ===
+  if (step === "approve-pin") {
+    const pinId = body.pin_id;
+    if (!pinId) {
+      // Auto-select first generated pin with an image
+      const { data: readyPin } = await supabase
+        .from("pins")
+        .select("*")
+        .eq("org_id", org.id)
+        .in("status", ["generated"])
+        .not("image_url", "is", null)
+        .order("scheduled_at", { ascending: true })
+        .limit(1)
+        .single();
+
+      if (!readyPin) {
+        return NextResponse.json({ success: false, error: "No pin with image found to approve" }, { status: 404 });
+      }
+
+      const { error } = await supabase.from("pins").update({ status: "approved" }).eq("id", readyPin.id);
+      return NextResponse.json({
+        success: !error,
+        step: "approve-pin",
+        pin_id: readyPin.id,
+        title: readyPin.title,
+        image_url: readyPin.image_url,
+        scheduled_at: readyPin.scheduled_at,
+        error: error?.message,
+      });
+    }
+
+    const { error } = await supabase.from("pins").update({ status: "approved" }).eq("id", pinId).eq("org_id", org.id);
+    return NextResponse.json({ success: !error, step: "approve-pin", pin_id: pinId, error: error?.message });
+  }
+
+  // === POST-PIN: Post an approved pin to Pinterest NOW ===
+  if (step === "post-pin") {
+    const pinId = body.pin_id;
+
+    let pin;
+    if (pinId) {
+      const { data } = await supabase.from("pins").select("*, boards(*)").eq("id", pinId).eq("org_id", org.id).single();
+      pin = data;
+    } else {
+      const { data } = await supabase
+        .from("pins")
+        .select("*, boards(*)")
+        .eq("org_id", org.id)
+        .eq("status", "approved")
+        .order("scheduled_at", { ascending: true })
+        .limit(1)
+        .single();
+      pin = data;
+    }
+
+    if (!pin) {
+      return NextResponse.json({ success: false, error: "No approved pin found to post" }, { status: 404 });
+    }
+
+    // Get Pinterest token
+    if (!org.pinterest_access_token_encrypted) {
+      return NextResponse.json({ success: false, error: "Pinterest not connected" }, { status: 400 });
+    }
+
+    let accessToken: string;
+    try {
+      accessToken = decrypt(org.pinterest_access_token_encrypted);
+    } catch {
+      return NextResponse.json({ success: false, error: "Failed to decrypt Pinterest token" }, { status: 500 });
+    }
+
+    const pinterest = new PinterestClient(accessToken);
+
+    try {
+      // First check if board exists on Pinterest, if not create it
+      let pinterestBoardId = pin.boards?.pinterest_board_id;
+
+      if (!pinterestBoardId && pin.boards) {
+        // Create the board on Pinterest first
+        const newBoard = await pinterest.createBoard({
+          name: pin.boards.name,
+          description: pin.boards.description || "",
+          privacy: "PUBLIC",
+        });
+        pinterestBoardId = newBoard.id;
+        await supabase.from("boards").update({ pinterest_board_id: newBoard.id, status: "active" }).eq("id", pin.boards.id);
+      }
+
+      if (!pinterestBoardId) {
+        return NextResponse.json({ success: false, error: "No Pinterest board ID. Board needs to be created first." }, { status: 400 });
+      }
+
+      // Mark as posting
+      await supabase.from("pins").update({ status: "posting" }).eq("id", pin.id);
+
+      // Post to Pinterest
+      const pinterestPin = await pinterest.createPin({
+        board_id: pinterestBoardId,
+        title: pin.title,
+        description: pin.description,
+        link: pin.link_url || undefined,
+        alt_text: pin.alt_text || undefined,
+        media_source: pin.image_url ? {
+          source_type: "image_url",
+          url: pin.image_url,
+        } : undefined,
+      });
+
+      // Update pin status
+      await supabase.from("pins").update({
+        status: "posted",
+        pinterest_pin_id: pinterestPin.id,
+        posted_at: new Date().toISOString(),
+      }).eq("id", pin.id);
+
+      return NextResponse.json({
+        success: true,
+        step: "post-pin",
+        pin_id: pin.id,
+        pinterest_pin_id: pinterestPin.id,
+        title: pin.title,
+        board: pin.boards?.name,
+        image_url: pin.image_url,
+        link_url: pin.link_url,
+      });
+    } catch (err) {
+      await supabase.from("pins").update({ status: "failed" }).eq("id", pin.id);
+      return NextResponse.json({
+        success: false,
+        step: "post-pin",
+        error: err instanceof Error ? err.message : "Posting failed",
+      }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({ error: "Invalid step. Use: diagnose, strategy, content, full, generate-image, approve-pin, post-pin" }, { status: 400 });
 }
 
 function groupByStatus(pins: { status: string }[]): Record<string, number> {
