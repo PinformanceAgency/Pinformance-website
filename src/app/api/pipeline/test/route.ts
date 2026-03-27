@@ -38,9 +38,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Organization '${org_slug}' not found`, detail: orgError }, { status: 404 });
   }
 
-  // Get per-org Anthropic key
+  // Get per-org Anthropic key (or force global key via body param)
   let anthropicApiKey: string | undefined;
-  if (org.anthropic_api_key_encrypted) {
+  if (!body.use_global_key && org.anthropic_api_key_encrypted) {
     try {
       anthropicApiKey = decrypt(org.anthropic_api_key_encrypted);
     } catch {
