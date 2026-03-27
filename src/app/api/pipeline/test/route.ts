@@ -526,10 +526,10 @@ export async function POST(request: NextRequest) {
         description: pin.description,
         link: pin.link_url || undefined,
         alt_text: pin.alt_text || undefined,
-        media_source: pin.image_url ? {
-          source_type: "image_url",
-          url: pin.image_url,
-        } : undefined,
+        media_source: {
+          source_type: "image_url" as const,
+          url: pin.image_url || "",
+        },
       });
 
       // Update pin status
