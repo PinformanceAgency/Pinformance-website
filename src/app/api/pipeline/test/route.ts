@@ -143,6 +143,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "reset", results });
   }
 
+  // === UPDATE-SETTINGS: Update org settings ===
+  if (step === "update-settings") {
+    const { settings } = body;
+    if (!settings) return NextResponse.json({ error: "settings object required" }, { status: 400 });
+    // Merge with existing settings
+    const merged = { ...(org.settings || {}), ...settings };
+    const { error } = await supabase.from("organizations").update({ settings: merged }).eq("id", org.id);
+    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, step: "update-settings", settings: merged });
+  }
+
   // === UPDATE-KEY: Update per-org API key ===
   if (step === "update-key") {
     const { anthropic_api_key, krea_api_key } = body;
