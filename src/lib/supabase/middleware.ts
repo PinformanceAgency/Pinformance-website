@@ -31,8 +31,13 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // Public routes
-  if (pathname.startsWith("/login") || pathname.startsWith("/api/webhooks")) {
+  // Public routes (login, webhooks, cron jobs, pipeline test — these use their own auth via x-cron-secret)
+  if (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/api/webhooks") ||
+    pathname.startsWith("/api/cron") ||
+    pathname.startsWith("/api/pipeline")
+  ) {
     return supabaseResponse;
   }
 
