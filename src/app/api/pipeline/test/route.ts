@@ -130,6 +130,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "diagnose", diagnosis });
   }
 
+  // === RESET: Clear all generated data for this org ===
+  if (step === "reset") {
+    const tables = ["pins", "calendar_entries", "keywords", "boards", "products", "brand_profiles", "ai_tasks", "feedback_rules"];
+    const results: Record<string, string> = {};
+    for (const table of tables) {
+      const { error, count } = await supabase.from(table).delete().eq("org_id", org.id);
+      results[table] = error ? error.message : `deleted`;
+    }
+    return NextResponse.json({ success: true, step: "reset", results });
+  }
+
   // === UPDATE-KEY: Update per-org API key ===
   if (step === "update-key") {
     const { anthropic_api_key, krea_api_key } = body;
