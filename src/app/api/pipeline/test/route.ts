@@ -278,7 +278,8 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const contentResult = await runContentPipeline(org.id, 3, anthropicApiKey); // 3 days for testing
+      const days = body.days || 1; // Default to 1 day to stay within Vercel timeout
+      const contentResult = await runContentPipeline(org.id, days, anthropicApiKey);
 
       // Get created pins
       const { data: newPins } = await supabase
