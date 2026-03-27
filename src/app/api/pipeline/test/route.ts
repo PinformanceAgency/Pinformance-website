@@ -12,6 +12,8 @@ import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
  * Headers: { "x-cron-secret": "..." }
  * Body: { "org_slug": "fit-cherries", "step": "diagnose" | "strategy" | "content" | "full" }
  */
+export const maxDuration = 300; // 5 minutes for pipeline operations
+
 export async function POST(request: NextRequest) {
   const secret = request.headers.get("x-cron-secret");
   if (secret !== (process.env.CRON_SECRET || process.env.CRON_SET)) {
