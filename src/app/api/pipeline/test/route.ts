@@ -129,6 +129,62 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "diagnose", diagnosis });
   }
 
+  // === SEED: Create brand profile and test products ===
+  if (step === "seed") {
+    const { brand_profile, products } = body;
+
+    if (brand_profile) {
+      const { error: bpError } = await supabase
+        .from("brand_profiles")
+        .upsert({
+          org_id: org.id,
+          brand_voice: brand_profile.brand_voice || "",
+          target_audience: brand_profile.target_audience || "",
+          color_palette: brand_profile.color_palette || [],
+          tone_keywords: brand_profile.tone_keywords || [],
+          avoid_keywords: brand_profile.avoid_keywords || [],
+          raw_data: {
+            website: brand_profile.website || "",
+            industry: brand_profile.industry || "",
+            description: brand_profile.description || "",
+          },
+          structured_data: {
+            brand_voice: brand_profile.brand_voice || "",
+            brand_style: brand_profile.brand_style || "",
+            target_audience: brand_profile.target_audience || "",
+          },
+        }, { onConflict: "org_id" });
+
+      if (bpError) {
+        return NextResponse.json({ success: false, step: "seed", error: "Failed to create brand profile", detail: bpError }, { status: 500 });
+      }
+    }
+
+    if (products?.length) {
+      const productRows = products.map((p: Record<string, unknown>) => ({
+        org_id: org.id,
+        title: p.title,
+        description: p.description || "",
+        product_type: p.product_type || "general",
+        tags: p.tags || [],
+        images: p.images || [],
+        variants: p.variants || [],
+        status: "active",
+      }));
+
+      const { error: prodError } = await supabase.from("products").insert(productRows);
+      if (prodError) {
+        return NextResponse.json({ success: false, step: "seed", error: "Failed to create products", detail: prodError }, { status: 500 });
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      step: "seed",
+      message: `Seeded brand profile: ${!!brand_profile}, products: ${products?.length || 0}`,
+    });
+  }
+
   // === STRATEGY: Run strategy pipeline ===
   if (step === "strategy" || step === "full") {
     if (!brandRes.data) {
