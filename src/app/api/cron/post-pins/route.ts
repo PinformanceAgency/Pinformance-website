@@ -98,12 +98,23 @@ async function handlePostPins(request: NextRequest) {
       const token = decrypt(org.pinterest_access_token_encrypted);
       const client = new PinterestClient(token);
 
+      // Ensure link_url is a valid full URL
+      let linkUrl = pin.link_url || undefined;
+      if (linkUrl && !linkUrl.startsWith("http")) {
+        const { data: bp } = await admin
+          .from("brand_profiles")
+          .select("raw_data")
+          .eq("org_id", org.id)
+          .single();
+        linkUrl = bp?.raw_data?.website || bp?.raw_data?.landing_page || undefined;
+      }
+
       const pinterestPin = await client.createPin({
         board_id: boardPinterestId,
         board_section_id: pin.board_section_id || undefined,
         title: pin.title,
         description: pin.description || undefined,
-        link: pin.link_url || undefined,
+        link: linkUrl,
         alt_text: pin.alt_text || undefined,
         media_source: {
           source_type: "image_url",

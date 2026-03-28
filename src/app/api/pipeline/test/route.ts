@@ -514,12 +514,24 @@ export async function POST(request: NextRequest) {
       // Mark as posting
       await supabase.from("pins").update({ status: "posting" }).eq("id", pin.id);
 
+      // Ensure link_url is a valid full URL (AI sometimes generates relative/internal paths)
+      let linkUrl = pin.link_url || undefined;
+      if (linkUrl && !linkUrl.startsWith("http")) {
+        // Fall back to brand profile website or product landing page
+        const { data: bp } = await supabase
+          .from("brand_profiles")
+          .select("raw_data")
+          .eq("org_id", org.id)
+          .single();
+        linkUrl = bp?.raw_data?.website || bp?.raw_data?.landing_page || undefined;
+      }
+
       // Post to Pinterest
       const pinterestPin = await pinterest.createPin({
         board_id: pinterestBoardId,
         title: pin.title,
         description: pin.description,
-        link: pin.link_url || undefined,
+        link: linkUrl,
         alt_text: pin.alt_text || undefined,
         media_source: {
           source_type: "image_url" as const,
