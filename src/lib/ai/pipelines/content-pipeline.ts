@@ -166,6 +166,8 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
     }
   }
 
+  console.log(`[ContentPipeline] mode=${mode}, pinsPerBoard=${pinsPerBoard}, days=${days}, boards=${boards.length}, products=${products.length}, slots=${slots.length}`);
+
   const brandName = org.name;
   const websiteUrl = brandProfile?.raw_data?.website || "";
   const brandVoice = brandProfile?.structured_data?.brand_voice || brandProfile?.brand_voice || "";
