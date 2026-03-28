@@ -392,7 +392,7 @@ export async function POST(request: NextRequest) {
           break;
         }
         if (status.status === "failed") {
-          return NextResponse.json({ success: false, step: "generate-image", error: "Image generation failed" }, { status: 500 });
+          return NextResponse.json({ success: false, step: "generate-image", error: `Image generation failed: ${JSON.stringify(status)}` }, { status: 500 });
         }
       }
 
