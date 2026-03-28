@@ -554,7 +554,31 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ error: "Invalid step. Use: diagnose, strategy, content, full, generate-image, approve-pin, post-pin" }, { status: 400 });
+  // Reset onboarding for this org's users
+  if (step === "reset-onboarding") {
+    const targetStep = body.target_step ?? 0;
+    const { data: orgUsers, error: usersErr } = await supabase
+      .from("users")
+      .update({ onboarding_step: targetStep, onboarding_completed_at: null })
+      .eq("org_id", org.id)
+      .select("id, email, onboarding_step");
+
+    // Also reset org-level onboarding
+    await supabase
+      .from("organizations")
+      .update({ onboarding_step: targetStep })
+      .eq("id", org.id);
+
+    return NextResponse.json({
+      success: !usersErr,
+      step: "reset-onboarding",
+      target_step: targetStep,
+      users_updated: orgUsers ?? [],
+      error: usersErr?.message,
+    });
+  }
+
+  return NextResponse.json({ error: "Invalid step. Use: diagnose, strategy, content, full, generate-image, approve-pin, post-pin, reset-onboarding" }, { status: 400 });
 }
 
 function groupByStatus(pins: { status: string }[]): Record<string, number> {
