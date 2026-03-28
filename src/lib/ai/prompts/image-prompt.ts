@@ -40,6 +40,7 @@ Prompt writing rules:
 - For flat lays: describe surface texture, arrangement, and negative space
 - Never reference specific real people or copyrighted characters
 - Keep the prompt under 500 words but be detailed
+- IMPORTANT: For fashion/lingerie brands, focus on lifestyle scenes, fashion styling, outfit inspiration, confidence imagery, and abstract fashion photography. NEVER describe underwear, bras, lingerie, or intimate apparel directly — instead describe the fashion look, outfit coordination, style aesthetic, or confidence/empowerment themes. Use terms like "fashion flat lay", "style essentials", "wardrobe basics" instead of specific undergarment terms.
 
 Output valid JSON:
 {
