@@ -585,6 +585,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: !error, step: "save-documents", saved: data ?? [], error: error?.message });
   }
 
+  // Reset only pins (keep boards, products, brand profile intact)
+  if (step === "reset-pins") {
+    const tables = ["pins", "calendar_entries", "ai_tasks"];
+    const results: Record<string, string> = {};
+    for (const table of tables) {
+      const { error } = await supabase.from(table).delete().eq("org_id", org.id);
+      results[table] = error ? error.message : "deleted";
+    }
+    return NextResponse.json({ success: true, step: "reset-pins", results });
+  }
+
   // Reset onboarding for this org's users
   if (step === "reset-onboarding") {
     const targetStep = body.target_step ?? 0;
