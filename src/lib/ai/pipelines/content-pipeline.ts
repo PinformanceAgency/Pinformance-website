@@ -50,7 +50,12 @@ function findBestBoardForProduct(
   return bestBoard;
 }
 
-export async function runContentPipeline(orgId: string, days = 7, apiKey?: string) {
+/**
+ * Run content pipeline.
+ * mode = "seed": Generate pinsPerBoard pins for each board (initial seeding)
+ * mode = "daily": Generate 1 pin/day spread across boards (ongoing)
+ */
+export async function runContentPipeline(orgId: string, days = 7, apiKey?: string, mode: "seed" | "daily" = "daily", pinsPerBoard = 5) {
   const supabase = createAdminClient();
   const startedAt = new Date().toISOString();
 
@@ -97,50 +102,67 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
     .order("created_at", { ascending: false })
     .limit(10);
 
-  // Generate slots for each day
+  // Generate slots
   const slots: ContentSlot[] = [];
   const today = new Date();
-
-  // Pinterest strategy rules (from Pinterest_Organic_Automation_Prompt.md):
-  // - 1 pin/day ideal, 3-5/week minimum
-  // - Spread across week, never batch-post multiple same day
-  // - Weekend boost: more engagement on Sat/Sun
-  // - Pillar rotation: never same content type back-to-back
-  // - Distribute across different boards
-  // - Post during peak hours (evenings for US audience)
-  const pinsPerDay = settings.pins_per_day || 1;
   const hours = settings.posting_hours || [18, 19, 20, 21];
-  const weekendBoost = settings.weekend_boost ?? true;
 
-  let lastBoardId = "";
-  for (let d = 1; d <= days; d++) {
-    const targetDate = addDays(today, d);
-    const date = format(targetDate, "yyyy-MM-dd");
-    const dayOfWeek = targetDate.getDay(); // 0=Sun, 6=Sat
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-
-    // Weekend boost: post 1 extra pin on weekends (higher Pinterest engagement)
-    const dayPins = isWeekend && weekendBoost ? Math.min(pinsPerDay + 1, 3) : pinsPerDay;
-
-    for (let s = 0; s < dayPins; s++) {
-      // Spread pins evenly across posting hours
-      const hour = hours[s % hours.length];
-      // Randomized minutes for natural posting pattern
-      const minute = (s * 7 + d * 13) % 60;
-      const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-
-      // Match products to boards, ensuring board rotation (pillar_rotation)
-      const product = products[(s + d) % products.length];
-      let board = findBestBoardForProduct(boards, product, keywords);
-
-      // Pillar rotation: avoid posting to same board back-to-back
-      if (settings.pillar_rotation && board.id === lastBoardId && boards.length > 1) {
-        const altBoards = boards.filter((b) => b.id !== lastBoardId);
-        board = altBoards[(s + d) % altBoards.length];
+  if (mode === "seed") {
+    // SEED MODE: Generate pinsPerBoard pins for each board
+    // Pinterest doc: "Each board starts with 6-8 pins minimum"
+    // Spread scheduled times across days so they post gradually
+    let dayOffset = 1;
+    for (let bi = 0; bi < boards.length; bi++) {
+      const board = boards[bi];
+      for (let p = 0; p < pinsPerBoard; p++) {
+        const date = format(addDays(today, dayOffset), "yyyy-MM-dd");
+        const hour = hours[p % hours.length];
+        const minute = (p * 11 + bi * 7) % 60;
+        const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+        const product = products[(bi + p) % products.length];
+        slots.push({ date, time, slotIndex: p, board, product });
+        // Advance day every few pins to spread posting (1 pin/day rule)
+        if ((p + 1) % 1 === 0) dayOffset++;
       }
-      lastBoardId = board.id;
+    }
+  } else {
+    // DAILY MODE: 1 pin/day distributed across all boards
+    // Pinterest strategy rules (from Pinterest_Organic_Automation_Prompt.md):
+    // - 1 pin/day ideal, 3-5/week minimum
+    // - Spread across week, never batch-post multiple same day
+    // - Weekend boost: more engagement on Sat/Sun
+    // - Pillar rotation: never same content type back-to-back
+    // - Post during peak hours (evenings for US audience)
+    const weekendBoost = settings.weekend_boost ?? true;
 
-      slots.push({ date, time, slotIndex: s, board, product });
+    let lastBoardId = "";
+    let boardIndex = 0;
+    for (let d = 1; d <= days; d++) {
+      const targetDate = addDays(today, d);
+      const date = format(targetDate, "yyyy-MM-dd");
+      const dayOfWeek = targetDate.getDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const dayPins = isWeekend && weekendBoost ? 2 : 1;
+
+      for (let s = 0; s < dayPins; s++) {
+        const hour = hours[s % hours.length];
+        const minute = (s * 7 + d * 13) % 60;
+        const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
+        // Round-robin through boards for even distribution
+        const board = boards[boardIndex % boards.length];
+        boardIndex++;
+
+        // Pillar rotation: skip if same board as last
+        if (settings.pillar_rotation && board.id === lastBoardId && boards.length > 1) {
+          boardIndex++;
+        }
+        const finalBoard = boards[(boardIndex - 1) % boards.length];
+        lastBoardId = finalBoard.id;
+
+        const product = products[(s + d) % products.length];
+        slots.push({ date, time, slotIndex: s, board: finalBoard, product });
+      }
     }
   }
 

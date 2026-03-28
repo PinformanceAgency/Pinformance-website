@@ -291,8 +291,10 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const days = body.days || 1; // Default to 1 day to stay within Vercel timeout
-      const contentResult = await runContentPipeline(org.id, days, anthropicApiKey);
+      const days = body.days || 1;
+      const contentMode = body.mode || "daily"; // "seed" = 5 pins per board, "daily" = 1 pin/day
+      const pinsPerBoard = body.pins_per_board || 5;
+      const contentResult = await runContentPipeline(org.id, days, anthropicApiKey, contentMode, pinsPerBoard);
 
       // Get created pins
       const { data: newPins } = await supabase
