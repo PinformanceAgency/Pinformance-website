@@ -563,11 +563,9 @@ export async function POST(request: NextRequest) {
     const rows = documents.map((doc: { title: string; description: string; type?: string; content?: string; url?: string }) => ({
       org_id: org.id,
       title: doc.title,
-      description: doc.description,
-      document_type: doc.type || "brand_asset",
-      content: doc.content || null,
-      url: doc.url || null,
-      status: "active",
+      description: `${doc.description}${doc.content ? "\n\n" + doc.content : ""}`,
+      file_url: doc.url || `text://${doc.type || "document"}`,
+      file_type: doc.type || "brand_asset",
     }));
     const { data, error } = await supabase.from("client_documents").insert(rows).select("id, title");
     return NextResponse.json({ success: !error, step: "save-documents", saved: data ?? [], error: error?.message });
