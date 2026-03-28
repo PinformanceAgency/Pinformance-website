@@ -52,14 +52,22 @@ export interface OrgSettings {
     video: number;
     carousel: number;
   };
+  min_post_interval_minutes?: number;
+  max_pins_per_day?: number;
+  weekend_boost?: boolean;
+  pillar_rotation?: boolean;
 }
 
 export const DEFAULT_ORG_SETTINGS: OrgSettings = {
-  pins_per_day: 7, // Pinterest ideal: 1 pin/day
+  pins_per_day: 1, // Pinterest doc: 1 pin/day ideal, 3-5/week minimum
   auto_approve: false,
-  timezone: "Europe/Amsterdam",
-  posting_hours: [17, 18, 19, 20, 21], // Pinterest optimal: evenings (peak engagement)
+  timezone: "America/New_York", // Pinterest peak hours based on US audience
+  posting_hours: [18, 19, 20, 21], // Pinterest optimal: evenings (peak engagement)
   content_mix: { static: 70, video: 20, carousel: 10 },
+  min_post_interval_minutes: 180, // 3 hours between posts to avoid spam detection
+  max_pins_per_day: 5, // Never exceed 50/day per doc, 5 is safe daily max
+  weekend_boost: true, // Post more on weekends (higher Pinterest engagement)
+  pillar_rotation: true, // Never post same content pillar back-to-back
 };
 
 export interface User {

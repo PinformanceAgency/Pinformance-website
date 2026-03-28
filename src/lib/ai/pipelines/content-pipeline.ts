@@ -101,21 +101,44 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
   const slots: ContentSlot[] = [];
   const today = new Date();
 
-  for (let d = 1; d <= days; d++) {
-    const date = format(addDays(today, d), "yyyy-MM-dd");
-    const pinsPerDay = settings.pins_per_day;
-    const hours = settings.posting_hours;
+  // Pinterest strategy rules (from Pinterest_Organic_Automation_Prompt.md):
+  // - 1 pin/day ideal, 3-5/week minimum
+  // - Spread across week, never batch-post multiple same day
+  // - Weekend boost: more engagement on Sat/Sun
+  // - Pillar rotation: never same content type back-to-back
+  // - Distribute across different boards
+  // - Post during peak hours (evenings for US audience)
+  const pinsPerDay = settings.pins_per_day || 1;
+  const hours = settings.posting_hours || [18, 19, 20, 21];
+  const weekendBoost = settings.weekend_boost ?? true;
 
-    for (let s = 0; s < pinsPerDay; s++) {
-      // Spread pins evenly across all posting hours
+  let lastBoardId = "";
+  for (let d = 1; d <= days; d++) {
+    const targetDate = addDays(today, d);
+    const date = format(targetDate, "yyyy-MM-dd");
+    const dayOfWeek = targetDate.getDay(); // 0=Sun, 6=Sat
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    // Weekend boost: post 1 extra pin on weekends (higher Pinterest engagement)
+    const dayPins = isWeekend && weekendBoost ? Math.min(pinsPerDay + 1, 3) : pinsPerDay;
+
+    for (let s = 0; s < dayPins; s++) {
+      // Spread pins evenly across posting hours
       const hour = hours[s % hours.length];
-      // Add randomized minutes for natural posting pattern (not all on the hour)
-      const minute = (s * 7 + d * 13) % 60; // Deterministic but varied
+      // Randomized minutes for natural posting pattern
+      const minute = (s * 7 + d * 13) % 60;
       const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
-      // Match products to boards by keyword relevance instead of round-robin
+      // Match products to boards, ensuring board rotation (pillar_rotation)
       const product = products[(s + d) % products.length];
-      const board = findBestBoardForProduct(boards, product, keywords);
+      let board = findBestBoardForProduct(boards, product, keywords);
+
+      // Pillar rotation: avoid posting to same board back-to-back
+      if (settings.pillar_rotation && board.id === lastBoardId && boards.length > 1) {
+        const altBoards = boards.filter((b) => b.id !== lastBoardId);
+        board = altBoards[(s + d) % altBoards.length];
+      }
+      lastBoardId = board.id;
 
       slots.push({ date, time, slotIndex: s, board, product });
     }

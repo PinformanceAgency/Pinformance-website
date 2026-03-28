@@ -82,7 +82,10 @@ async function handlePostPins(request: NextRequest) {
 
       if (lastPosted?.[0]?.posted_at) {
         const lastPostTime = new Date(lastPosted[0].posted_at).getTime();
-        const minInterval = 3 * 60_000; // 3 minutes between posts (avoids spam detection)
+        // Use org setting or default 180 min (3 hours) per Pinterest strategy doc
+        const orgSettings = org.settings as Record<string, unknown> || {};
+        const minIntervalMin = (orgSettings.min_post_interval_minutes as number) || 180;
+        const minInterval = minIntervalMin * 60_000;
         if (Date.now() - lastPostTime < minInterval) continue;
       }
 
