@@ -554,6 +554,25 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Save client documents for this org
+  if (step === "save-documents") {
+    const { documents } = body;
+    if (!documents?.length) {
+      return NextResponse.json({ error: "documents array is required" }, { status: 400 });
+    }
+    const rows = documents.map((doc: { title: string; description: string; type?: string; content?: string; url?: string }) => ({
+      org_id: org.id,
+      title: doc.title,
+      description: doc.description,
+      document_type: doc.type || "brand_asset",
+      content: doc.content || null,
+      url: doc.url || null,
+      status: "active",
+    }));
+    const { data, error } = await supabase.from("client_documents").insert(rows).select("id, title");
+    return NextResponse.json({ success: !error, step: "save-documents", saved: data ?? [], error: error?.message });
+  }
+
   // Reset onboarding for this org's users
   if (step === "reset-onboarding") {
     const targetStep = body.target_step ?? 0;
