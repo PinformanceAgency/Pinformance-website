@@ -86,7 +86,8 @@ export class PinterestClient {
     code: string,
     redirectUri: string,
     appId?: string,
-    appSecret?: string
+    appSecret?: string,
+    useSandbox = false
   ): Promise<PinterestTokens> {
     const effectiveAppId = appId || process.env.PINTEREST_APP_ID;
     const effectiveAppSecret = appSecret || process.env.PINTEREST_APP_SECRET;
@@ -94,7 +95,9 @@ export class PinterestClient {
       `${effectiveAppId}:${effectiveAppSecret}`
     ).toString("base64");
 
-    const res = await fetch(`${PINTEREST_API_PROD}/oauth/token`, {
+    // Trial access apps must use sandbox API for token exchange
+    const tokenUrl = useSandbox ? PINTEREST_API_SANDBOX : PINTEREST_API_PROD;
+    const res = await fetch(`${tokenUrl}/oauth/token`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${credentials}`,

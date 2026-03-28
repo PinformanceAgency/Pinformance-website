@@ -80,10 +80,11 @@ async function handlePostPins(request: NextRequest) {
         .order("posted_at", { ascending: false })
         .limit(1);
 
+      const orgSettings = (org.settings as Record<string, unknown>) || {};
+
       if (lastPosted?.[0]?.posted_at) {
         const lastPostTime = new Date(lastPosted[0].posted_at).getTime();
         // Use org setting or default 180 min (3 hours) per Pinterest strategy doc
-        const orgSettings = org.settings as Record<string, unknown> || {};
         const minIntervalMin = (orgSettings.min_post_interval_minutes as number) || 180;
         const minInterval = minIntervalMin * 60_000;
         if (Date.now() - lastPostTime < minInterval) continue;
@@ -96,7 +97,9 @@ async function handlePostPins(request: NextRequest) {
         .eq("id", pin.id);
 
       const token = decrypt(org.pinterest_access_token_encrypted);
-      const client = new PinterestClient(token);
+      // Use sandbox for Trial access orgs
+      const isTrial = (orgSettings.pinterest_access_tier as string) === "trial";
+      const client = new PinterestClient(token, isTrial);
 
       // Ensure link_url is a valid full URL
       let linkUrl = pin.link_url || undefined;

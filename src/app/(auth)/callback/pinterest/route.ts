@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const { data: orgData } = await admin
       .from("organizations")
-      .select("pinterest_app_id, pinterest_app_secret_encrypted")
+      .select("pinterest_app_id, pinterest_app_secret_encrypted, settings")
       .eq("id", orgId)
       .single();
 
@@ -41,9 +41,13 @@ export async function GET(request: NextRequest) {
       orgAppSecret = decrypt(orgData.pinterest_app_secret_encrypted);
     }
 
-    const tokens = await PinterestClient.exchangeCode(code, redirectUri, orgAppId, orgAppSecret);
+    // Check if org is on Trial access (needs sandbox API)
+    const orgSettings = (orgData?.settings as Record<string, unknown>) || {};
+    const isTrial = (orgSettings.pinterest_access_tier as string) === "trial";
 
-    const client = new PinterestClient(tokens.access_token);
+    const tokens = await PinterestClient.exchangeCode(code, redirectUri, orgAppId, orgAppSecret, isTrial);
+
+    const client = new PinterestClient(tokens.access_token, isTrial);
     const pinterestUser = await client.getUser();
 
     const expiresAt = new Date(
