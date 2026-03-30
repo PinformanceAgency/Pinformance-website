@@ -620,7 +620,26 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ error: "Invalid step. Use: diagnose, strategy, content, full, generate-image, approve-pin, post-pin, reset-onboarding" }, { status: 400 });
+  // ─── APPROVE ALL ───
+  if (step === "approve-all") {
+    const { data: updated, error: approveErr } = await supabase
+      .from("pins")
+      .update({ status: "approved", updated_at: new Date().toISOString() })
+      .eq("org_id", org.id)
+      .eq("status", "generated")
+      .not("image_url", "is", null)
+      .select("id, title, status");
+
+    return NextResponse.json({
+      success: !approveErr,
+      step: "approve-all",
+      approved_count: updated?.length || 0,
+      pins: updated?.map(p => ({ id: p.id, title: p.title?.substring(0, 50) })),
+      error: approveErr?.message,
+    });
+  }
+
+  return NextResponse.json({ error: "Invalid step. Use: diagnose, strategy, content, full, generate-image, approve-pin, approve-all, post-pin, reset-onboarding" }, { status: 400 });
 }
 
 function groupByStatus(pins: { status: string }[]): Record<string, number> {
