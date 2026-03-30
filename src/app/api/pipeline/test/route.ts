@@ -339,17 +339,18 @@ export async function POST(request: NextRequest) {
       const { data } = await supabase.from("pins").select("*").eq("id", pinId).eq("org_id", org.id).single();
       pin = data;
     } else {
-      const { data } = await supabase
+      // Use or filter since .in() can be unreliable with .single()
+      const { data, error: pinErr } = await supabase
         .from("pins")
         .select("*")
         .eq("org_id", org.id)
-        .in("status", ["generated", "scheduled", "approved"])
+        .or("status.eq.generated,status.eq.scheduled,status.eq.approved")
         .is("image_url", null)
         .not("generation_prompt", "is", null)
         .order("scheduled_at", { ascending: true })
-        .limit(1)
-        .single();
-      pin = data;
+        .limit(1);
+      pin = data?.[0] || null;
+      if (pinErr) console.error("Pin query error:", pinErr);
     }
 
     if (!pin) {
