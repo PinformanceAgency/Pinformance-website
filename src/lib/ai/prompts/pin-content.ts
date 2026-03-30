@@ -59,10 +59,11 @@ CRITICAL Pinterest SEO rules (these directly impact distribution):
    - NEVER start with the brand name — users don't search for your brand
 
 2. DESCRIPTION (max 500 chars):
+   - ALWAYS start the first sentence with the BRAND NAME — e.g. "Fit Cherries offers..." or "TobiosKits brings you..."
    - First 50 characters are MOST IMPORTANT — this is what shows in search results and feeds
-   - Put primary keyword in the first sentence, naturally
+   - Put primary keyword in the first sentence, naturally, right after brand name
    - Include 3-5 keywords woven into natural sentences (not comma lists)
-   - Add 2-3 hashtags at the end (#keyword format — Pinterest indexes these for search)
+   - Do NOT use hashtags — focus on strong keywords in natural sentences instead
    - End with a CTA that includes a keyword: "Shop [keyword] now" > generic "Click here"
    - Write in second person ("you", "your") — this converts 40% better on Pinterest
 
