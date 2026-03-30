@@ -4,12 +4,16 @@
   "outputDirectory": ".next",
   "crons": [
     {
-      "path": "/api/cron/post-pins",
+      "path": "/api/cron/daily",
       "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/pull-analytics",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/optimize-prompts",
+      "schedule": "0 3 * * 1"
     }
   ]
 }
