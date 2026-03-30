@@ -343,7 +343,7 @@ export async function POST(request: NextRequest) {
         .from("pins")
         .select("*")
         .eq("org_id", org.id)
-        .eq("status", "generated")
+        .in("status", ["generated", "scheduled", "approved"])
         .is("image_url", null)
         .not("generation_prompt", "is", null)
         .order("scheduled_at", { ascending: true })
