@@ -116,11 +116,7 @@ async function handleDaily(request: NextRequest) {
             : process.env.ANTHROPIC_API_KEY;
 
           if (anthropicKey) {
-            const result = await runContentPipeline(org.id, {
-              mode: "daily",
-              days: 7,
-              anthropicApiKey: anthropicKey,
-            });
+            const result = await runContentPipeline(org.id as string, 7, anthropicKey, "daily");
             totalGenerated += result.pinsCreated || 0;
             log(org.id, orgName, "generate_content", "success",
               `Generated ${result.pinsCreated} pins for next 7 days (queue was ${queueSize})`);
