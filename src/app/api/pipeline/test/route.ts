@@ -491,6 +491,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Failed to decrypt Pinterest token" }, { status: 500 });
     }
 
+    // Auto-refresh token if expired or about to expire
+    const tokenExpiry = org.pinterest_token_expires_at ? new Date(org.pinterest_token_expires_at) : null;
+    const isExpiredOrSoon = !tokenExpiry || tokenExpiry.getTime() - Date.now() < 5 * 60 * 1000; // 5 min buffer
+    if (isExpiredOrSoon && org.pinterest_refresh_token_encrypted) {
+      try {
+        const refreshToken = decrypt(org.pinterest_refresh_token_encrypted);
+        const newTokens = await PinterestClient.refreshToken(refreshToken);
+        accessToken = newTokens.access_token;
+        // Save refreshed tokens
+        const newExpiry = new Date(Date.now() + (newTokens.expires_in || 2592000) * 1000).toISOString();
+        await supabase.from("organizations").update({
+          pinterest_access_token_encrypted: encrypt(newTokens.access_token),
+          pinterest_refresh_token_encrypted: encrypt(newTokens.refresh_token),
+          pinterest_token_expires_at: newExpiry,
+          updated_at: new Date().toISOString(),
+        }).eq("id", org.id);
+      } catch (refreshErr) {
+        return NextResponse.json({ success: false, error: `Pinterest token refresh failed: ${refreshErr instanceof Error ? refreshErr.message : "unknown"}. Please reconnect Pinterest.` }, { status: 401 });
+      }
+    }
+
     // Use sandbox for Trial access orgs
     const useSandbox = body.sandbox !== false; // default to sandbox for test endpoint
     const pinterest = new PinterestClient(accessToken, useSandbox);
