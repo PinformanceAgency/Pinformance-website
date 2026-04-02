@@ -429,7 +429,7 @@ export async function POST(request: NextRequest) {
         .from("pins")
         .select("*")
         .eq("org_id", org.id)
-        .in("status", ["generated"])
+        .in("status", ["generated", "scheduled"])
         .not("image_url", "is", null)
         .order("scheduled_at", { ascending: true })
         .limit(1)
@@ -627,7 +627,7 @@ export async function POST(request: NextRequest) {
       .from("pins")
       .update({ status: "approved", updated_at: new Date().toISOString() })
       .eq("org_id", org.id)
-      .eq("status", "generated")
+      .in("status", ["generated", "scheduled"])
       .not("image_url", "is", null)
       .select("id, title, status");
 
