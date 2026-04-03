@@ -5,6 +5,7 @@ import { runStrategyPipeline } from "@/lib/ai/pipelines/strategy-pipeline";
 import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
 import { KreaClient } from "@/lib/krea/client";
 import { PinterestClient } from "@/lib/pinterest/client";
+import { ShopifyClient } from "@/lib/shopify/client";
 
 /**
  * Test/diagnostic endpoint for running the full pipeline for a specific org.
@@ -512,8 +513,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Use sandbox for Trial access orgs
-    const useSandbox = body.sandbox !== false; // default to sandbox for test endpoint
+    // Use production API by default (sandbox gives 401 with standard access tokens)
+    const useSandbox = body.sandbox === true;
     const pinterest = new PinterestClient(accessToken, useSandbox);
 
     try {
@@ -587,6 +588,49 @@ export async function POST(request: NextRequest) {
         step: "post-pin",
         error: err instanceof Error ? err.message : "Posting failed",
       }, { status: 500 });
+    }
+  }
+
+  // === SYNC-SHOPIFY: Sync products from Shopify ===
+  if (step === "sync-shopify") {
+    if (!org.shopify_domain || !org.shopify_access_token_encrypted) {
+      return NextResponse.json({ success: false, error: "Shopify not connected" }, { status: 400 });
+    }
+    let shopifyToken: string;
+    try {
+      shopifyToken = decrypt(org.shopify_access_token_encrypted);
+    } catch {
+      return NextResponse.json({ success: false, error: "Failed to decrypt Shopify token" }, { status: 500 });
+    }
+    const shopify = new ShopifyClient(org.shopify_domain, shopifyToken);
+    try {
+      const { products } = await shopify.getProducts();
+      let upserted = 0;
+      for (const product of products) {
+        const images = product.images?.map((img: { src: string; alt?: string; position?: number; id?: number }) => ({
+          url: img.src, alt: img.alt || "", position: img.position,
+        })) || [];
+        const variants = product.variants?.map((v: { title: string; price: string; sku?: string; image_id?: number }) => {
+          const variantImage = product.images?.find((img: { id?: number }) => img.id === v.image_id);
+          return { title: v.title, price: v.price, sku: v.sku || "", image_url: variantImage?.src || null };
+        }) || [];
+        const { error } = await supabase.from("products").upsert({
+          org_id: org.id,
+          shopify_product_id: String(product.id),
+          title: product.title,
+          description: product.body_html,
+          product_type: product.product_type || null,
+          vendor: product.vendor || null,
+          tags: product.tags ? product.tags.split(", ") : [],
+          images, variants,
+          status: product.status === "active" ? "active" : "inactive",
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "org_id,shopify_product_id" });
+        if (!error) upserted++;
+      }
+      return NextResponse.json({ success: true, step: "sync-shopify", synced: upserted, total: products.length, domain: org.shopify_domain });
+    } catch (err) {
+      return NextResponse.json({ success: false, step: "sync-shopify", error: err instanceof Error ? err.message : "Shopify sync failed" }, { status: 500 });
     }
   }
 
