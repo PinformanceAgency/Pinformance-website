@@ -607,13 +607,13 @@ export async function POST(request: NextRequest) {
       const { products } = await shopify.getProducts();
       let upserted = 0;
       for (const product of products) {
-        const images = product.images?.map((img: { src: string; alt?: string; position?: number; id?: number }) => ({
+        const images = (product.images || []).map((img) => ({
           url: img.src, alt: img.alt || "", position: img.position,
-        })) || [];
-        const variants = product.variants?.map((v: { title: string; price: string; sku?: string; image_id?: number }) => {
-          const variantImage = product.images?.find((img: { id?: number }) => img.id === v.image_id);
+        }));
+        const variants = (product.variants || []).map((v) => {
+          const variantImage = (product.images || []).find((img) => img.id === v.image_id);
           return { title: v.title, price: v.price, sku: v.sku || "", image_url: variantImage?.src || null };
-        }) || [];
+        });
         const { error } = await supabase.from("products").upsert({
           org_id: org.id,
           shopify_product_id: String(product.id),
