@@ -7,7 +7,7 @@ export class ShopifyClient {
     private domain: string,
     private accessToken: string
   ) {
-    this.baseUrl = `https://${domain}/admin/api/2024-01`;
+    this.baseUrl = `https://${domain}/admin/api/2025-01`;
   }
 
   private async request<T>(path: string): Promise<T> {
