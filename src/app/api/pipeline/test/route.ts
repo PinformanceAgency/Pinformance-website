@@ -633,7 +633,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, step: "sync-shopify", error: `Upsert failed: ${error.message}`, detail: error, product_title: product.title, product_status: product.status, total: products.length });
         }
       }
-      return NextResponse.json({ success: true, step: "sync-shopify", synced: upserted, total: products.length, domain: org.shopify_domain });
+      return NextResponse.json({ success: true, step: "sync-shopify", synced: upserted, total: products.length, domain: org.shopify_domain, version: "v3" });
     } catch (err) {
       return NextResponse.json({ success: false, step: "sync-shopify", error: err instanceof Error ? err.message : "Shopify sync failed" }, { status: 500 });
     }
