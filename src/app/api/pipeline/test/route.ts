@@ -541,18 +541,23 @@ export async function POST(request: NextRequest) {
 
       // Ensure link_url is a valid full URL
       let linkUrl = pin.link_url || undefined;
+      // Always prefer brand website over myshopify.com domain
+      const { data: bp } = await supabase
+        .from("brand_profiles")
+        .select("raw_data")
+        .eq("org_id", org.id)
+        .single();
+      const brandWebsite = bp?.raw_data?.website || bp?.raw_data?.landing_page;
       if (linkUrl && !linkUrl.startsWith("http")) {
-        // Use Shopify domain if available, otherwise brand website
-        if (org.shopify_domain) {
+        if (brandWebsite) {
+          linkUrl = `${brandWebsite.replace(/\/$/, "")}${linkUrl.startsWith("/") ? "" : "/"}${linkUrl}`;
+        } else if (org.shopify_domain) {
           linkUrl = `https://${org.shopify_domain}${linkUrl.startsWith("/") ? "" : "/"}${linkUrl}`;
-        } else {
-          const { data: bp } = await supabase
-            .from("brand_profiles")
-            .select("raw_data")
-            .eq("org_id", org.id)
-            .single();
-          linkUrl = bp?.raw_data?.website || bp?.raw_data?.landing_page || undefined;
         }
+      } else if (linkUrl && linkUrl.includes(".myshopify.com") && brandWebsite) {
+        // Replace myshopify.com URLs with real brand domain
+        const path = new URL(linkUrl).pathname;
+        linkUrl = `${brandWebsite.replace(/\/$/, "")}${path}`;
       }
 
       // Post to Pinterest
