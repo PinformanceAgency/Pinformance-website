@@ -248,8 +248,23 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
       .filter((r): r is PromiseFulfilledResult<{ slot: ContentSlot; pinContent: PinContentOutput; imagePrompt: ImagePromptOutput }> => r.status === "fulfilled")
       .map((r) => r.value);
 
+    // Build product URL lookup from Shopify domain
+    const shopifyDomain = org.shopify_domain;
+
     // Save pins and calendar entries
     for (const { slot, pinContent, imagePrompt } of results) {
+      // Use real Shopify product URL if available
+      let linkUrl = pinContent.link_url;
+      if (shopifyDomain && slot.product.shopify_product_id) {
+        // Build URL from product title slug
+        const handle = slot.product.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        linkUrl = `https://${shopifyDomain}/products/${handle}`;
+      } else if (linkUrl && !linkUrl.startsWith("http")) {
+        // Fallback: prepend domain if link is relative
+        const website = brandProfile?.raw_data?.website;
+        if (website) linkUrl = `${website.replace(/\/$/, "")}${linkUrl.startsWith("/") ? "" : "/"}${linkUrl}`;
+      }
+
       const { data: pin } = await supabase
         .from("pins")
         .insert({
@@ -259,7 +274,7 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
           title: pinContent.title,
           description: pinContent.description,
           alt_text: pinContent.alt_text,
-          link_url: pinContent.link_url,
+          link_url: linkUrl,
           keywords: pinContent.keywords,
           pin_type: "static",
           status: settings.auto_approve ? "scheduled" : "generated",
