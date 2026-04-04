@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createPinOverlay } from "@/lib/image/overlay";
+import { renderPinCreative, type PinTemplate } from "@/lib/image/pin-templates";
 
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
-  // Auth via cron secret
   const cronSecret = request.headers.get("x-cron-secret");
   const expectedSecret = process.env.CRON_SECRET || process.env.CRON_SET;
   if (!cronSecret || cronSecret !== expectedSecret) {
@@ -13,7 +12,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { pin_id, text_lines, style, position } = body;
+  const { pin_id, text_lines, template, review_author, review_title, accent_color } = body;
 
   if (!pin_id) {
     return NextResponse.json({ error: "pin_id is required" }, { status: 400 });
@@ -21,10 +20,9 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // Get pin with product and org data
   const { data: pin } = await supabase
     .from("pins")
-    .select("*, products(*), boards(*)")
+    .select("*, products(*)")
     .eq("id", pin_id)
     .single();
 
@@ -32,37 +30,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Pin not found" }, { status: 404 });
   }
 
-  // Get org for brand name
   const { data: org } = await supabase
     .from("organizations")
     .select("name")
     .eq("id", pin.org_id)
     .single();
 
-  // Get product image URL
+  // Get source product image
   const productImages = (pin.products?.images || []) as { url: string }[];
-  const sourceImageUrl = pin.image_url || productImages[0]?.url;
+  const sourceImageUrl = productImages[0]?.url || pin.image_url;
 
   if (!sourceImageUrl) {
-    return NextResponse.json({ error: "No source image available for this pin" }, { status: 400 });
+    return NextResponse.json({ error: "No product image found" }, { status: 400 });
   }
 
-  // Use provided text lines or generate from pin content
-  const overlayText = text_lines || [
-    pin.products?.title || pin.title,
-  ];
+  const overlayText = text_lines || [pin.title];
 
   try {
-    const result = await createPinOverlay({
-      imageUrl: sourceImageUrl,
+    const result = await renderPinCreative({
+      template: (template || "bullets") as PinTemplate,
+      productImageUrl: sourceImageUrl,
+      brandName: org?.name || "TobiosKits",
       textLines: overlayText,
-      brandName: org?.name,
-      style: style || "bullets",
-      position: position || "top",
+      reviewAuthor: review_author,
+      reviewTitle: review_title,
+      accentColor: accent_color,
     });
 
     // Upload to Supabase storage
-    const fileName = `${pin.org_id}/pins/${pin.id}-overlay.jpg`;
+    const fileName = `${pin.org_id}/pins/${pin.id}-creative.jpg`;
     const { error: uploadError } = await supabase.storage
       .from("pin-images")
       .upload(fileName, result.buffer, {
@@ -78,7 +74,6 @@ export async function POST(request: NextRequest) {
       .from("pin-images")
       .getPublicUrl(fileName);
 
-    // Update pin with new overlay image
     await supabase.from("pins").update({
       image_url: urlData.publicUrl,
       updated_at: new Date().toISOString(),
@@ -88,12 +83,13 @@ export async function POST(request: NextRequest) {
       success: true,
       pin_id: pin.id,
       image_url: urlData.publicUrl,
+      template,
       text_lines: overlayText,
-      style,
     });
   } catch (err) {
     return NextResponse.json({
-      error: err instanceof Error ? err.message : "Overlay creation failed",
+      error: err instanceof Error ? err.message : "Creative generation failed",
+      stack: err instanceof Error ? err.stack?.split("\n").slice(0, 3) : undefined,
     }, { status: 500 });
   }
 }
