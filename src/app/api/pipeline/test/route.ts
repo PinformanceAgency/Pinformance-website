@@ -677,12 +677,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "reset-pins", results });
   }
 
-  // === UPDATE-PIN-IMAGE: Directly set image_url on a pin ===
+  // === UPDATE-PIN-IMAGE: Download external image, upload to Supabase, update pin ===
   if (step === "update-pin-image") {
     const { pin_id, image_url } = body;
     if (!pin_id || !image_url) return NextResponse.json({ error: "pin_id and image_url required" }, { status: 400 });
-    const { error } = await supabase.from("pins").update({ image_url, updated_at: new Date().toISOString() }).eq("id", pin_id).eq("org_id", org.id);
-    return NextResponse.json({ success: !error, step: "update-pin-image", pin_id, error: error?.message });
+
+    try {
+      // Download the image
+      const imgRes = await fetch(image_url);
+      if (!imgRes.ok) throw new Error(`Failed to download: ${imgRes.status}`);
+      const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+      const ext = image_url.includes(".png") ? "png" : "jpg";
+      const contentType = ext === "png" ? "image/png" : "image/jpeg";
+
+      // Upload to Supabase storage
+      const filePath = `${org.id}/pins/${pin_id}.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from("pin-images")
+        .upload(filePath, imgBuffer, { contentType, upsert: true });
+      if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`);
+
+      const { data: urlData } = supabase.storage.from("pin-images").getPublicUrl(filePath);
+
+      // Update pin with permanent Supabase URL
+      const { error } = await supabase.from("pins")
+        .update({ image_url: urlData.publicUrl, updated_at: new Date().toISOString() })
+        .eq("id", pin_id).eq("org_id", org.id);
+
+      return NextResponse.json({ success: !error, step: "update-pin-image", pin_id, image_url: urlData.publicUrl, error: error?.message });
+    } catch (err) {
+      return NextResponse.json({ success: false, step: "update-pin-image", error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
+    }
   }
 
   // === SET-PRODUCT-FILTER: Archive all products except specified ones ===
