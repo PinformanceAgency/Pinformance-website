@@ -677,6 +677,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "reset-pins", results });
   }
 
+  // === UPDATE-PIN-IMAGE: Directly set image_url on a pin ===
+  if (step === "update-pin-image") {
+    const { pin_id, image_url } = body;
+    if (!pin_id || !image_url) return NextResponse.json({ error: "pin_id and image_url required" }, { status: 400 });
+    const { error } = await supabase.from("pins").update({ image_url, updated_at: new Date().toISOString() }).eq("id", pin_id).eq("org_id", org.id);
+    return NextResponse.json({ success: !error, step: "update-pin-image", pin_id, error: error?.message });
+  }
+
   // === SET-PRODUCT-FILTER: Archive all products except specified ones ===
   if (step === "set-product-filter") {
     const { keep_titles } = body;
