@@ -628,9 +628,9 @@ export async function POST(request: NextRequest) {
         }, { onConflict: "org_id,shopify_product_id" });
         if (!error) {
           upserted++;
-        } else if (upserted === 0) {
+        } else {
           // Return first error for debugging
-          return NextResponse.json({ success: false, step: "sync-shopify", error: `Upsert failed: ${error.message}`, detail: error, product_title: product.title, total: products.length });
+          return NextResponse.json({ success: false, step: "sync-shopify", error: `Upsert failed: ${error.message}`, detail: error, product_title: product.title, product_status: product.status, total: products.length });
         }
       }
       return NextResponse.json({ success: true, step: "sync-shopify", synced: upserted, total: products.length, domain: org.shopify_domain });
