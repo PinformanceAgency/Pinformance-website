@@ -626,7 +626,12 @@ export async function POST(request: NextRequest) {
           status: product.status === "active" ? "active" : "inactive",
           updated_at: new Date().toISOString(),
         }, { onConflict: "org_id,shopify_product_id" });
-        if (!error) upserted++;
+        if (!error) {
+          upserted++;
+        } else if (upserted === 0) {
+          // Return first error for debugging
+          return NextResponse.json({ success: false, step: "sync-shopify", error: `Upsert failed: ${error.message}`, detail: error, product_title: product.title, total: products.length });
+        }
       }
       return NextResponse.json({ success: true, step: "sync-shopify", synced: upserted, total: products.length, domain: org.shopify_domain });
     } catch (err) {
