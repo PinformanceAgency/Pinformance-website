@@ -86,6 +86,43 @@ export class KreaClient {
     };
   }
 
+  /**
+   * Generate image using Flux Kontext (image-to-image).
+   * Takes a real product photo as input and creates a styled lifestyle scene
+   * while preserving the actual product appearance.
+   */
+  async generateKontext(data: {
+    prompt: string;
+    imageUrl: string;
+    width?: number;
+    height?: number;
+    strength?: number;
+    steps?: number;
+  }): Promise<KreaTaskResponse> {
+    const response = await this.request<{
+      job_id: string;
+      status: string;
+      created_at: string;
+    }>("/generate/image/bfl/flux-1-kontext-dev", {
+      method: "POST",
+      body: JSON.stringify({
+        prompt: data.prompt,
+        imageUrl: data.imageUrl,
+        width: data.width || 1000,
+        height: data.height || 1500,
+        strength: data.strength ?? 0.65,
+        steps: data.steps || 25,
+        guidance_scale_flux: 4,
+      }),
+    });
+
+    return {
+      id: response.job_id,
+      task_id: response.job_id,
+      status: response.status === "completed" ? "completed" : "pending",
+    };
+  }
+
   async validateKey(): Promise<boolean> {
     try {
       // Generate a tiny test image to validate key

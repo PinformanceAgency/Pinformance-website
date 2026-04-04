@@ -90,7 +90,8 @@ export async function POST(request: NextRequest) {
     products: {
       count: productsRes.data?.length || 0,
       active: productsRes.data?.filter((p) => p.status === "active").length || 0,
-      items: productsRes.data?.slice(0, 5) || [],
+      items: productsRes.data?.slice(0, 5).map(p => ({ ...p, images: (p.images as unknown[])?.slice(0, 3) })) || [],
+      watercolor_products: productsRes.data?.filter(p => p.title?.toLowerCase().includes("watercolor") || p.title?.toLowerCase().includes("tobio")).map(p => ({ id: p.id, title: p.title, shopify_product_id: p.shopify_product_id, image_count: (p.images as unknown[])?.length || 0, first_image: (p.images as { url: string }[])?.[0]?.url })) || [],
       message: !productsRes.data?.length ? "NO PRODUCTS — content pipeline will fail. Add products manually or connect Shopify." : "OK",
     },
     boards: {
