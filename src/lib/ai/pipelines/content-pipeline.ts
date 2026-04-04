@@ -265,6 +265,11 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
         if (website) linkUrl = `${website.replace(/\/$/, "")}${linkUrl.startsWith("/") ? "" : "/"}${linkUrl}`;
       }
 
+      // Use real Shopify product image if available, skip AI image generation
+      const productImages = slot.product.images as { url: string; alt: string }[] || [];
+      const hasRealImage = productImages.length > 0 && productImages[0].url;
+      const realImageUrl = hasRealImage ? productImages[0].url : null;
+
       const { data: pin } = await supabase
         .from("pins")
         .insert({
@@ -277,8 +282,9 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
           link_url: linkUrl,
           keywords: pinContent.keywords,
           pin_type: "static",
+          image_url: realImageUrl,
           status: settings.auto_approve ? "scheduled" : "generated",
-          generation_prompt: imagePrompt.prompt,
+          generation_prompt: hasRealImage ? null : imagePrompt.prompt,
           scheduled_at: fromZonedTime(`${slot.date}T${slot.time}:00`, settings.timezone || "UTC").toISOString(),
         })
         .select("id")
