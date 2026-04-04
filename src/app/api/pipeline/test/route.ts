@@ -676,6 +676,42 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "reset-pins", results });
   }
 
+  // === SET-PRODUCT-FILTER: Archive all products except specified ones ===
+  if (step === "set-product-filter") {
+    const { keep_titles } = body;
+    if (!keep_titles?.length) return NextResponse.json({ error: "keep_titles array required" }, { status: 400 });
+
+    // Get all products for this org
+    const { data: allProducts } = await supabase.from("products").select("id, title").eq("org_id", org.id);
+    if (!allProducts) return NextResponse.json({ error: "No products found" }, { status: 404 });
+
+    const keepLower = (keep_titles as string[]).map((t: string) => t.toLowerCase());
+    const toArchive: string[] = [];
+    const toKeep: string[] = [];
+
+    for (const p of allProducts) {
+      const matches = keepLower.some((kt: string) => p.title.toLowerCase().includes(kt));
+      if (matches) {
+        toKeep.push(p.id);
+      } else {
+        toArchive.push(p.id);
+      }
+    }
+
+    if (toArchive.length) {
+      await supabase.from("products").update({ status: "archived" }).in("id", toArchive);
+    }
+    if (toKeep.length) {
+      await supabase.from("products").update({ status: "active" }).in("id", toKeep);
+    }
+
+    return NextResponse.json({
+      success: true, step: "set-product-filter",
+      active: toKeep.length, archived: toArchive.length,
+      active_products: allProducts.filter(p => toKeep.includes(p.id)).map(p => p.title),
+    });
+  }
+
   // Reset onboarding for this org's users
   if (step === "reset-onboarding") {
     const targetStep = body.target_step ?? 0;
