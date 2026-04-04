@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   // === DIAGNOSE: Check what data exists ===
   const [brandRes, productsRes, boardsRes, keywordsRes, pinsRes, feedbackRes] = await Promise.all([
     supabase.from("brand_profiles").select("*").eq("org_id", org.id).single(),
-    supabase.from("products").select("id, title, status, product_type, tags, collections").eq("org_id", org.id),
+    supabase.from("products").select("id, title, status, product_type, tags, collections, images, shopify_product_id").eq("org_id", org.id),
     supabase.from("boards").select("id, name, status, keywords, category").eq("org_id", org.id),
     supabase.from("keywords").select("id, keyword, category, performance_score").eq("org_id", org.id).limit(20),
     supabase.from("pins").select("id, title, status, board_id, scheduled_at, generation_prompt, image_url").eq("org_id", org.id).order("created_at", { ascending: false }).limit(20),

@@ -5,7 +5,6 @@
  */
 
 import satori from "satori";
-import { Resvg } from "@resvg/resvg-js";
 import sharp from "sharp";
 
 // ─── Types ───
@@ -486,15 +485,11 @@ export async function renderPinCreative(input: PinCreativeInput): Promise<PinCre
     ],
   });
 
-  // Convert SVG to high-quality PNG via resvg
-  const resvg = new Resvg(svg, {
-    fitTo: { mode: "width", value: WIDTH },
-  });
-  const pngData = resvg.render();
-  const pngBuffer = pngData.asPng();
-
-  // Convert to JPEG for smaller file size
-  const jpegBuffer = await sharp(pngBuffer).jpeg({ quality: 92 }).toBuffer();
+  // Convert SVG to JPEG via sharp (compatible with Vercel/Turbopack)
+  const jpegBuffer = await sharp(Buffer.from(svg))
+    .resize(WIDTH, HEIGHT)
+    .jpeg({ quality: 92 })
+    .toBuffer();
 
   return {
     buffer: jpegBuffer,
