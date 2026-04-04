@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { renderPinCreative, type PinTemplate } from "@/lib/image/pin-templates";
+import { renderPinCreative, suggestTemplate, type PinTemplate } from "@/lib/image/pin-templates";
 
 export const maxDuration = 60;
 
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { pin_id, text_lines, template, review_author, review_title, accent_color } = body;
+  const { pin_id, text_lines, template, review_author, review_title, accent_color, stat_number } = body;
 
   if (!pin_id) {
     return NextResponse.json({ error: "pin_id is required" }, { status: 400 });
@@ -46,15 +46,24 @@ export async function POST(request: NextRequest) {
 
   const overlayText = text_lines || [pin.title];
 
+  // Auto-suggest template if none provided, using pin metadata
+  const visualStyle = pin.generation_prompt ? "lifestyle" : "hero";
+  const resolvedTemplate: PinTemplate = template || suggestTemplate(
+    visualStyle,
+    (pin.title || "").substring(0, 50),
+    overlayText
+  );
+
   try {
     const result = await renderPinCreative({
-      template: (template || "bullets") as PinTemplate,
+      template: resolvedTemplate,
       productImageUrl: sourceImageUrl,
       brandName: org?.name || "TobiosKits",
       textLines: overlayText,
       reviewAuthor: review_author,
       reviewTitle: review_title,
       accentColor: accent_color,
+      statNumber: stat_number,
     });
 
     // Upload to Supabase storage
@@ -83,7 +92,7 @@ export async function POST(request: NextRequest) {
       success: true,
       pin_id: pin.id,
       image_url: urlData.publicUrl,
-      template,
+      template: resolvedTemplate,
       text_lines: overlayText,
     });
   } catch (err) {

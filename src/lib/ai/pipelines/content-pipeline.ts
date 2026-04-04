@@ -3,6 +3,7 @@ import { generateJSON } from "@/lib/ai/client";
 import { pinContentPrompts, type PinContentOutput } from "@/lib/ai/prompts/pin-content";
 import { imagePromptPrompts, type ImagePromptOutput } from "@/lib/ai/prompts/image-prompt";
 import type { OrgSettings, Product, Board, FeedbackRule } from "@/lib/types";
+import { suggestTemplate } from "@/lib/image/pin-templates";
 import { addDays, format } from "date-fns";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 
