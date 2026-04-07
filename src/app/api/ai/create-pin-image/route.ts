@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { renderPinCreative, suggestTemplate, type PinTemplate } from "@/lib/image/pin-templates";
+import { KreaClient } from "@/lib/krea/client";
+import { decrypt } from "@/lib/encryption";
 
-export const maxDuration = 60;
+export const maxDuration = 120; // Krea generation can take up to 60s
 
 export async function POST(request: NextRequest) {
   const cronSecret = request.headers.get("x-cron-secret");
@@ -12,7 +14,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { pin_id, text_lines, template, review_author, review_title, accent_color, stat_number } = body;
+  const { pin_id, text_lines, template, review_author, review_title, accent_color, stat_number, skip_krea } = body;
 
   if (!pin_id) {
     return NextResponse.json({ error: "pin_id is required" }, { status: 400 });
@@ -32,7 +34,7 @@ export async function POST(request: NextRequest) {
 
   const { data: org } = await supabase
     .from("organizations")
-    .select("name")
+    .select("name, krea_api_key_encrypted")
     .eq("id", pin.org_id)
     .single();
 
@@ -49,50 +51,94 @@ export async function POST(request: NextRequest) {
     image_urls: string[];
   }[];
 
-  // Pick image: prefer reference images for this product, then any reference image, then product default
+  // Pick a reference image for this product
   const productImages = (pin.products?.images || []) as { url: string }[];
-  let sourceImageUrl: string | null = null;
+  let referenceImageUrl: string | null = null;
 
-  // 1. Check reference images for this specific product
   const productRef = referenceImages.find((ri) => ri.product_id === pin.product_id);
   if (productRef && productRef.image_urls.length > 0) {
-    // Rotate through selected reference images
     const idx = Math.floor(Math.random() * productRef.image_urls.length);
-    sourceImageUrl = productRef.image_urls[idx];
+    referenceImageUrl = productRef.image_urls[idx];
   }
-
-  // 2. Fall back to any reference image from any product
-  if (!sourceImageUrl) {
+  if (!referenceImageUrl) {
     const allRefUrls = referenceImages.flatMap((ri) => ri.image_urls);
     if (allRefUrls.length > 0) {
-      const idx = Math.floor(Math.random() * allRefUrls.length);
-      sourceImageUrl = allRefUrls[idx];
+      referenceImageUrl = allRefUrls[Math.floor(Math.random() * allRefUrls.length)];
     }
   }
-
-  // 3. Fall back to product's first image
-  if (!sourceImageUrl) {
-    sourceImageUrl = productImages[0]?.url || pin.image_url;
+  if (!referenceImageUrl) {
+    referenceImageUrl = productImages[0]?.url || pin.image_url;
   }
 
-  if (!sourceImageUrl) {
+  if (!referenceImageUrl) {
     return NextResponse.json({ error: "No product image found" }, { status: 400 });
   }
 
   const overlayText = text_lines || [pin.title];
-
-  // Auto-suggest template if none provided, using pin metadata
-  const visualStyle = pin.generation_prompt ? "lifestyle" : "hero";
   const resolvedTemplate: PinTemplate = template || suggestTemplate(
-    visualStyle,
+    "lifestyle",
     (pin.title || "").substring(0, 50),
     overlayText
   );
 
+  // Get Krea API key
+  let kreaKey: string | null = null;
+  if (org?.krea_api_key_encrypted) {
+    try { kreaKey = decrypt(org.krea_api_key_encrypted); } catch { /* fallback */ }
+  }
+  if (!kreaKey && process.env.KREA_API_KEY) {
+    kreaKey = process.env.KREA_API_KEY;
+  }
+
+  let finalImageUrl = referenceImageUrl;
+
+  // Use Krea Kontext to generate a new lifestyle image if key available and not skipped
+  if (kreaKey && !skip_krea) {
+    try {
+      const krea = new KreaClient(kreaKey);
+      const productTitle = pin.products?.title || "watercolor kit";
+
+      // Build a lifestyle scene prompt based on the product
+      const scenePrompt = buildLifestylePrompt(productTitle, overlayText[0] || "");
+
+      console.log(`[CreatePinImage] Generating Krea Kontext image for pin ${pin_id}`);
+      console.log(`[CreatePinImage] Reference image: ${referenceImageUrl}`);
+      console.log(`[CreatePinImage] Prompt: ${scenePrompt.substring(0, 200)}...`);
+
+      const job = await krea.generateKontext({
+        prompt: scenePrompt,
+        imageUrl: referenceImageUrl,
+        width: 1000,
+        height: 1500,
+        strength: 0.55, // Keep product recognizable but restyle the scene
+        steps: 28,
+      });
+
+      // Poll for completion (max 90 seconds)
+      let result = await krea.getTaskStatus(job.id);
+      let attempts = 0;
+      while (result.status !== "completed" && result.status !== "failed" && attempts < 30) {
+        await new Promise((r) => setTimeout(r, 3000));
+        result = await krea.getTaskStatus(job.id);
+        attempts++;
+      }
+
+      if (result.status === "completed" && result.result?.url) {
+        finalImageUrl = result.result.url;
+        console.log(`[CreatePinImage] Krea generated: ${finalImageUrl}`);
+      } else {
+        console.warn(`[CreatePinImage] Krea failed after ${attempts} attempts, using reference image`);
+      }
+    } catch (err) {
+      console.error(`[CreatePinImage] Krea error:`, err instanceof Error ? err.message : err);
+      // Fall back to reference image with overlay
+    }
+  }
+
   try {
     const result = await renderPinCreative({
       template: resolvedTemplate,
-      productImageUrl: sourceImageUrl,
+      productImageUrl: finalImageUrl,
       brandName: org?.name || "TobiosKits",
       textLines: overlayText,
       reviewAuthor: review_author,
@@ -129,6 +175,8 @@ export async function POST(request: NextRequest) {
       image_url: urlData.publicUrl,
       template: resolvedTemplate,
       text_lines: overlayText,
+      krea_used: kreaKey && !skip_krea ? true : false,
+      reference_image: referenceImageUrl,
     });
   } catch (err) {
     return NextResponse.json({
@@ -136,4 +184,22 @@ export async function POST(request: NextRequest) {
       stack: err instanceof Error ? err.stack?.split("\n").slice(0, 3) : undefined,
     }, { status: 500 });
   }
+}
+
+/**
+ * Build a lifestyle scene prompt for Krea Kontext.
+ * The product in the reference image is preserved (Kontext keeps it),
+ * but the scene/environment is restyled.
+ */
+function buildLifestylePrompt(productTitle: string, pinTopic: string): string {
+  // Variety of lifestyle scenes that work well for watercolor/art products on Pinterest
+  const scenes = [
+    `Professional product photography of a ${productTitle} arranged on a warm wooden table with soft natural window light. Cozy lifestyle setting with scattered watercolor paintings, a cup of coffee, dried flowers, and art supplies. Overhead flat lay composition. Clean, bright, Pinterest-style aspirational photo. 2:3 vertical format.`,
+    `Beautiful lifestyle flat lay of a ${productTitle} on a marble surface surrounded by finished watercolor paintings, brushes, and a glass of water. Soft morning light from the side. Warm, inviting creative workspace. High-end product photography for Pinterest. 2:3 vertical.`,
+    `Cozy creative workspace with ${productTitle} as the hero product. Wooden desk, watercolor paintings spread out, paint palette with mixed colors, water brush in hand. Natural daylight, warm tones. Aspirational lifestyle photography. Pinterest-optimized vertical composition.`,
+    `Artistic overhead shot of ${productTitle} on a linen cloth with watercolor art cards spread around it. Eucalyptus sprigs, coffee cup, and art supplies as props. Soft diffused lighting. Clean, modern, Pinterest aesthetic. Professional product photography.`,
+    `Lifestyle product photo of ${productTitle} in a real creative setting. Person painting with the kit at a sunlit desk. Watercolor paintings visible, art supplies arranged naturally. Warm, encouraging atmosphere. High quality DSLR photography style.`,
+  ];
+
+  return scenes[Math.floor(Math.random() * scenes.length)];
 }
