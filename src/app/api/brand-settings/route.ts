@@ -30,7 +30,7 @@ export async function GET() {
   const admin = createAdminClient();
   const { data: brand, error } = await admin
     .from("brand_profiles")
-    .select("brand_voice, structured_data")
+    .select("brand_voice, raw_data")
     .eq("org_id", orgId)
     .single();
 
@@ -38,12 +38,12 @@ export async function GET() {
     return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
   }
 
-  const sd = (brand?.structured_data || {}) as Record<string, unknown>;
+  const rd = (brand?.raw_data || {}) as Record<string, unknown>;
 
   return NextResponse.json({
     brand_voice: brand?.brand_voice || "",
-    custom_prompts: sd.custom_prompts || {},
-    reference_images: sd.reference_images || [],
+    custom_prompts: rd.custom_prompts || {},
+    reference_images: rd.reference_images || [],
   });
 }
 
@@ -56,21 +56,21 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Get current structured_data to merge
+  // Get current raw_data to merge (using raw_data since structured_data column may not exist)
   const { data: current } = await admin
     .from("brand_profiles")
-    .select("structured_data")
+    .select("raw_data")
     .eq("org_id", orgId)
     .single();
 
-  const currentData = ((current?.structured_data || {}) as Record<string, unknown>);
+  const currentData = ((current?.raw_data || {}) as Record<string, unknown>);
   const newData = { ...currentData };
 
   if (custom_prompts !== undefined) newData.custom_prompts = custom_prompts;
   if (reference_images !== undefined) newData.reference_images = reference_images;
 
   const updatePayload: Record<string, unknown> = {
-    structured_data: newData,
+    raw_data: newData,
     updated_at: new Date().toISOString(),
   };
   if (brand_voice !== undefined) updatePayload.brand_voice = brand_voice;

@@ -170,15 +170,16 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
   console.log(`[ContentPipeline] mode=${mode}, pinsPerBoard=${pinsPerBoard}, days=${days}, boards=${boards.length}, products=${products.length}, slots=${slots.length}`);
 
   const brandName = org.name;
-  const websiteUrl = brandProfile?.raw_data?.website || "";
-  const brandVoice = brandProfile?.structured_data?.brand_voice || brandProfile?.brand_voice || "";
-  const brandStyle = brandProfile?.structured_data?.brand_style || {};
-  const customPrompts = brandProfile?.structured_data?.custom_prompts as {
+  const rawData = brandProfile?.raw_data || {};
+  const websiteUrl = rawData?.website || "";
+  const brandVoice = brandProfile?.brand_voice || rawData?.brand_voice || "";
+  const brandStyle = rawData?.brand_style || {};
+  const customPrompts = rawData?.custom_prompts as {
     pin_content?: string;
     image_generation?: string;
     template_preference?: string;
   } | null;
-  const referenceImages = (brandProfile?.structured_data?.reference_images || []) as {
+  const referenceImages = (rawData?.reference_images || []) as {
     product_id: string;
     image_urls: string[];
   }[];
