@@ -45,6 +45,7 @@ export async function GET() {
     custom_prompts: rd.custom_prompts || {},
     reference_images: rd.reference_images || [],
     custom_screenshots: rd.custom_screenshots || [],
+    clean_products: rd.clean_products || [],
   });
 }
 
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
   if (!orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
-  const { brand_voice, custom_prompts, reference_images, custom_screenshots } = body;
+  const { brand_voice, custom_prompts, reference_images, custom_screenshots, clean_products } = body;
 
   const admin = createAdminClient();
 
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
   if (custom_prompts !== undefined) newData.custom_prompts = custom_prompts;
   if (reference_images !== undefined) newData.reference_images = reference_images;
   if (custom_screenshots !== undefined) newData.custom_screenshots = custom_screenshots;
+  if (clean_products !== undefined) newData.clean_products = clean_products;
 
   const updatePayload: Record<string, unknown> = {
     raw_data: newData,

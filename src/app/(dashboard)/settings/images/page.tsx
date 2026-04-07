@@ -55,6 +55,8 @@ export default function ImagesPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [processingBg, setProcessingBg] = useState<string | null>(null);
+  const [cleanProducts, setCleanProducts] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"custom" | "shopify">("custom");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -84,7 +86,34 @@ export default function ImagesPage() {
       if (data.custom_screenshots?.length) {
         setCustomScreenshots(data.custom_screenshots as string[]);
       }
+      if (data.clean_products?.length) {
+        setCleanProducts(data.clean_products as string[]);
+      }
     }
+  }
+
+  async function handleRemoveBackground(screenshotUrl: string) {
+    setProcessingBg(screenshotUrl);
+    try {
+      const res = await fetch("/api/ai/remove-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_url: screenshotUrl }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.clean_image_url) {
+          setCleanProducts([...cleanProducts, data.clean_image_url]);
+        }
+      }
+    } catch {
+      // silently fail
+    }
+    setProcessingBg(null);
+  }
+
+  function removeCleanProduct(url: string) {
+    setCleanProducts(cleanProducts.filter((u) => u !== url));
   }
 
   async function handleUploadScreenshot(e: React.ChangeEvent<HTMLInputElement>) {
@@ -172,6 +201,7 @@ export default function ImagesPage() {
       body: JSON.stringify({
         reference_images: referenceImages,
         custom_screenshots: customScreenshots,
+        clean_products: cleanProducts,
       }),
     });
 
@@ -243,18 +273,58 @@ export default function ImagesPage() {
       {/* ═══ CUSTOM SCREENSHOTS TAB ═══ */}
       {activeTab === "custom" && (
         <>
+          {/* Step 1: Clean Product Images (used for AI generation) */}
+          <div className="bg-card border border-border rounded-xl p-6 space-y-2">
+            <h2 className="font-semibold flex items-center gap-2">
+              <ImageIcon className="w-4 h-4" /> Clean Product Images
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              These are your product images with the background removed. The AI uses these
+              to place your exact product into new lifestyle scenes for pin creatives.
+            </p>
+          </div>
+
+          {cleanProducts.length > 0 ? (
+            <div className="grid grid-cols-3 gap-3">
+              {cleanProducts.map((url, i) => (
+                <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-green-500/30 bg-[#f0f0f0] aspect-square">
+                  <img
+                    src={url}
+                    alt={`Clean product ${i + 1}`}
+                    className="w-full h-full object-contain p-2"
+                  />
+                  <button
+                    onClick={() => removeCleanProduct(url)}
+                    className="absolute top-2 right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  <div className="absolute bottom-0 left-0 right-0 bg-green-600/80 text-white text-xs py-1 px-2 text-center">
+                    Clean product {i + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-green-50 border border-dashed border-green-300 rounded-xl p-6 text-center">
+              <p className="text-sm text-green-800">
+                No clean product images yet. Upload screenshots below and click
+                &quot;Remove Background&quot; to extract the product.
+              </p>
+            </div>
+          )}
+
+          {/* Step 2: Upload Screenshots */}
           <div className="bg-card border border-border rounded-xl p-6 space-y-2">
             <h2 className="font-semibold flex items-center gap-2">
               <Camera className="w-4 h-4" /> Product Screenshots
             </h2>
             <p className="text-sm text-muted-foreground">
-              Upload clean screenshots of your product without any marketing text or overlays.
-              These will be used as the primary reference for AI-generated pin creatives.
-              The AI uses these to understand exactly what your product looks like.
+              Upload screenshots of your product. Then click &quot;Remove Background&quot;
+              on each one to extract the product and create a clean image.
             </p>
           </div>
 
-          {/* Uploaded screenshots grid */}
           {customScreenshots.length > 0 ? (
             <div className="grid grid-cols-3 gap-3">
               {customScreenshots.map((url, i) => (
@@ -270,9 +340,14 @@ export default function ImagesPage() {
                   >
                     <X className="w-4 h-4" />
                   </button>
-                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-1 px-2 text-center">
-                    Screenshot {i + 1}
-                  </div>
+                  {/* Remove Background button */}
+                  <button
+                    onClick={() => handleRemoveBackground(url)}
+                    disabled={processingBg === url}
+                    className="absolute bottom-0 left-0 right-0 bg-primary text-primary-foreground text-xs font-medium py-2 px-2 text-center hover:opacity-90 transition-opacity"
+                  >
+                    {processingBg === url ? "Removing background..." : "Remove Background"}
+                  </button>
                 </div>
               ))}
             </div>
@@ -283,7 +358,7 @@ export default function ImagesPage() {
                 No product screenshots uploaded yet.
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Upload clean photos of your product — no marketing text, no overlays.
+                Upload photos of your product, then remove the background to extract it.
               </p>
             </div>
           )}
@@ -314,8 +389,8 @@ export default function ImagesPage() {
           </div>
 
           <p className="text-xs text-muted-foreground">
+            {cleanProducts.length} clean product image{cleanProducts.length !== 1 ? "s" : ""} ·{" "}
             {customScreenshots.length} screenshot{customScreenshots.length !== 1 ? "s" : ""} uploaded
-            {customScreenshots.length > 0 && " — these are used first for pin creatives"}
           </p>
         </>
       )}

@@ -46,18 +46,25 @@ export async function POST(request: NextRequest) {
     .single();
 
   const rawData = (brandProfile?.raw_data || {}) as Record<string, unknown>;
+  const cleanProducts = (rawData.clean_products || []) as string[];
   const customScreenshots = (rawData.custom_screenshots || []) as string[];
   const referenceImages = (rawData.reference_images || []) as {
     product_id: string;
     image_urls: string[];
   }[];
 
-  // Pick reference image: custom screenshots FIRST, then Shopify images
+  // Pick reference image: clean products FIRST (bg removed), then screenshots, then Shopify
   const productImages = (pin.products?.images || []) as { url: string }[];
   let referenceImageUrl: string | null = null;
 
-  // 1. Custom screenshots (clean product photos without marketing text) — always preferred
-  if (customScreenshots.length > 0) {
+  // 1. Clean product images (background removed) — ALWAYS preferred
+  if (cleanProducts.length > 0) {
+    const idx = Math.floor(Math.random() * cleanProducts.length);
+    referenceImageUrl = cleanProducts[idx];
+  }
+
+  // 2. Custom screenshots as fallback
+  if (!referenceImageUrl && customScreenshots.length > 0) {
     const idx = Math.floor(Math.random() * customScreenshots.length);
     referenceImageUrl = customScreenshots[idx];
   }
