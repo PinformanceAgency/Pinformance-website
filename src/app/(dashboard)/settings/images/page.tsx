@@ -69,16 +69,13 @@ export default function ImagesPage() {
 
     if (prods) setProducts(prods as ProductItem[]);
 
-    // Load saved reference images from brand profile
-    const { data: profile } = await supabase
-      .from("brand_profiles")
-      .select("structured_data")
-      .eq("org_id", org!.id)
-      .single();
-
-    const sd = profile?.structured_data as Record<string, unknown> | null;
-    if (sd?.reference_images) {
-      setReferenceImages(sd.reference_images as ReferenceImage[]);
+    // Load saved reference images via API route
+    const res = await fetch("/api/brand-settings");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.reference_images?.length) {
+        setReferenceImages(data.reference_images as ReferenceImage[]);
+      }
     }
   }
 
@@ -126,23 +123,11 @@ export default function ImagesPage() {
     if (!org) return;
     setSaving(true);
 
-    const supabase = createClient();
-
-    const { data: profile } = await supabase
-      .from("brand_profiles")
-      .select("structured_data")
-      .eq("org_id", org.id)
-      .single();
-
-    const currentData = (profile?.structured_data as Record<string, unknown>) || {};
-
-    await supabase
-      .from("brand_profiles")
-      .update({
-        structured_data: { ...currentData, reference_images: referenceImages },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("org_id", org.id);
+    await fetch("/api/brand-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reference_images: referenceImages }),
+    });
 
     setSaving(false);
     setSaved(true);

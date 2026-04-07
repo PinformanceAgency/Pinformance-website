@@ -108,22 +108,17 @@ export default function PromptsPage() {
   async function loadData() {
     const supabase = createClient();
 
-    // Load brand profile
-    const { data: profile } = await supabase
-      .from("brand_profiles")
-      .select("*")
-      .eq("org_id", org!.id)
-      .single();
-
-    if (profile) {
-      setBrandVoice(profile.brand_voice || "");
-      const sd = profile.structured_data as Record<string, unknown> | null;
-      if (sd?.custom_prompts) {
-        setCustomPrompts({ ...DEFAULT_PROMPTS, ...(sd.custom_prompts as CustomPrompts) });
+    // Load brand profile via API route (avoids RLS issues with structured_data)
+    const res = await fetch("/api/brand-settings");
+    if (res.ok) {
+      const data = await res.json();
+      setBrandVoice(data.brand_voice || "");
+      if (data.custom_prompts) {
+        setCustomPrompts({ ...DEFAULT_PROMPTS, ...(data.custom_prompts as CustomPrompts) });
       }
     }
 
-    // Load feedback rules
+    // Load feedback rules (these work fine via client)
     const { data: rules } = await supabase
       .from("feedback_rules")
       .select("id, rule_type, rule_text, priority, is_active")
@@ -138,25 +133,11 @@ export default function PromptsPage() {
     if (!org) return;
     setSaving(true);
 
-    const supabase = createClient();
-
-    // Get current structured_data
-    const { data: profile } = await supabase
-      .from("brand_profiles")
-      .select("structured_data")
-      .eq("org_id", org.id)
-      .single();
-
-    const currentData = (profile?.structured_data as Record<string, unknown>) || {};
-
-    await supabase
-      .from("brand_profiles")
-      .update({
-        brand_voice: brandVoice,
-        structured_data: { ...currentData, custom_prompts: customPrompts },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("org_id", org.id);
+    await fetch("/api/brand-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brand_voice: brandVoice, custom_prompts: customPrompts }),
+    });
 
     setSaving(false);
     setSaved(true);
