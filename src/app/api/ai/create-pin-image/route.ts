@@ -110,8 +110,8 @@ export async function POST(request: NextRequest) {
         imageUrl: referenceImageUrl,
         width: 1000,
         height: 1500,
-        strength: 0.55, // Keep product recognizable but restyle the scene
-        steps: 28,
+        strength: 0.85, // High strength: extract product, generate new lifestyle scene
+        steps: 30,
       });
 
       // Poll for completion (max 90 seconds)
@@ -192,13 +192,19 @@ export async function POST(request: NextRequest) {
  * but the scene/environment is restyled.
  */
 function buildLifestylePrompt(productTitle: string, pinTopic: string): string {
-  // Variety of lifestyle scenes that work well for watercolor/art products on Pinterest
+  // Prompts that tell Krea to extract the product and place it in a new lifestyle scene.
+  // Inspired by high-performing Pinterest watercolor/art pins: overhead flat lays with
+  // the product surrounded by finished paintings, art supplies, and cozy props.
   const scenes = [
-    `Professional product photography of a ${productTitle} arranged on a warm wooden table with soft natural window light. Cozy lifestyle setting with scattered watercolor paintings, a cup of coffee, dried flowers, and art supplies. Overhead flat lay composition. Clean, bright, Pinterest-style aspirational photo. 2:3 vertical format.`,
-    `Beautiful lifestyle flat lay of a ${productTitle} on a marble surface surrounded by finished watercolor paintings, brushes, and a glass of water. Soft morning light from the side. Warm, inviting creative workspace. High-end product photography for Pinterest. 2:3 vertical.`,
-    `Cozy creative workspace with ${productTitle} as the hero product. Wooden desk, watercolor paintings spread out, paint palette with mixed colors, water brush in hand. Natural daylight, warm tones. Aspirational lifestyle photography. Pinterest-optimized vertical composition.`,
-    `Artistic overhead shot of ${productTitle} on a linen cloth with watercolor art cards spread around it. Eucalyptus sprigs, coffee cup, and art supplies as props. Soft diffused lighting. Clean, modern, Pinterest aesthetic. Professional product photography.`,
-    `Lifestyle product photo of ${productTitle} in a real creative setting. Person painting with the kit at a sunlit desk. Watercolor paintings visible, art supplies arranged naturally. Warm, encouraging atmosphere. High quality DSLR photography style.`,
+    `Extract the watercolor painting kit from this image and place it in a completely new scene. Overhead flat lay on a warm wooden table. The kit is surrounded by small finished watercolor paintings of flowers, animals, and landscapes spread around it. A cup of coffee, dried flowers, and a water brush as props. Soft natural window light. Professional Pinterest product photography. No text overlays. 2:3 vertical.`,
+
+    `Take the product from this image and photograph it in a new lifestyle setting. Top-down view on a white marble round table. The watercolor kit is open with small painted watercolor cards scattered around showing colorful illustrations. A coffee mug, eucalyptus sprigs, and art supplies nearby. Bright, airy, natural morning light. Pinterest aesthetic. No text. 2:3 vertical.`,
+
+    `Remove the background and place this product in a cozy creative workspace. Bird's eye view of a wooden desk with the watercolor kit as the centerpiece. Small watercolor paintings of nature scenes, fruits, and animals are spread out around it. Paint palette with mixed colors, water glass, and brushes visible. Warm golden hour lighting. High-end product photography. No text overlays. 2:3 vertical.`,
+
+    `Extract the product and create a new aspirational flat lay scene. The watercolor kit sits on a linen tablecloth, surrounded by dozens of small hand-painted watercolor cards showing botanical illustrations, cute animals, sunsets, and abstract designs. A ceramic cup of tea and some dried lavender sprigs as accents. Soft diffused daylight from above. Clean, modern, Pinterest-style. No text. 2:3 vertical.`,
+
+    `Place this watercolor kit product in a beautiful new overhead shot. Warm wooden surface. The kit is opened and surrounded by scattered small watercolor paintings — flowers, birds, beach scenes, mushrooms. A hand holding a water brush, painting in progress. Natural sunlight, cozy atmosphere. Professional product photography for Pinterest. No text or logos. 2:3 vertical.`,
   ];
 
   return scenes[Math.floor(Math.random() * scenes.length)];
