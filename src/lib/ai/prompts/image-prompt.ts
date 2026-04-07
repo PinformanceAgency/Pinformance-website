@@ -17,6 +17,7 @@ interface ImagePromptInput {
     style: BrandStyle;
   };
   styleGuideRules?: string[];
+  customPromptAdditions?: string;
 }
 
 export interface ImagePromptOutput {
@@ -93,6 +94,10 @@ Create a photorealistic image prompt that:
 5. Is photorealistic — no AI artifacts, no illustration style${
     input.styleGuideRules?.length
       ? `\n\nStyle guide rules (apply these to the image):\n${input.styleGuideRules.map((r) => `- ${r}`).join("\n")}`
+      : ""
+  }${
+    input.customPromptAdditions
+      ? `\n\nCustom brand image instructions:\n${input.customPromptAdditions}`
       : ""
   }`;
 

@@ -173,6 +173,15 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
   const websiteUrl = brandProfile?.raw_data?.website || "";
   const brandVoice = brandProfile?.structured_data?.brand_voice || brandProfile?.brand_voice || "";
   const brandStyle = brandProfile?.structured_data?.brand_style || {};
+  const customPrompts = brandProfile?.structured_data?.custom_prompts as {
+    pin_content?: string;
+    image_generation?: string;
+    template_preference?: string;
+  } | null;
+  const referenceImages = (brandProfile?.structured_data?.reference_images || []) as {
+    product_id: string;
+    image_urls: string[];
+  }[];
 
   let pinsCreated = 0;
 
@@ -216,6 +225,7 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
             title: p.title,
             keywords: p.keywords || [],
           })),
+          customPromptAdditions: customPrompts?.pin_content || undefined,
         });
 
         const pinContent = await generateJSON<PinContentOutput>(
@@ -232,6 +242,7 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
           productImages: slot.product.images,
           brand: { name: brandName, style: brandStyle },
           styleGuideRules,
+          customPromptAdditions: customPrompts?.image_generation || undefined,
         });
 
         const imagePrompt = await generateJSON<ImagePromptOutput>(
@@ -267,10 +278,17 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
         linkUrl = `${brandWebsite.replace(/\/$/, "")}${linkUrl.startsWith("/") ? "" : "/"}${linkUrl}`;
       }
 
-      // Use real Shopify product image if available, skip AI image generation
+      // Use reference images if configured, otherwise fall back to first product image
       const productImages = slot.product.images as { url: string; alt: string }[] || [];
-      const hasRealImage = productImages.length > 0 && productImages[0].url;
-      const realImageUrl = hasRealImage ? productImages[0].url : null;
+      const refConfig = referenceImages.find((ri) => ri.product_id === slot.product.id);
+      let realImageUrl: string | null = null;
+      if (refConfig && refConfig.image_urls.length > 0) {
+        // Pick a reference image (rotate through selected images)
+        realImageUrl = refConfig.image_urls[pinsCreated % refConfig.image_urls.length];
+      } else if (productImages.length > 0 && productImages[0].url) {
+        realImageUrl = productImages[0].url;
+      }
+      const hasRealImage = !!realImageUrl;
 
       const { data: pin } = await supabase
         .from("pins")

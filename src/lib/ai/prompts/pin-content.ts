@@ -9,6 +9,7 @@ interface PinContentInput {
   websiteUrl: string;
   feedbackRules: FeedbackRule[];
   recentTopPerformers?: { title: string; keywords: string[] }[];
+  customPromptAdditions?: string;
 }
 
 export interface PinContentOutput {
@@ -86,6 +87,7 @@ ${promptModifiers ? `\nFeedback-driven modifications:\n${promptModifiers}` : ""}
 ${styleGuides ? `\nStyle guidelines:\n${styleGuides}` : ""}
 ${keywordBoosts.length ? `\nBoosted keywords (prefer these): ${keywordBoosts.join(", ")}` : ""}
 ${keywordBlocks.length ? `\nBlocked keywords (never use): ${keywordBlocks.join(", ")}` : ""}
+${input.customPromptAdditions ? `\nCustom brand instructions:\n${input.customPromptAdditions}` : ""}
 
 Output valid JSON matching this schema:
 {
