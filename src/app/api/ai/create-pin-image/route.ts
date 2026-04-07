@@ -105,13 +105,11 @@ export async function POST(request: NextRequest) {
       console.log(`[CreatePinImage] Reference image: ${referenceImageUrl}`);
       console.log(`[CreatePinImage] Prompt: ${scenePrompt.substring(0, 200)}...`);
 
-      const job = await krea.generateKontext({
+      // Use text-to-image (not image-to-image) for full creative control over composition
+      const job = await krea.generateImage({
         prompt: scenePrompt,
-        imageUrl: referenceImageUrl,
         width: 1000,
         height: 1500,
-        strength: 0.85, // High strength: extract product, generate new lifestyle scene
-        steps: 30,
       });
 
       // Poll for completion (max 90 seconds)
@@ -192,19 +190,19 @@ export async function POST(request: NextRequest) {
  * but the scene/environment is restyled.
  */
 function buildLifestylePrompt(productTitle: string, pinTopic: string): string {
-  // Prompts that tell Krea to extract the product and place it in a new lifestyle scene.
-  // Inspired by high-performing Pinterest watercolor/art pins: overhead flat lays with
-  // the product surrounded by finished paintings, art supplies, and cozy props.
+  // Overhead flat lay scenes matching high-performing Pinterest watercolor pins.
+  // The product is a small wooden watercolor palette kit with colorful paint tubes.
+  // Key visual: dozens of small hand-painted watercolor cards spread around the product.
   const scenes = [
-    `Extract the watercolor painting kit from this image and place it in a completely new scene. Overhead flat lay on a warm wooden table. The kit is surrounded by small finished watercolor paintings of flowers, animals, and landscapes spread around it. A cup of coffee, dried flowers, and a water brush as props. Soft natural window light. Professional Pinterest product photography. No text overlays. 2:3 vertical.`,
+    `Professional overhead flat lay photograph on a warm oak wooden table. A small portable watercolor painting kit with a wooden palette sits in the center. Scattered all around it are 15-20 small hand-painted watercolor cards showing: pink flowers, a yellow banana, a bee, a cactus, a seashell, a palm tree beach scene, a bird, a feather, cherry blossoms, a sunset. Two glass jars of water, a few loose paint brushes, and small dried flowers as props. Soft warm natural window light from the left. Shot on Canon EOS R5, 35mm lens, f/4. Pinterest-style aspirational product photography. No text, no logos, no words on the image. 2:3 vertical format.`,
 
-    `Take the product from this image and photograph it in a new lifestyle setting. Top-down view on a white marble round table. The watercolor kit is open with small painted watercolor cards scattered around showing colorful illustrations. A coffee mug, eucalyptus sprigs, and art supplies nearby. Bright, airy, natural morning light. Pinterest aesthetic. No text. 2:3 vertical.`,
+    `Bird's eye view product photograph on a round white marble table. A compact watercolor art kit with tubes of paint and a wooden palette is placed slightly off-center. Surrounding it are 12-18 small watercolor paintings on cards: a brown bear, a colorful apple, a blue bird, mushrooms, a beach landscape, a pink flamingo, batman, autumn leaves, tropical fish, a ballerina. A ceramic coffee cup, eucalyptus sprigs, and a saucer nearby. Bright diffused morning light. Professional DSLR photograph, sharp focus. No text overlays, no words. 2:3 vertical.`,
 
-    `Remove the background and place this product in a cozy creative workspace. Bird's eye view of a wooden desk with the watercolor kit as the centerpiece. Small watercolor paintings of nature scenes, fruits, and animals are spread out around it. Paint palette with mixed colors, water glass, and brushes visible. Warm golden hour lighting. High-end product photography. No text overlays. 2:3 vertical.`,
+    `Overhead photograph on a light wooden desk. A beginner watercolor painting kit is open showing colorful paint tubes arranged in a rainbow. Around it are spread 15+ small hand-painted watercolor artworks on paper cards: flowers, animals, fruits, landscapes, seasonal themes. A water brush pen, a glass of water, and scattered flower petals as decoration. Golden hour sunlight streaming in. Warm, cozy, inviting creative workspace. Professional product photography for social media. Absolutely no text or typography in the image. 2:3 vertical aspect ratio.`,
 
-    `Extract the product and create a new aspirational flat lay scene. The watercolor kit sits on a linen tablecloth, surrounded by dozens of small hand-painted watercolor cards showing botanical illustrations, cute animals, sunsets, and abstract designs. A ceramic cup of tea and some dried lavender sprigs as accents. Soft diffused daylight from above. Clean, modern, Pinterest-style. No text. 2:3 vertical.`,
+    `Top-down flat lay on a natural linen cloth draped over a wooden surface. A portable watercolor set with a bamboo palette and 12 colorful paint tubes is the hero product. Dozens of small watercolor paintings are scattered around it: a sunflower, a cute cat, ocean waves, a hummingbird, strawberries, a cottage, autumn trees, a butterfly. A cup of coffee with latte art and some dried lavender nearby. Soft natural daylight, no harsh shadows. Canon 5D Mark IV, 50mm, f/2.8. Pinterest-optimized product photo. No text anywhere in the image. 2:3 vertical.`,
 
-    `Place this watercolor kit product in a beautiful new overhead shot. Warm wooden surface. The kit is opened and surrounded by scattered small watercolor paintings — flowers, birds, beach scenes, mushrooms. A hand holding a water brush, painting in progress. Natural sunlight, cozy atmosphere. Professional product photography for Pinterest. No text or logos. 2:3 vertical.`,
+    `Overhead lifestyle photograph on a rustic wooden table. A watercolor painting kit with colorful tubes and brushes sits open. A person's hand holds a water brush, painting a small flower card. Around the workspace are 10-15 finished small watercolor paintings: roses, a palm tree, shells, a fox, clouds, mountains, a rainbow. Paint water jars, a small palette with mixed colors, and scattered cherry blossom petals. Warm afternoon light. Cozy creative atmosphere. Professional photography. No text, labels, or overlays in the image. 2:3 vertical format.`,
   ];
 
   return scenes[Math.floor(Math.random() * scenes.length)];
