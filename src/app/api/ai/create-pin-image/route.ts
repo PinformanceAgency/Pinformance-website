@@ -36,9 +36,44 @@ export async function POST(request: NextRequest) {
     .eq("id", pin.org_id)
     .single();
 
-  // Get source product image
+  // Load reference images from brand profile
+  const { data: brandProfile } = await supabase
+    .from("brand_profiles")
+    .select("raw_data")
+    .eq("org_id", pin.org_id)
+    .single();
+
+  const rawData = (brandProfile?.raw_data || {}) as Record<string, unknown>;
+  const referenceImages = (rawData.reference_images || []) as {
+    product_id: string;
+    image_urls: string[];
+  }[];
+
+  // Pick image: prefer reference images for this product, then any reference image, then product default
   const productImages = (pin.products?.images || []) as { url: string }[];
-  const sourceImageUrl = productImages[0]?.url || pin.image_url;
+  let sourceImageUrl: string | null = null;
+
+  // 1. Check reference images for this specific product
+  const productRef = referenceImages.find((ri) => ri.product_id === pin.product_id);
+  if (productRef && productRef.image_urls.length > 0) {
+    // Rotate through selected reference images
+    const idx = Math.floor(Math.random() * productRef.image_urls.length);
+    sourceImageUrl = productRef.image_urls[idx];
+  }
+
+  // 2. Fall back to any reference image from any product
+  if (!sourceImageUrl) {
+    const allRefUrls = referenceImages.flatMap((ri) => ri.image_urls);
+    if (allRefUrls.length > 0) {
+      const idx = Math.floor(Math.random() * allRefUrls.length);
+      sourceImageUrl = allRefUrls[idx];
+    }
+  }
+
+  // 3. Fall back to product's first image
+  if (!sourceImageUrl) {
+    sourceImageUrl = productImages[0]?.url || pin.image_url;
+  }
 
   if (!sourceImageUrl) {
     return NextResponse.json({ error: "No product image found" }, { status: 400 });
