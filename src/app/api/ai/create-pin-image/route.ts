@@ -46,26 +46,39 @@ export async function POST(request: NextRequest) {
     .single();
 
   const rawData = (brandProfile?.raw_data || {}) as Record<string, unknown>;
+  const customScreenshots = (rawData.custom_screenshots || []) as string[];
   const referenceImages = (rawData.reference_images || []) as {
     product_id: string;
     image_urls: string[];
   }[];
 
-  // Pick a reference image for this product
+  // Pick reference image: custom screenshots FIRST, then Shopify images
   const productImages = (pin.products?.images || []) as { url: string }[];
   let referenceImageUrl: string | null = null;
 
-  const productRef = referenceImages.find((ri) => ri.product_id === pin.product_id);
-  if (productRef && productRef.image_urls.length > 0) {
-    const idx = Math.floor(Math.random() * productRef.image_urls.length);
-    referenceImageUrl = productRef.image_urls[idx];
+  // 1. Custom screenshots (clean product photos without marketing text) — always preferred
+  if (customScreenshots.length > 0) {
+    const idx = Math.floor(Math.random() * customScreenshots.length);
+    referenceImageUrl = customScreenshots[idx];
   }
+
+  // 2. Fall back to Shopify reference images for this product
+  if (!referenceImageUrl) {
+    const productRef = referenceImages.find((ri) => ri.product_id === pin.product_id);
+    if (productRef && productRef.image_urls.length > 0) {
+      referenceImageUrl = productRef.image_urls[Math.floor(Math.random() * productRef.image_urls.length)];
+    }
+  }
+
+  // 3. Fall back to any Shopify reference image
   if (!referenceImageUrl) {
     const allRefUrls = referenceImages.flatMap((ri) => ri.image_urls);
     if (allRefUrls.length > 0) {
       referenceImageUrl = allRefUrls[Math.floor(Math.random() * allRefUrls.length)];
     }
   }
+
+  // 4. Fall back to product's first image
   if (!referenceImageUrl) {
     referenceImageUrl = productImages[0]?.url || pin.image_url;
   }
