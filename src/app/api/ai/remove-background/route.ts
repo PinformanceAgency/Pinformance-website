@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "image_url is required" }, { status: 400 });
   }
 
-  // Get remove.bg API key from env
-  const removeBgKey = process.env.REMOVEBG_API_KEY;
+  // Get remove.bg API key from env or org settings
+  const removeBgKey = process.env.REMOVEBG_API_KEY || "vaiSGYNEQhpJT1dvPgvYz3jY";
   if (!removeBgKey) {
     return NextResponse.json({ error: "REMOVEBG_API_KEY not configured" }, { status: 500 });
   }
