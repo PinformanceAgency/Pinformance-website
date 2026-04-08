@@ -867,6 +867,9 @@ export async function POST(request: NextRequest) {
       scheduleDate.setDate(scheduleDate.getDate() + daysFromNow);
       scheduleDate.setHours(hour - 2, minute, 0, 0); // Rough CEST offset
 
+      const scheduledDate = scheduleDate.toISOString().split("T")[0];
+      const scheduledTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
       await supabase
         .from("pins")
         .update({
@@ -874,6 +877,15 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", pin.id);
+
+      // Also create calendar entry so it shows in the calendar view
+      await supabase.from("calendar_entries").upsert({
+        org_id: org.id,
+        pin_id: pin.id,
+        scheduled_date: scheduledDate,
+        scheduled_time: scheduledTime,
+        slot_index: i,
+      }, { onConflict: "pin_id" });
 
       scheduled++;
     }

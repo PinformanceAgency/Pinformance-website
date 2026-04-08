@@ -150,13 +150,21 @@ export default function CalendarPage() {
                     )}
                     onClick={() => setSelectedPin(entry)}
                   >
-                    {entry.pin.image_url && (
+                    {(entry.pin.video_url || entry.pin.image_url) && (
                       <div className="w-full aspect-[2/3] rounded bg-muted mb-1.5 overflow-hidden">
-                        <img
-                          src={entry.pin.image_url}
-                          alt={entry.pin.title}
-                          className="w-full h-full object-cover"
-                        />
+                        {entry.pin.video_url ? (
+                          <video
+                            src={entry.pin.video_url}
+                            className="w-full h-full object-cover"
+                            muted loop playsInline autoPlay
+                          />
+                        ) : (
+                          <img
+                            src={entry.pin.image_url!}
+                            alt={entry.pin.title}
+                            className="w-full h-full object-cover"
+                          />
+                        )}
                       </div>
                     )}
                     <div className="font-medium truncate">{entry.pin.title}</div>
@@ -186,13 +194,21 @@ export default function CalendarPage() {
                 </button>
               </div>
 
-              {selectedPin.pin.image_url && (
+              {(selectedPin.pin.video_url || selectedPin.pin.image_url) && (
                 <div className="w-full max-w-[200px] mx-auto aspect-[2/3] rounded-lg overflow-hidden bg-muted">
-                  <img
-                    src={selectedPin.pin.image_url}
-                    alt={selectedPin.pin.title}
-                    className="w-full h-full object-cover"
-                  />
+                  {selectedPin.pin.video_url ? (
+                    <video
+                      src={selectedPin.pin.video_url}
+                      className="w-full h-full object-cover"
+                      muted loop playsInline autoPlay controls
+                    />
+                  ) : (
+                    <img
+                      src={selectedPin.pin.image_url!}
+                      alt={selectedPin.pin.title}
+                      className="w-full h-full object-cover"
+                    />
+                  )}
                 </div>
               )}
 
