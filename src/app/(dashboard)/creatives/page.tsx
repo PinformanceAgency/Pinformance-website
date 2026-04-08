@@ -43,20 +43,38 @@ export default function CreativesPage() {
     const files = e.target.files;
     if (!files || !org) return;
 
+    // Max file size: 50MB for videos, 20MB for images
+    const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
+    const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+
     for (const file of Array.from(files)) {
-      const ext = file.name.split(".").pop() || "jpg";
-      const isVideo = file.type.startsWith("video/");
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const isVideo = file.type.startsWith("video/") || ["mov", "mp4", "avi", "webm", "mkv"].includes(ext);
       const mediaType: "image" | "video" = isVideo ? "video" : "image";
+      const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+
+      // Check file size
+      if (file.size > maxSize) {
+        const maxMB = Math.round(maxSize / 1024 / 1024);
+        setCreatives((prev) => [...prev, {
+          image_url: URL.createObjectURL(file),
+          media_type: mediaType,
+          analysis: null,
+          status: "error" as const,
+          error: `File too large (${Math.round(file.size / 1024 / 1024)}MB). Max ${maxMB}MB for ${isVideo ? "videos" : "images"}.`,
+        }]);
+        continue;
+      }
+
       const fileName = `${org.id}/creatives/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
 
-      // Add to state as uploading
       const tempUrl = URL.createObjectURL(file);
       setCreatives((prev) => [...prev, { image_url: tempUrl, media_type: mediaType, analysis: null, status: "uploading" }]);
 
       const supabase = createClient();
       const { error } = await supabase.storage
         .from("pin-images")
-        .upload(fileName, file, { contentType: file.type, upsert: false });
+        .upload(fileName, file, { contentType: file.type || (isVideo ? "video/mp4" : "image/jpeg"), upsert: false });
 
       if (error) {
         setCreatives((prev) =>
@@ -68,17 +86,20 @@ export default function CreativesPage() {
       const { data: urlData } = supabase.storage.from("pin-images").getPublicUrl(fileName);
       const publicUrl = urlData.publicUrl;
 
-      // Update URL and start analysis
       setCreatives((prev) =>
         prev.map((c) => (c.image_url === tempUrl ? { ...c, image_url: publicUrl, status: "analyzing" as const, media_type: mediaType } : c))
       );
 
-      // Analyze the creative
+      // Analyze - send media_type and filename so AI can handle videos
       try {
         const res = await fetch("/api/ai/analyze-creative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_url: publicUrl }),
+          body: JSON.stringify({
+            image_url: publicUrl,
+            media_type: mediaType,
+            file_name: file.name,
+          }),
         });
 
         if (res.ok) {

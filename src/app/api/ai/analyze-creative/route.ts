@@ -35,11 +35,13 @@ export async function POST(request: NextRequest) {
   const orgId = profile.org_id;
 
   const body = await request.json();
-  const { image_url } = body;
+  const { image_url, media_type, file_name } = body;
 
   if (!image_url) {
     return NextResponse.json({ error: "image_url required" }, { status: 400 });
   }
+
+  const isVideo = media_type === "video" || /\.(mov|mp4|avi|webm|mkv)$/i.test(file_name || "");
 
   const admin = createAdminClient();
 
@@ -83,7 +85,8 @@ ${boardList}
 
 Top keywords: ${keywordList}
 
-The image URL will be provided. Describe what you see and generate content accordingly.
+The content URL will be provided. Analyze it and generate content accordingly.
+For videos: use the filename to understand the content topic since you cannot watch videos.
 
 Output JSON:
 {
@@ -95,7 +98,15 @@ Output JSON:
   "text_overlay": string (3-8 words)
 }`;
 
-  const userPrompt = `Analyze this Pinterest creative image and generate SEO-optimized content:
+  const userPrompt = isVideo
+    ? `Generate SEO-optimized Pinterest content for this video pin:
+
+Video filename: ${file_name || "video.mp4"}
+Video URL: ${image_url}
+
+Brand: ${brandName}
+This is a brand-created organic video. Based on the filename, determine the topic and generate the best possible Pinterest SEO content. Make the title catchy and keyword-rich. Videos perform great on Pinterest for tutorials, how-tos, and demonstrations.`
+    : `Analyze this Pinterest creative image and generate SEO-optimized content:
 
 Image URL: ${image_url}
 
