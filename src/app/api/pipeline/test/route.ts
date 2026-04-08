@@ -802,8 +802,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, step: "create-boards", created: 0, message: "No draft boards" });
     }
 
-    const token = decrypt(org.pinterest_access_token_encrypted);
-    const pinterest = new PinterestClient(token);
+    if (!org.pinterest_access_token_encrypted) {
+      return NextResponse.json({ success: false, step: "create-boards", error: "No Pinterest token" });
+    }
+
+    let token: string;
+    try {
+      token = decrypt(org.pinterest_access_token_encrypted);
+    } catch (e) {
+      return NextResponse.json({ success: false, step: "create-boards", error: `Token decrypt failed: ${e}` });
+    }
+
+    const pinterest = new PinterestClient(token, false);
     const results: { name: string; success: boolean; error?: string }[] = [];
 
     for (const board of draftBoards) {
@@ -826,7 +836,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, step: "create-boards", created: results.filter(r => r.success).length, results });
+    return NextResponse.json({ success: true, step: "create-boards", created: results.filter(r => r.success).length, total: draftBoards.length, results });
   }
 
   // ─── SCHEDULE PINS: Spread approved pins 1 per day ───
