@@ -882,11 +882,13 @@ export async function POST(request: NextRequest) {
       .in("status", ["generated", "approved", "scheduled"])
       .select("id");
 
-    // Also save as default link in brand profile
+    // Also save as default link + optional logo in brand profile
     const { data: bp } = await supabase.from("brand_profiles").select("raw_data").eq("org_id", org.id).single();
     const rawData = (bp?.raw_data || {}) as Record<string, unknown>;
+    const updates: Record<string, unknown> = { ...rawData, default_link_url: link_url };
+    if (body.logo_url) updates.logo_url = body.logo_url;
     await supabase.from("brand_profiles").update({
-      raw_data: { ...rawData, default_link_url: link_url },
+      raw_data: updates,
     }).eq("org_id", org.id);
 
     return NextResponse.json({
