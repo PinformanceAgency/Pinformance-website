@@ -151,13 +151,22 @@ export default function CalendarPage() {
                     onClick={() => setSelectedPin(entry)}
                   >
                     {(entry.pin.video_url || entry.pin.image_url) && (
-                      <div className="w-full aspect-[2/3] rounded bg-muted mb-1.5 overflow-hidden">
+                      <div className="w-full aspect-[2/3] rounded bg-muted mb-1.5 overflow-hidden relative">
                         {entry.pin.video_url ? (
-                          <video
-                            src={entry.pin.video_url}
-                            className="w-full h-full object-cover"
-                            muted loop playsInline autoPlay
-                          />
+                          <>
+                            <video
+                              src={entry.pin.video_url + "#t=0.5"}
+                              className="w-full h-full object-cover"
+                              muted
+                              playsInline
+                              preload="metadata"
+                              onMouseEnter={(e) => (e.target as HTMLVideoElement).play()}
+                              onMouseLeave={(e) => { const v = e.target as HTMLVideoElement; v.pause(); v.currentTime = 0.5; }}
+                            />
+                            <div className="absolute top-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-medium">
+                              VIDEO
+                            </div>
+                          </>
                         ) : (
                           <img
                             src={entry.pin.image_url!}
