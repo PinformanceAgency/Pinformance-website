@@ -66,6 +66,29 @@ export class DeepgramClient {
     return transcript;
   }
 
+  /**
+   * Transcribe from a binary buffer directly.
+   * Used when the media URL is not publicly accessible.
+   */
+  async transcribeBinary(buffer: Buffer, contentType = "video/mp4"): Promise<string> {
+    const res = await fetch(`${DEEPGRAM_API}/listen?model=nova-2&smart_format=true&detect_language=true`, {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${this.apiKey}`,
+        "Content-Type": contentType,
+      },
+      body: new Uint8Array(buffer),
+    });
+
+    if (!res.ok) {
+      const error = await res.text();
+      throw new Error(`Deepgram binary error ${res.status}: ${error}`);
+    }
+
+    const data = await res.json();
+    return data.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+  }
+
   async validateKey(): Promise<boolean> {
     try {
       const res = await fetch(`${DEEPGRAM_API}/projects`, {

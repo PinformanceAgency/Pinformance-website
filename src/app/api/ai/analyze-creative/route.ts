@@ -76,11 +76,27 @@ export async function POST(request: NextRequest) {
       try {
         const deepgram = new DeepgramClient(deepgramKey);
         console.log(`[AnalyzeCreative] Transcribing video: ${file_name}`);
-        transcript = await deepgram.transcribe(image_url);
-        console.log(`[AnalyzeCreative] Transcript (${transcript.length} chars): ${transcript.substring(0, 200)}`);
+
+        // Download video via Supabase admin client (bypasses public access restrictions)
+        // Extract the storage path from the public URL
+        const storagePath = image_url.split("/object/public/pin-images/")[1];
+        if (storagePath) {
+          const { data: fileData, error: downloadErr } = await admin.storage
+            .from("pin-images")
+            .download(storagePath);
+
+          if (fileData && !downloadErr) {
+            const buffer = Buffer.from(await fileData.arrayBuffer());
+            // Only use first 10MB for transcription to stay within Vercel limits
+            const chunk = buffer.subarray(0, 10 * 1024 * 1024);
+            transcript = await deepgram.transcribeBinary(chunk, fileData.type || "video/mp4");
+            console.log(`[AnalyzeCreative] Transcript (${transcript.length} chars): ${transcript.substring(0, 200)}`);
+          } else {
+            console.error(`[AnalyzeCreative] Download failed:`, downloadErr?.message);
+          }
+        }
       } catch (err) {
         console.error(`[AnalyzeCreative] Transcription failed:`, err instanceof Error ? err.message : err);
-        // Continue without transcript — fall back to filename
       }
     }
   }
