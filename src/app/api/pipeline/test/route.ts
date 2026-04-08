@@ -790,6 +790,45 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // ─── CREATE ALL DRAFT BOARDS ON PINTEREST ───
+  if (step === "create-boards") {
+    const { data: draftBoards } = await supabase
+      .from("boards")
+      .select("*")
+      .eq("org_id", org.id)
+      .eq("status", "draft");
+
+    if (!draftBoards?.length) {
+      return NextResponse.json({ success: true, step: "create-boards", created: 0, message: "No draft boards" });
+    }
+
+    const token = decrypt(org.pinterest_access_token_encrypted);
+    const pinterest = new PinterestClient(token);
+    const results: { name: string; success: boolean; error?: string }[] = [];
+
+    for (const board of draftBoards) {
+      try {
+        const pinterestBoard = await pinterest.createBoard({
+          name: board.name,
+          description: board.description || `${org.name} — ${board.category || "creative"} board`,
+          privacy: "PUBLIC",
+        });
+
+        await supabase.from("boards").update({
+          pinterest_board_id: pinterestBoard.id,
+          status: "active",
+          updated_at: new Date().toISOString(),
+        }).eq("id", board.id);
+
+        results.push({ name: board.name, success: true });
+      } catch (err) {
+        results.push({ name: board.name, success: false, error: err instanceof Error ? err.message : "Failed" });
+      }
+    }
+
+    return NextResponse.json({ success: true, step: "create-boards", created: results.filter(r => r.success).length, results });
+  }
+
   // ─── SCHEDULE PINS: Spread approved pins 1 per day ───
   if (step === "schedule-pins") {
     const { data: approvedPins } = await supabase
