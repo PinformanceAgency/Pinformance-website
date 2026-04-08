@@ -11,16 +11,49 @@ export class DeepgramClient {
 
   /**
    * Transcribe a video/audio file from a URL.
+   * Downloads the file first then sends binary to Deepgram (avoids URL access issues).
    * Returns the full transcript text.
    */
   async transcribe(mediaUrl: string): Promise<string> {
-    const res = await fetch(`${DEEPGRAM_API}/listen?model=nova-2&smart_format=true&language=en&detect_language=true`, {
+    // First try URL-based transcription
+    try {
+      const urlRes = await fetch(`${DEEPGRAM_API}/listen?model=nova-2&smart_format=true&detect_language=true`, {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url: mediaUrl }),
+      });
+
+      if (urlRes.ok) {
+        const data = await urlRes.json();
+        const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+        if (transcript) return transcript;
+      }
+    } catch {
+      // URL method failed, try binary upload
+    }
+
+    // Fallback: download the file and send as binary
+    // Use Range header to limit download to first 10MB (enough for audio transcription)
+    const mediaRes = await fetch(mediaUrl, {
+      headers: { Range: "bytes=0-10485760" },
+    });
+    if (!mediaRes.ok && mediaRes.status !== 206) {
+      throw new Error(`Failed to download media: ${mediaRes.status}`);
+    }
+
+    const mediaBuffer = await mediaRes.arrayBuffer();
+    const contentType = mediaRes.headers.get("content-type") || "video/mp4";
+
+    const res = await fetch(`${DEEPGRAM_API}/listen?model=nova-2&smart_format=true&detect_language=true`, {
       method: "POST",
       headers: {
         Authorization: `Token ${this.apiKey}`,
-        "Content-Type": "application/json",
+        "Content-Type": contentType,
       },
-      body: JSON.stringify({ url: mediaUrl }),
+      body: mediaBuffer,
     });
 
     if (!res.ok) {
