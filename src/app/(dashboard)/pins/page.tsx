@@ -85,7 +85,16 @@ export default function PinsPage() {
             className="bg-card border border-border rounded-xl overflow-hidden hover:shadow-md transition-shadow"
           >
             <div className="aspect-[2/3] bg-muted relative">
-              {pin.image_url ? (
+              {pin.video_url ? (
+                <video
+                  src={pin.video_url}
+                  className="w-full h-full object-cover"
+                  muted
+                  loop
+                  playsInline
+                  autoPlay
+                />
+              ) : pin.image_url ? (
                 <img
                   src={pin.image_url}
                   alt={pin.title}
