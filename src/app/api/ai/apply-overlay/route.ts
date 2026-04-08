@@ -2,14 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import sharp from "sharp";
+import satori from "satori";
 
 export const maxDuration = 60;
 
-/**
- * POST /api/ai/apply-overlay
- * Adds subtle text overlay + brand logo to a static image.
- * Resizes to Pinterest 2:3 (1000x1500).
- */
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -33,9 +29,9 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient();
 
   try {
-    // Download the original image
+    // Download original image
     const imgRes = await fetch(image_url);
-    if (!imgRes.ok) throw new Error(`Failed to download image: ${imgRes.status}`);
+    if (!imgRes.ok) throw new Error(`Download failed: ${imgRes.status}`);
     const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
 
     // Resize to Pinterest 2:3
@@ -44,49 +40,95 @@ export async function POST(request: NextRequest) {
       .jpeg({ quality: 95 })
       .toBuffer();
 
-    // Split headline into lines (max ~25 chars per line for readability)
-    const words = headline.split(" ");
-    const lines: string[] = [];
-    let currentLine = "";
-    for (const word of words) {
-      if ((currentLine + " " + word).trim().length > 25 && currentLine) {
-        lines.push(currentLine.trim());
-        currentLine = word;
-      } else {
-        currentLine = (currentLine + " " + word).trim();
-      }
-    }
-    if (currentLine) lines.push(currentLine.trim());
+    // Load Inter font for text rendering via Satori
+    const fontRes = await fetch(
+      "https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYMZhrib2Bg-4.ttf"
+    );
+    const fontData = await fontRes.arrayBuffer();
 
-    // Build text elements for each line
-    const textElements = lines.map((line, i) =>
-      `<text x="60" y="${100 + i * 65}" font-family="Georgia, Times, serif" font-size="54" font-weight="bold" fill="white" letter-spacing="1">${escapeXml(line)}</text>`
-    ).join("\n");
+    // Render text overlay using Satori (handles fonts properly)
+    const overlayElement = {
+      type: "div" as const,
+      props: {
+        style: {
+          display: "flex" as const,
+          flexDirection: "column" as const,
+          width: 1000,
+          height: 1500,
+          position: "relative" as const,
+        },
+        children: [
+          // Top gradient
+          {
+            type: "div" as const,
+            props: {
+              style: {
+                display: "flex" as const,
+                position: "absolute" as const,
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 350,
+                background: "linear-gradient(rgba(0,0,0,0.55), transparent)",
+              },
+              children: "",
+            },
+          },
+          // Headline text
+          {
+            type: "div" as const,
+            props: {
+              style: {
+                display: "flex" as const,
+                position: "absolute" as const,
+                top: 50,
+                left: 50,
+                right: 50,
+                fontSize: 52,
+                fontWeight: 700,
+                fontFamily: "Inter",
+                color: "white",
+                lineHeight: 1.25,
+              },
+              children: headline,
+            },
+          },
+          // Bottom gradient
+          {
+            type: "div" as const,
+            props: {
+              style: {
+                display: "flex" as const,
+                position: "absolute" as const,
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 200,
+                background: "linear-gradient(transparent, rgba(0,0,0,0.45))",
+              },
+              children: "",
+            },
+          },
+        ],
+      },
+    };
 
-    const gradientHeight = Math.max(300, 100 + lines.length * 65 + 60);
+    const svg = await satori(overlayElement as React.ReactNode, {
+      width: 1000,
+      height: 1500,
+      fonts: [
+        { name: "Inter", data: fontData, weight: 700, style: "normal" as const },
+      ],
+    });
 
-    // Create overlay SVG with gradient + headline text
-    const svgOverlay = `<svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="topGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="black" stop-opacity="0.55"/>
-          <stop offset="100%" stop-color="black" stop-opacity="0"/>
-        </linearGradient>
-        <linearGradient id="bottomGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="black" stop-opacity="0"/>
-          <stop offset="100%" stop-color="black" stop-opacity="0.45"/>
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="1000" height="${gradientHeight}" fill="url(#topGrad)"/>
-      <rect x="0" y="1300" width="1000" height="200" fill="url(#bottomGrad)"/>
-      ${textElements}
-    </svg>`;
-
-    const overlayBuffer = Buffer.from(svgOverlay);
+    const overlayPng = await sharp(Buffer.from(svg))
+      .resize(1000, 1500)
+      .png()
+      .toBuffer();
 
     // Build composite layers
-    const layers: { input: Buffer; top?: number; left?: number }[] = [
-      { input: overlayBuffer },
+    const layers: sharp.OverlayOptions[] = [
+      { input: overlayPng },
     ];
 
     // Download and add logo
@@ -102,7 +144,7 @@ export async function POST(request: NextRequest) {
           layers.push({ input: resizedLogo, top: 1380, left: 40 });
         }
       } catch {
-        // Skip logo if download fails
+        // Skip logo
       }
     }
 
@@ -111,7 +153,7 @@ export async function POST(request: NextRequest) {
       .jpeg({ quality: 92 })
       .toBuffer();
 
-    // Upload result
+    // Upload
     const fileName = `${profile.org_id}/creatives/overlay-${Date.now()}.jpg`;
     const { error: uploadErr } = await admin.storage
       .from("pin-images")
@@ -124,15 +166,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       overlay_url: urlData.publicUrl,
-      original_url: image_url,
     });
   } catch (err) {
     return NextResponse.json({
       error: err instanceof Error ? err.message : "Overlay failed",
     }, { status: 500 });
   }
-}
-
-function escapeXml(str: string): string {
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
