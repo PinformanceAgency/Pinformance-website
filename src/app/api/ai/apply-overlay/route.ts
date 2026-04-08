@@ -2,90 +2,80 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import sharp from "sharp";
-import satori from "satori";
 
 export const maxDuration = 60;
 
-// Overlay style variants for brand variety
-type OverlayStyle = "top-white" | "bottom-white" | "center-dark" | "top-accent" | "bottom-minimal";
+// 5 overlay style variants
+type OverlayStyle = "top" | "bottom" | "center" | "accent-top" | "accent-bottom";
 
-function pickOverlayStyle(): OverlayStyle {
-  const styles: OverlayStyle[] = ["top-white", "bottom-white", "center-dark", "top-accent", "bottom-minimal"];
+function pickStyle(): OverlayStyle {
+  const styles: OverlayStyle[] = ["top", "bottom", "center", "accent-top", "accent-bottom"];
   return styles[Math.floor(Math.random() * styles.length)];
 }
 
-function buildOverlay(headline: string, style: OverlayStyle) {
-  const headlineUpper = headline.toUpperCase();
+function buildSvgOverlay(headline: string, style: OverlayStyle): string {
+  const h = headline.toUpperCase().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  const styles: Record<OverlayStyle, unknown> = {
-    // Style 1: White text top with dark gradient
-    "top-white": {
-      type: "div" as const,
-      props: {
-        style: { display: "flex" as const, flexDirection: "column" as const, width: 1000, height: 1500 },
-        children: [
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, top: 0, left: 0, right: 0, height: 400, background: "linear-gradient(rgba(0,0,0,0.6), transparent)" }, children: "" } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, top: 55, left: 55, right: 55, fontSize: 46, fontWeight: 700, fontFamily: "Playfair Display", color: "white", lineHeight: 1.3, letterSpacing: 2, textTransform: "uppercase" as const }, children: headlineUpper } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 150, background: "linear-gradient(transparent, rgba(0,0,0,0.35))" }, children: "" } },
-        ],
-      },
-    },
+  // Word wrap: split into lines of max ~22 chars
+  const words = h.split(" ");
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > 22 && cur) { lines.push(cur.trim()); cur = w; }
+    else { cur = (cur + " " + w).trim(); }
+  }
+  if (cur) lines.push(cur.trim());
 
-    // Style 2: White text bottom with gradient up
-    "bottom-white": {
-      type: "div" as const,
-      props: {
-        style: { display: "flex" as const, flexDirection: "column" as const, width: 1000, height: 1500 },
-        children: [
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 450, background: "linear-gradient(transparent, rgba(0,0,0,0.65))" }, children: "" } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 120, left: 55, right: 55, fontSize: 44, fontWeight: 700, fontFamily: "Playfair Display", color: "white", lineHeight: 1.3, letterSpacing: 2, textTransform: "uppercase" as const }, children: headlineUpper } },
-        ],
-      },
-    },
+  const lineH = 60;
+  const textBlock = (x: number, startY: number) =>
+    lines.map((l, i) => `<text x="${x}" y="${startY + i * lineH}" font-size="48" font-weight="700" fill="white" font-family="Georgia,Times,serif" letter-spacing="3">${l}</text>`).join("");
 
-    // Style 3: Dark semi-transparent bar in center
-    "center-dark": {
-      type: "div" as const,
-      props: {
-        style: { display: "flex" as const, flexDirection: "column" as const, width: 1000, height: 1500, justifyContent: "center" as const, alignItems: "center" as const },
-        children: [
-          { type: "div" as const, props: { style: { display: "flex" as const, backgroundColor: "rgba(17,17,17,0.8)", padding: "35px 50px", maxWidth: 850 }, children: "" } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, top: "50%", left: 55, right: 55, fontSize: 40, fontWeight: 700, fontFamily: "Playfair Display", color: "white", lineHeight: 1.35, letterSpacing: 3, textTransform: "uppercase" as const, textAlign: "center" as const, justifyContent: "center" as const }, children: headlineUpper } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 150, background: "linear-gradient(transparent, rgba(0,0,0,0.3))" }, children: "" } },
-        ],
-      },
-    },
+  const textBlockH = lines.length * lineH;
 
-    // Style 4: Red accent line + white text top
-    "top-accent": {
-      type: "div" as const,
-      props: {
-        style: { display: "flex" as const, flexDirection: "column" as const, width: 1000, height: 1500 },
-        children: [
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, top: 0, left: 0, right: 0, height: 420, background: "linear-gradient(rgba(0,0,0,0.6), transparent)" }, children: "" } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, top: 45, left: 55, width: 50, height: 4, backgroundColor: "#D02F2E" }, children: "" } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, top: 70, left: 55, right: 55, fontSize: 46, fontWeight: 700, fontFamily: "Playfair Display", color: "white", lineHeight: 1.3, letterSpacing: 2, textTransform: "uppercase" as const }, children: headlineUpper } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 150, background: "linear-gradient(transparent, rgba(0,0,0,0.35))" }, children: "" } },
-        ],
-      },
-    },
+  switch (style) {
+    case "top":
+      return `<svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="1000" height="${textBlockH + 120}" fill="url(#g1)"/>
+        <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000" stop-opacity="0.6"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+        ${textBlock(55, 75)}
+        <rect x="0" y="1350" width="1000" height="150" fill="url(#g2)"/>
+        <defs><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity="0.4"/></linearGradient></defs>
+      </svg>`;
 
-    // Style 5: Minimal bottom with thin line
-    "bottom-minimal": {
-      type: "div" as const,
-      props: {
-        style: { display: "flex" as const, flexDirection: "column" as const, width: 1000, height: 1500 },
-        children: [
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 400, background: "linear-gradient(transparent, rgba(17,17,17,0.7))" }, children: "" } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 155, left: 55, width: 40, height: 3, backgroundColor: "#D02F2E" }, children: "" } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 175, left: 55, fontSize: 16, fontWeight: 700, fontFamily: "Inter", color: "rgba(255,255,255,0.7)", letterSpacing: 4, textTransform: "uppercase" as const }, children: "CHERRIES" } },
-          { type: "div" as const, props: { style: { display: "flex" as const, position: "absolute" as const, bottom: 210, left: 55, right: 55, fontSize: 42, fontWeight: 700, fontFamily: "Playfair Display", color: "white", lineHeight: 1.3, letterSpacing: 1 }, children: headline } },
-        ],
-      },
-    },
-  };
+    case "bottom":
+      return `<svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="${1500 - textBlockH - 250}" width="1000" height="${textBlockH + 250}" fill="url(#g1)"/>
+        <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity="0.65"/></linearGradient></defs>
+        ${textBlock(55, 1500 - textBlockH - 100)}
+      </svg>`;
 
-  return styles[style];
+    case "center":
+      const cy = 750 - (textBlockH / 2);
+      return `<svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
+        <rect x="40" y="${cy - 30}" width="920" height="${textBlockH + 60}" rx="4" fill="rgba(17,17,17,0.75)"/>
+        ${textBlock(80, cy + 40)}
+        <rect x="0" y="1350" width="1000" height="150" fill="url(#g1)"/>
+        <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity="0.35"/></linearGradient></defs>
+      </svg>`;
+
+    case "accent-top":
+      return `<svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="1000" height="${textBlockH + 140}" fill="url(#g1)"/>
+        <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000" stop-opacity="0.6"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+        <rect x="55" y="45" width="50" height="4" fill="#D02F2E"/>
+        ${textBlock(55, 95)}
+        <rect x="0" y="1350" width="1000" height="150" fill="url(#g2)"/>
+        <defs><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity="0.4"/></linearGradient></defs>
+      </svg>`;
+
+    case "accent-bottom":
+      return `<svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="${1500 - textBlockH - 280}" width="1000" height="${textBlockH + 280}" fill="url(#g1)"/>
+        <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity="0.7"/></linearGradient></defs>
+        <rect x="55" y="${1500 - textBlockH - 160}" width="40" height="3" fill="#D02F2E"/>
+        ${textBlock(55, 1500 - textBlockH - 110)}
+      </svg>`;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -93,104 +83,52 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("org_id")
-    .eq("id", user.id)
-    .single();
-
+  const { data: profile } = await supabase.from("users").select("org_id").eq("id", user.id).single();
   if (!profile?.org_id) return NextResponse.json({ error: "No org" }, { status: 400 });
 
   const body = await request.json();
   const { image_url, headline, logo_url } = body;
-
-  if (!image_url || !headline) {
-    return NextResponse.json({ error: "image_url and headline required" }, { status: 400 });
-  }
+  if (!image_url || !headline) return NextResponse.json({ error: "image_url and headline required" }, { status: 400 });
 
   const admin = createAdminClient();
 
   try {
-    // Download original image
     const imgRes = await fetch(image_url);
     if (!imgRes.ok) throw new Error(`Download failed: ${imgRes.status}`);
     const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-    // Resize to Pinterest 2:3
     const base = await sharp(imgBuffer)
       .resize(1000, 1500, { fit: "cover", position: "centre" })
       .jpeg({ quality: 95 })
       .toBuffer();
 
-    // Load fonts
-    const [playfairRes, interRes] = await Promise.all([
-      fetch("https://fonts.gstatic.com/s/playfairdisplay/v37/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKdFu3DXbtM.ttf"),
-      fetch("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYMZhrib2Bg-4.ttf"),
-    ]);
-    const playfairData = await playfairRes.arrayBuffer();
-    const interData = await interRes.arrayBuffer();
+    const style = pickStyle();
+    const svgStr = buildSvgOverlay(headline, style);
+    const overlayPng = await sharp(Buffer.from(svgStr)).resize(1000, 1500).png().toBuffer();
 
-    // Pick a random overlay style for variety
-    const style = pickOverlayStyle();
-    const overlayElement = buildOverlay(headline, style);
+    const layers: sharp.OverlayOptions[] = [{ input: overlayPng }];
 
-    const svg = await satori(overlayElement as React.ReactNode, {
-      width: 1000,
-      height: 1500,
-      fonts: [
-        { name: "Playfair Display", data: playfairData, weight: 700, style: "normal" as const },
-        { name: "Inter", data: interData, weight: 700, style: "normal" as const },
-      ],
-    });
-
-    const overlayPng = await sharp(Buffer.from(svg))
-      .resize(1000, 1500)
-      .png()
-      .toBuffer();
-
-    // Build composite layers
-    const layers: sharp.OverlayOptions[] = [
-      { input: overlayPng },
-    ];
-
-    // Download and add logo (250px, bottom-left)
     if (logo_url) {
       try {
         const logoRes = await fetch(logo_url);
         if (logoRes.ok) {
           const rawLogo = Buffer.from(await logoRes.arrayBuffer());
-          const resizedLogo = await sharp(rawLogo)
-            .resize(250, undefined, { fit: "inside" })
-            .png()
-            .toBuffer();
-          layers.push({ input: resizedLogo, top: 1370, left: 30 });
+          const resizedLogo = await sharp(rawLogo).resize(250, undefined, { fit: "inside" }).png().toBuffer();
+          layers.push({ input: resizedLogo, top: 1360, left: 30 });
         }
       } catch { /* skip */ }
     }
 
-    const final = await sharp(base)
-      .composite(layers)
-      .jpeg({ quality: 92 })
-      .toBuffer();
+    const final = await sharp(base).composite(layers).jpeg({ quality: 92 }).toBuffer();
 
-    // Upload
     const fileName = `${profile.org_id}/creatives/overlay-${Date.now()}.jpg`;
-    const { error: uploadErr } = await admin.storage
-      .from("pin-images")
-      .upload(fileName, final, { contentType: "image/jpeg", upsert: false });
-
+    const { error: uploadErr } = await admin.storage.from("pin-images").upload(fileName, final, { contentType: "image/jpeg", upsert: false });
     if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`);
 
     const { data: urlData } = admin.storage.from("pin-images").getPublicUrl(fileName);
 
-    return NextResponse.json({
-      success: true,
-      overlay_url: urlData.publicUrl,
-      style,
-    });
+    return NextResponse.json({ success: true, overlay_url: urlData.publicUrl, style });
   } catch (err) {
-    return NextResponse.json({
-      error: err instanceof Error ? err.message : "Overlay failed",
-    }, { status: 500 });
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Overlay failed" }, { status: 500 });
   }
 }
