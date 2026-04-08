@@ -43,9 +43,9 @@ export default function CreativesPage() {
     const files = e.target.files;
     if (!files || !org) return;
 
-    // Max file size: 50MB for videos, 20MB for images
-    const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
-    const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+    // Max file size: 500MB for videos, 50MB for images (Supabase Pro)
+    const MAX_VIDEO_SIZE = 500 * 1024 * 1024;
+    const MAX_IMAGE_SIZE = 50 * 1024 * 1024;
 
     for (const file of Array.from(files)) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
