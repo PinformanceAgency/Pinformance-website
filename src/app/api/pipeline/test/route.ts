@@ -839,6 +839,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "create-boards", created: results.filter(r => r.success).length, total: draftBoards.length, results });
   }
 
+  // ─── UPDATE PIN LINKS: Set link_url on all pins ───
+  if (step === "update-links") {
+    const { link_url } = body;
+    if (!link_url) return NextResponse.json({ error: "link_url required" }, { status: 400 });
+
+    const { data: updated, error: updateErr } = await supabase
+      .from("pins")
+      .update({ link_url, updated_at: new Date().toISOString() })
+      .eq("org_id", org.id)
+      .in("status", ["generated", "approved", "scheduled"])
+      .select("id");
+
+    // Also save as default link in brand profile
+    const { data: bp } = await supabase.from("brand_profiles").select("raw_data").eq("org_id", org.id).single();
+    const rawData = (bp?.raw_data || {}) as Record<string, unknown>;
+    await supabase.from("brand_profiles").update({
+      raw_data: { ...rawData, default_link_url: link_url },
+    }).eq("org_id", org.id);
+
+    return NextResponse.json({
+      success: !updateErr,
+      step: "update-links",
+      updated: updated?.length || 0,
+      link_url,
+      error: updateErr?.message,
+    });
+  }
+
   // ─── SCHEDULE PINS: Spread approved pins 1 per day ───
   if (step === "schedule-pins") {
     const { data: approvedPins } = await supabase

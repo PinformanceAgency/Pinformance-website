@@ -37,6 +37,7 @@ export default function CreativesPage() {
   const [creatives, setCreatives] = useState<UploadedCreative[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const defaultLinkUrl = "https://tobioskits.com/products/tobios-watercolor-kits";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -148,6 +149,7 @@ export default function CreativesPage() {
         title: a.title,
         description: a.description,
         alt_text: a.alt_text,
+        link_url: defaultLinkUrl,
         keywords: a.keywords,
         pin_type: isVideo ? "video" : "static",
         image_url: isVideo ? null : creative.image_url,
