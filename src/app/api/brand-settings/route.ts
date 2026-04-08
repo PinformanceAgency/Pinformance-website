@@ -47,6 +47,7 @@ export async function GET() {
     custom_screenshots: rd.custom_screenshots || [],
     clean_products: rd.clean_products || [],
     default_link_url: rd.default_link_url || "",
+    logo_url: rd.logo_url || "",
   });
 }
 
