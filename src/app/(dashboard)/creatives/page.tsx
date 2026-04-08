@@ -37,8 +37,16 @@ export default function CreativesPage() {
   const [creatives, setCreatives] = useState<UploadedCreative[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const defaultLinkUrl = "https://tobioskits.com/products/tobios-watercolor-kits";
+  const [defaultLinkUrl, setDefaultLinkUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load default link URL from brand settings
+  useEffect(() => {
+    if (!org) return;
+    fetch("/api/brand-settings").then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.default_link_url) setDefaultLinkUrl(d.default_link_url);
+    });
+  }, [org]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;

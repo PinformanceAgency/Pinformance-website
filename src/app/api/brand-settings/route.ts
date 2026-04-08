@@ -46,6 +46,7 @@ export async function GET() {
     reference_images: rd.reference_images || [],
     custom_screenshots: rd.custom_screenshots || [],
     clean_products: rd.clean_products || [],
+    default_link_url: rd.default_link_url || "",
   });
 }
 
