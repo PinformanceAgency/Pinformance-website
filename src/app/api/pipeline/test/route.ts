@@ -913,6 +913,57 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // ─── TEST TRANSCRIBE: Debug Deepgram transcription ───
+  if (step === "test-transcribe") {
+    const { video_path } = body;
+    const deepgramKey = process.env.DEEPGRAM_API_KEY;
+    if (!deepgramKey) return NextResponse.json({ error: "No DEEPGRAM_API_KEY" });
+
+    const results: Record<string, unknown> = { deepgram_key: deepgramKey.substring(0, 8) + "..." };
+
+    try {
+      // Step 1: List files in creatives folder
+      const { data: files } = await supabase.storage
+        .from("pin-images")
+        .list(`${org.id}/creatives`, { limit: 10 });
+      results.files = files?.map(f => f.name) || [];
+
+      // Step 2: Pick the first video file or use provided path
+      const videoFile = video_path || (files?.find(f => /\.(mp4|mov|webm)/i.test(f.name))?.name);
+      if (!videoFile) return NextResponse.json({ ...results, error: "No video files found" });
+      results.video_file = videoFile;
+
+      const storagePath = `${org.id}/creatives/${videoFile}`;
+
+      // Step 3: Create signed URL
+      const { data: signedData, error: signErr } = await supabase.storage
+        .from("pin-images")
+        .createSignedUrl(storagePath, 300);
+      results.signed_url = signedData?.signedUrl?.substring(0, 100) || null;
+      results.sign_error = signErr?.message || null;
+
+      if (signedData?.signedUrl) {
+        // Step 4: Test if signed URL is accessible
+        const testRes = await fetch(signedData.signedUrl, { method: "HEAD" });
+        results.signed_url_status = testRes.status;
+        results.signed_url_content_type = testRes.headers.get("content-type");
+        results.signed_url_size = testRes.headers.get("content-length");
+
+        // Step 5: Send to Deepgram
+        const { DeepgramClient } = await import("@/lib/deepgram/client");
+        const deepgram = new DeepgramClient(deepgramKey);
+        const transcript = await deepgram.transcribe(signedData.signedUrl);
+        results.transcript = transcript.substring(0, 500);
+        results.transcript_length = transcript.length;
+      }
+    } catch (err) {
+      results.error = err instanceof Error ? err.message : String(err);
+      results.stack = err instanceof Error ? err.stack?.split("\n").slice(0, 3) : undefined;
+    }
+
+    return NextResponse.json({ success: true, step: "test-transcribe", ...results });
+  }
+
   return NextResponse.json({ error: "Invalid step" }, { status: 400 });
 }
 
