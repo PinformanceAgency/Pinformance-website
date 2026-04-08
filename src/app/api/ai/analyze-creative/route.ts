@@ -77,22 +77,37 @@ export async function POST(request: NextRequest) {
         const deepgram = new DeepgramClient(deepgramKey);
         console.log(`[AnalyzeCreative] Transcribing video: ${file_name}`);
 
-        // Download video via Supabase admin client (bypasses public access restrictions)
-        // Extract the storage path from the public URL
+        // Create a signed URL that Deepgram can access (public URLs may be blocked)
         const storagePath = image_url.split("/object/public/pin-images/")[1];
         if (storagePath) {
-          const { data: fileData, error: downloadErr } = await admin.storage
+          // Try signed URL first (Deepgram fetches directly)
+          const { data: signedData } = await admin.storage
             .from("pin-images")
-            .download(storagePath);
+            .createSignedUrl(storagePath, 300); // 5 min expiry
 
-          if (fileData && !downloadErr) {
-            const buffer = Buffer.from(await fileData.arrayBuffer());
-            // Only use first 10MB for transcription to stay within Vercel limits
-            const chunk = buffer.subarray(0, 10 * 1024 * 1024);
-            transcript = await deepgram.transcribeBinary(chunk, fileData.type || "video/mp4");
+          if (signedData?.signedUrl) {
+            console.log(`[AnalyzeCreative] Using signed URL for Deepgram`);
+            transcript = await deepgram.transcribe(signedData.signedUrl);
+          }
+
+          // Fallback: download and send as binary
+          if (!transcript) {
+            console.log(`[AnalyzeCreative] Signed URL failed, trying binary download`);
+            const { data: fileData, error: downloadErr } = await admin.storage
+              .from("pin-images")
+              .download(storagePath);
+
+            if (fileData && !downloadErr) {
+              const buffer = Buffer.from(await fileData.arrayBuffer());
+              const chunk = buffer.subarray(0, 10 * 1024 * 1024);
+              transcript = await deepgram.transcribeBinary(chunk, fileData.type || "video/mp4");
+            } else {
+              console.error(`[AnalyzeCreative] Download failed:`, downloadErr?.message);
+            }
+          }
+
+          if (transcript) {
             console.log(`[AnalyzeCreative] Transcript (${transcript.length} chars): ${transcript.substring(0, 200)}`);
-          } else {
-            console.error(`[AnalyzeCreative] Download failed:`, downloadErr?.message);
           }
         }
       } catch (err) {
