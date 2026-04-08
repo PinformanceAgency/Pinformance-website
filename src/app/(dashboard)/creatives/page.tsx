@@ -43,28 +43,10 @@ export default function CreativesPage() {
     const files = e.target.files;
     if (!files || !org) return;
 
-    // Max file size: 500MB for videos, 50MB for images (Supabase Pro)
-    const MAX_VIDEO_SIZE = 500 * 1024 * 1024;
-    const MAX_IMAGE_SIZE = 50 * 1024 * 1024;
-
     for (const file of Array.from(files)) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const isVideo = file.type.startsWith("video/") || ["mov", "mp4", "avi", "webm", "mkv"].includes(ext);
       const mediaType: "image" | "video" = isVideo ? "video" : "image";
-      const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
-
-      // Check file size
-      if (file.size > maxSize) {
-        const maxMB = Math.round(maxSize / 1024 / 1024);
-        setCreatives((prev) => [...prev, {
-          image_url: URL.createObjectURL(file),
-          media_type: mediaType,
-          analysis: null,
-          status: "error" as const,
-          error: `File too large (${Math.round(file.size / 1024 / 1024)}MB). Max ${maxMB}MB for ${isVideo ? "videos" : "images"}.`,
-        }]);
-        continue;
-      }
 
       const fileName = `${org.id}/creatives/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
 
