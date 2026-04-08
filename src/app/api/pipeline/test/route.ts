@@ -839,6 +839,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "create-boards", created: results.filter(r => r.success).length, total: draftBoards.length, results });
   }
 
+  // ─── CREATE PIN: Manually create a pin with specific data ───
+  if (step === "create-pin") {
+    const { pin: pinData } = body;
+    if (!pinData) return NextResponse.json({ error: "pin data required" }, { status: 400 });
+
+    // Find best matching board
+    const { data: boards } = await supabase.from("boards").select("id, name, keywords").eq("org_id", org.id).eq("status", "active");
+    let boardId = pinData.board_id || boards?.[0]?.id;
+
+    const { data: newPin, error: pinErr } = await supabase.from("pins").insert({
+      org_id: org.id,
+      board_id: boardId,
+      title: pinData.title,
+      description: pinData.description,
+      alt_text: pinData.alt_text || pinData.title,
+      link_url: pinData.link_url || null,
+      keywords: pinData.keywords || [],
+      pin_type: pinData.video_url ? "video" : "static",
+      image_url: pinData.image_url || null,
+      video_url: pinData.video_url || null,
+      status: "generated",
+    }).select("id, title").single();
+
+    return NextResponse.json({
+      success: !pinErr,
+      step: "create-pin",
+      pin: newPin,
+      error: pinErr?.message,
+    });
+  }
+
   // ─── UPDATE PIN LINKS: Set link_url on all pins ───
   if (step === "update-links") {
     const { link_url } = body;
