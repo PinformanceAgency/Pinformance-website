@@ -187,7 +187,7 @@ export default function CreativesPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,video/*,.mov,.mp4,.avi,.webm,.mkv"
           multiple
           onChange={handleUpload}
           className="hidden"
