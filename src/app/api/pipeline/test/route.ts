@@ -855,6 +855,7 @@ export async function POST(request: NextRequest) {
     const timezone = org.settings?.timezone || "Europe/Amsterdam";
     const postingHours = org.settings?.posting_hours || [18, 19, 20, 21];
     let scheduled = 0;
+    const calErrors: string[] = [];
 
     for (let i = 0; i < approvedPins.length; i++) {
       const pin = approvedPins[i];
@@ -870,16 +871,22 @@ export async function POST(request: NextRequest) {
       const scheduledDate = scheduleDate.toISOString().split("T")[0];
       const scheduledTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
-      await supabase
+      // Update pin status to scheduled + set scheduled_at
+      const { error: pinErr } = await supabase
         .from("pins")
         .update({
+          status: "scheduled",
           scheduled_at: scheduleDate.toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq("id", pin.id);
 
-      // Also create calendar entry so it shows in the calendar view
-      // First delete any existing entry for this pin, then insert
+      if (pinErr) {
+        calErrors.push(`Pin ${pin.id}: ${pinErr.message}`);
+        continue;
+      }
+
+      // Create calendar entry so it shows in the calendar view
       await supabase.from("calendar_entries").delete().eq("pin_id", pin.id);
       const { error: calErr } = await supabase.from("calendar_entries").insert({
         org_id: org.id,
@@ -888,7 +895,7 @@ export async function POST(request: NextRequest) {
         scheduled_time: scheduledTime,
         slot_index: i,
       });
-      if (calErr) console.error(`[SchedulePins] Calendar entry error for ${pin.id}: ${calErr.message}`);
+      if (calErr) calErrors.push(`Calendar ${pin.id}: ${calErr.message}`);
 
       scheduled++;
     }
@@ -897,6 +904,7 @@ export async function POST(request: NextRequest) {
       success: true,
       step: "schedule-pins",
       scheduled,
+      calendar_errors: calErrors,
       pins: approvedPins.map((p, i) => ({
         id: p.id,
         title: p.title?.substring(0, 50),
