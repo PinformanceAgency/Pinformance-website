@@ -5,19 +5,20 @@ import { createClient } from "@/lib/supabase/client";
 import { useOrg } from "@/hooks/use-org";
 import {
   Upload,
-  Plus,
-  Trash2,
   Check,
   Sparkles,
   Loader2,
   Image as ImageIcon,
   Send,
   X,
+  Video,
+  Camera,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface UploadedCreative {
   image_url: string;
+  overlay_url?: string; // After overlay is applied (statics only)
   media_type: "image" | "video";
   analysis: {
     title: string;
@@ -28,7 +29,7 @@ interface UploadedCreative {
     board_name: string;
     text_overlay: string;
   } | null;
-  status: "uploading" | "analyzing" | "ready" | "queued" | "error";
+  status: "uploading" | "analyzing" | "applying_overlay" | "ready" | "queued" | "error";
   error?: string;
 }
 
@@ -38,13 +39,15 @@ export default function CreativesPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [defaultLinkUrl, setDefaultLinkUrl] = useState("");
+  const [activeTab, setActiveTab] = useState<"video" | "static">("video");
+  const [logoUrl, setLogoUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load default link URL from brand settings
   useEffect(() => {
     if (!org) return;
     fetch("/api/brand-settings").then(r => r.ok ? r.json() : null).then(d => {
       if (d?.default_link_url) setDefaultLinkUrl(d.default_link_url);
+      if (d?.logo_url) setLogoUrl(d.logo_url);
     });
   }, [org]);
 
@@ -52,13 +55,14 @@ export default function CreativesPage() {
     const files = e.target.files;
     if (!files || !org) return;
 
+    const isVideoTab = activeTab === "video";
+
     for (const file of Array.from(files)) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const isVideo = file.type.startsWith("video/") || ["mov", "mp4", "avi", "webm", "mkv"].includes(ext);
       const mediaType: "image" | "video" = isVideo ? "video" : "image";
 
       const fileName = `${org.id}/creatives/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
-
       const tempUrl = URL.createObjectURL(file);
       setCreatives((prev) => [...prev, { image_url: tempUrl, media_type: mediaType, analysis: null, status: "uploading" }]);
 
@@ -81,43 +85,81 @@ export default function CreativesPage() {
         prev.map((c) => (c.image_url === tempUrl ? { ...c, image_url: publicUrl, status: "analyzing" as const, media_type: mediaType } : c))
       );
 
-      // Analyze - send media_type and filename so AI can handle videos
+      // Analyze the creative (SEO generation)
       try {
         const res = await fetch("/api/ai/analyze-creative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            image_url: publicUrl,
-            media_type: mediaType,
-            file_name: file.name,
-          }),
+          body: JSON.stringify({ image_url: publicUrl, media_type: mediaType, file_name: file.name }),
         });
 
         if (res.ok) {
           const data = await res.json();
-          setCreatives((prev) =>
-            prev.map((c) =>
-              c.image_url === publicUrl
-                ? { ...c, analysis: data.analysis, status: "ready" as const }
-                : c
-            )
-          );
+          const analysis = data.analysis;
+
+          // For statics: apply text overlay + logo
+          if (!isVideo && mediaType === "image" && analysis) {
+            setCreatives((prev) =>
+              prev.map((c) =>
+                c.image_url === publicUrl ? { ...c, analysis, status: "applying_overlay" as const } : c
+              )
+            );
+
+            try {
+              const overlayRes = await fetch("/api/ai/apply-overlay", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  image_url: publicUrl,
+                  headline: analysis.text_overlay || analysis.title.substring(0, 50),
+                  logo_url: logoUrl || null,
+                }),
+              });
+
+              if (overlayRes.ok) {
+                const overlayData = await overlayRes.json();
+                setCreatives((prev) =>
+                  prev.map((c) =>
+                    c.image_url === publicUrl
+                      ? { ...c, overlay_url: overlayData.overlay_url, status: "ready" as const }
+                      : c
+                  )
+                );
+              } else {
+                // Overlay failed, still mark as ready with original image
+                setCreatives((prev) =>
+                  prev.map((c) =>
+                    c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
+                  )
+                );
+              }
+            } catch {
+              setCreatives((prev) =>
+                prev.map((c) =>
+                  c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
+                )
+              );
+            }
+          } else {
+            // Videos: just SEO, no overlay
+            setCreatives((prev) =>
+              prev.map((c) =>
+                c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
+              )
+            );
+          }
         } else {
           const err = await res.json();
           setCreatives((prev) =>
             prev.map((c) =>
-              c.image_url === publicUrl
-                ? { ...c, status: "error" as const, error: err.error || "Analysis failed" }
-                : c
+              c.image_url === publicUrl ? { ...c, status: "error" as const, error: err.error || "Analysis failed" } : c
             )
           );
         }
       } catch {
         setCreatives((prev) =>
           prev.map((c) =>
-            c.image_url === publicUrl
-              ? { ...c, status: "error" as const, error: "Network error" }
-              : c
+            c.image_url === publicUrl ? { ...c, status: "error" as const, error: "Network error" } : c
           )
         );
       }
@@ -148,9 +190,10 @@ export default function CreativesPage() {
 
     for (const creative of readyCreatives) {
       const a = creative.analysis!;
-
-      // Insert as a pin
       const isVideo = creative.media_type === "video";
+      // For statics: use overlay_url if available, otherwise original
+      const finalImageUrl = creative.overlay_url || creative.image_url;
+
       const { error } = await supabase.from("pins").insert({
         org_id: org.id,
         board_id: a.board_id,
@@ -160,7 +203,7 @@ export default function CreativesPage() {
         link_url: defaultLinkUrl,
         keywords: a.keywords,
         pin_type: isVideo ? "video" : "static",
-        image_url: isVideo ? null : creative.image_url,
+        image_url: isVideo ? null : finalImageUrl,
         video_url: isVideo ? creative.image_url : null,
         status: "generated",
         scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -178,6 +221,9 @@ export default function CreativesPage() {
     setTimeout(() => setSaved(false), 3000);
   }
 
+  const tabCreatives = creatives.filter((c) =>
+    activeTab === "video" ? c.media_type === "video" : c.media_type === "image"
+  );
   const readyCount = creatives.filter((c) => c.status === "ready").length;
   const queuedCount = creatives.filter((c) => c.status === "queued").length;
 
@@ -190,9 +236,55 @@ export default function CreativesPage() {
       <div>
         <h1 className="text-2xl font-semibold">Own Creatives</h1>
         <p className="text-muted-foreground mt-1">
-          Upload your own brand creatives. AI automatically generates SEO-optimized titles,
-          descriptions, keywords, and assigns the best board.
+          Upload your own brand content. Videos get SEO only. Statics get SEO + text overlay + logo.
         </p>
+      </div>
+
+      {/* Video / Static tabs */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setActiveTab("video")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+            activeTab === "video"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Video className="w-4 h-4" /> Videos
+        </button>
+        <button
+          onClick={() => setActiveTab("static")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+            activeTab === "static"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Camera className="w-4 h-4" /> Statics
+        </button>
+      </div>
+
+      {/* Info card */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        {activeTab === "video" ? (
+          <div className="space-y-1">
+            <h3 className="font-semibold text-sm flex items-center gap-2"><Video className="w-4 h-4" /> Video Uploads</h3>
+            <p className="text-sm text-muted-foreground">
+              Upload video content. AI transcribes the audio and generates SEO-optimized titles, descriptions, and keywords.
+              No changes are made to the video itself.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <h3 className="font-semibold text-sm flex items-center gap-2"><Camera className="w-4 h-4" /> Static Uploads</h3>
+            <p className="text-sm text-muted-foreground">
+              Upload photos from your shoots. AI generates SEO content and applies a subtle text overlay + brand logo
+              following Pinterest&apos;s creative guidelines. Images are resized to 2:3 vertical format.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Upload area */}
@@ -200,7 +292,7 @@ export default function CreativesPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,video/*,video/quicktime,video/mp4,video/x-msvideo,video/webm,.mov,.mp4,.avi,.webm,.mkv,.MOV,.MP4"
+          accept={activeTab === "video" ? "video/*,.mov,.mp4,.avi,.webm,.mkv,.MOV,.MP4" : "image/*"}
           multiple
           onChange={handleUpload}
           className="hidden"
@@ -211,18 +303,22 @@ export default function CreativesPage() {
         >
           <Upload className="w-8 h-8" />
           <div className="text-center">
-            <p className="text-sm font-medium">Upload Creatives</p>
+            <p className="text-sm font-medium">
+              Upload {activeTab === "video" ? "Videos" : "Photos"}
+            </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Upload images or videos. AI will analyze each one and generate Pinterest SEO content.
+              {activeTab === "video"
+                ? "AI transcribes audio and generates Pinterest SEO. No edits to the video."
+                : "AI adds subtle text overlay + logo and generates Pinterest SEO."}
             </p>
           </div>
         </button>
       </div>
 
-      {/* Uploaded creatives list */}
-      {creatives.length > 0 && (
+      {/* Creative cards */}
+      {tabCreatives.length > 0 && (
         <div className="space-y-4">
-          {creatives.map((creative, i) => (
+          {tabCreatives.map((creative, i) => (
             <div
               key={creative.image_url + i}
               className="bg-card border border-border rounded-xl overflow-hidden"
@@ -234,19 +330,16 @@ export default function CreativesPage() {
                     <video
                       src={creative.image_url}
                       className="w-full h-full object-cover"
-                      muted
-                      loop
-                      autoPlay
-                      playsInline
+                      muted loop playsInline autoPlay
                     />
                   ) : (
                     <img
-                      src={creative.image_url}
+                      src={creative.overlay_url || creative.image_url}
                       alt="Creative"
                       className="w-full h-full object-cover"
                     />
                   )}
-                  {creative.status === "analyzing" && (
+                  {(creative.status === "analyzing" || creative.status === "applying_overlay") && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                       <Loader2 className="w-6 h-6 text-white animate-spin" />
                     </div>
@@ -254,6 +347,16 @@ export default function CreativesPage() {
                   {creative.status === "queued" && (
                     <div className="absolute inset-0 bg-green-600/50 flex items-center justify-center">
                       <Check className="w-8 h-8 text-white" />
+                    </div>
+                  )}
+                  {creative.overlay_url && (
+                    <div className="absolute top-1 left-1 bg-green-600/80 text-white text-[9px] px-1.5 py-0.5 rounded font-medium">
+                      OVERLAY
+                    </div>
+                  )}
+                  {creative.media_type === "video" && (
+                    <div className="absolute top-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-medium">
+                      VIDEO
                     </div>
                   )}
                 </div>
@@ -267,7 +370,14 @@ export default function CreativesPage() {
                   {creative.status === "analyzing" && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Sparkles className="w-4 h-4 animate-pulse" />
-                      AI is analyzing your creative and generating SEO content...
+                      {creative.media_type === "video" ? "Transcribing audio & generating SEO..." : "Analyzing image & generating SEO..."}
+                    </div>
+                  )}
+
+                  {creative.status === "applying_overlay" && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Applying text overlay + logo...
                     </div>
                   )}
 
@@ -281,7 +391,6 @@ export default function CreativesPage() {
 
                   {(creative.status === "ready" || creative.status === "queued") && creative.analysis && (
                     <>
-                      {/* Title */}
                       <div>
                         <label className="text-xs font-medium text-muted-foreground">Title</label>
                         <input
@@ -292,8 +401,6 @@ export default function CreativesPage() {
                           className="w-full mt-0.5 px-2 py-1.5 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
                         />
                       </div>
-
-                      {/* Description */}
                       <div>
                         <label className="text-xs font-medium text-muted-foreground">Description</label>
                         <textarea
@@ -304,8 +411,6 @@ export default function CreativesPage() {
                           className="w-full mt-0.5 px-2 py-1.5 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
                         />
                       </div>
-
-                      {/* Keywords + Board */}
                       <div className="flex gap-3">
                         <div className="flex-1">
                           <label className="text-xs font-medium text-muted-foreground">Keywords</label>
@@ -324,7 +429,6 @@ export default function CreativesPage() {
                   )}
                 </div>
 
-                {/* Remove button */}
                 {creative.status !== "queued" && (
                   <button
                     onClick={() => removeCreative(creative.image_url)}
@@ -340,11 +444,15 @@ export default function CreativesPage() {
       )}
 
       {/* Empty state */}
-      {creatives.length === 0 && (
+      {tabCreatives.length === 0 && (
         <div className="bg-muted/30 border border-dashed border-border rounded-xl p-12 text-center">
-          <ImageIcon className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          {activeTab === "video" ? (
+            <Video className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          ) : (
+            <ImageIcon className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          )}
           <p className="text-sm text-muted-foreground">
-            No creatives uploaded yet. Upload your brand images or videos and AI will handle the SEO.
+            No {activeTab === "video" ? "videos" : "photos"} uploaded yet.
           </p>
         </div>
       )}
@@ -380,7 +488,7 @@ export default function CreativesPage() {
         <div className="flex items-center justify-between text-xs text-muted-foreground bg-muted/30 rounded-lg px-4 py-2">
           <span>
             {readyCount} ready · {queuedCount} queued ·{" "}
-            {creatives.filter((c) => c.status === "analyzing").length} analyzing
+            {creatives.filter((c) => c.status === "analyzing" || c.status === "applying_overlay").length} processing
           </span>
         </div>
       )}
