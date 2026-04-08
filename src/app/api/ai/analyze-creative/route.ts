@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { generateJSON } from "@/lib/ai/client";
+import { generateJSON, generateJSONWithImage } from "@/lib/ai/client";
 import { decrypt } from "@/lib/encryption";
+import { DeepgramClient } from "@/lib/deepgram/client";
 
-export const maxDuration = 60;
+export const maxDuration = 120; // Transcription can take time
 
 interface AnalysisOutput {
   title: string;
@@ -17,8 +18,8 @@ interface AnalysisOutput {
 
 /**
  * POST /api/ai/analyze-creative
- * Analyzes an uploaded creative image and generates SEO-optimized
- * title, description, keywords, and board assignment.
+ * For images: analyzes visually via Claude
+ * For videos: transcribes audio via Deepgram, then uses transcript for SEO
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -45,7 +46,6 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Load org, boards, brand profile, keywords
   const [orgRes, boardsRes, brandRes, keywordsRes] = await Promise.all([
     admin.from("organizations").select("name, anthropic_api_key_encrypted").eq("id", orgId).single(),
     admin.from("boards").select("id, name, keywords, category").eq("org_id", orgId).in("status", ["active", "draft"]),
@@ -58,7 +58,6 @@ export async function POST(request: NextRequest) {
   const brand = brandRes.data;
   const keywords = keywordsRes.data || [];
 
-  // Get Anthropic API key
   let apiKey: string | undefined;
   if (org?.anthropic_api_key_encrypted) {
     try { apiKey = decrypt(org.anthropic_api_key_encrypted); } catch { /* fallback */ }
@@ -69,24 +68,39 @@ export async function POST(request: NextRequest) {
   const boardList = boards.map((b) => `"${b.name}" (${b.category || "general"}, keywords: ${(b.keywords || []).slice(0, 3).join(", ")})`).join("\n");
   const keywordList = keywords.map((k) => k.keyword).join(", ");
 
-  const systemPrompt = `You are a Pinterest SEO expert. You analyze product/lifestyle images and generate optimized pin content.
+  // For videos: transcribe first, then use transcript for SEO
+  let transcript = "";
+  if (isVideo) {
+    const deepgramKey = process.env.DEEPGRAM_API_KEY;
+    if (deepgramKey) {
+      try {
+        const deepgram = new DeepgramClient(deepgramKey);
+        console.log(`[AnalyzeCreative] Transcribing video: ${file_name}`);
+        transcript = await deepgram.transcribe(image_url);
+        console.log(`[AnalyzeCreative] Transcript (${transcript.length} chars): ${transcript.substring(0, 200)}`);
+      } catch (err) {
+        console.error(`[AnalyzeCreative] Transcription failed:`, err instanceof Error ? err.message : err);
+        // Continue without transcript — fall back to filename
+      }
+    }
+  }
 
-RULES:
-- Title: max 100 chars, primary keyword in first 40 characters, no brand name at start
-- Description: max 500 chars, start with brand name "${brandName}", 3-5 keywords naturally woven in
-- No hashtags anywhere
-- Keywords: mix of broad and specific, include seasonal terms
-- Alt text: describe the image literally for accessibility
+  const systemPrompt = `You are a Pinterest SEO expert. You analyze content and generate optimized pin titles, descriptions, and keywords.
+
+CRITICAL RULES:
+- The SEO MUST be based on the ACTUAL CONTENT of the creative, not generic product keywords
+- Title: max 100 chars, describe what this specific content is about
+- Description: max 500 chars, start with brand name "${brandName}", describe the actual content
+- Keywords: based on what the content actually shows/discusses, NOT generic product keywords
+- Only include keywords that are genuinely relevant to THIS specific piece of content
 - Suggested board: pick the BEST matching board from the list below
 ${brandVoice ? `- Brand voice: ${brandVoice}` : ""}
+- No hashtags anywhere
 
 Available boards:
 ${boardList}
 
-Top keywords: ${keywordList}
-
-The content URL will be provided. Analyze it and generate content accordingly.
-For videos: use the filename to understand the content topic since you cannot watch videos.
+Brand keywords (use ONLY if relevant to this content): ${keywordList}
 
 Output JSON:
 {
@@ -98,30 +112,56 @@ Output JSON:
   "text_overlay": string (3-8 words)
 }`;
 
-  const userPrompt = isVideo
-    ? `Generate SEO-optimized Pinterest content for this video pin:
+  let userPrompt: string;
+
+  if (isVideo && transcript) {
+    // Video with transcript — use the actual spoken content
+    userPrompt = `Generate Pinterest SEO for this video based on its ACTUAL CONTENT.
+
+Video filename: ${file_name || "video.mp4"}
+Brand: ${brandName}
+
+VIDEO TRANSCRIPT:
+"""
+${transcript}
+"""
+
+Based on what is actually said and shown in this video, generate accurate SEO content.
+The title and description must reflect what THIS specific video is about — not generic product descriptions.
+If the video is about ranking places, the SEO should be about ranking places.
+If it's a tutorial, the SEO should describe that specific tutorial.
+If it's a review or comparison, reflect that in the SEO.`;
+
+  } else if (isVideo) {
+    // Video without transcript — use filename as best guess
+    userPrompt = `Generate Pinterest SEO for this video pin.
 
 Video filename: ${file_name || "video.mp4"}
 Video URL: ${image_url}
+Brand: ${brandName}
+
+Based on the filename, determine the topic. Be specific to what this video likely covers.
+Do NOT generate generic watercolor kit product descriptions unless the filename clearly indicates that.`;
+
+  } else {
+    // Image — will be analyzed visually by Claude
+    userPrompt = `Look at this image carefully. Describe what you see — the subject, the setting, the style, the mood.
 
 Brand: ${brandName}
-This is a brand-created organic video. Based on the filename, determine the topic and generate the best possible Pinterest SEO content. Make the title catchy and keyword-rich. Videos perform great on Pinterest for tutorials, how-tos, and demonstrations.`
-    : `Analyze this Pinterest creative image and generate SEO-optimized content:
 
-Image URL: ${image_url}
-
-Brand: ${brandName}
-This is a brand-created organic creative. Generate the best possible Pinterest SEO content for maximum reach and engagement.`;
+Based on what you ACTUALLY SEE in this image, generate Pinterest SEO content.
+- If it shows a painting tutorial, describe that specific tutorial
+- If it shows a product in use, describe how it's being used
+- If it shows finished artwork, describe the artwork
+- Do NOT generate generic product descriptions — be specific to what's in this image`;
+  }
 
   try {
-    const result = await generateJSON<AnalysisOutput>(
-      systemPrompt,
-      userPrompt,
-      undefined,
-      apiKey
-    );
+    // Use vision for images, text-only for videos (transcript-based)
+    const result = isVideo
+      ? await generateJSON<AnalysisOutput>(systemPrompt, userPrompt, undefined, apiKey)
+      : await generateJSONWithImage<AnalysisOutput>(systemPrompt, userPrompt, image_url, undefined, apiKey);
 
-    // Find the matching board
     const matchedBoard = boards.find((b) =>
       b.name.toLowerCase() === result.suggested_board?.toLowerCase()
     ) || boards[0];
@@ -133,6 +173,7 @@ This is a brand-created organic creative. Generate the best possible Pinterest S
         board_id: matchedBoard?.id || null,
         board_name: matchedBoard?.name || result.suggested_board,
       },
+      transcript: transcript ? transcript.substring(0, 500) : null,
     });
   } catch (err) {
     return NextResponse.json({
