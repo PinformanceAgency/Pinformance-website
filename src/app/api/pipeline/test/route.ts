@@ -772,12 +772,13 @@ export async function POST(request: NextRequest) {
 
   // ─── APPROVE ALL ───
   if (step === "approve-all") {
+    // Approve pins that have either an image or a video
     const { data: updated, error: approveErr } = await supabase
       .from("pins")
       .update({ status: "approved", updated_at: new Date().toISOString() })
       .eq("org_id", org.id)
       .in("status", ["generated", "scheduled"])
-      .not("image_url", "is", null)
+      .or("image_url.not.is.null,video_url.not.is.null")
       .select("id, title, status");
 
     return NextResponse.json({
@@ -789,7 +790,58 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ error: "Invalid step. Use: diagnose, strategy, content, full, generate-image, approve-pin, approve-all, post-pin, reset-onboarding" }, { status: 400 });
+  // ─── SCHEDULE PINS: Spread approved pins 1 per day ───
+  if (step === "schedule-pins") {
+    const { data: approvedPins } = await supabase
+      .from("pins")
+      .select("id, title")
+      .eq("org_id", org.id)
+      .eq("status", "approved")
+      .order("created_at", { ascending: true });
+
+    if (!approvedPins?.length) {
+      return NextResponse.json({ success: true, step: "schedule-pins", scheduled: 0, message: "No approved pins to schedule" });
+    }
+
+    const timezone = org.settings?.timezone || "Europe/Amsterdam";
+    const postingHours = org.settings?.posting_hours || [18, 19, 20, 21];
+    let scheduled = 0;
+
+    for (let i = 0; i < approvedPins.length; i++) {
+      const pin = approvedPins[i];
+      const daysFromNow = i + 1; // Start tomorrow, 1 pin per day
+      const hour = postingHours[i % postingHours.length];
+      const minute = (i * 7 + 13) % 60;
+
+      // Create date in UTC (approximate for timezone)
+      const scheduleDate = new Date();
+      scheduleDate.setDate(scheduleDate.getDate() + daysFromNow);
+      scheduleDate.setHours(hour - 2, minute, 0, 0); // Rough CEST offset
+
+      await supabase
+        .from("pins")
+        .update({
+          scheduled_at: scheduleDate.toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", pin.id);
+
+      scheduled++;
+    }
+
+    return NextResponse.json({
+      success: true,
+      step: "schedule-pins",
+      scheduled,
+      pins: approvedPins.map((p, i) => ({
+        id: p.id,
+        title: p.title?.substring(0, 50),
+        day: i + 1,
+      })),
+    });
+  }
+
+  return NextResponse.json({ error: "Invalid step" }, { status: 400 });
 }
 
 function groupByStatus(pins: { status: string }[]): Record<string, number> {
