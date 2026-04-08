@@ -44,25 +44,42 @@ export async function POST(request: NextRequest) {
       .jpeg({ quality: 95 })
       .toBuffer();
 
-    // Create a semi-transparent gradient overlay with text using SVG
-    const svgOverlay = `
-    <svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
+    // Split headline into lines (max ~25 chars per line for readability)
+    const words = headline.split(" ");
+    const lines: string[] = [];
+    let currentLine = "";
+    for (const word of words) {
+      if ((currentLine + " " + word).trim().length > 25 && currentLine) {
+        lines.push(currentLine.trim());
+        currentLine = word;
+      } else {
+        currentLine = (currentLine + " " + word).trim();
+      }
+    }
+    if (currentLine) lines.push(currentLine.trim());
+
+    // Build text elements for each line
+    const textElements = lines.map((line, i) =>
+      `<text x="60" y="${100 + i * 65}" font-family="Georgia, Times, serif" font-size="54" font-weight="bold" fill="white" letter-spacing="1">${escapeXml(line)}</text>`
+    ).join("\n");
+
+    const gradientHeight = Math.max(300, 100 + lines.length * 65 + 60);
+
+    // Create overlay SVG with gradient + headline text
+    const svgOverlay = `<svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="topGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="black" stop-opacity="0.5"/>
+          <stop offset="0%" stop-color="black" stop-opacity="0.55"/>
           <stop offset="100%" stop-color="black" stop-opacity="0"/>
         </linearGradient>
         <linearGradient id="bottomGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="black" stop-opacity="0"/>
-          <stop offset="100%" stop-color="black" stop-opacity="0.4"/>
+          <stop offset="100%" stop-color="black" stop-opacity="0.45"/>
         </linearGradient>
       </defs>
-      <rect x="0" y="0" width="1000" height="300" fill="url(#topGrad)"/>
+      <rect x="0" y="0" width="1000" height="${gradientHeight}" fill="url(#topGrad)"/>
       <rect x="0" y="1300" width="1000" height="200" fill="url(#bottomGrad)"/>
-      <text x="50" y="90" font-family="serif" font-size="52" font-weight="bold" fill="white" opacity="0.95">
-        ${escapeXml(headline.substring(0, 40))}
-      </text>
-      ${headline.length > 40 ? `<text x="50" y="150" font-family="serif" font-size="52" font-weight="bold" fill="white" opacity="0.95">${escapeXml(headline.substring(40, 80))}</text>` : ""}
+      ${textElements}
     </svg>`;
 
     const overlayBuffer = Buffer.from(svgOverlay);
@@ -72,17 +89,17 @@ export async function POST(request: NextRequest) {
       { input: overlayBuffer },
     ];
 
-    // Download and add logo if provided
+    // Download and add logo
     if (logo_url) {
       try {
         const logoRes = await fetch(logo_url);
         if (logoRes.ok) {
           const rawLogo = Buffer.from(await logoRes.arrayBuffer());
           const resizedLogo = await sharp(rawLogo)
-            .resize(100, undefined, { fit: "inside" })
+            .resize(200, undefined, { fit: "inside" })
             .png()
             .toBuffer();
-          layers.push({ input: resizedLogo, top: 1420, left: 40 });
+          layers.push({ input: resizedLogo, top: 1380, left: 40 });
         }
       } catch {
         // Skip logo if download fails
