@@ -879,13 +879,16 @@ export async function POST(request: NextRequest) {
         .eq("id", pin.id);
 
       // Also create calendar entry so it shows in the calendar view
-      await supabase.from("calendar_entries").upsert({
+      // First delete any existing entry for this pin, then insert
+      await supabase.from("calendar_entries").delete().eq("pin_id", pin.id);
+      const { error: calErr } = await supabase.from("calendar_entries").insert({
         org_id: org.id,
         pin_id: pin.id,
         scheduled_date: scheduledDate,
         scheduled_time: scheduledTime,
         slot_index: i,
-      }, { onConflict: "pin_id" });
+      });
+      if (calErr) console.error(`[SchedulePins] Calendar entry error for ${pin.id}: ${calErr.message}`);
 
       scheduled++;
     }
