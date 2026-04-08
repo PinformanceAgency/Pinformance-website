@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 interface UploadedCreative {
   image_url: string;
+  media_type: "image" | "video";
   analysis: {
     title: string;
     description: string;
@@ -44,11 +45,13 @@ export default function CreativesPage() {
 
     for (const file of Array.from(files)) {
       const ext = file.name.split(".").pop() || "jpg";
+      const isVideo = file.type.startsWith("video/");
+      const mediaType: "image" | "video" = isVideo ? "video" : "image";
       const fileName = `${org.id}/creatives/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
 
       // Add to state as uploading
       const tempUrl = URL.createObjectURL(file);
-      setCreatives((prev) => [...prev, { image_url: tempUrl, analysis: null, status: "uploading" }]);
+      setCreatives((prev) => [...prev, { image_url: tempUrl, media_type: mediaType, analysis: null, status: "uploading" }]);
 
       const supabase = createClient();
       const { error } = await supabase.storage
@@ -67,7 +70,7 @@ export default function CreativesPage() {
 
       // Update URL and start analysis
       setCreatives((prev) =>
-        prev.map((c) => (c.image_url === tempUrl ? { ...c, image_url: publicUrl, status: "analyzing" as const } : c))
+        prev.map((c) => (c.image_url === tempUrl ? { ...c, image_url: publicUrl, status: "analyzing" as const, media_type: mediaType } : c))
       );
 
       // Analyze the creative
@@ -135,6 +138,7 @@ export default function CreativesPage() {
       const a = creative.analysis!;
 
       // Insert as a pin
+      const isVideo = creative.media_type === "video";
       const { error } = await supabase.from("pins").insert({
         org_id: org.id,
         board_id: a.board_id,
@@ -142,8 +146,9 @@ export default function CreativesPage() {
         description: a.description,
         alt_text: a.alt_text,
         keywords: a.keywords,
-        pin_type: "static",
-        image_url: creative.image_url,
+        pin_type: isVideo ? "video" : "static",
+        image_url: isVideo ? null : creative.image_url,
+        video_url: isVideo ? creative.image_url : null,
         status: "generated",
         scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
@@ -182,7 +187,7 @@ export default function CreativesPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,video/*"
           multiple
           onChange={handleUpload}
           className="hidden"
@@ -195,7 +200,7 @@ export default function CreativesPage() {
           <div className="text-center">
             <p className="text-sm font-medium">Upload Creatives</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Upload your brand images. AI will analyze each one and generate Pinterest SEO content.
+              Upload images or videos. AI will analyze each one and generate Pinterest SEO content.
             </p>
           </div>
         </button>
@@ -210,13 +215,24 @@ export default function CreativesPage() {
               className="bg-card border border-border rounded-xl overflow-hidden"
             >
               <div className="flex gap-4 p-4">
-                {/* Image preview */}
+                {/* Media preview */}
                 <div className="w-32 h-48 rounded-lg overflow-hidden bg-muted flex-shrink-0 relative">
-                  <img
-                    src={creative.image_url}
-                    alt="Creative"
-                    className="w-full h-full object-cover"
-                  />
+                  {creative.media_type === "video" ? (
+                    <video
+                      src={creative.image_url}
+                      className="w-full h-full object-cover"
+                      muted
+                      loop
+                      autoPlay
+                      playsInline
+                    />
+                  ) : (
+                    <img
+                      src={creative.image_url}
+                      alt="Creative"
+                      className="w-full h-full object-cover"
+                    />
+                  )}
                   {creative.status === "analyzing" && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                       <Loader2 className="w-6 h-6 text-white animate-spin" />
@@ -315,7 +331,7 @@ export default function CreativesPage() {
         <div className="bg-muted/30 border border-dashed border-border rounded-xl p-12 text-center">
           <ImageIcon className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">
-            No creatives uploaded yet. Upload your brand images and AI will handle the SEO.
+            No creatives uploaded yet. Upload your brand images or videos and AI will handle the SEO.
           </p>
         </div>
       )}
