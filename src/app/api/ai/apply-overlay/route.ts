@@ -2,17 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import sharp from "sharp";
-import satori from "satori";
 
 export const maxDuration = 60;
 
 /**
  * POST /api/ai/apply-overlay
- * Takes a static image, adds a subtle text overlay + brand logo.
- * Following Pinterest's creative guidelines:
- * - Headline: 5-8 words, legible on mobile
- * - Logo: subtle, bottom corner
- * - 2:3 vertical format (1000x1500)
+ * Adds subtle text overlay + brand logo to a static image.
+ * Resizes to Pinterest 2:3 (1000x1500).
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -42,140 +38,63 @@ export async function POST(request: NextRequest) {
     if (!imgRes.ok) throw new Error(`Failed to download image: ${imgRes.status}`);
     const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-    // Resize to Pinterest 2:3 format
-    const resized = await sharp(imgBuffer)
+    // Resize to Pinterest 2:3
+    const base = await sharp(imgBuffer)
       .resize(1000, 1500, { fit: "cover", position: "centre" })
       .jpeg({ quality: 95 })
       .toBuffer();
 
-    // Load font for text overlay
-    const fontRes = await fetch(
-      "https://fonts.gstatic.com/s/playfairdisplay/v37/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKd3vXDXbtM.ttf"
-    );
-    const fontData = await fontRes.arrayBuffer();
+    // Create a semi-transparent gradient overlay with text using SVG
+    const svgOverlay = `
+    <svg width="1000" height="1500" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="topGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="black" stop-opacity="0.5"/>
+          <stop offset="100%" stop-color="black" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="bottomGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="black" stop-opacity="0"/>
+          <stop offset="100%" stop-color="black" stop-opacity="0.4"/>
+        </linearGradient>
+      </defs>
+      <rect x="0" y="0" width="1000" height="300" fill="url(#topGrad)"/>
+      <rect x="0" y="1300" width="1000" height="200" fill="url(#bottomGrad)"/>
+      <text x="50" y="90" font-family="serif" font-size="52" font-weight="bold" fill="white" opacity="0.95">
+        ${escapeXml(headline.substring(0, 40))}
+      </text>
+      ${headline.length > 40 ? `<text x="50" y="150" font-family="serif" font-size="52" font-weight="bold" fill="white" opacity="0.95">${escapeXml(headline.substring(40, 80))}</text>` : ""}
+    </svg>`;
 
-    const fontBoldRes = await fetch(
-      "https://fonts.gstatic.com/s/playfairdisplay/v37/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKdFu3DXbtM.ttf"
-    );
-    const fontBoldData = await fontBoldRes.arrayBuffer();
+    const overlayBuffer = Buffer.from(svgOverlay);
 
-    // Create subtle text overlay with Satori
-    const overlayElement = {
-      type: "div" as const,
-      props: {
-        style: {
-          display: "flex",
-          flexDirection: "column" as const,
-          width: 1000,
-          height: 1500,
-          position: "relative" as const,
-        },
-        children: [
-          // Top gradient for text readability
-          {
-            type: "div" as const,
-            props: {
-              style: {
-                display: "flex",
-                position: "absolute" as const,
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 250,
-                background: "linear-gradient(rgba(0,0,0,0.45) 0%, transparent 100%)",
-              },
-              children: "",
-            },
-          },
-          // Headline text - top area
-          {
-            type: "div" as const,
-            props: {
-              style: {
-                display: "flex",
-                position: "absolute" as const,
-                top: 50,
-                left: 50,
-                right: 50,
-                fontSize: 48,
-                fontWeight: 700,
-                fontFamily: "Playfair Display",
-                color: "white",
-                lineHeight: 1.2,
-                textShadow: "0 2px 8px rgba(0,0,0,0.3)",
-              },
-              children: headline,
-            },
-          },
-          // Bottom subtle gradient for logo
-          {
-            type: "div" as const,
-            props: {
-              style: {
-                display: "flex",
-                position: "absolute" as const,
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: 120,
-                background: "linear-gradient(transparent, rgba(0,0,0,0.35))",
-              },
-              children: "",
-            },
-          },
-        ],
-      },
-    };
+    // Build composite layers
+    const layers: { input: Buffer; top?: number; left?: number }[] = [
+      { input: overlayBuffer },
+    ];
 
-    // Render overlay to SVG then PNG
-    const overlaySvg = await satori(overlayElement as React.ReactNode, {
-      width: 1000,
-      height: 1500,
-      fonts: [
-        { name: "Playfair Display", data: fontData, weight: 400, style: "normal" as const },
-        { name: "Playfair Display", data: fontBoldData, weight: 700, style: "normal" as const },
-      ],
-    });
-
-    const overlayPng = await sharp(Buffer.from(overlaySvg))
-      .resize(1000, 1500)
-      .png()
-      .toBuffer();
-
-    // Download logo if provided
-    let logoBuffer: Buffer | null = null;
+    // Download and add logo if provided
     if (logo_url) {
-      const logoRes = await fetch(logo_url);
-      if (logoRes.ok) {
-        const rawLogo = Buffer.from(await logoRes.arrayBuffer());
-        logoBuffer = await sharp(rawLogo)
-          .resize(120, undefined, { fit: "inside" })
-          .png()
-          .toBuffer();
+      try {
+        const logoRes = await fetch(logo_url);
+        if (logoRes.ok) {
+          const rawLogo = Buffer.from(await logoRes.arrayBuffer());
+          const resizedLogo = await sharp(rawLogo)
+            .resize(100, undefined, { fit: "inside" })
+            .png()
+            .toBuffer();
+          layers.push({ input: resizedLogo, top: 1420, left: 40 });
+        }
+      } catch {
+        // Skip logo if download fails
       }
     }
 
-    // Composite: base image + text overlay + logo
-    const composites: sharp.OverlayOptions[] = [
-      { input: overlayPng, blend: "over" as const },
-    ];
-
-    if (logoBuffer) {
-      composites.push({
-        input: logoBuffer,
-        gravity: "southwest" as const,
-        left: 40,
-        top: 1500 - 70,
-        blend: "over" as const,
-      } as sharp.OverlayOptions);
-    }
-
-    const final = await sharp(resized)
-      .composite(composites)
+    const final = await sharp(base)
+      .composite(layers)
       .jpeg({ quality: 92 })
       .toBuffer();
 
-    // Upload
+    // Upload result
     const fileName = `${profile.org_id}/creatives/overlay-${Date.now()}.jpg`;
     const { error: uploadErr } = await admin.storage
       .from("pin-images")
@@ -195,4 +114,8 @@ export async function POST(request: NextRequest) {
       error: err instanceof Error ? err.message : "Overlay failed",
     }, { status: 500 });
   }
+}
+
+function escapeXml(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
