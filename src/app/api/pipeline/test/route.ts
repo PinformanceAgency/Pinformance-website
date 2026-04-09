@@ -870,6 +870,43 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // ─── DISTRIBUTE PINS: Spread pins evenly across all boards ───
+  if (step === "distribute-pins") {
+    const { data: allPins } = await supabase
+      .from("pins")
+      .select("id, board_id")
+      .eq("org_id", org.id)
+      .in("status", ["generated", "approved", "scheduled"])
+      .order("created_at", { ascending: true });
+
+    const { data: allBoards } = await supabase
+      .from("boards")
+      .select("id, name")
+      .eq("org_id", org.id)
+      .eq("status", "active");
+
+    if (!allPins?.length || !allBoards?.length) {
+      return NextResponse.json({ success: true, step: "distribute-pins", message: "No pins or boards" });
+    }
+
+    // Round-robin assign pins to boards
+    let updated = 0;
+    for (let i = 0; i < allPins.length; i++) {
+      const targetBoard = allBoards[i % allBoards.length];
+      await supabase.from("pins").update({ board_id: targetBoard.id }).eq("id", allPins[i].id);
+      updated++;
+    }
+
+    // Count per board
+    const distribution: Record<string, number> = {};
+    for (let i = 0; i < allPins.length; i++) {
+      const boardName = allBoards[i % allBoards.length].name;
+      distribution[boardName] = (distribution[boardName] || 0) + 1;
+    }
+
+    return NextResponse.json({ success: true, step: "distribute-pins", updated, distribution });
+  }
+
   // ─── UPDATE PIN LINKS: Set link_url on all pins ───
   if (step === "update-links") {
     const { link_url } = body;
