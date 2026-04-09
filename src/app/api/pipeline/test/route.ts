@@ -900,14 +900,43 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // ─── SCHEDULE PINS: Spread approved pins 1 per day ───
+  // ─── SCHEDULE PINS: Spread approved pins across days, mix video/static ───
   if (step === "schedule-pins") {
+    const pinsPerDay = body.pins_per_day || 1;
+    const instantPost = body.instant_post || 0; // Number of pins to post immediately
+
     const { data: approvedPins } = await supabase
       .from("pins")
-      .select("id, title")
+      .select("id, title, pin_type, video_url, image_url")
       .eq("org_id", org.id)
       .eq("status", "approved")
       .order("created_at", { ascending: true });
+
+    // Sort to alternate video/static for variety
+    if (approvedPins && approvedPins.length > 1) {
+      const videos = approvedPins.filter((p) => p.pin_type === "video" || p.video_url);
+      const statics = approvedPins.filter((p) => p.pin_type !== "video" && !p.video_url);
+      const mixed: typeof approvedPins = [];
+      let vi = 0, si = 0;
+      let lastType = "";
+      while (vi < videos.length || si < statics.length) {
+        // Alternate: if last was video, pick static next (and vice versa)
+        if (lastType !== "static" && si < statics.length) {
+          mixed.push(statics[si++]);
+          lastType = "static";
+        } else if (lastType !== "video" && vi < videos.length) {
+          mixed.push(videos[vi++]);
+          lastType = "video";
+        } else if (si < statics.length) {
+          mixed.push(statics[si++]);
+          lastType = "static";
+        } else if (vi < videos.length) {
+          mixed.push(videos[vi++]);
+          lastType = "video";
+        }
+      }
+      approvedPins.splice(0, approvedPins.length, ...mixed);
+    }
 
     if (!approvedPins?.length) {
       return NextResponse.json({ success: true, step: "schedule-pins", scheduled: 0, message: "No approved pins to schedule" });
@@ -920,11 +949,13 @@ export async function POST(request: NextRequest) {
 
     for (let i = 0; i < approvedPins.length; i++) {
       const pin = approvedPins[i];
-      const daysFromNow = i + 1; // Start tomorrow, 1 pin per day
-      const hour = postingHours[i % postingHours.length];
+      // With pinsPerDay=2: pin 0,1 → day 1, pin 2,3 → day 2, etc.
+      // First `instantPost` pins go to today (immediate)
+      const daysFromNow = i < instantPost ? 0 : Math.floor((i - instantPost) / pinsPerDay) + 1;
+      const slotInDay = i < instantPost ? i : (i - instantPost) % pinsPerDay;
+      const hour = postingHours[slotInDay % postingHours.length];
       const minute = (i * 7 + 13) % 60;
 
-      // Create date in UTC (approximate for timezone)
       const scheduleDate = new Date();
       scheduleDate.setDate(scheduleDate.getDate() + daysFromNow);
       scheduleDate.setHours(hour - 2, minute, 0, 0); // Rough CEST offset
