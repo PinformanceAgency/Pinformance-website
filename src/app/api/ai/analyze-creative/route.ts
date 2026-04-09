@@ -129,6 +129,14 @@ CRITICAL RULES:
 ${brandVoice ? `- Brand voice: ${brandVoice}` : ""}
 - No hashtags anywhere
 
+BANNED PHRASES — NEVER use these unless you are 100% certain they apply:
+- "before and after" — only use if there are literally TWO images side by side showing a transformation
+- "transformation" — only use if there is a clear change shown
+- "comparison" — only use if two things are being compared side by side
+- "tutorial" — only use if there are clear instructional steps shown
+- "how to" — only use if there are actual instructions
+If you see a single person wearing a product, it is a PRODUCT SHOWCASE, not a before/after or transformation.
+
 Available boards:
 ${boardList}
 
