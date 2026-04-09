@@ -12,7 +12,8 @@ interface AnalysisOutput {
   description: string;
   alt_text: string;
   keywords: string[];
-  suggested_board: string;
+  suggested_boards?: string[];
+  suggested_board?: string; // backwards compat
   text_overlay: string;
 }
 
@@ -124,7 +125,7 @@ CRITICAL RULES:
 - Description: max 500 chars, start with brand name "${brandName}", describe the actual content
 - Keywords: based on what the content actually shows/discusses, NOT generic product keywords
 - Only include keywords that are genuinely relevant to THIS specific piece of content
-- Suggested board: pick the BEST matching board from the list below
+- Suggested boards: pick ALL boards that match this content (usually 2-4 boards)
 ${brandVoice ? `- Brand voice: ${brandVoice}` : ""}
 - No hashtags anywhere
 
@@ -139,7 +140,7 @@ Output JSON:
   "description": string,
   "alt_text": string,
   "keywords": string[],
-  "suggested_board": string (exact board name from list),
+  "suggested_boards": string[] (exact board names from list, ALL that match),
   "text_overlay": string (3-8 words)
 }`;
 
@@ -193,16 +194,26 @@ Based on what you ACTUALLY SEE in this image, generate Pinterest SEO content.
       ? await generateJSON<AnalysisOutput>(systemPrompt, userPrompt, undefined, apiKey)
       : await generateJSONWithImage<AnalysisOutput>(systemPrompt, userPrompt, image_url, undefined, apiKey);
 
-    const matchedBoard = boards.find((b) =>
-      b.name.toLowerCase() === result.suggested_board?.toLowerCase()
-    ) || boards[0];
+    // Match all suggested boards
+    const suggestedNames = result.suggested_boards || (result.suggested_board ? [result.suggested_board] : []);
+    const matchedBoards = suggestedNames
+      .map((name) => boards.find((b) => b.name.toLowerCase() === name.toLowerCase()))
+      .filter(Boolean) as typeof boards;
+
+    // Fallback: if no boards matched, use first board
+    if (matchedBoards.length === 0 && boards.length > 0) {
+      matchedBoards.push(boards[0]);
+    }
 
     return NextResponse.json({
       success: true,
       analysis: {
         ...result,
-        board_id: matchedBoard?.id || null,
-        board_name: matchedBoard?.name || result.suggested_board,
+        // Primary board (backwards compat)
+        board_id: matchedBoards[0]?.id || null,
+        board_name: matchedBoards[0]?.name || suggestedNames[0] || "",
+        // All matching boards
+        boards: matchedBoards.map((b) => ({ id: b.id, name: b.name })),
       },
       transcript: transcript ? transcript.substring(0, 500) : null,
     });

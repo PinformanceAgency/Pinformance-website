@@ -27,6 +27,7 @@ interface UploadedCreative {
     keywords: string[];
     board_id: string | null;
     board_name: string;
+    boards: { id: string; name: string }[];
     text_overlay: string;
   } | null;
   status: "uploading" | "analyzing" | "applying_overlay" | "ready" | "queued" | "error";
@@ -201,25 +202,31 @@ export default function CreativesPage() {
     for (const creative of readyCreatives) {
       const a = creative.analysis!;
       const isVideo = creative.media_type === "video";
-      // For statics: use overlay_url if available, otherwise original
       const finalImageUrl = creative.overlay_url || creative.image_url;
 
-      const { error } = await supabase.from("pins").insert({
-        org_id: org.id,
-        board_id: a.board_id,
-        title: a.title,
-        description: a.description,
-        alt_text: a.alt_text,
-        link_url: defaultLinkUrl,
-        keywords: a.keywords,
-        pin_type: isVideo ? "video" : "static",
-        image_url: isVideo ? null : finalImageUrl,
-        video_url: isVideo ? creative.image_url : null,
-        status: "generated",
-        scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      });
+      // Create a pin for EACH matching board
+      const targetBoards = a.boards?.length > 0 ? a.boards : [{ id: a.board_id!, name: a.board_name }];
+      let anySuccess = false;
 
-      if (!error) {
+      for (const board of targetBoards) {
+        const { error } = await supabase.from("pins").insert({
+          org_id: org.id,
+          board_id: board.id,
+          title: a.title,
+          description: a.description,
+          alt_text: a.alt_text,
+          link_url: defaultLinkUrl,
+          keywords: a.keywords,
+          pin_type: isVideo ? "video" : "static",
+          image_url: isVideo ? null : finalImageUrl,
+          video_url: isVideo ? creative.image_url : null,
+          status: "generated",
+          scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        });
+        if (!error) anySuccess = true;
+      }
+
+      if (anySuccess) {
         setCreatives((prev) =>
           prev.map((c) => (c.image_url === creative.image_url ? { ...c, status: "queued" as const } : c))
         );
@@ -429,10 +436,16 @@ export default function CreativesPage() {
                           </p>
                         </div>
                         <div className="flex-shrink-0">
-                          <label className="text-xs font-medium text-muted-foreground">Board</label>
-                          <p className="text-xs font-medium mt-0.5 bg-primary/10 text-primary px-2 py-0.5 rounded">
-                            {creative.analysis.board_name}
-                          </p>
+                          <label className="text-xs font-medium text-muted-foreground">
+                            Boards ({creative.analysis.boards?.length || 1})
+                          </label>
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {(creative.analysis.boards?.length ? creative.analysis.boards : [{ id: creative.analysis.board_id, name: creative.analysis.board_name }]).map((b, i) => (
+                              <span key={i} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded">
+                                {b.name.substring(0, 25)}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </>
