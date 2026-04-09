@@ -561,18 +561,71 @@ export async function POST(request: NextRequest) {
         linkUrl = `${brandWebsite.replace(/\/$/, "")}${path}`;
       }
 
-      // Post to Pinterest
-      const pinterestPin = await pinterest.createPin({
-        board_id: pinterestBoardId,
-        title: pin.title,
-        description: pin.description,
-        link: linkUrl,
-        alt_text: pin.alt_text || undefined,
-        media_source: {
-          source_type: "image_url" as const,
-          url: pin.image_url || "",
-        },
-      });
+      // Post to Pinterest — video or image
+      let pinterestPin;
+      const isVideoPin = pin.pin_type === "video" || !!pin.video_url;
+
+      if (isVideoPin && pin.video_url) {
+        // VIDEO PIN: 3-step process
+        // 1. Register media upload
+        const media = await pinterest.registerMediaUpload();
+
+        // 2. Download video and upload to S3
+        let videoUrl = pin.video_url;
+        const vPath = videoUrl.split("/object/public/pin-images/")[1];
+        if (vPath) {
+          const { data: vSigned } = await supabase.storage.from("pin-images").createSignedUrl(vPath, 300);
+          if (vSigned?.signedUrl) videoUrl = vSigned.signedUrl;
+        }
+        const videoRes = await fetch(videoUrl);
+        if (!videoRes.ok) throw new Error(`Video download failed: ${videoRes.status}`);
+        const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+
+        await pinterest.uploadVideoToS3(media.upload_url, media.upload_parameters, videoBuffer);
+
+        // 3. Wait for processing (poll up to 60s)
+        let mediaStatus = await pinterest.getMediaStatus(media.media_id);
+        let pollAttempts = 0;
+        while (mediaStatus.status !== "succeeded" && mediaStatus.status !== "failed" && pollAttempts < 12) {
+          await new Promise(r => setTimeout(r, 5000));
+          mediaStatus = await pinterest.getMediaStatus(media.media_id);
+          pollAttempts++;
+        }
+
+        if (mediaStatus.status !== "succeeded") {
+          // Video still processing — create pin anyway, Pinterest will process in background
+        }
+
+        // 4. Create video pin
+        pinterestPin = await pinterest.createVideoPin({
+          board_id: pinterestBoardId,
+          title: pin.title,
+          description: pin.description,
+          link: linkUrl,
+          alt_text: pin.alt_text || undefined,
+          media_id: media.media_id,
+        });
+      } else {
+        // IMAGE PIN: direct post
+        let imageUrl = pin.image_url || "";
+        const iPath = imageUrl.split("/object/public/pin-images/")[1];
+        if (iPath) {
+          const { data: iSigned } = await supabase.storage.from("pin-images").createSignedUrl(iPath, 300);
+          if (iSigned?.signedUrl) imageUrl = iSigned.signedUrl;
+        }
+
+        pinterestPin = await pinterest.createPin({
+          board_id: pinterestBoardId,
+          title: pin.title,
+          description: pin.description,
+          link: linkUrl,
+          alt_text: pin.alt_text || undefined,
+          media_source: {
+            source_type: "image_url" as const,
+            url: imageUrl,
+          },
+        });
+      }
 
       // Update pin status
       await supabase.from("pins").update({

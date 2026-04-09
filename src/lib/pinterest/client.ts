@@ -68,6 +68,73 @@ export class PinterestClient {
     });
   }
 
+  /**
+   * Create a video pin. 3-step process:
+   * 1. Register media upload → get media_id + upload_url
+   * 2. Upload video binary to S3
+   * 3. Create pin with media_id
+   */
+  async registerMediaUpload(): Promise<{
+    media_id: string;
+    upload_url: string;
+    upload_parameters: Record<string, string>;
+  }> {
+    return this.request("/media", {
+      method: "POST",
+      body: JSON.stringify({ media_type: "video" }),
+    });
+  }
+
+  async uploadVideoToS3(
+    uploadUrl: string,
+    uploadParams: Record<string, string>,
+    videoBuffer: Buffer
+  ): Promise<void> {
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(uploadParams)) {
+      formData.append(key, value);
+    }
+    formData.append("file", new Blob([new Uint8Array(videoBuffer)]), "video.mp4");
+
+    const res = await fetch(uploadUrl, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok && res.status !== 204) {
+      const error = await res.text();
+      throw new Error(`S3 upload failed ${res.status}: ${error.substring(0, 200)}`);
+    }
+  }
+
+  async getMediaStatus(mediaId: string): Promise<{ status: string }> {
+    return this.request(`/media/${mediaId}`);
+  }
+
+  async createVideoPin(data: {
+    board_id: string;
+    title: string;
+    description?: string;
+    link?: string;
+    alt_text?: string;
+    media_id: string;
+  }): Promise<PinterestPin> {
+    return this.request("/pins", {
+      method: "POST",
+      body: JSON.stringify({
+        board_id: data.board_id,
+        title: data.title,
+        description: data.description,
+        link: data.link,
+        alt_text: data.alt_text,
+        media_source: {
+          source_type: "video_id",
+          media_id: data.media_id,
+        },
+      }),
+    });
+  }
+
   async getPinAnalytics(
     pinId: string,
     startDate: string,
