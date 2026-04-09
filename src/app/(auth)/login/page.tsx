@@ -28,6 +28,14 @@ function LoginForm() {
     }
   }, [searchParams, router]);
 
+  async function ensureProfile() {
+    try {
+      await fetch("/api/auth/setup-profile", { method: "POST" });
+    } catch {
+      // Profile may already exist — that's fine
+    }
+  }
+
   async function handlePasswordLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -70,6 +78,9 @@ function LoginForm() {
         return;
       }
     }
+
+    // Auto-create user profile if invite exists
+    await ensureProfile();
 
     router.push("/overview");
   }

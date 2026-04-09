@@ -37,7 +37,8 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/webhooks") ||
     pathname.startsWith("/api/cron") ||
     pathname.startsWith("/api/pipeline") ||
-    pathname.startsWith("/api/ai/create-pin-image")
+    pathname.startsWith("/api/ai/create-pin-image") ||
+    pathname.startsWith("/api/auth/setup-profile")
   ) {
     return supabaseResponse;
   }
