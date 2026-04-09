@@ -52,6 +52,49 @@ export default function CreativesPage() {
     });
   }, [org]);
 
+  /**
+   * Extract the first frame of a video as a JPEG blob using canvas.
+   * This runs client-side so we can send the thumbnail to Claude Vision.
+   */
+  async function extractVideoThumbnail(file: File): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.preload = "metadata";
+      const url = URL.createObjectURL(file);
+      video.src = url;
+
+      video.onloadeddata = () => {
+        video.currentTime = 0.5; // Seek to 0.5s for a good frame
+      };
+
+      video.onseeked = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 1000;
+        canvas.height = video.videoHeight || 1500;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            URL.revokeObjectURL(url);
+            resolve(blob);
+          }, "image/jpeg", 0.85);
+        } else {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        }
+      };
+
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+
+      // Timeout after 10s
+      setTimeout(() => { URL.revokeObjectURL(url); resolve(null); }, 10000);
+    });
+  }
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || !org) return;
@@ -86,12 +129,33 @@ export default function CreativesPage() {
         prev.map((c) => (c.image_url === tempUrl ? { ...c, image_url: publicUrl, status: "analyzing" as const, media_type: mediaType } : c))
       );
 
+      // For videos: extract thumbnail and upload it so Claude can see the content
+      let thumbnailUrl: string | null = null;
+      if (isVideo) {
+        const thumbBlob = await extractVideoThumbnail(file);
+        if (thumbBlob) {
+          const thumbName = `${org.id}/creatives/thumb-${Date.now()}.jpg`;
+          const { error: thumbErr } = await supabase.storage
+            .from("pin-images")
+            .upload(thumbName, thumbBlob, { contentType: "image/jpeg", upsert: false });
+          if (!thumbErr) {
+            const { data: thumbUrlData } = supabase.storage.from("pin-images").getPublicUrl(thumbName);
+            thumbnailUrl = thumbUrlData.publicUrl;
+          }
+        }
+      }
+
       // Analyze the creative (SEO generation)
       try {
         const res = await fetch("/api/ai/analyze-creative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_url: publicUrl, media_type: mediaType, file_name: file.name }),
+          body: JSON.stringify({
+            image_url: publicUrl,
+            media_type: mediaType,
+            file_name: file.name,
+            thumbnail_url: thumbnailUrl,
+          }),
         });
 
         if (res.ok) {

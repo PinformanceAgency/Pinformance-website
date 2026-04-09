@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   const orgId = profile.org_id;
 
   const body = await request.json();
-  const { image_url, media_type, file_name } = body;
+  const { image_url, media_type, file_name, thumbnail_url } = body;
 
   if (!image_url) {
     return NextResponse.json({ error: "image_url required" }, { status: 400 });
@@ -173,37 +173,36 @@ If it's a tutorial, the SEO should describe that specific tutorial.
 If it's a review or comparison, reflect that in the SEO.`;
 
   } else if (isVideo) {
-    // Video without transcript — extract thumbnail and analyze visually
-    // Try to get a thumbnail by downloading first bytes and extracting with sharp
-    let thumbnailUrl: string | null = null;
-    const vStoragePath = image_url.split("/object/public/pin-images/")[1];
-    if (vStoragePath) {
-      try {
-        const { data: vSignedData } = await admin.storage.from("pin-images").createSignedUrl(vStoragePath, 300);
-        if (vSignedData?.signedUrl) thumbnailUrl = vSignedData.signedUrl;
-      } catch { /* skip */ }
-    }
+    // Video without transcript — use client-extracted thumbnail for Claude Vision
+    // The client sends thumbnail_url (a JPEG of the first frame)
+    const thumbUrl = thumbnail_url || null;
 
-    // Use vision if we have a URL (Claude can extract frames from video URLs in some cases)
-    // Otherwise fall back to filename-based
-    if (thumbnailUrl) {
-      userPrompt = `This is a video thumbnail/preview for a ${brandName} brand video.
+    if (thumbUrl) {
+      // Get signed URL for thumbnail if it's in Supabase
+      let accessibleThumbUrl = thumbUrl;
+      const thumbPath = thumbUrl.split("/object/public/pin-images/")[1];
+      if (thumbPath) {
+        const { data: thumbSigned } = await admin.storage.from("pin-images").createSignedUrl(thumbPath, 300);
+        if (thumbSigned?.signedUrl) accessibleThumbUrl = thumbSigned.signedUrl;
+      }
 
-Video filename: ${file_name || "video.mp4"}
+      userPrompt = `This is a frame from a video by ${brandName}.
+
 Brand: ${brandName}
 
-Look at what you can see in this video frame. Based on what you ACTUALLY SEE:
-- What product or subject is shown?
-- What is the person doing? What is the setting?
-- What would be accurate Pinterest SEO for this specific video?
+Look at this image carefully. Describe EXACTLY what you see:
+- What specific products are shown? (color, style, type)
+- What are the people wearing?
+- What is the setting/background?
+- How many people are visible?
 
-Do NOT make up content that isn't visible. Do NOT say "before and after" unless you clearly see a transformation.
-If you see a bra/lingerie product, describe that specific style, color, and setting.
-Be factual and specific about what's visible.`;
+Generate Pinterest SEO that accurately describes THIS specific visual content.
+Do NOT use the words "collection", "Group", or numbers from filenames.
+Do NOT say "before and after" or "transformation" unless you see two side-by-side comparison images.
+Describe the actual bra/lingerie styles, colors, and the mood of the shot.`;
 
-      // Use vision analysis
       try {
-        const result = await generateJSONWithImage<AnalysisOutput>(systemPrompt, userPrompt, thumbnailUrl, undefined, apiKey);
+        const result = await generateJSONWithImage<AnalysisOutput>(systemPrompt, userPrompt, accessibleThumbUrl, undefined, apiKey);
         const suggestedNames = result.suggested_boards || (result.suggested_board ? [result.suggested_board] : []);
         const matchedBoards = suggestedNames.map((name) => boards.find((b) => b.name.toLowerCase() === name.toLowerCase())).filter(Boolean) as typeof boards;
         if (matchedBoards.length === 0 && boards.length > 0) matchedBoards.push(boards[0]);
@@ -211,23 +210,18 @@ Be factual and specific about what's visible.`;
         return NextResponse.json({
           success: true,
           analysis: { ...result, board_id: matchedBoards[0]?.id || null, board_name: matchedBoards[0]?.name || "", boards: matchedBoards.map((b) => ({ id: b.id, name: b.name })) },
-          transcript: null,
-          method: "video-vision",
+          method: "video-thumbnail-vision",
         });
       } catch (visionErr) {
-        console.error("[AnalyzeCreative] Video vision failed:", visionErr instanceof Error ? visionErr.message : visionErr);
-        // Fall through to filename-based
+        console.error("[AnalyzeCreative] Thumbnail vision failed:", visionErr instanceof Error ? visionErr.message : visionErr);
       }
     }
 
-    userPrompt = `Generate Pinterest SEO for this video pin. There is NO spoken audio in this video.
-
-Video filename: ${file_name || "video.mp4"}
-Brand: ${brandName} (lingerie/bra brand for small bust women)
-
-Based ONLY on the filename and brand context, generate accurate SEO.
-Do NOT make up content. Do NOT say "before and after" or "transformation" unless the filename clearly indicates that.
-Be conservative and accurate. Describe what the video likely shows based on the filename.`;
+    // Final fallback: filename-based (no thumbnail available)
+    userPrompt = `Generate Pinterest SEO for a video by ${brandName} (lingerie/bra brand for small bust women).
+The video likely shows lingerie/bra products being modeled.
+Do NOT use numbers, "Group", or "collection" from the filename "${file_name}".
+Generate SEO about the type of lingerie content this brand creates.`;
 
   } else {
     // Image — will be analyzed visually by Claude
