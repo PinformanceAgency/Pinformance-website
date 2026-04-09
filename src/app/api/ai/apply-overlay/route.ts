@@ -59,12 +59,12 @@ function buildOverlay(headline: string, brandName: string, style: Style) {
         textDiv(headline, { position: "absolute" as const, bottom: 140, left: 50, right: 100, fontSize: 34, fontWeight: 700, color: "white", lineHeight: 1.3 }),
       ]}};
 
-    // 4: Centered dark semi-transparent bar with white uppercase text
+    // 4: Soft center gradient with centered text
     case "accent-center":
       return { type: "div" as const, props: { style: base, children: [
-        emptyDiv({ position: "absolute" as const, top: 580, left: 0, right: 0, height: 140, backgroundColor: "rgba(17,17,17,0.8)" }),
-        textDiv(upper, { position: "absolute" as const, top: 610, left: 60, right: 60, fontSize: 36, fontWeight: 700, color: "white", lineHeight: 1.3, letterSpacing: 2, textAlign: "center" as const, justifyContent: "center" as const }),
-        emptyDiv({ position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 150, background: "linear-gradient(transparent, rgba(0,0,0,0.35))" }),
+        emptyDiv({ position: "absolute" as const, top: 530, left: 0, right: 0, height: 240, background: "linear-gradient(transparent, rgba(0,0,0,0.5), transparent)" }),
+        textDiv(upper, { position: "absolute" as const, top: 600, left: 60, right: 60, fontSize: 36, fontWeight: 700, color: "white", lineHeight: 1.3, letterSpacing: 2, textAlign: "center" as const, justifyContent: "center" as const }),
+        emptyDiv({ position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 150, background: "linear-gradient(transparent, rgba(0,0,0,0.3))" }),
       ]}};
 
     // 5: Split — brand top-left, headline top with cream/warm tint
@@ -93,12 +93,21 @@ function buildOverlay(headline: string, brandName: string, style: Style) {
         emptyDiv({ position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 150, background: "linear-gradient(transparent, rgba(0,0,0,0.35))" }),
       ]}};
 
-    // 8: Dark bar bottom — solid dark strip with text
+    // 8: Soft bottom — wide soft gradient with mixed-case headline + subtle brand
     case "dark-bar":
       return { type: "div" as const, props: { style: base, children: [
-        emptyDiv({ position: "absolute" as const, bottom: 100, left: 0, right: 0, height: 120, backgroundColor: "rgba(17,17,17,0.85)" }),
-        textDiv(upper, { position: "absolute" as const, bottom: 140, left: 50, right: 50, fontSize: 34, fontWeight: 700, color: "white", lineHeight: 1.3, letterSpacing: 2 }),
-        emptyDiv({ position: "absolute" as const, bottom: 115, left: 50, width: 40, height: 2, backgroundColor: "#D02F2E" }),
+        emptyDiv({ position: "absolute" as const, bottom: 0, left: 0, right: 0, height: 500, background: "linear-gradient(transparent, rgba(0,0,0,0.6))" }),
+        textDiv(headline, { position: "absolute" as const, bottom: 150, left: 50, right: 50, fontSize: 38, fontWeight: 700, color: "white", lineHeight: 1.3 }),
+        {
+          type: "div" as const,
+          props: {
+            style: { display: "flex" as const, position: "absolute" as const, bottom: 115, left: 50, alignItems: "center" as const, gap: "10px" },
+            children: [
+              emptyDiv({ width: 25, height: 2, backgroundColor: "#D02F2E" }),
+              textDiv(brand, { fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.6)", letterSpacing: 3 }),
+            ],
+          },
+        },
       ]}};
   }
 }
