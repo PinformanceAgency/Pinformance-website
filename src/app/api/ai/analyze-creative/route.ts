@@ -121,10 +121,9 @@ export async function POST(request: NextRequest) {
 
 CRITICAL RULES:
 - The SEO MUST be based on the ACTUAL CONTENT of the creative, not generic product keywords
-- Title: max 100 chars, describe what this specific content is about
-- Description: max 500 chars, start with brand name "${brandName}", describe the actual content
-- Keywords: based on what the content actually shows/discusses, NOT generic product keywords
-- Only include keywords that are genuinely relevant to THIS specific piece of content
+- Title: SHORT and concise — one clear phrase, max 60 chars. Primary keyword in first 40 chars. Every word must earn its place — no filler.
+- Description: max 300 chars. Start with "${brandName}". Include 1-2 keywords naturally. Written as natural sentences, not keyword lists. Soft CTA.
+- Keywords: max 5 keywords. Only genuinely relevant terms. Mix of broad and specific.
 - Suggested boards: pick ALL boards that match this content (usually 2-4 boards)
 ${brandVoice ? `- Brand voice: ${brandVoice}` : ""}
 - No hashtags anywhere
