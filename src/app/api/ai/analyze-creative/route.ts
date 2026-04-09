@@ -129,13 +129,15 @@ CRITICAL RULES:
 ${brandVoice ? `- Brand voice: ${brandVoice}` : ""}
 - No hashtags anywhere
 
-BANNED PHRASES — NEVER use these unless you are 100% certain they apply:
-- "before and after" — only use if there are literally TWO images side by side showing a transformation
-- "transformation" — only use if there is a clear change shown
-- "comparison" — only use if two things are being compared side by side
-- "tutorial" — only use if there are clear instructional steps shown
-- "how to" — only use if there are actual instructions
-If you see a single person wearing a product, it is a PRODUCT SHOWCASE, not a before/after or transformation.
+STRICT ACCURACY RULES:
+- NEVER describe product features you cannot visually confirm (wireless, push-up, padded, seamless, etc.)
+- NEVER use "before and after", "transformation", or "comparison" unless two side-by-side images are shown
+- NEVER use "tutorial" or "how to" unless there are actual instructional steps
+- NEVER use "collection" or "Group" followed by numbers
+- If you see a bra, describe ONLY what is visible: the color, the general style (lace, solid, strappy), the setting
+- Do NOT guess technical bra features — just describe the visual appearance
+- A single person wearing a product = PRODUCT SHOWCASE, describe the look and mood
+- Keywords must ONLY contain terms that match what is visually confirmed
 
 Available boards:
 ${boardList}
