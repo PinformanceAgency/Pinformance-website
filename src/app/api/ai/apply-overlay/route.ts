@@ -32,13 +32,25 @@ export async function POST(request: NextRequest) {
   const brandName = org?.name || "CHERRIES";
 
   try {
+    // Create a signed URL so Satori can access the image
+    let accessibleUrl = image_url;
+    const storagePath = image_url.split("/object/public/pin-images/")[1];
+    if (storagePath) {
+      const { data: signedData } = await admin.storage
+        .from("pin-images")
+        .createSignedUrl(storagePath, 300);
+      if (signedData?.signedUrl) {
+        accessibleUrl = signedData.signedUrl;
+      }
+    }
+
     // Pick a random template for variety
     const template = TEMPLATE_STYLES[Math.floor(Math.random() * TEMPLATE_STYLES.length)];
 
     // Use the existing pin template renderer (Satori-based, already works)
     const result = await renderPinCreative({
       template,
-      productImageUrl: image_url,
+      productImageUrl: accessibleUrl,
       brandName,
       textLines: [headline],
       accentColor: "#D02F2E",
