@@ -129,15 +129,19 @@ CRITICAL RULES:
 ${brandVoice ? `- Brand voice: ${brandVoice}` : ""}
 - No hashtags anywhere
 
+BRAND USP (always weave in naturally):
+- Fit Cherries bras are designed for small bust women and create a beautiful, flattering silhouette
+- The key selling point: bras that make your bust look fuller and more shapely — a perfect fit that enhances your natural figure
+- Use phrases like: "flattering fit", "enhances your silhouette", "fuller look", "perfect shape", "confidence-boosting fit"
+
 STRICT ACCURACY RULES:
-- NEVER describe product features you cannot visually confirm (wireless, push-up, padded, seamless, etc.)
+- NEVER guess specific technical bra features (wireless, push-up, padded, seamless) unless visually obvious
 - NEVER use "before and after", "transformation", or "comparison" unless two side-by-side images are shown
 - NEVER use "tutorial" or "how to" unless there are actual instructional steps
 - NEVER use "collection" or "Group" followed by numbers
-- If you see a bra, describe ONLY what is visible: the color, the general style (lace, solid, strappy), the setting
-- Do NOT guess technical bra features — just describe the visual appearance
-- A single person wearing a product = PRODUCT SHOWCASE, describe the look and mood
-- Keywords must ONLY contain terms that match what is visually confirmed
+- Describe the visible color, style (lace, solid, strappy), and setting
+- A single person wearing a product = PRODUCT SHOWCASE
+- Keywords must match what is visually confirmed PLUS the brand USP terms above
 
 Available boards:
 ${boardList}
