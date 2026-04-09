@@ -268,29 +268,25 @@ export default function CreativesPage() {
       const isVideo = creative.media_type === "video";
       const finalImageUrl = creative.overlay_url || creative.image_url;
 
-      // Create a pin for EACH matching board
-      const targetBoards = a.boards?.length > 0 ? a.boards : [{ id: a.board_id!, name: a.board_name }];
-      let anySuccess = false;
+      // Create ONE pin in the best matching board
+      const bestBoard = a.boards?.[0] || { id: a.board_id!, name: a.board_name };
 
-      for (const board of targetBoards) {
-        const { error } = await supabase.from("pins").insert({
-          org_id: org.id,
-          board_id: board.id,
-          title: a.title,
-          description: a.description,
-          alt_text: a.alt_text,
-          link_url: defaultLinkUrl,
-          keywords: a.keywords,
-          pin_type: isVideo ? "video" : "static",
-          image_url: isVideo ? null : finalImageUrl,
-          video_url: isVideo ? creative.image_url : null,
-          status: "generated",
-          scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        });
-        if (!error) anySuccess = true;
-      }
+      const { error } = await supabase.from("pins").insert({
+        org_id: org.id,
+        board_id: bestBoard.id,
+        title: a.title,
+        description: a.description,
+        alt_text: a.alt_text,
+        link_url: defaultLinkUrl,
+        keywords: a.keywords,
+        pin_type: isVideo ? "video" : "static",
+        image_url: isVideo ? null : finalImageUrl,
+        video_url: isVideo ? creative.image_url : null,
+        status: "generated",
+        scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
 
-      if (anySuccess) {
+      if (!error) {
         setCreatives((prev) =>
           prev.map((c) => (c.image_url === creative.image_url ? { ...c, status: "queued" as const } : c))
         );
