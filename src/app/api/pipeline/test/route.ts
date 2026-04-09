@@ -470,7 +470,7 @@ export async function POST(request: NextRequest) {
         .from("pins")
         .select("*, boards(*)")
         .eq("org_id", org.id)
-        .eq("status", "approved")
+        .in("status", ["approved", "scheduled"])
         .order("scheduled_at", { ascending: true })
         .limit(1)
         .single();
