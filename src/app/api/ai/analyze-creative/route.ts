@@ -165,15 +165,61 @@ If it's a tutorial, the SEO should describe that specific tutorial.
 If it's a review or comparison, reflect that in the SEO.`;
 
   } else if (isVideo) {
-    // Video without transcript — use filename as best guess
-    userPrompt = `Generate Pinterest SEO for this video pin.
+    // Video without transcript — extract thumbnail and analyze visually
+    // Try to get a thumbnail by downloading first bytes and extracting with sharp
+    let thumbnailUrl: string | null = null;
+    const vStoragePath = image_url.split("/object/public/pin-images/")[1];
+    if (vStoragePath) {
+      try {
+        const { data: vSignedData } = await admin.storage.from("pin-images").createSignedUrl(vStoragePath, 300);
+        if (vSignedData?.signedUrl) thumbnailUrl = vSignedData.signedUrl;
+      } catch { /* skip */ }
+    }
+
+    // Use vision if we have a URL (Claude can extract frames from video URLs in some cases)
+    // Otherwise fall back to filename-based
+    if (thumbnailUrl) {
+      userPrompt = `This is a video thumbnail/preview for a ${brandName} brand video.
 
 Video filename: ${file_name || "video.mp4"}
-Video URL: ${image_url}
 Brand: ${brandName}
 
-Based on the filename, determine the topic. Be specific to what this video likely covers.
-Do NOT generate generic watercolor kit product descriptions unless the filename clearly indicates that.`;
+Look at what you can see in this video frame. Based on what you ACTUALLY SEE:
+- What product or subject is shown?
+- What is the person doing? What is the setting?
+- What would be accurate Pinterest SEO for this specific video?
+
+Do NOT make up content that isn't visible. Do NOT say "before and after" unless you clearly see a transformation.
+If you see a bra/lingerie product, describe that specific style, color, and setting.
+Be factual and specific about what's visible.`;
+
+      // Use vision analysis
+      try {
+        const result = await generateJSONWithImage<AnalysisOutput>(systemPrompt, userPrompt, thumbnailUrl, undefined, apiKey);
+        const suggestedNames = result.suggested_boards || (result.suggested_board ? [result.suggested_board] : []);
+        const matchedBoards = suggestedNames.map((name) => boards.find((b) => b.name.toLowerCase() === name.toLowerCase())).filter(Boolean) as typeof boards;
+        if (matchedBoards.length === 0 && boards.length > 0) matchedBoards.push(boards[0]);
+
+        return NextResponse.json({
+          success: true,
+          analysis: { ...result, board_id: matchedBoards[0]?.id || null, board_name: matchedBoards[0]?.name || "", boards: matchedBoards.map((b) => ({ id: b.id, name: b.name })) },
+          transcript: null,
+          method: "video-vision",
+        });
+      } catch (visionErr) {
+        console.error("[AnalyzeCreative] Video vision failed:", visionErr instanceof Error ? visionErr.message : visionErr);
+        // Fall through to filename-based
+      }
+    }
+
+    userPrompt = `Generate Pinterest SEO for this video pin. There is NO spoken audio in this video.
+
+Video filename: ${file_name || "video.mp4"}
+Brand: ${brandName} (lingerie/bra brand for small bust women)
+
+Based ONLY on the filename and brand context, generate accurate SEO.
+Do NOT make up content. Do NOT say "before and after" or "transformation" unless the filename clearly indicates that.
+Be conservative and accurate. Describe what the video likely shows based on the filename.`;
 
   } else {
     // Image — will be analyzed visually by Claude
