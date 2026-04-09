@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
     });
     const overlayPng = await sharp(Buffer.from(svg)).resize(1000, 1500).png().toBuffer();
 
-    // Logo — always bottom-left at (30, 1350)
+    // Logo placement: prefer top-left, fall back to bottom-left if contrast is bad
     const { data: bp } = await admin.from("brand_profiles").select("raw_data").eq("org_id", orgId).single();
     const logoUrl = (bp?.raw_data as Record<string, unknown>)?.logo_url as string | undefined;
     const layers: sharp.OverlayOptions[] = [{ input: overlayPng }];
@@ -170,8 +170,40 @@ export async function POST(request: NextRequest) {
       try {
         const logoRes = await fetch(logoUrl);
         if (logoRes.ok) {
-          const resizedLogo = await sharp(Buffer.from(await logoRes.arrayBuffer())).resize(250, undefined, { fit: "inside" }).png().toBuffer();
-          layers.push({ input: resizedLogo, top: 1350, left: 30 });
+          const resizedLogo = await sharp(Buffer.from(await logoRes.arrayBuffer())).resize(200, undefined, { fit: "inside" }).png().toBuffer();
+
+          // Measure brightness of top-left corner (100x100 area) of the base image
+          const topLeftRegion = await sharp(base)
+            .extract({ left: 20, top: 20, width: 200, height: 100 })
+            .stats();
+          const avgBrightness = topLeftRegion.channels.reduce((sum, ch) => sum + ch.mean, 0) / topLeftRegion.channels.length;
+
+          // Logo is dark/black text — needs light background (brightness > 120)
+          // If top-left is too dark, place logo bottom-left instead
+          const logoIsTopLeft = avgBrightness > 120;
+
+          // Check if the overlay text is in the same zone as the logo
+          // Text-top styles: editorial-top, split-top, accent-top, elegant-top → logo goes bottom
+          const textIsTop = ["editorial-top", "split-top", "accent-top", "elegant-top"].includes(style);
+          // Text-bottom styles: hero-bottom, bold-bottom, minimal-bottom, accent-bottom, dark-bar → logo goes top
+          const textIsBottom = ["hero-bottom", "bold-bottom", "minimal-bottom", "accent-bottom", "dark-bar"].includes(style);
+
+          let logoTop: number;
+          if (textIsTop) {
+            // Text is at top → logo must go bottom-left
+            logoTop = 1370;
+          } else if (textIsBottom && logoIsTopLeft) {
+            // Text is at bottom + top-left is bright enough → logo top-left
+            logoTop = 30;
+          } else if (textIsBottom) {
+            // Text is at bottom but top-left too dark → logo still bottom but offset above text
+            logoTop = 1100;
+          } else {
+            // Center text → place logo top-left if bright, otherwise bottom
+            logoTop = logoIsTopLeft ? 30 : 1370;
+          }
+
+          layers.push({ input: resizedLogo, top: logoTop, left: 30 });
         }
       } catch { /* skip */ }
     }
