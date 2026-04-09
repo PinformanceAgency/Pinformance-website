@@ -118,18 +118,28 @@ export default function CreativesPage() {
 
               if (overlayRes.ok) {
                 const overlayData = await overlayRes.json();
-                setCreatives((prev) =>
-                  prev.map((c) =>
-                    c.image_url === publicUrl
-                      ? { ...c, overlay_url: overlayData.overlay_url, status: "ready" as const }
-                      : c
-                  )
-                );
+                if (overlayData.overlay_url) {
+                  setCreatives((prev) =>
+                    prev.map((c) =>
+                      c.image_url === publicUrl
+                        ? { ...c, overlay_url: overlayData.overlay_url, status: "ready" as const }
+                        : c
+                    )
+                  );
+                } else {
+                  console.error("Overlay response missing overlay_url:", overlayData);
+                  setCreatives((prev) =>
+                    prev.map((c) =>
+                      c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
+                    )
+                  );
+                }
               } else {
-                // Overlay failed, still mark as ready with original image
+                const errText = await overlayRes.text();
+                console.error("Overlay failed:", overlayRes.status, errText);
                 setCreatives((prev) =>
                   prev.map((c) =>
-                    c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
+                    c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const, error: `Overlay: ${overlayRes.status}` } : c
                   )
                 );
               }
