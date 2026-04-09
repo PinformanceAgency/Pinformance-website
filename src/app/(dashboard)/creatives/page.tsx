@@ -41,6 +41,7 @@ export default function CreativesPage() {
   const [saved, setSaved] = useState(false);
   const [defaultLinkUrl, setDefaultLinkUrl] = useState("");
   const [activeTab, setActiveTab] = useState<"video" | "static">("video");
+  const staticCounterRef = useRef(0); // Per 5: 0,1,2=full overlay+logo, 3=logo only, 4=clean
   const [logoUrl, setLogoUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -162,8 +163,12 @@ export default function CreativesPage() {
           const data = await res.json();
           const analysis = data.analysis;
 
-          // For statics: apply text overlay + logo
+          // For statics: apply overlay based on rotation (3 full, 1 logo-only, 1 clean per 5)
           if (!isVideo && mediaType === "image" && analysis) {
+            const counter = staticCounterRef.current % 5;
+            staticCounterRef.current++;
+            const overlayVariant = counter < 3 ? "full" : counter === 3 ? "logo-only" : "clean";
+
             setCreatives((prev) =>
               prev.map((c) =>
                 c.image_url === publicUrl ? { ...c, analysis, status: "applying_overlay" as const } : c
@@ -177,7 +182,7 @@ export default function CreativesPage() {
                 body: JSON.stringify({
                   image_url: publicUrl,
                   headline: analysis.text_overlay || analysis.title.substring(0, 50),
-                  logo_url: logoUrl || null,
+                  variant: overlayVariant,
                 }),
               });
 

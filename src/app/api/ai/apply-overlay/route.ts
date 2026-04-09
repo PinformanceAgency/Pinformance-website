@@ -123,10 +123,40 @@ export async function POST(request: NextRequest) {
   if (!orgId) return NextResponse.json({ error: "No org" }, { status: 400 });
 
   const body = await request.json();
-  const { image_url, headline } = body;
-  if (!image_url || !headline) return NextResponse.json({ error: "image_url and headline required" }, { status: 400 });
+  const { image_url, headline, variant } = body;
+  // variant: "full" (text+logo), "logo-only" (just logo), "clean" (nothing)
+  if (!image_url) return NextResponse.json({ error: "image_url required" }, { status: 400 });
 
   const admin = createAdminClient();
+
+  // Clean variant: just resize to 2:3, no overlay, no logo
+  if (variant === "clean") {
+    try {
+      let imgUrl = image_url;
+      const sp = image_url.split("/object/public/pin-images/")[1];
+      if (sp) {
+        const { data: sd } = await admin.storage.from("pin-images").createSignedUrl(sp, 300);
+        if (sd?.signedUrl) imgUrl = sd.signedUrl;
+      }
+      const imgRes = await fetch(imgUrl);
+      if (!imgRes.ok) return NextResponse.json({ error: `Download: ${imgRes.status}` }, { status: 500 });
+      const resized = await sharp(Buffer.from(await imgRes.arrayBuffer()))
+        .resize(1000, 1500, { fit: "cover", position: "centre" })
+        .jpeg({ quality: 92 })
+        .toBuffer();
+
+      const fileName = `${orgId}/creatives/clean-${Date.now()}.jpg`;
+      const { error: ue } = await admin.storage.from("pin-images").upload(fileName, resized, { contentType: "image/jpeg", upsert: false });
+      if (ue) return NextResponse.json({ error: ue.message }, { status: 500 });
+      const { data: ud } = admin.storage.from("pin-images").getPublicUrl(fileName);
+      return NextResponse.json({ success: true, overlay_url: ud.publicUrl, variant: "clean" });
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
+    }
+  }
+
+  if (!headline && variant !== "logo-only") return NextResponse.json({ error: "headline required for full variant" }, { status: 400 });
+
   const { data: org } = await admin.from("organizations").select("name").eq("id", orgId).single();
   const brandName = org?.name || "CHERRIES";
 
@@ -147,7 +177,35 @@ export async function POST(request: NextRequest) {
       .jpeg({ quality: 95 })
       .toBuffer();
 
-    // Load font
+    // Logo-only variant: just resize + add logo, no text overlay
+    if (variant === "logo-only") {
+      const { data: bp2 } = await admin.from("brand_profiles").select("raw_data").eq("org_id", orgId).single();
+      const logoUrl2 = (bp2?.raw_data as Record<string, unknown>)?.logo_url as string | undefined;
+      const layers2: sharp.OverlayOptions[] = [];
+
+      if (logoUrl2) {
+        const logoRes2 = await fetch(logoUrl2);
+        if (logoRes2.ok) {
+          const resizedLogo2 = await sharp(Buffer.from(await logoRes2.arrayBuffer())).resize(200, undefined, { fit: "inside" }).png().toBuffer();
+          // Check brightness of top-left for logo placement
+          const tlStats = await sharp(base).extract({ left: 20, top: 20, width: 200, height: 100 }).stats();
+          const tlBrightness = tlStats.channels.reduce((s, c) => s + c.mean, 0) / tlStats.channels.length;
+          layers2.push({ input: resizedLogo2, top: tlBrightness > 120 ? 30 : 1370, left: 30 });
+        }
+      }
+
+      const final2 = layers2.length > 0
+        ? await sharp(base).composite(layers2).jpeg({ quality: 92 }).toBuffer()
+        : base;
+
+      const fn2 = `${orgId}/creatives/logo-${Date.now()}.jpg`;
+      const { error: ue2 } = await admin.storage.from("pin-images").upload(fn2, final2, { contentType: "image/jpeg", upsert: false });
+      if (ue2) return NextResponse.json({ error: ue2.message }, { status: 500 });
+      const { data: ud2 } = admin.storage.from("pin-images").getPublicUrl(fn2);
+      return NextResponse.json({ success: true, overlay_url: ud2.publicUrl, variant: "logo-only" });
+    }
+
+    // Load font for full overlay
     const fontRes = await fetch("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYMZhrib2Bg-4.ttf");
     const fontBuffer = Buffer.from(await fontRes.arrayBuffer());
 
