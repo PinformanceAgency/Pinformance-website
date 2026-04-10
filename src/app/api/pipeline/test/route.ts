@@ -924,6 +924,40 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // ─── INSERT BOARD: Create a new board in DB + Pinterest ───
+  if (step === "insert-board") {
+    const { name, keywords: bkw, category, description: bdesc } = body;
+    if (!name) return NextResponse.json({ error: "name required" }, { status: 400 });
+
+    // Insert into DB as draft
+    const { data: newBoard, error: insertErr } = await supabase.from("boards").insert({
+      org_id: org.id,
+      name,
+      keywords: bkw || [],
+      category: category || null,
+      description: bdesc || null,
+      status: "draft",
+    }).select("id, name").single();
+
+    if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
+
+    // Create on Pinterest
+    let pinterestId = null;
+    if (org.pinterest_access_token_encrypted) {
+      try {
+        const token = decrypt(org.pinterest_access_token_encrypted);
+        const pinterest = new PinterestClient(token, false);
+        const pb = await pinterest.createBoard({ name, description: bdesc || `${org.name} — ${name}`, privacy: "PUBLIC" });
+        pinterestId = pb.id;
+        await supabase.from("boards").update({ pinterest_board_id: pb.id, status: "active" }).eq("id", newBoard.id);
+      } catch (e) {
+        // Board created in DB but not on Pinterest
+      }
+    }
+
+    return NextResponse.json({ success: true, step: "insert-board", board: newBoard, pinterest_id: pinterestId });
+  }
+
   // ─── ARCHIVE BOARDS: Archive specific boards by ID ───
   if (step === "archive-boards") {
     const { board_ids } = body;
