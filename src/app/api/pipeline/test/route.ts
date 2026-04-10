@@ -924,6 +924,19 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // ─── ARCHIVE BOARDS: Archive specific boards by ID ───
+  if (step === "archive-boards") {
+    const { board_ids } = body;
+    if (!board_ids?.length) return NextResponse.json({ error: "board_ids required" }, { status: 400 });
+
+    let archived = 0;
+    for (const id of board_ids) {
+      const { error } = await supabase.from("boards").update({ status: "archived" }).eq("id", id).eq("org_id", org.id);
+      if (!error) archived++;
+    }
+    return NextResponse.json({ success: true, step: "archive-boards", archived });
+  }
+
   // ─── DELETE ALL PINTEREST PINS: Remove all pins from Pinterest account ───
   if (step === "delete-pinterest-pins") {
     if (!org.pinterest_access_token_encrypted) {
