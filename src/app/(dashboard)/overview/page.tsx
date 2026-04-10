@@ -9,6 +9,8 @@ import {
   Bookmark,
   MousePointer,
   ExternalLink,
+  ShoppingCart,
+  ShoppingBag,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -36,6 +38,8 @@ interface DashboardStats {
   saves: { current: number; previous: number };
   clicks: { current: number; previous: number };
   outbound_clicks: { current: number; previous: number };
+  add_to_carts: { current: number; previous: number };
+  sales: { current: number; previous: number };
   save_rate: number;
   engagement_rate: number;
 }
@@ -106,7 +110,7 @@ export default function OverviewPage() {
       const currentStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
       const previousStart = new Date(now.getTime() - days * 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-      const [pinsResult, boardsResult, currentAnalytics, previousAnalytics, topPinsResult] = await Promise.all([
+      const [pinsResult, boardsResult, currentAnalytics, previousAnalytics, topPinsResult, currentSales, previousSales] = await Promise.all([
         supabase
           .from("pins")
           .select("id, status")
@@ -133,6 +137,19 @@ export default function OverviewPage() {
           .eq("status", "posted")
           .order("created_at", { ascending: false })
           .limit(5),
+        supabase
+          .from("sales_data")
+          .select("sales_count, add_to_cart_count")
+          .eq("org_id", org!.id)
+          .eq("source", "pinterest")
+          .gte("date", currentStart),
+        supabase
+          .from("sales_data")
+          .select("sales_count, add_to_cart_count")
+          .eq("org_id", org!.id)
+          .eq("source", "pinterest")
+          .gte("date", previousStart)
+          .lt("date", currentStart),
       ]);
 
       const pins = pinsResult.data || [];
@@ -152,6 +169,13 @@ export default function OverviewPage() {
       const prevClicks = sumField(previousData, "pin_clicks");
       const prevOutbound = sumField(previousData, "outbound_clicks");
 
+      const currSalesData = currentSales.data || [];
+      const prevSalesData = previousSales.data || [];
+      const currAddToCarts = sumField(currSalesData, "add_to_cart_count");
+      const currSalesCount = sumField(currSalesData, "sales_count");
+      const prevAddToCarts = sumField(prevSalesData, "add_to_cart_count");
+      const prevSalesCount = sumField(prevSalesData, "sales_count");
+
       setStats({
         total_pins: pins.length,
         posted_pins: pins.filter((p) => p.status === "posted").length,
@@ -163,6 +187,8 @@ export default function OverviewPage() {
         saves: { current: currSaves, previous: prevSaves },
         clicks: { current: currClicks, previous: prevClicks },
         outbound_clicks: { current: currOutbound, previous: prevOutbound },
+        add_to_carts: { current: currAddToCarts, previous: prevAddToCarts },
+        sales: { current: currSalesCount, previous: prevSalesCount },
         save_rate: currImpressions > 0 ? (currSaves / currImpressions) * 100 : 0,
         engagement_rate: currImpressions > 0 ? ((currSaves + currClicks) / currImpressions) * 100 : 0,
       });
@@ -237,6 +263,8 @@ export default function OverviewPage() {
   const savesTrend = getTrend(stats?.saves.current || 0, stats?.saves.previous || 0);
   const clicksTrend = getTrend(stats?.clicks.current || 0, stats?.clicks.previous || 0);
   const outboundTrend = getTrend(stats?.outbound_clicks.current || 0, stats?.outbound_clicks.previous || 0);
+  const addToCartsTrend = getTrend(stats?.add_to_carts.current || 0, stats?.add_to_carts.previous || 0);
+  const salesTrend = getTrend(stats?.sales.current || 0, stats?.sales.previous || 0);
 
   const periodLabel = period === "7d" ? "7 days" : period === "30d" ? "30 days" : "90 days";
 
@@ -293,7 +321,7 @@ export default function OverviewPage() {
 
 
       {/* Key Metrics - Pinterest Performance */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#3b82f6" } as React.CSSProperties}>
           <div className="flex items-center justify-between mb-3">
             <div className="w-9 h-9 bg-blue-500/10 rounded-lg flex items-center justify-center">
@@ -352,6 +380,34 @@ export default function OverviewPage() {
           </div>
           <div className="text-xs text-muted-foreground mt-1 font-medium">Website Clicks</div>
           <div className="text-[10px] text-muted-foreground/50 mt-0.5">clicks to your store</div>
+        </div>
+
+        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#f59e0b" } as React.CSSProperties}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-9 h-9 bg-amber-500/10 rounded-lg flex items-center justify-center">
+              <ShoppingBag className="w-4 h-4 text-amber-600" />
+            </div>
+            <TrendBadge trend={addToCartsTrend} />
+          </div>
+          <div className="text-2xl font-bold tracking-tight">
+            {formatNumber(stats?.add_to_carts.current || 0)}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Add to Carts</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
+        </div>
+
+        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#10b981" } as React.CSSProperties}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-9 h-9 bg-emerald-500/10 rounded-lg flex items-center justify-center">
+              <ShoppingCart className="w-4 h-4 text-emerald-600" />
+            </div>
+            <TrendBadge trend={salesTrend} />
+          </div>
+          <div className="text-2xl font-bold tracking-tight">
+            {formatNumber(stats?.sales.current || 0)}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Sales</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
         </div>
       </div>
 
