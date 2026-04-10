@@ -160,6 +160,27 @@ export class PinterestClient {
     return this.request(`/user_account/pins${params}`);
   }
 
+  async getUserAccountAnalytics(
+    startDate: string,
+    endDate: string,
+    metricTypes: string[] = [
+      "WEB_ADD_TO_CART",
+      "WEB_CHECKOUT",
+      "WEB_CHECKOUT_VALUE",
+      "WEB_SESSIONS",
+    ]
+  ) {
+    const params = new URLSearchParams({
+      start_date: startDate,
+      end_date: endDate,
+      metric_types: metricTypes.join(","),
+      content_type: "ORGANIC",
+    });
+    return this.request<Record<string, Record<string, Record<string, number>>>>(
+      `/user_account/analytics?${params}`
+    );
+  }
+
   async getPinAnalytics(
     pinId: string,
     startDate: string,

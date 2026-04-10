@@ -31,7 +31,7 @@ async function handlePullAnalytics(request: NextRequest) {
   }
 
   const endDate = new Date().toISOString().split("T")[0];
-  const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
     .toISOString()
     .split("T")[0];
 
@@ -47,6 +47,52 @@ async function handlePullAnalytics(request: NextRequest) {
 
       const token = decrypt(org.pinterest_access_token_encrypted);
       const client = new PinterestClient(token);
+
+      // Pull organic conversion data (ATC, Checkouts, Revenue) from user account analytics
+      try {
+        const conversionData = await client.getUserAccountAnalytics(startDate, endDate);
+        const rawDailyMetrics = conversionData?.all?.daily_metrics;
+        if (rawDailyMetrics) {
+          // Pinterest API may return daily_metrics as date-keyed object OR array of {date, metrics}
+          const entries: { date: string; metrics: Record<string, number> }[] = [];
+
+          if (Array.isArray(rawDailyMetrics)) {
+            // Array format: [{ date: "2024-01-01", metrics: { WEB_ADD_TO_CART: 5 } }]
+            for (const item of rawDailyMetrics) {
+              if (item.date && item.metrics) {
+                entries.push({ date: item.date, metrics: item.metrics });
+              }
+            }
+          } else {
+            // Object format: { "2024-01-01": { WEB_ADD_TO_CART: 5 } }
+            for (const [date, metrics] of Object.entries(rawDailyMetrics)) {
+              entries.push({ date, metrics: metrics as unknown as Record<string, number> });
+            }
+          }
+
+          for (const { date, metrics } of entries) {
+            const addToCarts = metrics?.WEB_ADD_TO_CART || 0;
+            const checkouts = metrics?.WEB_CHECKOUT || 0;
+            const revenue = metrics?.WEB_CHECKOUT_VALUE || 0;
+
+            if (addToCarts > 0 || checkouts > 0) {
+              await admin.from("sales_data").upsert(
+                {
+                  org_id: org.id,
+                  date,
+                  add_to_cart_count: addToCarts,
+                  sales_count: checkouts,
+                  sales_revenue: revenue,
+                  source: "pinterest",
+                },
+                { onConflict: "org_id,date,source" }
+              );
+            }
+          }
+        }
+      } catch {
+        // Conversion data is optional - don't fail the whole job
+      }
 
       // Get posted pins from last 7 days
       const { data: pins } = await admin
