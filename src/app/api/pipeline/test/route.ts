@@ -924,6 +924,36 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // ─── DELETE ALL PINTEREST PINS: Remove all pins from Pinterest account ───
+  if (step === "delete-pinterest-pins") {
+    if (!org.pinterest_access_token_encrypted) {
+      return NextResponse.json({ error: "No Pinterest token" }, { status: 400 });
+    }
+    const token = decrypt(org.pinterest_access_token_encrypted);
+    const pinterest = new PinterestClient(token, false);
+
+    let deleted = 0;
+    let errors = 0;
+    let bookmark: string | undefined;
+
+    // Paginate through all pins on the Pinterest account
+    do {
+      const page = await pinterest.getAccountPins(bookmark);
+      for (const pin of page.items || []) {
+        try {
+          await pinterest.deletePin(pin.id);
+          deleted++;
+        } catch {
+          errors++;
+        }
+        await new Promise(r => setTimeout(r, 500)); // Rate limit
+      }
+      bookmark = page.bookmark;
+    } while (bookmark);
+
+    return NextResponse.json({ success: true, step: "delete-pinterest-pins", deleted, errors });
+  }
+
   // ─── DISTRIBUTE PINS: Spread pins evenly across all boards ───
   if (step === "distribute-pins") {
     const { data: allPins } = await supabase

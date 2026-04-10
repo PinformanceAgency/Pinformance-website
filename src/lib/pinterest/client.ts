@@ -145,6 +145,18 @@ export class PinterestClient {
     });
   }
 
+  async deletePin(pinId: string): Promise<void> {
+    await fetch(`${this.baseUrl}/pins/${pinId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+    });
+  }
+
+  async getAccountPins(bookmark?: string): Promise<{ items: { id: string }[]; bookmark?: string }> {
+    const params = bookmark ? `?bookmark=${bookmark}` : "";
+    return this.request(`/user_account/pins${params}`);
+  }
+
   async getPinAnalytics(
     pinId: string,
     startDate: string,
