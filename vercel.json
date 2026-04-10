@@ -8,6 +8,10 @@
       "schedule": "0 17 * * *"
     },
     {
+      "path": "/api/cron/post-pins",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/pull-analytics",
       "schedule": "0 6 * * *"
     },
