@@ -685,8 +685,11 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // All retries failed — put back to scheduled so cron can try again later
-      await supabase.from("pins").update({ status: "scheduled" }).eq("id", pin.id);
+      // All retries failed — reschedule for 15 min from now so cron retries immediately
+      await supabase.from("pins").update({
+        status: "scheduled",
+        scheduled_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      }).eq("id", pin.id);
       return NextResponse.json({
         success: false,
         step: "post-pin",

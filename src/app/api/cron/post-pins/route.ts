@@ -212,9 +212,12 @@ async function handlePostPins(request: NextRequest) {
           }
         }
 
-        // If all retries failed, put back to scheduled for next cron run
+        // If all retries failed, reschedule for 15 minutes from now (next cron run)
         if (!posted) {
-          await admin.from("pins").update({ status: "scheduled" }).eq("id", pin.id);
+          await admin.from("pins").update({
+            status: "scheduled",
+            scheduled_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          }).eq("id", pin.id);
         }
 
         // Respect rate limits between pins
