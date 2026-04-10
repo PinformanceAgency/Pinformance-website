@@ -11,6 +11,7 @@ import {
   ExternalLink,
   ShoppingCart,
   ShoppingBag,
+  Euro,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -40,6 +41,7 @@ interface DashboardStats {
   outbound_clicks: { current: number; previous: number };
   add_to_carts: { current: number; previous: number };
   sales: { current: number; previous: number };
+  revenue: { current: number; previous: number };
   save_rate: number;
   engagement_rate: number;
 }
@@ -139,13 +141,13 @@ export default function OverviewPage() {
           .limit(5),
         supabase
           .from("sales_data")
-          .select("sales_count, add_to_cart_count")
+          .select("sales_count, add_to_cart_count, sales_revenue")
           .eq("org_id", org!.id)
           .eq("source", "pinterest")
           .gte("date", currentStart),
         supabase
           .from("sales_data")
-          .select("sales_count, add_to_cart_count")
+          .select("sales_count, add_to_cart_count, sales_revenue")
           .eq("org_id", org!.id)
           .eq("source", "pinterest")
           .gte("date", previousStart)
@@ -173,8 +175,10 @@ export default function OverviewPage() {
       const prevSalesData = previousSales.data || [];
       const currAddToCarts = sumField(currSalesData, "add_to_cart_count");
       const currSalesCount = sumField(currSalesData, "sales_count");
+      const currRevenue = sumField(currSalesData, "sales_revenue");
       const prevAddToCarts = sumField(prevSalesData, "add_to_cart_count");
       const prevSalesCount = sumField(prevSalesData, "sales_count");
+      const prevRevenue = sumField(prevSalesData, "sales_revenue");
 
       setStats({
         total_pins: pins.length,
@@ -189,6 +193,7 @@ export default function OverviewPage() {
         outbound_clicks: { current: currOutbound, previous: prevOutbound },
         add_to_carts: { current: currAddToCarts, previous: prevAddToCarts },
         sales: { current: currSalesCount, previous: prevSalesCount },
+        revenue: { current: currRevenue, previous: prevRevenue },
         save_rate: currImpressions > 0 ? (currSaves / currImpressions) * 100 : 0,
         engagement_rate: currImpressions > 0 ? ((currSaves + currClicks) / currImpressions) * 100 : 0,
       });
@@ -265,6 +270,7 @@ export default function OverviewPage() {
   const outboundTrend = getTrend(stats?.outbound_clicks.current || 0, stats?.outbound_clicks.previous || 0);
   const addToCartsTrend = getTrend(stats?.add_to_carts.current || 0, stats?.add_to_carts.previous || 0);
   const salesTrend = getTrend(stats?.sales.current || 0, stats?.sales.previous || 0);
+  const revenueTrend = getTrend(stats?.revenue.current || 0, stats?.revenue.previous || 0);
 
   const periodLabel = period === "7d" ? "7 days" : period === "30d" ? "30 days" : "90 days";
 
@@ -407,6 +413,20 @@ export default function OverviewPage() {
             {formatNumber(stats?.sales.current || 0)}
           </div>
           <div className="text-xs text-muted-foreground mt-1 font-medium">Sales</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
+        </div>
+
+        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#6366f1" } as React.CSSProperties}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-9 h-9 bg-indigo-500/10 rounded-lg flex items-center justify-center">
+              <Euro className="w-4 h-4 text-indigo-600" />
+            </div>
+            <TrendBadge trend={revenueTrend} />
+          </div>
+          <div className="text-2xl font-bold tracking-tight">
+            &euro;{formatNumber(stats?.revenue.current || 0)}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Order Value</div>
           <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
         </div>
       </div>
