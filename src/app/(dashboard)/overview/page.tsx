@@ -324,7 +324,7 @@ export default function OverviewPage() {
 
 
       {/* Key Metrics - Pinterest Performance */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#3b82f6" } as React.CSSProperties}>
           <div className="flex items-center justify-between mb-3">
             <div className="w-9 h-9 bg-blue-500/10 rounded-lg flex items-center justify-center">
@@ -337,22 +337,6 @@ export default function OverviewPage() {
           </div>
           <div className="text-xs text-muted-foreground mt-1 font-medium">Impressions</div>
           <div className="text-[10px] text-muted-foreground/50 mt-0.5">vs previous {periodLabel}</div>
-        </div>
-
-        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#8b5cf6" } as React.CSSProperties}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 bg-purple-500/10 rounded-lg flex items-center justify-center">
-              <Bookmark className="w-4 h-4 text-purple-600" />
-            </div>
-            <TrendBadge trend={savesTrend} />
-          </div>
-          <div className="text-2xl font-bold tracking-tight">
-            {formatNumber(stats?.saves.current || 0)}
-          </div>
-          <div className="text-xs text-muted-foreground mt-1 font-medium">Saves</div>
-          <div className="text-[10px] text-muted-foreground/50 mt-0.5">
-            {(stats?.save_rate || 0).toFixed(1)}% save rate
-          </div>
         </div>
 
         <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#f97316" } as React.CSSProperties}>
