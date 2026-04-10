@@ -596,7 +596,7 @@ export async function POST(request: NextRequest) {
           // Video still processing — create pin anyway, Pinterest will process in background
         }
 
-        // 4. Create video pin
+        // 4. Create video pin — use key frame at 1 second for cover
         pinterestPin = await pinterest.createVideoPin({
           board_id: pinterestBoardId,
           title: pin.title,
@@ -604,6 +604,7 @@ export async function POST(request: NextRequest) {
           link: linkUrl,
           alt_text: pin.alt_text || undefined,
           media_id: media.media_id,
+          cover_image_key_frame_time: 1,
         });
       } else {
         // IMAGE PIN: direct post

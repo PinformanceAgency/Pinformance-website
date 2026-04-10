@@ -118,7 +118,20 @@ export class PinterestClient {
     link?: string;
     alt_text?: string;
     media_id: string;
+    cover_image_url?: string;
+    cover_image_key_frame_time?: number;
   }): Promise<PinterestPin> {
+    const mediaSource: Record<string, unknown> = {
+      source_type: "video_id",
+      media_id: data.media_id,
+    };
+    if (data.cover_image_url) {
+      mediaSource.cover_image_url = data.cover_image_url;
+    }
+    if (data.cover_image_key_frame_time !== undefined) {
+      mediaSource.cover_image_key_frame_time = data.cover_image_key_frame_time;
+    }
+
     return this.request("/pins", {
       method: "POST",
       body: JSON.stringify({
@@ -127,10 +140,7 @@ export class PinterestClient {
         description: data.description,
         link: data.link,
         alt_text: data.alt_text,
-        media_source: {
-          source_type: "video_id",
-          media_id: data.media_id,
-        },
+        media_source: mediaSource,
       }),
     });
   }
