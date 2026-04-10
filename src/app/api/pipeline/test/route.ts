@@ -580,8 +580,9 @@ export async function POST(request: NextRequest) {
         const videoRes = await fetch(videoUrl);
         if (!videoRes.ok) throw new Error(`Video download failed: ${videoRes.status}`);
         const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+        const videoContentType = videoRes.headers.get("content-type") || "video/mp4";
 
-        await pinterest.uploadVideoToS3(media.upload_url, media.upload_parameters, videoBuffer);
+        await pinterest.uploadVideoToS3(media.upload_url, media.upload_parameters, videoBuffer, videoContentType);
 
         // 3. Wait for processing (poll up to 60s)
         let mediaStatus = await pinterest.getMediaStatus(media.media_id);

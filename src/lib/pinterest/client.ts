@@ -88,13 +88,16 @@ export class PinterestClient {
   async uploadVideoToS3(
     uploadUrl: string,
     uploadParams: Record<string, string>,
-    videoBuffer: Buffer
+    videoBuffer: Buffer,
+    contentType = "video/mp4"
   ): Promise<void> {
     const formData = new FormData();
     for (const [key, value] of Object.entries(uploadParams)) {
       formData.append(key, value);
     }
-    formData.append("file", new Blob([new Uint8Array(videoBuffer)]), "video.mp4");
+    // Preserve original content type so audio track is retained
+    const ext = contentType.includes("quicktime") ? "mov" : "mp4";
+    formData.append("file", new Blob([new Uint8Array(videoBuffer)], { type: contentType }), `video.${ext}`);
 
     const res = await fetch(uploadUrl, {
       method: "POST",

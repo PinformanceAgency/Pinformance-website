@@ -149,8 +149,9 @@ async function handlePostPins(request: NextRequest) {
               const videoRes = await fetch(videoUrl);
               if (!videoRes.ok) throw new Error(`Video download: ${videoRes.status}`);
               const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+              const videoContentType = videoRes.headers.get("content-type") || "video/mp4";
 
-              await pinterest.uploadVideoToS3(media.upload_url, media.upload_parameters, videoBuffer);
+              await pinterest.uploadVideoToS3(media.upload_url, media.upload_parameters, videoBuffer, videoContentType);
               await new Promise(r => setTimeout(r, 5000)); // Wait for processing
 
               const pPin = await pinterest.createVideoPin({
