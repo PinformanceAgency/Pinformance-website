@@ -646,11 +646,51 @@ export async function POST(request: NextRequest) {
         link_url: pin.link_url,
       });
     } catch (err) {
-      await supabase.from("pins").update({ status: "failed" }).eq("id", pin.id);
+      const errMsg = err instanceof Error ? err.message : "Posting failed";
+
+      // Retry up to 2 more times for Pinterest API errors (400/500)
+      if (errMsg.includes("Pinterest API error")) {
+        for (let retry = 1; retry <= 2; retry++) {
+          await new Promise(r => setTimeout(r, 5000 * retry)); // 5s, 10s backoff
+          try {
+            const isVideoPin2 = pin.pin_type === "video" || !!pin.video_url;
+            let retryPin;
+
+            if (isVideoPin2 && pin.video_url) {
+              const media2 = await pinterest.registerMediaUpload();
+              let vUrl2 = pin.video_url;
+              const vp2 = vUrl2.split("/object/public/pin-images/")[1];
+              if (vp2) { const { data: vs2 } = await supabase.storage.from("pin-images").createSignedUrl(vp2, 300); if (vs2?.signedUrl) vUrl2 = vs2.signedUrl; }
+              const vr2 = await fetch(vUrl2);
+              if (vr2.ok) {
+                await pinterest.uploadVideoToS3(media2.upload_url, media2.upload_parameters, Buffer.from(await vr2.arrayBuffer()));
+                await new Promise(r => setTimeout(r, 10000));
+                retryPin = await pinterest.createVideoPin({ board_id: pinterestBoardId, title: pin.title, description: pin.description, link: linkUrl, media_id: media2.media_id });
+              }
+            } else {
+              let iUrl2 = pin.image_url || "";
+              const ip2 = iUrl2.split("/object/public/pin-images/")[1];
+              if (ip2) { const { data: is2 } = await supabase.storage.from("pin-images").createSignedUrl(ip2, 300); if (is2?.signedUrl) iUrl2 = is2.signedUrl; }
+              retryPin = await pinterest.createPin({ board_id: pinterestBoardId, title: pin.title, description: pin.description, link: linkUrl, media_source: { source_type: "image_url" as const, url: iUrl2 } });
+            }
+
+            if (retryPin) {
+              await supabase.from("pins").update({ status: "posted", pinterest_pin_id: retryPin.id, posted_at: new Date().toISOString() }).eq("id", pin.id);
+              return NextResponse.json({ success: true, step: "post-pin", pin_id: pin.id, pinterest_pin_id: retryPin.id, title: pin.title, board: pin.boards?.name, retried: retry });
+            }
+          } catch {
+            // Retry failed, continue to next attempt
+          }
+        }
+      }
+
+      // All retries failed — put back to scheduled so cron can try again later
+      await supabase.from("pins").update({ status: "scheduled" }).eq("id", pin.id);
       return NextResponse.json({
         success: false,
         step: "post-pin",
-        error: err instanceof Error ? err.message : "Posting failed",
+        error: errMsg,
+        will_retry: true,
       }, { status: 500 });
     }
   }
