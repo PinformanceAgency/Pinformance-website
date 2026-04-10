@@ -665,13 +665,13 @@ export async function POST(request: NextRequest) {
               if (vr2.ok) {
                 await pinterest.uploadVideoToS3(media2.upload_url, media2.upload_parameters, Buffer.from(await vr2.arrayBuffer()));
                 await new Promise(r => setTimeout(r, 10000));
-                retryPin = await pinterest.createVideoPin({ board_id: pinterestBoardId, title: pin.title, description: pin.description, link: linkUrl, media_id: media2.media_id });
+                retryPin = await pinterest.createVideoPin({ board_id: pin.boards?.pinterest_board_id || "", title: pin.title, description: pin.description, link: pin.link_url || "", media_id: media2.media_id });
               }
             } else {
               let iUrl2 = pin.image_url || "";
               const ip2 = iUrl2.split("/object/public/pin-images/")[1];
               if (ip2) { const { data: is2 } = await supabase.storage.from("pin-images").createSignedUrl(ip2, 300); if (is2?.signedUrl) iUrl2 = is2.signedUrl; }
-              retryPin = await pinterest.createPin({ board_id: pinterestBoardId, title: pin.title, description: pin.description, link: linkUrl, media_source: { source_type: "image_url" as const, url: iUrl2 } });
+              retryPin = await pinterest.createPin({ board_id: pin.boards?.pinterest_board_id || "", title: pin.title, description: pin.description, link: pin.link_url || "", media_source: { source_type: "image_url" as const, url: iUrl2 } });
             }
 
             if (retryPin) {
