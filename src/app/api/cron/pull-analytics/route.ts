@@ -74,8 +74,9 @@ async function handlePullAnalytics(request: NextRequest) {
             const addToCarts = metrics?.WEB_ADD_TO_CART || 0;
             const checkouts = metrics?.WEB_CHECKOUT || 0;
             const revenue = metrics?.WEB_CHECKOUT_VALUE || 0;
+            const pageVisits = metrics?.WEB_SESSIONS || 0;
 
-            if (addToCarts > 0 || checkouts > 0) {
+            if (addToCarts > 0 || checkouts > 0 || pageVisits > 0) {
               await admin.from("sales_data").upsert(
                 {
                   org_id: org.id,
@@ -83,6 +84,7 @@ async function handlePullAnalytics(request: NextRequest) {
                   add_to_cart_count: addToCarts,
                   sales_count: checkouts,
                   sales_revenue: revenue,
+                  page_visits: pageVisits,
                   source: "pinterest",
                 },
                 { onConflict: "org_id,date,source" }

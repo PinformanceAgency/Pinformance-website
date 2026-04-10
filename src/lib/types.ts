@@ -215,6 +215,7 @@ export interface SalesData {
   sales_count: number;
   sales_revenue: number;
   add_to_cart_count: number;
+  page_visits: number;
   source: "shopify" | "pinterest" | "manual";
   created_at: string;
   updated_at: string;

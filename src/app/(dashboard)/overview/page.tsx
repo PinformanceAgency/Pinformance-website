@@ -8,7 +8,6 @@ import {
   Eye,
   Bookmark,
   MousePointer,
-  ExternalLink,
   ShoppingCart,
   ShoppingBag,
   Euro,
@@ -37,8 +36,7 @@ interface DashboardStats {
   total_boards: number;
   impressions: { current: number; previous: number };
   saves: { current: number; previous: number };
-  clicks: { current: number; previous: number };
-  outbound_clicks: { current: number; previous: number };
+  page_visits: { current: number; previous: number };
   add_to_carts: { current: number; previous: number };
   sales: { current: number; previous: number };
   revenue: { current: number; previous: number };
@@ -141,13 +139,13 @@ export default function OverviewPage() {
           .limit(5),
         supabase
           .from("sales_data")
-          .select("sales_count, add_to_cart_count, sales_revenue")
+          .select("sales_count, add_to_cart_count, sales_revenue, page_visits")
           .eq("org_id", org!.id)
           .eq("source", "pinterest")
           .gte("date", currentStart),
         supabase
           .from("sales_data")
-          .select("sales_count, add_to_cart_count, sales_revenue")
+          .select("sales_count, add_to_cart_count, sales_revenue, page_visits")
           .eq("org_id", org!.id)
           .eq("source", "pinterest")
           .gte("date", previousStart)
@@ -163,22 +161,20 @@ export default function OverviewPage() {
 
       const currImpressions = sumField(currentData, "impressions");
       const currSaves = sumField(currentData, "saves");
-      const currClicks = sumField(currentData, "pin_clicks");
-      const currOutbound = sumField(currentData, "outbound_clicks");
 
       const prevImpressions = sumField(previousData, "impressions");
       const prevSaves = sumField(previousData, "saves");
-      const prevClicks = sumField(previousData, "pin_clicks");
-      const prevOutbound = sumField(previousData, "outbound_clicks");
 
       const currSalesData = currentSales.data || [];
       const prevSalesData = previousSales.data || [];
       const currAddToCarts = sumField(currSalesData, "add_to_cart_count");
       const currSalesCount = sumField(currSalesData, "sales_count");
       const currRevenue = sumField(currSalesData, "sales_revenue");
+      const currPageVisits = sumField(currSalesData, "page_visits");
       const prevAddToCarts = sumField(prevSalesData, "add_to_cart_count");
       const prevSalesCount = sumField(prevSalesData, "sales_count");
       const prevRevenue = sumField(prevSalesData, "sales_revenue");
+      const prevPageVisits = sumField(prevSalesData, "page_visits");
 
       setStats({
         total_pins: pins.length,
@@ -189,13 +185,12 @@ export default function OverviewPage() {
         total_boards: boardsResult.count || 0,
         impressions: { current: currImpressions, previous: prevImpressions },
         saves: { current: currSaves, previous: prevSaves },
-        clicks: { current: currClicks, previous: prevClicks },
-        outbound_clicks: { current: currOutbound, previous: prevOutbound },
+        page_visits: { current: currPageVisits, previous: prevPageVisits },
         add_to_carts: { current: currAddToCarts, previous: prevAddToCarts },
         sales: { current: currSalesCount, previous: prevSalesCount },
         revenue: { current: currRevenue, previous: prevRevenue },
         save_rate: currImpressions > 0 ? (currSaves / currImpressions) * 100 : 0,
-        engagement_rate: currImpressions > 0 ? ((currSaves + currClicks) / currImpressions) * 100 : 0,
+        engagement_rate: currImpressions > 0 ? (currSaves / currImpressions) * 100 : 0,
       });
 
       // Load analytics for top pins
@@ -266,11 +261,13 @@ export default function OverviewPage() {
 
   const impressionsTrend = getTrend(stats?.impressions.current || 0, stats?.impressions.previous || 0);
   const savesTrend = getTrend(stats?.saves.current || 0, stats?.saves.previous || 0);
-  const clicksTrend = getTrend(stats?.clicks.current || 0, stats?.clicks.previous || 0);
-  const outboundTrend = getTrend(stats?.outbound_clicks.current || 0, stats?.outbound_clicks.previous || 0);
+  const pageVisitsTrend = getTrend(stats?.page_visits.current || 0, stats?.page_visits.previous || 0);
   const addToCartsTrend = getTrend(stats?.add_to_carts.current || 0, stats?.add_to_carts.previous || 0);
   const salesTrend = getTrend(stats?.sales.current || 0, stats?.sales.previous || 0);
   const revenueTrend = getTrend(stats?.revenue.current || 0, stats?.revenue.previous || 0);
+  const currAov = (stats?.sales.current || 0) > 0 ? (stats?.revenue.current || 0) / stats!.sales.current : 0;
+  const prevAov = (stats?.sales.previous || 0) > 0 ? (stats?.revenue.previous || 0) / stats!.sales.previous : 0;
+  const aovTrend = getTrend(currAov, prevAov);
 
   const periodLabel = period === "7d" ? "7 days" : period === "30d" ? "30 days" : "90 days";
 
@@ -327,7 +324,7 @@ export default function OverviewPage() {
 
 
       {/* Key Metrics - Pinterest Performance */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#3b82f6" } as React.CSSProperties}>
           <div className="flex items-center justify-between mb-3">
             <div className="w-9 h-9 bg-blue-500/10 rounded-lg flex items-center justify-center">
@@ -363,29 +360,13 @@ export default function OverviewPage() {
             <div className="w-9 h-9 bg-orange-500/10 rounded-lg flex items-center justify-center">
               <MousePointer className="w-4 h-4 text-orange-600" />
             </div>
-            <TrendBadge trend={clicksTrend} />
+            <TrendBadge trend={pageVisitsTrend} />
           </div>
           <div className="text-2xl font-bold tracking-tight">
-            {formatNumber(stats?.clicks.current || 0)}
+            {formatNumber(stats?.page_visits.current || 0)}
           </div>
-          <div className="text-xs text-muted-foreground mt-1 font-medium">Pin Clicks</div>
-          <div className="text-[10px] text-muted-foreground/50 mt-0.5">
-            {(stats?.engagement_rate || 0).toFixed(1)}% engagement
-          </div>
-        </div>
-
-        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#22c55e" } as React.CSSProperties}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 bg-green-500/10 rounded-lg flex items-center justify-center">
-              <ExternalLink className="w-4 h-4 text-green-600" />
-            </div>
-            <TrendBadge trend={outboundTrend} />
-          </div>
-          <div className="text-2xl font-bold tracking-tight">
-            {formatNumber(stats?.outbound_clicks.current || 0)}
-          </div>
-          <div className="text-xs text-muted-foreground mt-1 font-medium">Website Clicks</div>
-          <div className="text-[10px] text-muted-foreground/50 mt-0.5">clicks to your store</div>
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Page Visits</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
         </div>
 
         <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#f59e0b" } as React.CSSProperties}>
@@ -426,7 +407,21 @@ export default function OverviewPage() {
           <div className="text-2xl font-bold tracking-tight">
             &euro;{formatNumber(stats?.revenue.current || 0)}
           </div>
-          <div className="text-xs text-muted-foreground mt-1 font-medium">Order Value</div>
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Revenue</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
+        </div>
+
+        <div className="kpi-card rounded-xl p-5" style={{ "--accent-color": "#ec4899" } as React.CSSProperties}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-9 h-9 bg-pink-500/10 rounded-lg flex items-center justify-center">
+              <TrendingUp className="w-4 h-4 text-pink-600" />
+            </div>
+            <TrendBadge trend={aovTrend} />
+          </div>
+          <div className="text-2xl font-bold tracking-tight">
+            &euro;{currAov.toFixed(2)}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1 font-medium">Avg Order Value</div>
           <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
         </div>
       </div>
