@@ -389,7 +389,7 @@ export default function OverviewPage() {
             <TrendBadge trend={revenueTrend} />
           </div>
           <div className="text-2xl font-bold tracking-tight">
-            &euro;{formatNumber(stats?.revenue.current || 0)}
+            {formatNumber(stats?.revenue.current || 0)}
           </div>
           <div className="text-xs text-muted-foreground mt-1 font-medium">Revenue</div>
           <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
@@ -403,7 +403,7 @@ export default function OverviewPage() {
             <TrendBadge trend={aovTrend} />
           </div>
           <div className="text-2xl font-bold tracking-tight">
-            &euro;{currAov.toFixed(2)}
+            {currAov.toFixed(2)}
           </div>
           <div className="text-xs text-muted-foreground mt-1 font-medium">Avg Order Value</div>
           <div className="text-[10px] text-muted-foreground/50 mt-0.5">organic Pinterest</div>
@@ -538,7 +538,7 @@ export default function OverviewPage() {
                 />
               </div>
               <div className="text-[10px] text-muted-foreground/60 mt-0.5">
-                &euro;{formatNumber(stats?.revenue.current || 0)} total
+                {formatNumber(stats?.revenue.current || 0)} total
               </div>
             </div>
 
