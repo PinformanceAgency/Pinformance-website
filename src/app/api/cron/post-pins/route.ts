@@ -24,6 +24,14 @@ async function handlePostPins(request: NextRequest) {
   const admin = createAdminClient();
   const now = new Date().toISOString();
 
+  // Self-heal: reset pins stuck in "posting" for > 10 minutes back to scheduled
+  const stuckCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  await admin
+    .from("pins")
+    .update({ status: "scheduled", scheduled_at: now })
+    .eq("status", "posting")
+    .lt("updated_at", stuckCutoff);
+
   const { data: orgs } = await admin
     .from("organizations")
     .select("id, name, pinterest_access_token_encrypted, pinterest_refresh_token_encrypted, pinterest_token_expires_at, pinterest_app_id, pinterest_app_secret_encrypted, settings")

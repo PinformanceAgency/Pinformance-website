@@ -150,8 +150,16 @@ async function handlePullAnalytics(request: NextRequest) {
 
             totalUpdated++;
           }
-        } catch {
-          // Skip individual pin errors
+        } catch (pinErr) {
+          // If Pinterest returns 404, pin was deleted — reschedule for reposting
+          const errMsg = pinErr instanceof Error ? pinErr.message : "";
+          if (errMsg.includes("404") || errMsg.includes("Not Found")) {
+            await admin.from("pins").update({
+              status: "scheduled",
+              pinterest_pin_id: null,
+              scheduled_at: new Date().toISOString(),
+            }).eq("id", pin.id);
+          }
         }
       }
     } catch (err) {
