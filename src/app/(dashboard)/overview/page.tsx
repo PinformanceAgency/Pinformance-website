@@ -476,49 +476,69 @@ export default function OverviewPage() {
           </div>
         </div>
 
-        {/* Performance Score */}
+        {/* Growth Overview */}
         <div className="glass-card rounded-xl p-6">
-          <h2 className="font-semibold mb-1">Pinterest Health</h2>
-          <p className="text-xs text-muted-foreground mb-5">Account performance indicators</p>
+          <h2 className="font-semibold mb-1">Growth</h2>
+          <p className="text-xs text-muted-foreground mb-5">vs previous {periodLabel}</p>
 
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Target className="w-3.5 h-3.5" /> Save Rate
+                  <Eye className="w-3.5 h-3.5" /> Impressions
                 </span>
-                <span className="text-xs font-semibold">
-                  {(stats?.save_rate || 0).toFixed(1)}%
+                <span className={`text-xs font-semibold ${impressionsTrend.direction === "up" ? "text-green-600" : impressionsTrend.direction === "down" ? "text-red-500" : ""}`}>
+                  {impressionsTrend.direction === "up" ? "+" : impressionsTrend.direction === "down" ? "-" : ""}{impressionsTrend.value}%
                 </span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-purple-500 rounded-full transition-all progress-animate"
-                  style={{ width: `${Math.min((stats?.save_rate || 0) * 10, 100)}%` }}
+                  className={`h-full rounded-full transition-all progress-animate ${impressionsTrend.direction === "up" ? "bg-green-500" : "bg-red-400"}`}
+                  style={{ width: `${Math.min(impressionsTrend.value, 100)}%` }}
                 />
               </div>
               <div className="text-[10px] text-muted-foreground/60 mt-0.5">
-                Pinterest avg: 1-3%
+                {formatNumber(stats?.impressions.current || 0)} total
               </div>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5" /> Engagement Rate
+                  <MousePointer className="w-3.5 h-3.5" /> Page Visits
                 </span>
-                <span className="text-xs font-semibold">
-                  {(stats?.engagement_rate || 0).toFixed(1)}%
+                <span className={`text-xs font-semibold ${pageVisitsTrend.direction === "up" ? "text-green-600" : pageVisitsTrend.direction === "down" ? "text-red-500" : ""}`}>
+                  {pageVisitsTrend.direction === "up" ? "+" : pageVisitsTrend.direction === "down" ? "-" : ""}{pageVisitsTrend.value}%
                 </span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-orange-500 rounded-full transition-all progress-animate"
-                  style={{ width: `${Math.min((stats?.engagement_rate || 0) * 5, 100)}%` }}
+                  className={`h-full rounded-full transition-all progress-animate ${pageVisitsTrend.direction === "up" ? "bg-green-500" : "bg-red-400"}`}
+                  style={{ width: `${Math.min(pageVisitsTrend.value, 100)}%` }}
                 />
               </div>
               <div className="text-[10px] text-muted-foreground/60 mt-0.5">
-                Pinterest avg: 2-5%
+                {formatNumber(stats?.page_visits.current || 0)} total
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Euro className="w-3.5 h-3.5" /> Revenue
+                </span>
+                <span className={`text-xs font-semibold ${revenueTrend.direction === "up" ? "text-green-600" : revenueTrend.direction === "down" ? "text-red-500" : ""}`}>
+                  {revenueTrend.direction === "up" ? "+" : revenueTrend.direction === "down" ? "-" : ""}{revenueTrend.value}%
+                </span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all progress-animate ${revenueTrend.direction === "up" ? "bg-green-500" : "bg-red-400"}`}
+                  style={{ width: `${Math.min(revenueTrend.value, 100)}%` }}
+                />
+              </div>
+              <div className="text-[10px] text-muted-foreground/60 mt-0.5">
+                &euro;{formatNumber(stats?.revenue.current || 0)} total
               </div>
             </div>
 
@@ -533,32 +553,12 @@ export default function OverviewPage() {
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-green-500 rounded-full transition-all progress-animate"
+                  className="h-full bg-primary rounded-full transition-all progress-animate"
                   style={{ width: `${Math.min(((stats?.posted_pins || 0) / Math.max(((org.settings as unknown as Record<string, number>)?.pins_per_day ?? 40) * 30, 1)) * 100, 100)}%` }}
                 />
               </div>
               <div className="text-[10px] text-muted-foreground/60 mt-0.5">
                 Target: {((org.settings as unknown as Record<string, number>)?.pins_per_day) ?? 40}/day
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <CircleDot className="w-3.5 h-3.5" /> Active Boards
-                </span>
-                <span className="text-xs font-semibold">
-                  {stats?.total_boards || 0}
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full transition-all progress-animate"
-                  style={{ width: `${Math.min(((stats?.total_boards || 0) / 20) * 100, 100)}%` }}
-                />
-              </div>
-              <div className="text-[10px] text-muted-foreground/60 mt-0.5">
-                Recommended: 10-20 boards
               </div>
             </div>
           </div>
