@@ -152,7 +152,28 @@ async function handlePostPins(request: NextRequest) {
               const videoContentType = videoRes.headers.get("content-type") || "video/mp4";
 
               await pinterest.uploadVideoToS3(media.upload_url, media.upload_parameters, videoBuffer, videoContentType);
-              await new Promise(r => setTimeout(r, 5000)); // Wait for processing
+
+              // Poll media status until registered/succeeded (max 60s)
+              let mediaReady = false;
+              for (let poll = 0; poll < 12; poll++) {
+                await new Promise(r => setTimeout(r, 5000));
+                try {
+                  const mediaStatus = await pinterest.getMediaStatus(media.media_id);
+                  if (mediaStatus.status === "succeeded" || mediaStatus.status === "registered") {
+                    mediaReady = true;
+                    break;
+                  }
+                  if (mediaStatus.status === "failed") {
+                    throw new Error(`Video processing failed for media ${media.media_id}`);
+                  }
+                } catch (statusErr) {
+                  if (statusErr instanceof Error && statusErr.message.includes("failed")) throw statusErr;
+                  // Status check failed, continue polling
+                }
+              }
+              if (!mediaReady) {
+                throw new Error(`Video processing timeout for media ${media.media_id}`);
+              }
 
               const pPin = await pinterest.createVideoPin({
                 board_id: boardPinterestId,
