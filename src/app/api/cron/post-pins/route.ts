@@ -88,9 +88,8 @@ async function handlePostPins(request: NextRequest) {
       const orgSettings = (org.settings as Record<string, unknown>) || {};
       const isTrial = (orgSettings.pinterest_access_tier as string) === "trial";
       const pinterest = new PinterestClient(token, isTrial);
-      const maxPinsPerDay = (orgSettings.max_pins_per_day as number) || 2;
 
-      // Rate limit: check last posted pin
+      // Rate limit: minimum 30 min between posts to avoid Pinterest spam detection
       const { data: lastPosted } = await admin
         .from("pins")
         .select("posted_at")
@@ -100,11 +99,12 @@ async function handlePostPins(request: NextRequest) {
         .limit(1);
 
       if (lastPosted?.[0]?.posted_at) {
-        const minIntervalMin = (orgSettings.min_post_interval_minutes as number) || 180;
-        if (Date.now() - new Date(lastPosted[0].posted_at).getTime() < minIntervalMin * 60_000) continue;
+        const timeSinceLastPost = Date.now() - new Date(lastPosted[0].posted_at).getTime();
+        if (timeSinceLastPost < 30 * 60_000) continue; // Min 30 min between posts
       }
 
-      // Get pins due for posting — both approved AND scheduled
+      // Get ALL overdue pins (scheduled_at <= now) — no daily limit for overdue pins
+      // This ensures pins that should have been posted yesterday are still posted today
       const { data: duePins } = await admin
         .from("pins")
         .select("*, boards(pinterest_board_id, name)")
@@ -112,7 +112,7 @@ async function handlePostPins(request: NextRequest) {
         .in("status", ["approved", "scheduled"])
         .lte("scheduled_at", now)
         .order("scheduled_at", { ascending: true })
-        .limit(maxPinsPerDay);
+        .limit(5); // Post up to 5 per cron run (every 15 min)
 
       if (!duePins || duePins.length === 0) continue;
 
