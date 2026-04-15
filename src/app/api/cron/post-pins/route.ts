@@ -271,21 +271,29 @@ async function handlePostPins(request: NextRequest) {
             // On 401, force token refresh immediately and retry
             if (errMsg.includes("401") && attempt === 0 && org.pinterest_refresh_token_encrypted) {
               try {
-                const rt = decrypt(org.pinterest_refresh_token_encrypted);
-                let aid: string | undefined, asec: string | undefined;
-                if (org.pinterest_app_id) aid = org.pinterest_app_id;
-                if (org.pinterest_app_secret_encrypted) asec = decrypt(org.pinterest_app_secret_encrypted);
+                // ALWAYS re-fetch latest refresh token from DB to avoid stale token from closure
+                const { data: freshOrg } = await admin.from("organizations")
+                  .select("pinterest_refresh_token_encrypted, pinterest_app_id, pinterest_app_secret_encrypted")
+                  .eq("id", org.id).single();
+                if (!freshOrg?.pinterest_refresh_token_encrypted) throw new Error("No fresh refresh token in DB");
+                const rt = decrypt(freshOrg.pinterest_refresh_token_encrypted);
+                const aid = freshOrg.pinterest_app_id || undefined;
+                const asec = freshOrg.pinterest_app_secret_encrypted ? decrypt(freshOrg.pinterest_app_secret_encrypted) : undefined;
                 const newT = await PinterestClient.refreshToken(rt, aid, asec);
                 const { encrypt } = await import("@/lib/encryption");
                 await admin.from("organizations").update({
                   pinterest_access_token_encrypted: encrypt(newT.access_token),
-                  pinterest_refresh_token_encrypted: newT.refresh_token ? encrypt(newT.refresh_token) : org.pinterest_refresh_token_encrypted,
+                  pinterest_refresh_token_encrypted: newT.refresh_token ? encrypt(newT.refresh_token) : freshOrg.pinterest_refresh_token_encrypted,
                   pinterest_token_expires_at: new Date(Date.now() + (newT.expires_in || 2592000) * 1000).toISOString(),
                 }).eq("id", org.id);
                 // Rebuild pinterest client with new token
                 Object.assign(pinterest, new PinterestClient(newT.access_token, isTrial));
+                orgErrors.push(`Pin ${pin.id}: 401 → token refreshed, retrying`);
                 continue; // retry immediately with new token
-              } catch { /* refresh failed, continue to regular retry */ }
+              } catch (refreshErr) {
+                const rMsg = refreshErr instanceof Error ? refreshErr.message : "unknown";
+                orgErrors.push(`Pin ${pin.id}: 401 refresh FAILED: ${rMsg}`);
+              }
             }
 
             if (attempt < 2) {
