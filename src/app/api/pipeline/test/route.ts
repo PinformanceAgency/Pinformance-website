@@ -764,6 +764,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: !error, step: "save-documents", saved: data ?? [], error: error?.message });
   }
 
+  // Reschedule a specific pin to a new scheduled_at (or now)
+  if (step === "reschedule-pin") {
+    const { pin_id, scheduled_at } = body;
+    if (!pin_id) return NextResponse.json({ error: "pin_id required" }, { status: 400 });
+    const newTime = scheduled_at ? new Date(scheduled_at) : new Date();
+    const { data, error } = await supabase.from("pins").update({
+      status: "scheduled",
+      scheduled_at: newTime.toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", pin_id).eq("org_id", org.id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, step: "reschedule-pin", pin: data });
+  }
+
   // Delete pins filtered by pin_type (e.g. only statics or only videos)
   if (step === "delete-pins-by-type") {
     const pinType = body.pin_type as string | undefined;
