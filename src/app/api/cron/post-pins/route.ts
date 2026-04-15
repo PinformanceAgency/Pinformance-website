@@ -234,10 +234,32 @@ async function handlePostPins(request: NextRequest) {
               break;
             }
           } catch (postErr) {
+            const errMsg = postErr instanceof Error ? postErr.message : "unknown";
+
+            // On 401, force token refresh immediately and retry
+            if (errMsg.includes("401") && attempt === 0 && org.pinterest_refresh_token_encrypted) {
+              try {
+                const rt = decrypt(org.pinterest_refresh_token_encrypted);
+                let aid: string | undefined, asec: string | undefined;
+                if (org.pinterest_app_id) aid = org.pinterest_app_id;
+                if (org.pinterest_app_secret_encrypted) asec = decrypt(org.pinterest_app_secret_encrypted);
+                const newT = await PinterestClient.refreshToken(rt, aid, asec);
+                const { encrypt } = await import("@/lib/encryption");
+                await admin.from("organizations").update({
+                  pinterest_access_token_encrypted: encrypt(newT.access_token),
+                  pinterest_refresh_token_encrypted: newT.refresh_token ? encrypt(newT.refresh_token) : org.pinterest_refresh_token_encrypted,
+                  pinterest_token_expires_at: new Date(Date.now() + (newT.expires_in || 2592000) * 1000).toISOString(),
+                }).eq("id", org.id);
+                // Rebuild pinterest client with new token
+                Object.assign(pinterest, new PinterestClient(newT.access_token, isTrial));
+                continue; // retry immediately with new token
+              } catch { /* refresh failed, continue to regular retry */ }
+            }
+
             if (attempt < 2) {
               await new Promise(r => setTimeout(r, 5000 * (attempt + 1))); // Backoff: 5s, 10s
             } else {
-              orgErrors.push(`Pin ${pin.id}: ${postErr instanceof Error ? postErr.message : "unknown"} (3 retries failed)`);
+              orgErrors.push(`Pin ${pin.id}: ${errMsg} (3 retries failed)`);
             }
           }
         }
