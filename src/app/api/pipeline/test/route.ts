@@ -766,6 +766,12 @@ export async function POST(request: NextRequest) {
 
   // Reset only pins (keep boards, products, brand profile intact)
   if (step === "reset-pins") {
+    const expectedConfirm = `DELETE_ALL_PINS_${org.slug}`;
+    if (body.confirm !== expectedConfirm) {
+      return NextResponse.json({
+        error: `DESTRUCTIVE: this deletes ALL pins, calendar_entries, and ai_tasks for org ${org.slug}. To confirm, pass body.confirm="${expectedConfirm}"`,
+      }, { status: 400 });
+    }
     const tables = ["pins", "calendar_entries", "ai_tasks"];
     const results: Record<string, string> = {};
     for (const table of tables) {
