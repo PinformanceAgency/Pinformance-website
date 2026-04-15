@@ -968,6 +968,34 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // ─── REFRESH PINTEREST TOKEN: Force refresh the Pinterest access token ───
+  if (step === "refresh-token") {
+    if (!org.pinterest_refresh_token_encrypted) {
+      return NextResponse.json({ error: "No refresh token", hint: "Reconnect Pinterest in Settings" }, { status: 400 });
+    }
+    try {
+      const refreshToken = decrypt(org.pinterest_refresh_token_encrypted);
+      let appId: string | undefined;
+      let appSecret: string | undefined;
+      if (org.pinterest_app_id) appId = org.pinterest_app_id;
+      if (org.pinterest_app_secret_encrypted) appSecret = decrypt(org.pinterest_app_secret_encrypted);
+
+      const { PinterestClient: PC } = await import("@/lib/pinterest/client");
+      const newTokens = await PC.refreshToken(refreshToken, appId, appSecret);
+
+      const { encrypt } = await import("@/lib/encryption");
+      await supabase.from("organizations").update({
+        pinterest_access_token_encrypted: encrypt(newTokens.access_token),
+        pinterest_refresh_token_encrypted: newTokens.refresh_token ? encrypt(newTokens.refresh_token) : org.pinterest_refresh_token_encrypted,
+        pinterest_token_expires_at: new Date(Date.now() + (newTokens.expires_in || 2592000) * 1000).toISOString(),
+      }).eq("id", org.id);
+
+      return NextResponse.json({ success: true, step: "refresh-token", expires_in_days: Math.round((newTokens.expires_in || 2592000) / 86400) });
+    } catch (err) {
+      return NextResponse.json({ success: false, error: err instanceof Error ? err.message : "Refresh failed", hint: "Reconnect Pinterest in Settings" }, { status: 500 });
+    }
+  }
+
   // ─── INSERT BOARD: Create a new board in DB + Pinterest ───
   if (step === "insert-board") {
     const { name, keywords: bkw, category, description: bdesc } = body;
