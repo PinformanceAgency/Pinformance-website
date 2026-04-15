@@ -605,7 +605,7 @@ export async function POST(request: NextRequest) {
           link: linkUrl,
           alt_text: pin.alt_text || undefined,
           media_id: media.media_id,
-          cover_image_key_frame_time: 1,
+          cover_image_key_frame_time: 1000,
         });
       } else {
         // IMAGE PIN: direct post
@@ -666,7 +666,7 @@ export async function POST(request: NextRequest) {
               if (vr2.ok) {
                 await pinterest.uploadVideoToS3(media2.upload_url, media2.upload_parameters, Buffer.from(await vr2.arrayBuffer()));
                 await new Promise(r => setTimeout(r, 10000));
-                retryPin = await pinterest.createVideoPin({ board_id: pin.boards?.pinterest_board_id || "", title: pin.title, description: pin.description, link: pin.link_url || "", media_id: media2.media_id });
+                retryPin = await pinterest.createVideoPin({ board_id: pin.boards?.pinterest_board_id || "", title: pin.title, description: pin.description, link: pin.link_url || "", media_id: media2.media_id, cover_image_key_frame_time: 1000 });
               }
             } else {
               let iUrl2 = pin.image_url || "";

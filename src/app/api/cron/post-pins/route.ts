@@ -190,6 +190,7 @@ async function handlePostPins(request: NextRequest) {
                 link: linkUrl,
                 alt_text: pin.alt_text || undefined,
                 media_id: media.media_id,
+                cover_image_key_frame_time: 1000, // Use frame at 1s as cover
               });
 
               await admin.from("pins").update({
