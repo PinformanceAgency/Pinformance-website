@@ -764,6 +764,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: !error, step: "save-documents", saved: data ?? [], error: error?.message });
   }
 
+  // List all pins for an org with key fields
+  if (step === "list-all-pins") {
+    const { data, error } = await supabase
+      .from("pins")
+      .select("id, title, status, pin_type, video_url, scheduled_at, posted_at, pinterest_pin_id, board_id")
+      .eq("org_id", org.id)
+      .order("scheduled_at", { ascending: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, count: data?.length || 0, pins: data });
+  }
+
   // Test Pinterest token directly via user_account endpoint
   if (step === "test-pinterest-token") {
     if (!org.pinterest_access_token_encrypted) return NextResponse.json({ error: "No token" }, { status: 400 });
