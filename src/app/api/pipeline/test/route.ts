@@ -764,6 +764,40 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: !error, step: "save-documents", saved: data ?? [], error: error?.message });
   }
 
+  // Test Pinterest token directly via user_account endpoint
+  if (step === "test-pinterest-token") {
+    if (!org.pinterest_access_token_encrypted) return NextResponse.json({ error: "No token" }, { status: 400 });
+    const token = decrypt(org.pinterest_access_token_encrypted);
+    const results: Record<string, unknown> = {
+      token_prefix: token.substring(0, 10) + "...",
+      token_length: token.length,
+      tier: (org.settings as Record<string, unknown>)?.pinterest_access_tier,
+    };
+    // Test user_account endpoint
+    try {
+      const sandbox = (org.settings as Record<string, unknown>)?.pinterest_access_tier === "trial";
+      const base = sandbox ? "https://api-sandbox.pinterest.com" : "https://api.pinterest.com";
+      const res = await fetch(`${base}/v5/user_account`, { headers: { Authorization: `Bearer ${token}` } });
+      const body = await res.text();
+      results["user_account_status"] = res.status;
+      results["user_account_body"] = body.substring(0, 300);
+      results["base_url"] = base;
+    } catch (e) {
+      results["user_account_error"] = e instanceof Error ? e.message : String(e);
+    }
+    // Test boards endpoint
+    try {
+      const sandbox = (org.settings as Record<string, unknown>)?.pinterest_access_tier === "trial";
+      const base = sandbox ? "https://api-sandbox.pinterest.com" : "https://api.pinterest.com";
+      const res = await fetch(`${base}/v5/boards?page_size=1`, { headers: { Authorization: `Bearer ${token}` } });
+      results["boards_status"] = res.status;
+      results["boards_body"] = (await res.text()).substring(0, 300);
+    } catch (e) {
+      results["boards_error"] = e instanceof Error ? e.message : String(e);
+    }
+    return NextResponse.json({ success: true, step: "test-pinterest-token", ...results });
+  }
+
   // Reschedule a specific pin to a new scheduled_at (or now)
   if (step === "reschedule-pin") {
     const { pin_id, scheduled_at } = body;
