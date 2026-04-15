@@ -102,23 +102,51 @@ export async function GET(request: NextRequest) {
     results.analytics_basic = { error: String(e) };
   }
 
-  // Probe 4: what scopes does the token have? (hint via a conversion-only call)
+  // Probe 4: list ad accounts (conversion insights might require one)
   try {
-    const params = new URLSearchParams({
-      start_date: start,
-      end_date: end,
-      metric_types: "WEB_CHECKOUT",
-    });
-    const r = await fetch(`https://api.pinterest.com/v5/user_account/analytics?${params}`, {
+    const r = await fetch(`https://api.pinterest.com/v5/ad_accounts`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const text = await r.text();
-    results.conversion_only = {
+    results.ad_accounts = {
       status: r.status,
       body: (() => { try { return JSON.parse(text); } catch { return text; } })(),
     };
   } catch (e) {
-    results.conversion_only = { error: String(e) };
+    results.ad_accounts = { error: String(e) };
+  }
+
+  // Probe 5: undocumented conversion_insights endpoint variations
+  const conversionPaths = [
+    "/v5/user_account/analytics/conversion_insights",
+    "/v5/user_account/conversion_insights",
+    "/v5/user_account/analytics/conversion_metrics",
+    "/v5/user_account/analytics/top_pins",
+  ];
+  for (const p of conversionPaths) {
+    try {
+      const params = new URLSearchParams({ start_date: start, end_date: end });
+      if (p.endsWith("top_pins")) {
+        params.set("sort_by", "IMPRESSION");
+        params.set("metric_types", "IMPRESSION,OUTBOUND_CLICK,SAVE,PIN_CLICK");
+      }
+      const r = await fetch(`https://api.pinterest.com${p}?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const text = await r.text();
+      results[`probe_${p.replace(/\//g, "_")}`] = {
+        status: r.status,
+        body: (() => {
+          try {
+            const j = JSON.parse(text);
+            if (j?.pins && Array.isArray(j.pins)) return { pin_count: j.pins.length, sample: j.pins.slice(0, 2) };
+            return j;
+          } catch { return text.slice(0, 500); }
+        })(),
+      };
+    } catch (e) {
+      results[`probe_${p.replace(/\//g, "_")}`] = { error: String(e) };
+    }
   }
 
   return NextResponse.json(results);
