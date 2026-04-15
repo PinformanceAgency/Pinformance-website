@@ -96,8 +96,9 @@ async function handlePostPins(request: NextRequest) {
       const isTrial = (orgSettings.pinterest_access_tier as string) === "trial";
       const pinterest = new PinterestClient(token, isTrial);
 
-      // HARD CAP: Respect pins_per_day from org settings (default 2)
-      const pinsPerDay = (orgSettings.pins_per_day as number) || 2;
+      // HARD CAP: Respect pins_per_day from org settings (default 2, absolute max 2)
+      const settingsPinsPerDay = (orgSettings.pins_per_day as number) || 2;
+      const pinsPerDay = Math.min(settingsPinsPerDay, 2); // HARD CEILING: never more than 2/day regardless of settings
       const todayStart = new Date();
       todayStart.setUTCHours(0, 0, 0, 0);
       const { data: postedToday } = await admin

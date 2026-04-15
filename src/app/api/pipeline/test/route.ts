@@ -764,6 +764,47 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: !error, step: "save-documents", saved: data ?? [], error: error?.message });
   }
 
+  // Rebuild schedule: place all non-posted pins sequentially starting tomorrow,
+  // ordered by their current scheduled_at (so stranded/overdue pins get priority).
+  if (step === "rebuild-schedule") {
+    const pinsPerDay = body.pins_per_day || 2;
+    const postingHours: number[] = body.posting_hours || [18, 19, 20, 21];
+    // Get all non-posted pins, ordered by current scheduled_at ascending
+    // (stranded = earliest scheduled_at = goes first)
+    const { data: pins, error } = await supabase
+      .from("pins")
+      .select("id, title, scheduled_at, status")
+      .eq("org_id", org.id)
+      .in("status", ["scheduled", "approved"])
+      .order("scheduled_at", { ascending: true, nullsFirst: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!pins || pins.length === 0) return NextResponse.json({ success: true, rebuilt: 0 });
+
+    const startDay = new Date();
+    startDay.setUTCHours(0, 0, 0, 0);
+    startDay.setDate(startDay.getDate() + 1); // tomorrow
+
+    const results: { id: string; title: string; new_scheduled_at: string }[] = [];
+    for (let i = 0; i < pins.length; i++) {
+      const p = pins[i];
+      const dayOffset = Math.floor(i / pinsPerDay);
+      const slotInDay = i % pinsPerDay;
+      const hour = postingHours[slotInDay % postingHours.length];
+      const minute = (i * 7 + 13) % 60;
+      const d = new Date(startDay);
+      d.setDate(d.getDate() + dayOffset);
+      d.setUTCHours(hour - 2, minute, 0, 0); // CEST → UTC
+      const newIso = d.toISOString();
+      const { error: upErr } = await supabase.from("pins").update({
+        status: "scheduled",
+        scheduled_at: newIso,
+        updated_at: new Date().toISOString(),
+      }).eq("id", p.id);
+      if (!upErr) results.push({ id: p.id, title: p.title, new_scheduled_at: newIso });
+    }
+    return NextResponse.json({ success: true, step: "rebuild-schedule", total: results.length, pins_per_day: pinsPerDay, first_5: results.slice(0, 5), last_5: results.slice(-5) });
+  }
+
   // List all pins for an org with key fields
   if (step === "list-all-pins") {
     const { data, error } = await supabase
