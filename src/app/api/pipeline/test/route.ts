@@ -764,6 +764,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: !error, step: "save-documents", saved: data ?? [], error: error?.message });
   }
 
+  // Delete pins filtered by pin_type (e.g. only statics or only videos)
+  if (step === "delete-pins-by-type") {
+    const pinType = body.pin_type as string | undefined;
+    if (!pinType || !["static", "video"].includes(pinType)) {
+      return NextResponse.json({ error: "pin_type must be 'static' or 'video'" }, { status: 400 });
+    }
+    const expectedConfirm = `DELETE_${pinType.toUpperCase()}_PINS_${org.slug}`;
+    if (body.confirm !== expectedConfirm) {
+      return NextResponse.json({
+        error: `DESTRUCTIVE: deletes all ${pinType} pins for ${org.slug}. To confirm, pass body.confirm="${expectedConfirm}"`,
+      }, { status: 400 });
+    }
+    // Get matching pin IDs first (for response)
+    let query = supabase.from("pins").select("id, title, pin_type, video_url").eq("org_id", org.id);
+    if (pinType === "static") {
+      query = query.or("pin_type.eq.static,pin_type.is.null").is("video_url", null);
+    } else {
+      query = query.or("pin_type.eq.video,video_url.not.is.null");
+    }
+    const { data: matchingPins, error: selErr } = await query;
+    if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
+    const ids = (matchingPins || []).map(p => p.id);
+    if (ids.length === 0) return NextResponse.json({ success: true, deleted: 0, message: "No matching pins" });
+    const { error: delErr } = await supabase.from("pins").delete().in("id", ids);
+    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+    return NextResponse.json({ success: true, step: "delete-pins-by-type", deleted: ids.length, pin_type: pinType, pins: matchingPins });
+  }
+
   // Reset only pins (keep boards, products, brand profile intact)
   if (step === "reset-pins") {
     const expectedConfirm = `DELETE_ALL_PINS_${org.slug}`;
