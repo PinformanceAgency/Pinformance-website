@@ -42,11 +42,12 @@ async function handlePostPins(request: NextRequest) {
   }
 
   let totalPosted = 0;
-  const results: { org: string; posted: number; errors: string[] }[] = [];
+  const results: { org: string; posted: number; errors: string[]; skip?: string }[] = [];
 
   for (const org of orgs) {
     const orgErrors: string[] = [];
     let orgPosted = 0;
+    let skipReason: string | undefined;
 
     try {
       // Check & refresh token if needed
@@ -55,6 +56,8 @@ async function handlePostPins(request: NextRequest) {
         token = decrypt(org.pinterest_access_token_encrypted);
       } catch {
         orgErrors.push("Token decrypt failed");
+        skipReason = "decrypt_failed";
+        results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
         continue;
       }
 
@@ -77,10 +80,14 @@ async function handlePostPins(request: NextRequest) {
             }).eq("id", org.id);
           } catch (refreshErr) {
             orgErrors.push(`Token refresh failed: ${refreshErr instanceof Error ? refreshErr.message : "unknown"}`);
+            skipReason = "refresh_failed";
+            results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
             continue;
           }
         } else {
           orgErrors.push("Token expired, no refresh token");
+          skipReason = "no_refresh_token";
+          results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
           continue;
         }
       }
@@ -100,7 +107,11 @@ async function handlePostPins(request: NextRequest) {
 
       if (lastPosted?.[0]?.posted_at) {
         const timeSinceLastPost = Date.now() - new Date(lastPosted[0].posted_at).getTime();
-        if (timeSinceLastPost < 30 * 60_000) continue; // Min 30 min between posts
+        if (timeSinceLastPost < 30 * 60_000) {
+          skipReason = `rate_limit_${Math.round(timeSinceLastPost/60000)}min`;
+          results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
+          continue; // Min 30 min between posts
+        }
       }
 
       // Get ALL overdue pins (scheduled_at <= now) — no daily limit for overdue pins
@@ -114,7 +125,11 @@ async function handlePostPins(request: NextRequest) {
         .order("scheduled_at", { ascending: true })
         .limit(5); // Post up to 5 per cron run (every 15 min)
 
-      if (!duePins || duePins.length === 0) continue;
+      if (!duePins || duePins.length === 0) {
+        skipReason = "no_due_pins";
+        results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
+        continue;
+      }
 
       for (const pin of duePins) {
         const boardPinterestId = (pin.boards as { pinterest_board_id: string | null })?.pinterest_board_id;
