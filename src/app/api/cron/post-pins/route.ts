@@ -96,26 +96,7 @@ async function handlePostPins(request: NextRequest) {
       const isTrial = (orgSettings.pinterest_access_tier as string) === "trial";
       const pinterest = new PinterestClient(token, isTrial);
 
-      // Rate limit: minimum 30 min between posts to avoid Pinterest spam detection
-      const { data: lastPosted } = await admin
-        .from("pins")
-        .select("posted_at")
-        .eq("org_id", org.id)
-        .eq("status", "posted")
-        .order("posted_at", { ascending: false })
-        .limit(1);
-
-      if (lastPosted?.[0]?.posted_at) {
-        const timeSinceLastPost = Date.now() - new Date(lastPosted[0].posted_at).getTime();
-        if (timeSinceLastPost < 30 * 60_000) {
-          skipReason = `rate_limit_${Math.round(timeSinceLastPost/60000)}min`;
-          results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
-          continue; // Min 30 min between posts
-        }
-      }
-
-      // Get ALL overdue pins (scheduled_at <= now) — no daily limit for overdue pins
-      // This ensures pins that should have been posted yesterday are still posted today
+      // Get ALL overdue pins first (scheduled_at <= now) — no daily limit for overdue pins
       const { data: duePins } = await admin
         .from("pins")
         .select("*, boards(pinterest_board_id, name)")
@@ -124,6 +105,27 @@ async function handlePostPins(request: NextRequest) {
         .lte("scheduled_at", now)
         .order("scheduled_at", { ascending: true })
         .limit(5); // Post up to 5 per cron run (every 15 min)
+
+      // Rate limit: min 5 min between posts normally; skip rate limit when we have 3+ overdue pins (catch-up mode)
+      const overdueCount = duePins?.length || 0;
+      if (overdueCount < 3) {
+        const { data: lastPosted } = await admin
+          .from("pins")
+          .select("posted_at")
+          .eq("org_id", org.id)
+          .eq("status", "posted")
+          .order("posted_at", { ascending: false })
+          .limit(1);
+
+        if (lastPosted?.[0]?.posted_at) {
+          const timeSinceLastPost = Date.now() - new Date(lastPosted[0].posted_at).getTime();
+          if (timeSinceLastPost < 5 * 60_000) {
+            skipReason = `rate_limit_${Math.round(timeSinceLastPost/60000)}min`;
+            results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
+            continue;
+          }
+        }
+      }
 
       if (!duePins || duePins.length === 0) {
         skipReason = "no_due_pins";
@@ -279,11 +281,11 @@ async function handlePostPins(request: NextRequest) {
           }
         }
 
-        // If all retries failed, reschedule for 15 minutes from now (next cron run)
+        // If all retries failed, reschedule for now so next cron run (15 min) picks it up again
         if (!posted) {
           await admin.from("pins").update({
             status: "scheduled",
-            scheduled_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+            scheduled_at: new Date().toISOString(),
           }).eq("id", pin.id);
         }
 
