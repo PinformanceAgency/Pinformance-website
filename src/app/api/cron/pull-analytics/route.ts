@@ -100,20 +100,6 @@ async function handlePullAnalytics(request: NextRequest) {
                 },
                 { onConflict: "org_id,date" }
               );
-
-              // Also store outbound_clicks as page_visits in sales_data for dashboard compatibility
-              await admin.from("sales_data").upsert(
-                {
-                  org_id: org.id,
-                  date: day.date,
-                  page_visits: outboundClicks,
-                  add_to_cart_count: 0,
-                  sales_count: 0,
-                  sales_revenue: 0,
-                  source: "pinterest",
-                },
-                { onConflict: "org_id,date,source" }
-              );
             }
 
             totalUpdated++;
@@ -152,24 +138,9 @@ async function handlePullAnalytics(request: NextRequest) {
               });
             }
 
-            const { totals } = conversionData;
-            if (totals.page_visits > 0 || totals.add_to_cart > 0 || totals.checkouts > 0) {
-              // Store aggregated organic conversion data for the full date range
-              // The GraphQL API returns totals (not daily), so we store on the end date
-              await admin.from("sales_data").upsert(
-                {
-                  org_id: org.id,
-                  date: endDate,
-                  page_visits: totals.page_visits,
-                  add_to_cart_count: totals.add_to_cart,
-                  sales_count: totals.checkouts,
-                  sales_revenue: totals.revenue,
-                  source: "pinterest",
-                },
-                { onConflict: "org_id,date,source" }
-              );
-              totalUpdated++;
-            }
+            // Note: sales_data is now sourced via weekly CSV upload from Pinterest Conversion Insights.
+            // We no longer write GraphQL aggregates here (they overwrote per-day CSV rows).
+            void conversionData;
           } catch (gqlErr) {
             errors.push({
               org_id: org.id,
