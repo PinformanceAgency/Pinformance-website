@@ -133,13 +133,16 @@ async function handlePullAnalytics(request: NextRequest) {
         if (adAccountsRes.ok) {
           const adAccounts = await adAccountsRes.json();
           const items = adAccounts?.items || [];
-          if (items.length > 0) {
-            const adAccountId = items[0].id;
+
+          // Loop through ALL ad accounts to aggregate conversion data
+          for (const adAccount of items) {
+            const adAccountId = adAccount.id;
             const convParams = new URLSearchParams({
               start_date: startDate,
               end_date: endDate,
               granularity: "DAY",
-              columns: "TOTAL_PAGE_VISIT,TOTAL_ADD_TO_CART,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+              // Use correct Pinterest column names (TOTAL_CLICK_ prefix for click-through conversions)
+              columns: "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_VIEW_ADD_TO_CART,TOTAL_VIEW_CHECKOUT,TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_WEB_SESSIONS",
               click_window_days: "30",
               view_window_days: "30",
               conversion_report_time: "TIME_OF_CONVERSION",
@@ -155,18 +158,26 @@ async function handlePullAnalytics(request: NextRequest) {
               for (const day of dailyConv) {
                 const date = day.DATE;
                 if (!date) continue;
-                const pageVisits = day.TOTAL_PAGE_VISIT || 0;
-                const addToCart = day.TOTAL_ADD_TO_CART || 0;
-                const checkouts = day.TOTAL_CHECKOUT || 0;
-                // Revenue is in micro dollars (divide by 1,000,000)
-                const revenue = (day.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
 
-                if (pageVisits > 0 || addToCart > 0 || checkouts > 0) {
+                // Combine click-through + view-through conversions for full picture
+                const pageVisits = (day.TOTAL_PAGE_VISIT || 0);
+                const addToCart = (day.TOTAL_CLICK_ADD_TO_CART || 0) + (day.TOTAL_VIEW_ADD_TO_CART || 0);
+                const checkouts = (day.TOTAL_CLICK_CHECKOUT || 0) + (day.TOTAL_VIEW_CHECKOUT || 0);
+                // Revenue is in micro dollars (divide by 1,000,000)
+                const clickRevenue = (day.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
+                const viewRevenue = (day.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
+                const revenue = clickRevenue + viewRevenue;
+                const webSessions = day.TOTAL_WEB_SESSIONS || 0;
+
+                if (pageVisits > 0 || addToCart > 0 || checkouts > 0 || webSessions > 0) {
+                  // Use page_visits as max(pageVisits, webSessions) for best coverage
+                  const effectivePageVisits = Math.max(pageVisits, webSessions);
+
                   await admin.from("sales_data").upsert(
                     {
                       org_id: org.id,
                       date,
-                      page_visits: pageVisits,
+                      page_visits: effectivePageVisits,
                       add_to_cart_count: addToCart,
                       sales_count: checkouts,
                       sales_revenue: revenue,

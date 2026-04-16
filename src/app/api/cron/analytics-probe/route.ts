@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
         start_date: start,
         end_date: end,
         granularity: "DAY",
-        columns: "TOTAL_PAGE_VISIT,TOTAL_ADD_TO_CART,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+        columns: "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_VIEW_ADD_TO_CART,TOTAL_VIEW_CHECKOUT,TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_WEB_SESSIONS",
         click_window_days: "30",
         view_window_days: "30",
         conversion_report_time: "TIME_OF_CONVERSION",
