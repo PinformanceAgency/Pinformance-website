@@ -39,15 +39,19 @@ export async function GET(request: NextRequest) {
     session_expires_at: org.pinterest_session_expires_at,
   };
 
-  // Test 1: Validate session cookie
+  // Test session cookie and GraphQL
   if (org.pinterest_session_encrypted) {
     try {
       const sessionCookie = decrypt(org.pinterest_session_encrypted);
+      results.cookie_length = sessionCookie.length;
+      results.cookie_preview = sessionCookie.slice(0, 20) + "...";
+
+      // Test 1: Validate session
       const isValid = await validateSession(sessionCookie);
       results.session_valid = isValid;
 
-      if (isValid && org.pinterest_user_id) {
-        // Test 2: Fetch organic conversion data via GraphQL
+      // Test 2: Try GraphQL regardless of validation result
+      if (org.pinterest_user_id) {
         const conversionData = await fetchOrganicConversions(
           sessionCookie,
           org.pinterest_user_id,
@@ -58,8 +62,27 @@ export async function GET(request: NextRequest) {
         results.organic_conversions = conversionData.totals;
         results.graphql_errors = conversionData.errors.length > 0 ? conversionData.errors : undefined;
         results.graphql_raw = conversionData.raw_responses;
-      } else if (!isValid) {
-        results.message = "Session cookie is invalid or expired. User needs to refresh it via Integrations page.";
+      }
+
+      // Test 3: Raw cookie test — try a simple Pinterest endpoint
+      try {
+        const testRes = await fetch("https://www.pinterest.com/resource/UserResource/get/?data={}", {
+          headers: {
+            "Cookie": `_pinterest_sess=${sessionCookie}`,
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-Pinterest-Source": "www",
+          },
+        });
+        const testText = await testRes.text();
+        results.raw_cookie_test = {
+          status: testRes.status,
+          content_type: testRes.headers.get("content-type"),
+          is_json: testText.trim().startsWith("{"),
+          body_preview: testText.slice(0, 300),
+        };
+      } catch (e) {
+        results.raw_cookie_test_error = String(e);
       }
     } catch (e) {
       results.session_error = e instanceof Error ? e.message : String(e);
