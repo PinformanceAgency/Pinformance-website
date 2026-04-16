@@ -144,13 +144,27 @@ async function handlePullAnalytics(request: NextRequest) {
             endDate
           ) as Record<string, Record<string, { IMPRESSION?: number; SAVE?: number; PIN_CLICK?: number; OUTBOUND_CLICK?: number }>>;
 
-          // Pinterest returns daily metrics keyed by metric type
-          // Flatten and upsert per-date rows
-          const allDates = analytics.all?.daily_metrics;
-          if (!allDates) continue;
+          // Pinterest returns daily_metrics as an array of {date, data_status, metrics}
+          const rawDailyMetrics = (analytics as Record<string, Record<string, unknown>>)?.all?.daily_metrics;
+          if (!rawDailyMetrics) continue;
 
-          for (const [date, metrics] of Object.entries(allDates)) {
-            const m = metrics as unknown as Record<string, number> | undefined;
+          const dailyEntries: { date: string; data_status?: string; metrics: Record<string, number> }[] = [];
+          if (Array.isArray(rawDailyMetrics)) {
+            for (const item of rawDailyMetrics) {
+              if (item.date && item.metrics) dailyEntries.push(item);
+            }
+          } else {
+            for (const [date, metrics] of Object.entries(rawDailyMetrics)) {
+              dailyEntries.push({ date, metrics: metrics as Record<string, number> });
+            }
+          }
+
+          for (const entry of dailyEntries) {
+            // Skip dates before pin was created or still processing
+            if (entry.data_status === "BEFORE_PIN_CREATED" || entry.data_status === "PROCESSING") continue;
+
+            const m = entry.metrics;
+            const date = entry.date;
             const impressions = m?.IMPRESSION || 0;
             const saves = m?.SAVE || 0;
             const pinClicks = m?.PIN_CLICK || 0;

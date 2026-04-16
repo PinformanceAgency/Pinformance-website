@@ -190,6 +190,37 @@ export class PinterestClient {
     }>(`/user_account/analytics?${params}`);
   }
 
+  async getPin(pinId: string) {
+    return this.request<{
+      id: string;
+      title: string;
+      description: string;
+      link: string;
+      media?: { images?: Record<string, { url: string; width: number; height: number }> };
+    }>(`/pins/${pinId}`);
+  }
+
+  async getTopPins(
+    startDate: string,
+    endDate: string,
+    sortBy: string = "IMPRESSION",
+    metricTypes: string[] = ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK"]
+  ) {
+    const params = new URLSearchParams({
+      start_date: startDate,
+      end_date: endDate,
+      sort_by: sortBy,
+      metric_types: metricTypes.join(","),
+    });
+    return this.request<{
+      pins: Array<{
+        pin_id: string;
+        metrics: Record<string, number>;
+        data_status: Record<string, string>;
+      }>;
+    }>(`/user_account/analytics/top_pins?${params}`);
+  }
+
   async getPinAnalytics(
     pinId: string,
     startDate: string,

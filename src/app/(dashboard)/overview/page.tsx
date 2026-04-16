@@ -131,7 +131,6 @@ export default function OverviewPage() {
         previousAccount,
         currentSales,
         previousSales,
-        topPinsResult,
         orgResult,
       ] = await Promise.all([
         supabase.from("pins").select("id, status").eq("org_id", org!.id),
@@ -140,7 +139,6 @@ export default function OverviewPage() {
         supabase.from("account_analytics").select("*").eq("org_id", org!.id).gte("date", previousStart).lt("date", currentStart),
         supabase.from("sales_data").select("*").eq("org_id", org!.id).eq("source", "pinterest").gte("date", currentStart),
         supabase.from("sales_data").select("*").eq("org_id", org!.id).eq("source", "pinterest").gte("date", previousStart).lt("date", currentStart),
-        supabase.from("pins").select("id, title, image_url").eq("org_id", org!.id).eq("status", "posted").order("created_at", { ascending: false }).limit(5),
         supabase.from("organizations").select("pinterest_follower_count, pinterest_monthly_views").eq("id", org!.id).single(),
       ]);
 
@@ -191,31 +189,28 @@ export default function OverviewPage() {
         total_boards: boardsResult.count || 0,
       });
 
-      if (topPinsResult.data && topPinsResult.data.length > 0) {
-        const pinIds = topPinsResult.data.map((p) => p.id);
-        const { data: pinAnalytics } = await supabase
-          .from("pin_analytics")
-          .select("pin_id, impressions, saves, pin_clicks")
-          .in("pin_id", pinIds);
-
-        const analyticsMap: Record<string, { impressions: number; saves: number; clicks: number }> = {};
-        (pinAnalytics || []).forEach((a) => {
-          if (!analyticsMap[a.pin_id]) analyticsMap[a.pin_id] = { impressions: 0, saves: 0, clicks: 0 };
-          analyticsMap[a.pin_id].impressions += a.impressions || 0;
-          analyticsMap[a.pin_id].saves += a.saves || 0;
-          analyticsMap[a.pin_id].clicks += a.pin_clicks || 0;
-        });
-
-        const enrichedPins: TopPin[] = topPinsResult.data.map((p) => {
-          const a = analyticsMap[p.id] || { impressions: 0, saves: 0, clicks: 0 };
-          return {
-            id: p.id, title: p.title, image_url: p.image_url,
-            impressions: a.impressions, saves: a.saves, clicks: a.clicks,
-            engagement: a.impressions > 0 ? ((a.saves + a.clicks) / a.impressions) * 100 : 0,
-          };
-        });
-        enrichedPins.sort((a, b) => b.impressions - a.impressions);
-        setTopPins(enrichedPins);
+      // Fetch top pins from Pinterest API via our server route
+      try {
+        const topPinsRes = await fetch(`/api/pinterest/top-pins?days=${days}`);
+        if (topPinsRes.ok) {
+          const { pins: apiTopPins } = await topPinsRes.json();
+          if (apiTopPins && apiTopPins.length > 0) {
+            const enrichedPins: TopPin[] = apiTopPins.map((p: Record<string, unknown>) => ({
+              id: p.pin_id as string,
+              title: (p.title as string) || `Pin ${(p.pin_id as string).slice(-6)}`,
+              image_url: (p.image_url as string) || null,
+              impressions: (p.impressions as number) || 0,
+              saves: (p.saves as number) || 0,
+              clicks: (p.clicks as number) || 0,
+              engagement: ((p.impressions as number) || 0) > 0
+                ? ((((p.saves as number) || 0) + ((p.clicks as number) || 0)) / ((p.impressions as number) || 1)) * 100
+                : 0,
+            }));
+            setTopPins(enrichedPins);
+          }
+        }
+      } catch {
+        // Top pins fetch failed, leave empty
       }
     }
 
@@ -415,9 +410,11 @@ export default function OverviewPage() {
         ) : (
           <div className="divide-y">
             {topPins.map((pin, index) => (
-              <Link
+              <a
                 key={pin.id}
-                href={`/pins/${pin.id}`}
+                href={`https://pinterest.com/pin/${pin.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex items-center gap-4 py-3 hover:bg-muted/30 transition-colors -mx-2 px-2 rounded-lg group"
               >
                 <span className="text-sm font-medium text-muted-foreground w-5 text-center">{index + 1}</span>
@@ -448,7 +445,7 @@ export default function OverviewPage() {
                     <div>clicks</div>
                   </div>
                 </div>
-              </Link>
+              </a>
             ))}
           </div>
         )}
