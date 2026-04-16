@@ -125,7 +125,9 @@ async function handlePullAnalytics(request: NextRequest) {
         });
       }
 
-      // Try to pull conversion data via ad_accounts (requires ads:read scope)
+      // Pull ORGANIC conversion data via ad_accounts (requires ads:read scope)
+      // Strategy: account-level = total (organic+paid), campaign-level = paid only
+      // Organic = total - paid
       try {
         const adAccountsRes = await fetch(`https://api.pinterest.com/v5/ad_accounts`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -134,58 +136,100 @@ async function handlePullAnalytics(request: NextRequest) {
           const adAccounts = await adAccountsRes.json();
           const items = adAccounts?.items || [];
 
-          // Loop through ALL ad accounts to aggregate conversion data
+          const CONV_COLUMNS = "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_VIEW_ADD_TO_CART,TOTAL_VIEW_CHECKOUT,TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR";
+
           for (const adAccount of items) {
             const adAccountId = adAccount.id;
-            const convParams = new URLSearchParams({
+            const convWindow = {
+              click_window_days: "30",
+              view_window_days: "1",
+              conversion_report_time: "TIME_OF_CONVERSION",
+            };
+
+            // 1) Account-level = TOTAL conversions (organic + paid)
+            const totalParams = new URLSearchParams({
               start_date: startDate,
               end_date: endDate,
               granularity: "DAY",
-              // Use correct Pinterest column names (TOTAL_CLICK_ prefix for click-through conversions)
-              columns: "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_VIEW_ADD_TO_CART,TOTAL_VIEW_CHECKOUT,TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_WEB_SESSIONS",
-              click_window_days: "30",
-              view_window_days: "30",
-              conversion_report_time: "TIME_OF_CONVERSION",
+              columns: CONV_COLUMNS,
+              ...convWindow,
             });
-            const convRes = await fetch(
-              `https://api.pinterest.com/v5/ad_accounts/${adAccountId}/analytics?${convParams}`,
+            const totalRes = await fetch(
+              `https://api.pinterest.com/v5/ad_accounts/${adAccountId}/analytics?${totalParams}`,
               { headers: { Authorization: `Bearer ${token}` } }
             );
-            if (convRes.ok) {
-              const convData = await convRes.json();
-              // Response is array of daily objects
-              const dailyConv = Array.isArray(convData) ? convData : [];
-              for (const day of dailyConv) {
-                const date = day.DATE;
-                if (!date) continue;
+            if (!totalRes.ok) continue;
+            const totalData: Record<string, number | string>[] = await totalRes.json();
+            if (!Array.isArray(totalData) || totalData.length === 0) continue;
 
-                // Combine click-through + view-through conversions for full picture
-                const pageVisits = (day.TOTAL_PAGE_VISIT || 0);
-                const addToCart = (day.TOTAL_CLICK_ADD_TO_CART || 0) + (day.TOTAL_VIEW_ADD_TO_CART || 0);
-                const checkouts = (day.TOTAL_CLICK_CHECKOUT || 0) + (day.TOTAL_VIEW_CHECKOUT || 0);
-                // Revenue is in micro dollars (divide by 1,000,000)
-                const clickRevenue = (day.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
-                const viewRevenue = (day.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
-                const revenue = clickRevenue + viewRevenue;
-                const webSessions = day.TOTAL_WEB_SESSIONS || 0;
-
-                if (pageVisits > 0 || addToCart > 0 || checkouts > 0 || webSessions > 0) {
-                  // Use page_visits as max(pageVisits, webSessions) for best coverage
-                  const effectivePageVisits = Math.max(pageVisits, webSessions);
-
-                  await admin.from("sales_data").upsert(
-                    {
-                      org_id: org.id,
-                      date,
-                      page_visits: effectivePageVisits,
-                      add_to_cart_count: addToCart,
-                      sales_count: checkouts,
-                      sales_revenue: revenue,
-                      source: "pinterest",
-                    },
-                    { onConflict: "org_id,date,source" }
-                  );
+            // 2) Campaign-level = PAID only conversions
+            const paidParams = new URLSearchParams({
+              start_date: startDate,
+              end_date: endDate,
+              granularity: "DAY",
+              columns: CONV_COLUMNS,
+              ...convWindow,
+            });
+            const paidRes = await fetch(
+              `https://api.pinterest.com/v5/ad_accounts/${adAccountId}/campaigns/analytics?${paidParams}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            // Build paid-by-date lookup: sum all campaigns per date
+            const paidByDate: Record<string, {
+              pageVisits: number; clickATC: number; viewATC: number;
+              clickCheckout: number; viewCheckout: number;
+              clickCheckoutValue: number; viewCheckoutValue: number;
+            }> = {};
+            if (paidRes.ok) {
+              const paidData = await paidRes.json();
+              if (Array.isArray(paidData)) {
+                for (const row of paidData) {
+                  const d = row.DATE as string;
+                  if (!d) continue;
+                  if (!paidByDate[d]) {
+                    paidByDate[d] = { pageVisits: 0, clickATC: 0, viewATC: 0, clickCheckout: 0, viewCheckout: 0, clickCheckoutValue: 0, viewCheckoutValue: 0 };
+                  }
+                  paidByDate[d].pageVisits += (row.TOTAL_PAGE_VISIT as number) || 0;
+                  paidByDate[d].clickATC += (row.TOTAL_CLICK_ADD_TO_CART as number) || 0;
+                  paidByDate[d].viewATC += (row.TOTAL_VIEW_ADD_TO_CART as number) || 0;
+                  paidByDate[d].clickCheckout += (row.TOTAL_CLICK_CHECKOUT as number) || 0;
+                  paidByDate[d].viewCheckout += (row.TOTAL_VIEW_CHECKOUT as number) || 0;
+                  paidByDate[d].clickCheckoutValue += (row.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR as number) || 0;
+                  paidByDate[d].viewCheckoutValue += (row.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR as number) || 0;
                 }
+              }
+            }
+
+            // 3) Calculate organic = total - paid per day
+            for (const day of totalData) {
+              const date = day.DATE as string;
+              if (!date) continue;
+
+              const paid = paidByDate[date] || { pageVisits: 0, clickATC: 0, viewATC: 0, clickCheckout: 0, viewCheckout: 0, clickCheckoutValue: 0, viewCheckoutValue: 0 };
+
+              const organicPageVisits = Math.max(0, ((day.TOTAL_PAGE_VISIT as number) || 0) - paid.pageVisits);
+              const organicATC = Math.max(0, ((day.TOTAL_CLICK_ADD_TO_CART as number) || 0) + ((day.TOTAL_VIEW_ADD_TO_CART as number) || 0) - paid.clickATC - paid.viewATC);
+              const organicCheckouts = Math.max(0, ((day.TOTAL_CLICK_CHECKOUT as number) || 0) + ((day.TOTAL_VIEW_CHECKOUT as number) || 0) - paid.clickCheckout - paid.viewCheckout);
+              const organicRevenueMicro = Math.max(0,
+                ((day.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR as number) || 0) +
+                ((day.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR as number) || 0) -
+                paid.clickCheckoutValue - paid.viewCheckoutValue
+              );
+              const organicRevenue = organicRevenueMicro / 1000000;
+
+              if (organicPageVisits > 0 || organicATC > 0 || organicCheckouts > 0) {
+                await admin.from("sales_data").upsert(
+                  {
+                    org_id: org.id,
+                    date,
+                    page_visits: organicPageVisits,
+                    add_to_cart_count: organicATC,
+                    sales_count: organicCheckouts,
+                    sales_revenue: organicRevenue,
+                    source: "pinterest",
+                  },
+                  { onConflict: "org_id,date,source" }
+                );
               }
             }
           }
