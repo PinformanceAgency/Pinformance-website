@@ -196,28 +196,28 @@ export default function OverviewPage() {
 
       // Build daily chart data by merging account_analytics + sales_data by date
       const salesByDate: Record<string, { page_visits: number; revenue: number; checkouts: number }> = {};
-      currSales.forEach((s: Record<string, number>) => {
-        const d = (s as Record<string, string>).date;
+      currSales.forEach((s: Record<string, unknown>) => {
+        const d = s.date as string;
         salesByDate[d] = {
-          page_visits: s.page_visits || 0,
-          revenue: s.sales_revenue || 0,
-          checkouts: s.sales_count || 0,
+          page_visits: (s.page_visits as number) || 0,
+          revenue: (s.sales_revenue as number) || 0,
+          checkouts: (s.sales_count as number) || 0,
         };
       });
 
-      const daily: DailyData[] = currAccount.map((row: Record<string, number>) => {
-        const d = (row as Record<string, string>).date;
+      const daily: DailyData[] = currAccount.map((row: Record<string, unknown>) => {
+        const d = row.date as string;
         const sd = salesByDate[d] || { page_visits: 0, revenue: 0, checkouts: 0 };
         const dateObj = new Date(d);
         const label = `${dateObj.getDate()} ${dateObj.toLocaleString("en", { month: "short" })}`;
         return {
           date: d,
           label,
-          impressions: row.impressions || 0,
-          engagement: row.engagement || 0,
-          outbound_clicks: row.outbound_clicks || 0,
-          saves: row.saves || 0,
-          pin_clicks: row.pin_clicks || 0,
+          impressions: (row.impressions as number) || 0,
+          engagement: (row.engagement as number) || 0,
+          outbound_clicks: (row.outbound_clicks as number) || 0,
+          saves: (row.saves as number) || 0,
+          pin_clicks: (row.pin_clicks as number) || 0,
           page_visits: sd.page_visits,
           revenue: sd.revenue,
           checkouts: sd.checkouts,
@@ -449,8 +449,8 @@ export default function OverviewPage() {
                     borderRadius: "8px",
                     fontSize: "12px",
                   }}
-                  formatter={(value: number) => [selectedMetric.format(value), selectedMetric.label]}
-                  labelFormatter={(label: string) => label}
+                  formatter={(value: unknown) => [selectedMetric.format(Number(value) || 0), selectedMetric.label]}
+                  labelFormatter={(label: unknown) => String(label)}
                 />
                 <Line
                   type="monotone"
