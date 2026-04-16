@@ -149,5 +149,39 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Probe 8: per-pin analytics (grab first posted pin with pinterest_pin_id)
+  try {
+    const { data: samplePin } = await admin
+      .from("pins")
+      .select("id, pinterest_pin_id, title")
+      .eq("org_id", org.id)
+      .eq("status", "posted")
+      .not("pinterest_pin_id", "is", null)
+      .limit(1)
+      .single();
+
+    if (samplePin?.pinterest_pin_id) {
+      const params = new URLSearchParams({
+        start_date: start,
+        end_date: end,
+        metric_types: "IMPRESSION,SAVE,PIN_CLICK,OUTBOUND_CLICK",
+      });
+      const r = await fetch(`https://api.pinterest.com/v5/pins/${samplePin.pinterest_pin_id}/analytics?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const text = await r.text();
+      results.pin_analytics_sample = {
+        pin_title: samplePin.title,
+        pinterest_pin_id: samplePin.pinterest_pin_id,
+        status: r.status,
+        body: (() => { try { return JSON.parse(text); } catch { return text.slice(0, 1000); } })(),
+      };
+    } else {
+      results.pin_analytics_sample = { error: "No posted pin with pinterest_pin_id found" };
+    }
+  } catch (e) {
+    results.pin_analytics_sample = { error: String(e) };
+  }
+
   return NextResponse.json(results);
 }
