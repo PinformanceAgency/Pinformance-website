@@ -74,37 +74,41 @@ export async function GET(request: NextRequest) {
     let body;
     try { body = JSON.parse(text); } catch { body = text; }
 
-    // Also try with specific ad account ID if we have items
-    let adAccountDetail = null;
+    // Try ALL ad accounts for conversion data
+    const allAdAccountDetails = [];
     if (r.ok && body?.items?.length > 0) {
-      const adId = body.items[0].id;
-      const convParams = new URLSearchParams({
-        start_date: start,
-        end_date: end,
-        granularity: "DAY",
-        columns: "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_VIEW_ADD_TO_CART,TOTAL_VIEW_CHECKOUT,TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_WEB_SESSIONS",
-        click_window_days: "30",
-        view_window_days: "30",
-        conversion_report_time: "TIME_OF_CONVERSION",
-      });
-      const convRes = await fetch(
-        `https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${convParams}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const convText = await convRes.text();
-      let convBody;
-      try { convBody = JSON.parse(convText); } catch { convBody = convText; }
-      adAccountDetail = {
-        ad_account_id: adId,
-        conversion_analytics_status: convRes.status,
-        conversion_analytics_body: convBody,
-      };
+      for (const adItem of body.items) {
+        const adId = adItem.id;
+        const adName = adItem.name;
+        const convParams = new URLSearchParams({
+          start_date: start,
+          end_date: end,
+          granularity: "DAY",
+          columns: "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_VIEW_ADD_TO_CART,TOTAL_VIEW_CHECKOUT,TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_WEB_SESSIONS",
+          click_window_days: "30",
+          view_window_days: "30",
+          conversion_report_time: "TIME_OF_CONVERSION",
+        });
+        const convRes = await fetch(
+          `https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${convParams}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const convText = await convRes.text();
+        let convBody;
+        try { convBody = JSON.parse(convText); } catch { convBody = convText; }
+        allAdAccountDetails.push({
+          ad_account_id: adId,
+          ad_account_name: adName,
+          conversion_analytics_status: convRes.status,
+          conversion_analytics_body: convBody,
+        });
+      }
     }
 
     results.ad_accounts_verbose = {
       status: r.status,
-      body,
-      ad_account_detail: adAccountDetail,
+      accounts_count: body?.items?.length || 0,
+      ad_account_details: allAdAccountDetails,
     };
   } catch (e) {
     results.ad_accounts_verbose = { error: String(e) };
