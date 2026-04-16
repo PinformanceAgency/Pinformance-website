@@ -4,8 +4,6 @@ import { decrypt } from "@/lib/encryption";
 
 export const maxDuration = 60;
 
-// Probe to find which Pinterest API approach returns organic conversion data
-// matching Pinterest's Conversion Insights numbers
 export async function GET(request: NextRequest) {
   const auth = request.headers.get("authorization");
   if (auth !== `Bearer ${process.env.CRON_SECRET || process.env.CRON_SET}`) {
@@ -36,7 +34,7 @@ export async function GET(request: NextRequest) {
   const results: Record<string, unknown> = {
     org: org.name,
     date_range: { start, end },
-    pinterest_reference: "€257 revenue, 112 page visits, 18 ATC, 4 checkouts (30d, 30-click/1-view)",
+    target: "€257 revenue, 112 page visits, 18 ATC, 4 checkouts",
   };
 
   const headers = { Authorization: `Bearer ${token}` };
@@ -44,148 +42,169 @@ export async function GET(request: NextRequest) {
 
   // Get ad accounts
   const adRes = await fetch("https://api.pinterest.com/v5/ad_accounts", { headers });
-  if (!adRes.ok) {
-    results.error = await adRes.text();
-    return NextResponse.json(results);
-  }
+  if (!adRes.ok) { results.error = await adRes.text(); return NextResponse.json(results); }
   const adAccounts = (await adRes.json())?.items || [];
 
-  for (const account of adAccounts) {
-    const adId = account.id;
-    const adName = account.name;
-    const accountResults: Record<string, unknown> = {};
+  // Use FitCherries ad account (the one with data)
+  const mainAccount = adAccounts.find((a: Record<string, string>) => a.name === "FitCherries") || adAccounts[0];
+  if (!mainAccount) { results.error = "No ad account"; return NextResponse.json(results); }
+  const adId = mainAccount.id;
+  results.ad_account = { id: adId, name: mainAccount.name };
 
-    // ===== TEST 1: Account-level TOTAL_ columns (30-click/1-view) =====
+  const sumDays = (body: Record<string, number>[]) => {
+    let pv = 0, atc = 0, co = 0, rev = 0;
+    for (const d of body) {
+      pv += d.TOTAL_PAGE_VISIT || 0;
+      atc += (d.TOTAL_CLICK_ADD_TO_CART || 0) + (d.TOTAL_VIEW_ADD_TO_CART || 0);
+      co += (d.TOTAL_CLICK_CHECKOUT || 0) + (d.TOTAL_VIEW_CHECKOUT || 0);
+      rev += ((d.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) + (d.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0)) / 1000000;
+    }
+    return { page_visits: pv, atc, checkouts: co, revenue: `€${rev.toFixed(2)}` };
+  };
+
+  // ===== TEST A: ad_accounts analytics + content_type=ORGANIC =====
+  try {
+    const params = new URLSearchParams({
+      start_date: start, end_date: end, granularity: "DAY", columns: CONV_COLS,
+      click_window_days: "30", view_window_days: "1",
+      conversion_report_time: "TIME_OF_CONVERSION",
+      content_type: "ORGANIC",
+    });
+    const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${params}`, { headers });
+    if (res.ok) {
+      const body = await res.json();
+      results.testA_organic_filter = Array.isArray(body) ? { ...sumDays(body), days: body.length } : body;
+    } else {
+      results.testA_organic_filter = { status: res.status, error: await res.text() };
+    }
+  } catch (e) { results.testA_error = String(e); }
+
+  // ===== TEST B: ad_accounts analytics + content_type=organic (lowercase) =====
+  try {
+    const params = new URLSearchParams({
+      start_date: start, end_date: end, granularity: "DAY", columns: CONV_COLS,
+      click_window_days: "30", view_window_days: "1",
+      conversion_report_time: "TIME_OF_CONVERSION",
+      content_type: "organic",
+    });
+    const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${params}`, { headers });
+    if (res.ok) {
+      const body = await res.json();
+      results.testB_organic_lowercase = Array.isArray(body) ? { ...sumDays(body), days: body.length } : body;
+    } else {
+      results.testB_organic_lowercase = { status: res.status, error: await res.text() };
+    }
+  } catch (e) { results.testB_error = String(e); }
+
+  // ===== TEST C: ad_accounts analytics + attribution_types parameter =====
+  for (const attrType of ["INDIVIDUAL", "HOUSEHOLD", "ORGANIC"]) {
     try {
       const params = new URLSearchParams({
         start_date: start, end_date: end, granularity: "DAY", columns: CONV_COLS,
-        click_window_days: "30", view_window_days: "1", conversion_report_time: "TIME_OF_CONVERSION",
+        click_window_days: "30", view_window_days: "1",
+        conversion_report_time: "TIME_OF_CONVERSION",
+        attribution_types: attrType,
       });
       const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${params}`, { headers });
-      const body = res.ok ? await res.json() : null;
-      if (Array.isArray(body)) {
-        let pv = 0, atc = 0, co = 0, rev = 0;
-        for (const d of body) {
-          pv += d.TOTAL_PAGE_VISIT || 0;
-          atc += (d.TOTAL_CLICK_ADD_TO_CART || 0) + (d.TOTAL_VIEW_ADD_TO_CART || 0);
-          co += (d.TOTAL_CLICK_CHECKOUT || 0) + (d.TOTAL_VIEW_CHECKOUT || 0);
-          rev += ((d.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) + (d.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0)) / 1000000;
-        }
-        accountResults.test1_account_total = { page_visits: pv, atc, checkouts: co, revenue: `€${rev.toFixed(2)}`, days: body.length };
+      if (res.ok) {
+        const body = await res.json();
+        results[`testC_attr_${attrType}`] = Array.isArray(body) ? { ...sumDays(body), days: body.length } : body;
+      } else {
+        results[`testC_attr_${attrType}`] = { status: res.status, error: (await res.text()).slice(0, 200) };
       }
-    } catch (e) { accountResults.test1_error = String(e); }
-
-    // ===== TEST 2: List campaigns, get their IDs, sum paid =====
-    try {
-      const campListRes = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/campaigns`, { headers });
-      if (campListRes.ok) {
-        const campList = await campListRes.json();
-        const campaigns = campList?.items || [];
-        accountResults.campaigns_count = campaigns.length;
-
-        if (campaigns.length > 0) {
-          const campIds = campaigns.map((c: Record<string, string>) => c.id).join(",");
-          const params = new URLSearchParams({
-            start_date: start, end_date: end, granularity: "DAY", columns: CONV_COLS,
-            campaign_ids: campIds,
-            click_window_days: "30", view_window_days: "1", conversion_report_time: "TIME_OF_CONVERSION",
-          });
-          const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/campaigns/analytics?${params}`, { headers });
-          const body = res.ok ? await res.json() : await res.text();
-          if (Array.isArray(body)) {
-            let pv = 0, atc = 0, co = 0, rev = 0;
-            for (const d of body) {
-              pv += d.TOTAL_PAGE_VISIT || 0;
-              atc += (d.TOTAL_CLICK_ADD_TO_CART || 0) + (d.TOTAL_VIEW_ADD_TO_CART || 0);
-              co += (d.TOTAL_CLICK_CHECKOUT || 0) + (d.TOTAL_VIEW_CHECKOUT || 0);
-              rev += ((d.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) + (d.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0)) / 1000000;
-            }
-            accountResults.test2_campaigns_paid = { page_visits: pv, atc, checkouts: co, revenue: `€${rev.toFixed(2)}`, rows: body.length };
-          } else {
-            accountResults.test2_campaigns_error = body;
-          }
-        }
-      }
-    } catch (e) { accountResults.test2_error = String(e); }
-
-    // ===== TEST 3: Organic = Total - Paid =====
-    const total = accountResults.test1_account_total as Record<string, number> | undefined;
-    const paid = accountResults.test2_campaigns_paid as Record<string, number> | undefined;
-    if (total && paid) {
-      accountResults.test3_organic_estimate = {
-        page_visits: total.page_visits - paid.page_visits,
-        atc: total.atc - paid.atc,
-        checkouts: total.checkouts - paid.checkouts,
-        revenue: `€${(parseFloat(String(total.revenue).replace("€","")) - parseFloat(String(paid.revenue).replace("€",""))).toFixed(2)}`,
-      };
-    }
-
-    // ===== TEST 4: TOTAL_CHECKOUT (non-click/view split) + TOTAL_WEB_ columns =====
-    try {
-      const altCols = "TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_PAGE_VISIT,TOTAL_WEB_SESSIONS,TOTAL_WEB_CHECKOUT,TOTAL_WEB_CHECKOUT_VALUE_IN_MICRO_DOLLAR";
-      const params = new URLSearchParams({
-        start_date: start, end_date: end, granularity: "DAY", columns: altCols,
-        click_window_days: "30", view_window_days: "1", conversion_report_time: "TIME_OF_CONVERSION",
-      });
-      const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${params}`, { headers });
-      const body = res.ok ? await res.json() : null;
-      if (Array.isArray(body)) {
-        let pv = 0, co = 0, rev = 0, ws = 0, wco = 0, wrev = 0;
-        for (const d of body) {
-          pv += d.TOTAL_PAGE_VISIT || 0;
-          co += d.TOTAL_CHECKOUT || 0;
-          rev += (d.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
-          ws += d.TOTAL_WEB_SESSIONS || 0;
-          wco += d.TOTAL_WEB_CHECKOUT || 0;
-          wrev += (d.TOTAL_WEB_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
-        }
-        accountResults.test4_alt_columns = {
-          total_page_visit: pv, total_checkout: co, total_revenue: `€${rev.toFixed(2)}`,
-          web_sessions: ws, web_checkout: wco, web_revenue: `€${wrev.toFixed(2)}`,
-        };
-      }
-    } catch (e) { accountResults.test4_error = String(e); }
-
-    // ===== TEST 5: Engagement-attributed conversions =====
-    try {
-      const engCols = "TOTAL_ENGAGEMENT_CHECKOUT,TOTAL_ENGAGEMENT_CHECKOUT_VALUE_IN_MICRO_DOLLAR";
-      const params = new URLSearchParams({
-        start_date: start, end_date: end, granularity: "DAY", columns: engCols,
-        click_window_days: "30", view_window_days: "1", conversion_report_time: "TIME_OF_CONVERSION",
-      });
-      const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${params}`, { headers });
-      const body = res.ok ? await res.json() : null;
-      if (Array.isArray(body)) {
-        let co = 0, rev = 0;
-        for (const d of body) {
-          co += d.TOTAL_ENGAGEMENT_CHECKOUT || 0;
-          rev += (d.TOTAL_ENGAGEMENT_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
-        }
-        accountResults.test5_engagement_attributed = { checkouts: co, revenue: `€${rev.toFixed(2)}` };
-      }
-    } catch (e) { accountResults.test5_error = String(e); }
-
-    // ===== TEST 6: Try conversion_insights endpoint =====
-    try {
-      const paths = [
-        `/v5/ad_accounts/${adId}/conversion_insights`,
-        `/v5/ad_accounts/${adId}/organic_metrics`,
-        `/v5/ad_accounts/${adId}/reports`,
-      ];
-      const endpointResults: Record<string, unknown> = {};
-      for (const path of paths) {
-        const params = new URLSearchParams({ start_date: start, end_date: end });
-        const res = await fetch(`https://api.pinterest.com${path}?${params}`, { headers });
-        const text = await res.text();
-        let body;
-        try { body = JSON.parse(text); } catch { body = text.slice(0, 300); }
-        endpointResults[path] = { status: res.status, body };
-      }
-      accountResults.test6_other_endpoints = endpointResults;
-    } catch (e) { accountResults.test6_error = String(e); }
-
-    results[`ad_account_${adName}`] = accountResults;
+    } catch (e) { results[`testC_attr_${attrType}_error`] = String(e); }
   }
+
+  // ===== TEST D: Async reports API with organic filter =====
+  try {
+    const reportBody = {
+      start_date: start,
+      end_date: end,
+      granularity: "DAY",
+      columns: ["TOTAL_PAGE_VISIT", "TOTAL_CLICK_ADD_TO_CART", "TOTAL_CLICK_CHECKOUT", "TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR", "TOTAL_VIEW_ADD_TO_CART", "TOTAL_VIEW_CHECKOUT", "TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR"],
+      click_window_days: 30,
+      view_window_days: 1,
+      conversion_report_time: "TIME_OF_CONVERSION",
+      level: "ADVERTISER",
+      report_format: "JSON",
+    };
+    const reportRes = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/reports`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(reportBody),
+    });
+    const reportData = reportRes.ok ? await reportRes.json() : await reportRes.text();
+    results.testD_async_report = { status: reportRes.status, body: reportData };
+
+    // If report was created, try to get it
+    if (reportRes.ok && typeof reportData === "object" && reportData.token) {
+      // Wait a moment for report to generate
+      await new Promise(r => setTimeout(r, 3000));
+      const getRes = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/reports?token=${reportData.token}`, { headers });
+      results.testD_report_result = { status: getRes.status, body: getRes.ok ? await getRes.json() : await getRes.text() };
+    }
+  } catch (e) { results.testD_error = String(e); }
+
+  // ===== TEST E: conversion_tags endpoint (to see what tags exist) =====
+  try {
+    const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/conversion_tags`, { headers });
+    results.testE_conversion_tags = { status: res.status, body: res.ok ? await res.json() : (await res.text()).slice(0, 300) };
+  } catch (e) { results.testE_error = String(e); }
+
+  // ===== TEST F: conversion_events endpoint =====
+  try {
+    const paths = [
+      `/v5/ad_accounts/${adId}/conversion_tags/events`,
+      `/v5/ad_accounts/${adId}/events`,
+      `/v5/ad_accounts/${adId}/conversion_events`,
+    ];
+    for (const path of paths) {
+      const res = await fetch(`https://api.pinterest.com${path}?start_date=${start}&end_date=${end}`, { headers });
+      results[`testF_${path.split("/").pop()}`] = { status: res.status, body: res.ok ? await res.json() : (await res.text()).slice(0, 200) };
+    }
+  } catch (e) { results.testF_error = String(e); }
+
+  // ===== TEST G: Try the analytics.pinterest.com internal API pattern =====
+  // From screenshot URL: analytics.pinterest.com/conversion-insights/?advertiserid=549768916219&aggregation=last30d&content_type=all&conversion_source=ALL
+  try {
+    const internalPaths = [
+      `https://analytics.pinterest.com/api/v2/conversion-insights/?advertiser_id=${adId}&aggregation=last30d&content_type=organic&conversion_source=ALL`,
+      `https://api.pinterest.com/v5/analytics/conversion_insights?advertiser_id=${adId}&aggregation=last30d&content_type=organic`,
+      `https://api.pinterest.com/v3/conversion_insights/?advertiser_id=${adId}&start_date=${start}&end_date=${end}&content_type=organic`,
+    ];
+    for (const url of internalPaths) {
+      const res = await fetch(url, { headers });
+      const name = new URL(url).pathname.replace(/\//g, "_");
+      results[`testG${name}`] = { status: res.status, body: (await res.text()).slice(0, 300) };
+    }
+  } catch (e) { results.testG_error = String(e); }
+
+  // ===== TEST H: No conversion window (default) - maybe matches? =====
+  try {
+    const params = new URLSearchParams({
+      start_date: start, end_date: end, granularity: "DAY", columns: CONV_COLS,
+    });
+    const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${params}`, { headers });
+    if (res.ok) {
+      const body = await res.json();
+      results.testH_no_window = Array.isArray(body) ? { ...sumDays(body), days: body.length } : body;
+    } else {
+      results.testH_no_window = { status: res.status, error: (await res.text()).slice(0, 200) };
+    }
+  } catch (e) { results.testH_error = String(e); }
+
+  // ===== BASELINE: Account total (for comparison) =====
+  try {
+    const params = new URLSearchParams({
+      start_date: start, end_date: end, granularity: "DAY", columns: CONV_COLS,
+      click_window_days: "30", view_window_days: "1", conversion_report_time: "TIME_OF_CONVERSION",
+    });
+    const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${params}`, { headers });
+    if (res.ok) {
+      const body = await res.json();
+      results.baseline_total = Array.isArray(body) ? { ...sumDays(body), days: body.length } : body;
+    }
+  } catch (e) { results.baseline_error = String(e); }
 
   return NextResponse.json(results);
 }
