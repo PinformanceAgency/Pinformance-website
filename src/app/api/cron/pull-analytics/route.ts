@@ -31,8 +31,8 @@ async function handlePullAnalytics(request: NextRequest) {
   }
 
   const endDate = new Date().toISOString().split("T")[0];
-  // 91 days to fully cover dashboard's 90-day period + previous-period comparison
-  const startDate = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000)
+  // 89 days — Pinterest API max is 90 days, keep 1-day buffer
+  const startDate = new Date(Date.now() - 89 * 24 * 60 * 60 * 1000)
     .toISOString()
     .split("T")[0];
 
