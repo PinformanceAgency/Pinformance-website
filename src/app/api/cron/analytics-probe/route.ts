@@ -45,8 +45,6 @@ export async function GET(request: NextRequest) {
     date_range: { start, end },
   };
 
-  const CONV_COLUMNS = "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_VIEW_ADD_TO_CART,TOTAL_VIEW_CHECKOUT,TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR";
-
   // Get all ad accounts
   try {
     const adRes = await fetch("https://api.pinterest.com/v5/ad_accounts", {
@@ -63,98 +61,95 @@ export async function GET(request: NextRequest) {
       const adId = account.id;
       const adName = account.name;
 
-      // 1) Account-level analytics = TOTAL (organic + paid)
-      const totalParams = new URLSearchParams({
-        start_date: start,
-        end_date: end,
-        granularity: "DAY",
-        columns: CONV_COLUMNS,
+      const convWindow = {
         click_window_days: "30",
         view_window_days: "1",
         conversion_report_time: "TIME_OF_CONVERSION",
-      });
-      const totalRes = await fetch(
-        `https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${totalParams}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const totalBody = totalRes.ok ? await totalRes.json() : await totalRes.text();
+      };
 
-      // 2) Campaign-level analytics = PAID only
-      const paidParams = new URLSearchParams({
-        start_date: start,
-        end_date: end,
-        granularity: "DAY",
-        columns: CONV_COLUMNS,
-        click_window_days: "30",
-        view_window_days: "1",
-        conversion_report_time: "TIME_OF_CONVERSION",
-      });
-      const paidRes = await fetch(
-        `https://api.pinterest.com/v5/ad_accounts/${adId}/campaigns/analytics?${paidParams}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const paidBody = paidRes.ok ? await paidRes.json() : await paidRes.text();
+      // Test 1: TOTAL_ columns (current approach)
+      const totalCols = "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_VIEW_ADD_TO_CART,TOTAL_VIEW_CHECKOUT,TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR";
+      const t1Params = new URLSearchParams({ start_date: start, end_date: end, granularity: "DAY", columns: totalCols, ...convWindow });
+      const t1Res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${t1Params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const t1Body = t1Res.ok ? await t1Res.json() : await t1Res.text();
 
-      // 3) Calculate organic = total - paid for a sample day
-      let organicSample = null;
-      if (Array.isArray(totalBody) && totalBody.length > 0) {
-        const sampleDay = totalBody[0];
-        const date = sampleDay.DATE;
+      // Test 2: WEB_ specific columns (might be web-attributed only)
+      const webCols = "TOTAL_WEB_SESSIONS,TOTAL_WEB_CHECKOUT,TOTAL_WEB_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_WEB_CLICK_CHECKOUT,TOTAL_WEB_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_WEB_VIEW_CHECKOUT,TOTAL_WEB_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR";
+      const t2Params = new URLSearchParams({ start_date: start, end_date: end, granularity: "DAY", columns: webCols, ...convWindow });
+      const t2Res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${t2Params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const t2Body = t2Res.ok ? await t2Res.json() : await t2Res.text();
 
-        // Sum paid across all campaigns for this date
-        let paidPageVisits = 0;
-        let paidClickATC = 0;
-        let paidClickCheckout = 0;
-        let paidClickCheckoutValue = 0;
-        let paidViewATC = 0;
-        let paidViewCheckout = 0;
-        let paidViewCheckoutValue = 0;
+      // Test 3: Campaign-level (paid only) to compare
+      const campParams = new URLSearchParams({ start_date: start, end_date: end, granularity: "DAY", columns: totalCols, ...convWindow });
+      const campRes = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/campaigns/analytics?${campParams}`, { headers: { Authorization: `Bearer ${token}` } });
+      const campBody = campRes.ok ? await campRes.json() : await campRes.text();
 
-        if (Array.isArray(paidBody)) {
-          for (const campaign of paidBody) {
-            if (campaign.DATE === date) {
-              paidPageVisits += campaign.TOTAL_PAGE_VISIT || 0;
-              paidClickATC += campaign.TOTAL_CLICK_ADD_TO_CART || 0;
-              paidClickCheckout += campaign.TOTAL_CLICK_CHECKOUT || 0;
-              paidClickCheckoutValue += campaign.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0;
-              paidViewATC += campaign.TOTAL_VIEW_ADD_TO_CART || 0;
-              paidViewCheckout += campaign.TOTAL_VIEW_CHECKOUT || 0;
-              paidViewCheckoutValue += campaign.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0;
-            }
-          }
+      // Test 4: Try conversion_insights endpoint
+      const ciParams = new URLSearchParams({ start_date: start, end_date: end });
+      const ciRes = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/conversion_insights?${ciParams}`, { headers: { Authorization: `Bearer ${token}` } });
+      const ciBody = ciRes.ok ? await ciRes.json() : await ciRes.text();
+
+      // Test 5: ORGANIC_* columns (if they exist)
+      const orgCols = "TOTAL_PAGE_VISIT,TOTAL_SIGNUP,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_CUSTOM,TOTAL_LEAD,TOTAL_ADD_TO_WISHLIST";
+      const t5Params = new URLSearchParams({ start_date: start, end_date: end, granularity: "DAY", columns: orgCols, ...convWindow });
+      const t5Res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${t5Params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const t5Body = t5Res.ok ? await t5Res.json() : await t5Res.text();
+
+      // Summarize: sum 30 days for comparison with Pinterest UI
+      let sum30d = { page_visits: 0, atc: 0, checkouts: 0, revenue: 0 };
+      let sumWeb30d = { sessions: 0, checkouts: 0, revenue: 0 };
+      let sumAlt30d = { page_visits: 0, checkouts: 0, revenue: 0 };
+      let sumCamp30d = { page_visits: 0, atc: 0, checkouts: 0, revenue: 0 };
+
+      if (Array.isArray(t1Body)) {
+        for (const d of t1Body) {
+          sum30d.page_visits += (d.TOTAL_PAGE_VISIT || 0);
+          sum30d.atc += (d.TOTAL_CLICK_ADD_TO_CART || 0) + (d.TOTAL_VIEW_ADD_TO_CART || 0);
+          sum30d.checkouts += (d.TOTAL_CLICK_CHECKOUT || 0) + (d.TOTAL_VIEW_CHECKOUT || 0);
+          sum30d.revenue += ((d.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) + (d.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0)) / 1000000;
         }
-
-        organicSample = {
-          date,
-          total: {
-            page_visits: sampleDay.TOTAL_PAGE_VISIT || 0,
-            add_to_cart: (sampleDay.TOTAL_CLICK_ADD_TO_CART || 0) + (sampleDay.TOTAL_VIEW_ADD_TO_CART || 0),
-            checkouts: (sampleDay.TOTAL_CLICK_CHECKOUT || 0) + (sampleDay.TOTAL_VIEW_CHECKOUT || 0),
-            revenue: ((sampleDay.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) + (sampleDay.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0)) / 1000000,
-          },
-          paid: {
-            page_visits: paidPageVisits,
-            add_to_cart: paidClickATC + paidViewATC,
-            checkouts: paidClickCheckout + paidViewCheckout,
-            revenue: (paidClickCheckoutValue + paidViewCheckoutValue) / 1000000,
-          },
-          organic: {
-            page_visits: (sampleDay.TOTAL_PAGE_VISIT || 0) - paidPageVisits,
-            add_to_cart: (sampleDay.TOTAL_CLICK_ADD_TO_CART || 0) + (sampleDay.TOTAL_VIEW_ADD_TO_CART || 0) - paidClickATC - paidViewATC,
-            checkouts: (sampleDay.TOTAL_CLICK_CHECKOUT || 0) + (sampleDay.TOTAL_VIEW_CHECKOUT || 0) - paidClickCheckout - paidViewCheckout,
-            revenue: ((sampleDay.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) + (sampleDay.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) - paidClickCheckoutValue - paidViewCheckoutValue) / 1000000,
-          },
-        };
+      }
+      if (Array.isArray(t2Body)) {
+        for (const d of t2Body) {
+          sumWeb30d.sessions += (d.TOTAL_WEB_SESSIONS || 0);
+          sumWeb30d.checkouts += (d.TOTAL_WEB_CHECKOUT || 0);
+          sumWeb30d.revenue += (d.TOTAL_WEB_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
+        }
+      }
+      if (Array.isArray(t5Body)) {
+        for (const d of t5Body) {
+          sumAlt30d.page_visits += (d.TOTAL_PAGE_VISIT || 0);
+          sumAlt30d.checkouts += (d.TOTAL_CHECKOUT || 0);
+          sumAlt30d.revenue += (d.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
+        }
+      }
+      if (Array.isArray(campBody)) {
+        for (const d of campBody) {
+          sumCamp30d.page_visits += (d.TOTAL_PAGE_VISIT || 0);
+          sumCamp30d.atc += (d.TOTAL_CLICK_ADD_TO_CART || 0) + (d.TOTAL_VIEW_ADD_TO_CART || 0);
+          sumCamp30d.checkouts += (d.TOTAL_CLICK_CHECKOUT || 0) + (d.TOTAL_VIEW_CHECKOUT || 0);
+          sumCamp30d.revenue += ((d.TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) + (d.TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0)) / 1000000;
+        }
       }
 
       results[`ad_account_${adName}`] = {
         id: adId,
-        total_status: totalRes.status,
-        total_days: Array.isArray(totalBody) ? totalBody.length : 0,
-        paid_status: paidRes.status,
-        paid_rows: Array.isArray(paidBody) ? paidBody.length : 0,
-        paid_sample: Array.isArray(paidBody) ? paidBody.slice(0, 2) : paidBody,
-        organic_sample: organicSample,
+        comparison_30d: {
+          pinterest_shows: "€257 revenue, 112 page visits, 18 ATC, 4 checkouts",
+          total_columns: { ...sum30d, revenue: `€${sum30d.revenue.toFixed(2)}` },
+          web_columns: { ...sumWeb30d, revenue: `€${sumWeb30d.revenue.toFixed(2)}` },
+          alt_columns: { ...sumAlt30d, revenue: `€${sumAlt30d.revenue.toFixed(2)}` },
+          campaign_paid: { ...sumCamp30d, revenue: `€${sumCamp30d.revenue.toFixed(2)}` },
+          organic_estimate: {
+            page_visits: sum30d.page_visits - sumCamp30d.page_visits,
+            atc: sum30d.atc - sumCamp30d.atc,
+            checkouts: sum30d.checkouts - sumCamp30d.checkouts,
+            revenue: `€${(sum30d.revenue - sumCamp30d.revenue).toFixed(2)}`,
+          },
+        },
+        conversion_insights_endpoint: { status: ciRes.status, body: ciBody },
+        web_sample: Array.isArray(t2Body) ? t2Body.slice(0, 2) : t2Body,
+        alt_sample: Array.isArray(t5Body) ? t5Body.slice(0, 2) : t5Body,
       };
     }
   } catch (e) {
