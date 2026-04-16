@@ -50,6 +50,66 @@ export async function GET(request: NextRequest) {
     date_range: { start, end },
   };
 
+  // Probe 0: check what org settings say about access tier + stored scopes
+  try {
+    const { data: fullOrg } = await admin
+      .from("organizations")
+      .select("settings, pinterest_token_scopes")
+      .eq("id", org.id)
+      .single();
+    results.org_settings = {
+      access_tier: ((fullOrg?.settings as Record<string, unknown>)?.pinterest_access_tier as string) || "not set",
+      stored_scopes: (fullOrg as Record<string, unknown>)?.pinterest_token_scopes || "not stored",
+    };
+  } catch (e) {
+    results.org_settings = { error: String(e) };
+  }
+
+  // Probe 0b: Try ad_accounts with verbose error info
+  try {
+    const r = await fetch("https://api.pinterest.com/v5/ad_accounts", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const text = await r.text();
+    let body;
+    try { body = JSON.parse(text); } catch { body = text; }
+
+    // Also try with specific ad account ID if we have items
+    let adAccountDetail = null;
+    if (r.ok && body?.items?.length > 0) {
+      const adId = body.items[0].id;
+      const convParams = new URLSearchParams({
+        start_date: start,
+        end_date: end,
+        granularity: "DAY",
+        columns: "TOTAL_PAGE_VISIT,TOTAL_ADD_TO_CART,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+        click_window_days: "30",
+        view_window_days: "30",
+        conversion_report_time: "TIME_OF_CONVERSION",
+      });
+      const convRes = await fetch(
+        `https://api.pinterest.com/v5/ad_accounts/${adId}/analytics?${convParams}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const convText = await convRes.text();
+      let convBody;
+      try { convBody = JSON.parse(convText); } catch { convBody = convText; }
+      adAccountDetail = {
+        ad_account_id: adId,
+        conversion_analytics_status: convRes.status,
+        conversion_analytics_body: convBody,
+      };
+    }
+
+    results.ad_accounts_verbose = {
+      status: r.status,
+      body,
+      ad_account_detail: adAccountDetail,
+    };
+  } catch (e) {
+    results.ad_accounts_verbose = { error: String(e) };
+  }
+
   // Probe 1: basic /user_account (sanity: token works?)
   try {
     const r = await fetch("https://api.pinterest.com/v5/user_account", {

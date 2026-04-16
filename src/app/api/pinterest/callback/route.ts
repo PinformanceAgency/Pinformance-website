@@ -40,6 +40,9 @@ export async function POST(request: NextRequest) {
     // Store encrypted tokens in database
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
+    // Log what scopes Pinterest actually granted
+    console.log(`Pinterest OAuth: org=${orgId} granted_scopes="${tokens.scope}"`);
+
     const { error: updateError } = await admin
       .from("organizations")
       .update({
@@ -47,6 +50,7 @@ export async function POST(request: NextRequest) {
         pinterest_access_token_encrypted: encrypt(tokens.access_token),
         pinterest_refresh_token_encrypted: encrypt(tokens.refresh_token),
         pinterest_token_expires_at: expiresAt,
+        pinterest_token_scopes: tokens.scope || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", orgId);

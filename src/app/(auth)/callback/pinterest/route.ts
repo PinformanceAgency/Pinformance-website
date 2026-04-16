@@ -54,6 +54,9 @@ export async function GET(request: NextRequest) {
       Date.now() + tokens.expires_in * 1000
     ).toISOString();
 
+    // Log what scopes Pinterest actually granted
+    console.log(`Pinterest OAuth: org=${orgId} granted_scopes="${tokens.scope}"`);
+
     const { error } = await admin
       .from("organizations")
       .update({
@@ -61,6 +64,7 @@ export async function GET(request: NextRequest) {
         pinterest_refresh_token_encrypted: encrypt(tokens.refresh_token),
         pinterest_token_expires_at: expiresAt,
         pinterest_user_id: pinterestUser.username,
+        pinterest_token_scopes: tokens.scope || null,
         onboarding_step: 4,
         updated_at: new Date().toISOString(),
       })
