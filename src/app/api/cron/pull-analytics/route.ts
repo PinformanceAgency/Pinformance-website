@@ -125,6 +125,64 @@ async function handlePullAnalytics(request: NextRequest) {
         });
       }
 
+      // Try to pull conversion data via ad_accounts (requires ads:read scope)
+      try {
+        const adAccountsRes = await fetch(`https://api.pinterest.com/v5/ad_accounts`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (adAccountsRes.ok) {
+          const adAccounts = await adAccountsRes.json();
+          const items = adAccounts?.items || [];
+          if (items.length > 0) {
+            const adAccountId = items[0].id;
+            const convParams = new URLSearchParams({
+              start_date: startDate,
+              end_date: endDate,
+              granularity: "DAY",
+              columns: "TOTAL_PAGE_VISIT,TOTAL_ADD_TO_CART,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+              click_window_days: "30",
+              view_window_days: "30",
+              conversion_report_time: "TIME_OF_CONVERSION",
+            });
+            const convRes = await fetch(
+              `https://api.pinterest.com/v5/ad_accounts/${adAccountId}/analytics?${convParams}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (convRes.ok) {
+              const convData = await convRes.json();
+              // Response is array of daily objects
+              const dailyConv = Array.isArray(convData) ? convData : [];
+              for (const day of dailyConv) {
+                const date = day.DATE;
+                if (!date) continue;
+                const pageVisits = day.TOTAL_PAGE_VISIT || 0;
+                const addToCart = day.TOTAL_ADD_TO_CART || 0;
+                const checkouts = day.TOTAL_CHECKOUT || 0;
+                // Revenue is in micro dollars (divide by 1,000,000)
+                const revenue = (day.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR || 0) / 1000000;
+
+                if (pageVisits > 0 || addToCart > 0 || checkouts > 0) {
+                  await admin.from("sales_data").upsert(
+                    {
+                      org_id: org.id,
+                      date,
+                      page_visits: pageVisits,
+                      add_to_cart_count: addToCart,
+                      sales_count: checkouts,
+                      sales_revenue: revenue,
+                      source: "pinterest",
+                    },
+                    { onConflict: "org_id,date,source" }
+                  );
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // ads:read scope not available yet - conversion data will show once brands re-authenticate
+      }
+
       // Get posted pins from last 7 days
       const { data: pins } = await admin
         .from("pins")

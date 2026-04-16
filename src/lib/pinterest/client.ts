@@ -310,7 +310,7 @@ export class PinterestClient {
       client_id: effectiveAppId,
       redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/callback/pinterest`,
       response_type: "code",
-      scope: "boards:read,boards:write,pins:read,pins:write,user_accounts:read",
+      scope: "boards:read,boards:write,pins:read,pins:write,user_accounts:read,ads:read",
       state,
     });
     return `https://www.pinterest.com/oauth/?${params}`;

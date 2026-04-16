@@ -536,27 +536,6 @@ export default function OverviewPage() {
         )}
       </div>
 
-      {/* ══════════════════════════════════════════ */}
-      {/* QUICK ACTIONS                             */}
-      {/* ══════════════════════════════════════════ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { href: "/pins", label: "Review Pins", sub: "Manage your content" },
-          { href: "/calendar", label: "Content Calendar", sub: "Plan your schedule" },
-          { href: "/boards", label: "Manage Boards", sub: "Organize your pins" },
-          { href: "/analytics", label: "Full Analytics", sub: "Deep dive" },
-        ].map(({ href, label, sub }) => (
-          <Link
-            key={href}
-            href={href}
-            className="border rounded-xl p-4 bg-background hover:bg-muted/30 transition-colors group"
-          >
-            <div className="text-sm font-medium group-hover:text-primary transition-colors">{label}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>
-            <ArrowRight className="w-3.5 h-3.5 text-muted-foreground mt-2 group-hover:text-primary transition-colors" />
-          </Link>
-        ))}
-      </div>
     </div>
   );
 }
