@@ -47,4 +47,7 @@ export interface PinterestUserAccount {
   profile_image: string;
   website_url: string | null;
   account_type: "BUSINESS" | "PINNER";
+  follower_count?: number;
+  monthly_views?: number;
+  pin_count?: number;
 }

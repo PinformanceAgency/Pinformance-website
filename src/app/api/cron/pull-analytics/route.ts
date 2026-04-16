@@ -48,52 +48,80 @@ async function handlePullAnalytics(request: NextRequest) {
       const token = decrypt(org.pinterest_access_token_encrypted);
       const client = new PinterestClient(token);
 
-      // Pull organic conversion data (ATC, Checkouts, Revenue) from user account analytics
+      // Fetch user account info (follower_count, monthly_views)
       try {
-        const conversionData = await client.getUserAccountAnalytics(startDate, endDate);
-        const rawDailyMetrics = conversionData?.all?.daily_metrics;
-        if (rawDailyMetrics) {
-          // Pinterest API may return daily_metrics as date-keyed object OR array of {date, metrics}
-          const entries: { date: string; metrics: Record<string, number> }[] = [];
+        const userAccount = await client.getUser();
+        if (userAccount.follower_count !== undefined || userAccount.monthly_views !== undefined) {
+          await admin.from("organizations").update({
+            pinterest_follower_count: userAccount.follower_count ?? 0,
+            pinterest_monthly_views: userAccount.monthly_views ?? 0,
+          }).eq("id", org.id);
+        }
+      } catch (userErr) {
+        errors.push({
+          org_id: org.id,
+          error: `User account fetch failed: ${userErr instanceof Error ? userErr.message : String(userErr)}`,
+        });
+      }
 
-          if (Array.isArray(rawDailyMetrics)) {
-            // Array format: [{ date: "2024-01-01", metrics: { WEB_ADD_TO_CART: 5 } }]
-            for (const item of rawDailyMetrics) {
-              if (item.date && item.metrics) {
-                entries.push({ date: item.date, metrics: item.metrics });
-              }
-            }
-          } else {
-            // Object format: { "2024-01-01": { WEB_ADD_TO_CART: 5 } }
-            for (const [date, metrics] of Object.entries(rawDailyMetrics)) {
-              entries.push({ date, metrics: metrics as unknown as Record<string, number> });
-            }
-          }
+      // Pull account-level analytics (impressions, saves, clicks, engagement)
+      try {
+        const accountData = await client.getUserAccountAnalytics(startDate, endDate);
+        const dailyMetrics = accountData?.all?.daily_metrics;
+        if (dailyMetrics && Array.isArray(dailyMetrics)) {
+          for (const day of dailyMetrics) {
+            if (!day.date || !day.metrics) continue;
+            // Skip dates still being processed (values are 0)
+            if (day.data_status === "PROCESSING") continue;
 
-          for (const { date, metrics } of entries) {
-            const addToCarts = metrics?.WEB_ADD_TO_CART || 0;
-            const checkouts = metrics?.WEB_CHECKOUT || 0;
-            const revenue = metrics?.WEB_CHECKOUT_VALUE || 0;
-            const pageVisits = metrics?.WEB_SESSIONS || 0;
+            const impressions = day.metrics.IMPRESSION || 0;
+            const saves = day.metrics.SAVE || 0;
+            const pinClicks = day.metrics.PIN_CLICK || 0;
+            const outboundClicks = day.metrics.OUTBOUND_CLICK || 0;
+            const engagement = day.metrics.ENGAGEMENT || 0;
+            const engagementRate = day.metrics.ENGAGEMENT_RATE || 0;
+            const saveRate = day.metrics.SAVE_RATE || 0;
 
-            if (addToCarts > 0 || checkouts > 0 || pageVisits > 0) {
+            if (impressions > 0 || outboundClicks > 0 || saves > 0) {
+              // Store in account_analytics table (account-level engagement data)
+              await admin.from("account_analytics").upsert(
+                {
+                  org_id: org.id,
+                  date: day.date,
+                  impressions,
+                  saves,
+                  pin_clicks: pinClicks,
+                  outbound_clicks: outboundClicks,
+                  engagement,
+                  engagement_rate: engagementRate,
+                  save_rate: saveRate,
+                },
+                { onConflict: "org_id,date" }
+              );
+
+              // Also store outbound_clicks as page_visits in sales_data for dashboard compatibility
               await admin.from("sales_data").upsert(
                 {
                   org_id: org.id,
-                  date,
-                  add_to_cart_count: addToCarts,
-                  sales_count: checkouts,
-                  sales_revenue: revenue,
-                  page_visits: pageVisits,
+                  date: day.date,
+                  page_visits: outboundClicks,
+                  add_to_cart_count: 0,
+                  sales_count: 0,
+                  sales_revenue: 0,
                   source: "pinterest",
                 },
                 { onConflict: "org_id,date,source" }
               );
             }
+
+            totalUpdated++;
           }
         }
-      } catch {
-        // Conversion data is optional - don't fail the whole job
+      } catch (analyticsErr) {
+        errors.push({
+          org_id: org.id,
+          error: `Account analytics failed: ${analyticsErr instanceof Error ? analyticsErr.message : String(analyticsErr)}`,
+        });
       }
 
       // Get posted pins from last 7 days

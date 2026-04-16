@@ -164,21 +164,29 @@ export class PinterestClient {
     startDate: string,
     endDate: string,
     metricTypes: string[] = [
-      "WEB_ADD_TO_CART",
-      "WEB_CHECKOUT",
-      "WEB_CHECKOUT_VALUE",
-      "WEB_SESSIONS",
+      "IMPRESSION",
+      "SAVE",
+      "PIN_CLICK",
+      "OUTBOUND_CLICK",
+      "ENGAGEMENT",
+      "ENGAGEMENT_RATE",
+      "SAVE_RATE",
     ]
   ) {
     const params = new URLSearchParams({
       start_date: startDate,
       end_date: endDate,
       metric_types: metricTypes.join(","),
-      content_type: "ORGANIC",
     });
-    return this.request<Record<string, Record<string, Record<string, number>>>>(
-      `/user_account/analytics?${params}`
-    );
+    return this.request<{
+      all: {
+        daily_metrics: Array<{
+          date: string;
+          data_status: string;
+          metrics: Record<string, number>;
+        }>;
+      };
+    }>(`/user_account/analytics?${params}`);
   }
 
   async getPinAnalytics(
