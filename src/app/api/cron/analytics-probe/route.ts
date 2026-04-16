@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
   const { data: org } = await admin
     .from("organizations")
-    .select("id, slug, name, pinterest_access_token_encrypted")
+    .select("id, slug, name, pinterest_access_token_encrypted, pinterest_user_id")
     .eq("slug", slug)
     .single();
 
@@ -30,148 +30,254 @@ export async function GET(request: NextRequest) {
   const token = decrypt(org.pinterest_access_token_encrypted);
   const end = new Date().toISOString().split("T")[0];
   const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-  const adId = "549768916219"; // FitCherries ad account
 
   const results: Record<string, unknown> = {
     org: org.name,
-    target: "€257 revenue, 112 page visits, 18 ATC, 4 checkouts (organic, 30d, 30click/1view)",
+    pinterest_user_id: org.pinterest_user_id,
+    date_range: { start, end },
   };
 
-  const headers = { Authorization: `Bearer ${token}` };
+  // ===== TEST 1: GraphQL with OAuth Bearer token =====
+  // This is the query Pinterest's web UI uses for top conversion pins
+  const topConversionPinsHash = "8f5b2a4aaff21d586877d949973d8cc468082d161d81bb337928c63e3274d27a";
 
-  // ===== BATCH 1: Pinterest v3 partner/advertiser endpoints =====
-  const v3Endpoints = [
-    `/v3/partners/analytics/conversion_insights/?advertiser_id=${adId}&start_date=${start}&end_date=${end}&content_type=organic&aggregation=last30d`,
-    `/v3/partners/analytics/overall/?advertiser_id=${adId}&start_date=${start}&end_date=${end}&content_type=organic`,
-    `/v3/partners/analytics/conversions/?advertiser_id=${adId}&start_date=${start}&end_date=${end}&content_type=organic`,
-    `/v3/advertisers/${adId}/conversion_insights/?start_date=${start}&end_date=${end}&content_type=organic`,
-    `/v3/advertisers/${adId}/analytics/?start_date=${start}&end_date=${end}&content_type=organic`,
-    `/v3/advertisers/${adId}/analytics/conversions/?start_date=${start}&end_date=${end}&content_type=organic`,
-    `/v3/advertisers/${adId}/organic_conversions/?start_date=${start}&end_date=${end}`,
-  ];
+  // Try with OAuth Bearer token
+  try {
+    const graphqlPayload = {
+      options: {
+        source_url: `/conversion-insights/`,
+        data: {
+          request: {
+            name: "v3AnalyticsTopConversionPinsGraphqlQuery",
+            options: {
+              user: org.pinterest_user_id,
+              paid: "2",         // 2 = organic only (from DevTools observation)
+              inProfile: "2",
+              fromOwnedContent: "2",
+              appTypes: "all",
+              startDate: start,
+              endDate: end,
+              metricType: "totalPurchases",
+              clickWindowDays: "30",
+              viewWindowDays: "1",
+            },
+          },
+        },
+      },
+    };
 
-  for (const path of v3Endpoints) {
-    try {
-      const res = await fetch(`https://api.pinterest.com${path}`, { headers });
-      const text = await res.text();
-      let body;
-      try { body = JSON.parse(text); } catch { body = text.slice(0, 300); }
-      const name = path.split("?")[0].replace(/\//g, "_").replace(new RegExp(adId, "g"), "ID");
-      results[`v3${name}`] = { status: res.status, body: typeof body === "object" ? JSON.stringify(body).slice(0, 400) : body };
-    } catch (e) { /* skip */ }
+    // Approach A: GraphQL endpoint with Bearer token
+    const gqlRes = await fetch("https://www.pinterest.com/graphql/", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        queryHash: topConversionPinsHash,
+        queryName: "v3AnalyticsTopConversionPinsGraphqlQuery",
+        variables: {
+          user: org.pinterest_user_id,
+          paid: "2",
+          inProfile: "2",
+          fromOwnedContent: "2",
+          appTypes: "all",
+          startDate: start,
+          endDate: end,
+          metricType: "totalPurchases",
+          clickWindowDays: "30",
+          viewWindowDays: "1",
+        },
+      }),
+    });
+    const gqlText = await gqlRes.text();
+    results["graphql_bearer_token"] = {
+      status: gqlRes.status,
+      content_type: gqlRes.headers.get("content-type"),
+      body: gqlText.slice(0, 800),
+    };
+  } catch (e) {
+    results["graphql_bearer_error"] = String(e);
   }
 
-  // ===== BATCH 2: Pinterest v5 hidden/undocumented endpoints =====
-  const v5Endpoints = [
-    `/v5/ad_accounts/${adId}/organic/analytics?start_date=${start}&end_date=${end}&granularity=DAY&columns=TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT,TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR`,
-    `/v5/ad_accounts/${adId}/conversion_insights?start_date=${start}&end_date=${end}&content_type=organic&conversion_window=30d_click_1d_view`,
-    `/v5/ad_accounts/${adId}/analytics/organic?start_date=${start}&end_date=${end}&granularity=DAY&columns=TOTAL_PAGE_VISIT,TOTAL_CLICK_CHECKOUT`,
-    `/v5/ad_accounts/${adId}/organic_conversions?start_date=${start}&end_date=${end}&granularity=DAY`,
-    `/v5/user_account/conversion_insights?start_date=${start}&end_date=${end}&content_type=organic`,
-    `/v5/user_account/analytics/conversions?start_date=${start}&end_date=${end}&content_type=ORGANIC`,
-    `/v5/analytics/conversion_insights?advertiser_id=${adId}&start_date=${start}&end_date=${end}&content_type=organic`,
-  ];
-
-  for (const path of v5Endpoints) {
-    try {
-      const res = await fetch(`https://api.pinterest.com${path}`, { headers });
-      const text = await res.text();
-      let body;
-      try { body = JSON.parse(text); } catch { body = text.slice(0, 300); }
-      const name = path.split("?")[0].replace(/\//g, "_").replace(new RegExp(adId, "g"), "ID");
-      results[`v5${name}`] = { status: res.status, body: typeof body === "object" ? JSON.stringify(body).slice(0, 400) : body };
-    } catch (e) { /* skip */ }
+  // Approach B: Resource API style (Pinterest web app pattern)
+  try {
+    const resourceData = {
+      options: {
+        user: org.pinterest_user_id,
+        paid: "2",
+        inProfile: "2",
+        fromOwnedContent: "2",
+        appTypes: "all",
+        startDate: start,
+        endDate: end,
+        metricType: "totalPurchases",
+        clickWindowDays: "30",
+        viewWindowDays: "1",
+      },
+    };
+    const resourceUrl = `https://www.pinterest.com/resource/v3AnalyticsTopConversionPinsGraphqlQuery/get/?data=${encodeURIComponent(JSON.stringify(resourceData))}`;
+    const resRes = await fetch(resourceUrl, {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/json",
+      },
+    });
+    const resText = await resRes.text();
+    results["resource_api_bearer"] = {
+      status: resRes.status,
+      content_type: resRes.headers.get("content-type"),
+      body: resText.slice(0, 800),
+    };
+  } catch (e) {
+    results["resource_api_bearer_error"] = String(e);
   }
 
-  // ===== BATCH 3: Pinterest Resource API (what the web app uses) =====
-  const resourceEndpoints = [
-    `https://www.pinterest.com/resource/AnalyticsConversionInsightsResource/get/?data={"options":{"advertiser_id":"${adId}","start_date":"${start}","end_date":"${end}","content_type":"organic","conversion_window":"30d_click_1d_view"}}`,
-    `https://www.pinterest.com/resource/ConversionInsightsResource/get/?data={"options":{"advertiser_id":"${adId}","start_date":"${start}","end_date":"${end}","content_type":"organic"}}`,
-    `https://www.pinterest.com/resource/PartnerAnalyticsResource/get/?data={"options":{"advertiser_id":"${adId}","start_date":"${start}","end_date":"${end}"}}`,
+  // Approach C: Pinterest analytics resource endpoint (legacy pattern)
+  try {
+    const analyticsData = {
+      options: {
+        advertiser_id: "",
+        start_date: start,
+        end_date: end,
+        content_type: "organic",
+        conversion_window: "30d_click_1d_view",
+      },
+    };
+    const analyticsUrl = `https://www.pinterest.com/resource/AnalyticsConversionInsightsResource/get/?data=${encodeURIComponent(JSON.stringify(analyticsData))}`;
+    const aRes = await fetch(analyticsUrl, {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/json",
+      },
+    });
+    const aText = await aRes.text();
+    results["conversion_insights_resource"] = {
+      status: aRes.status,
+      content_type: aRes.headers.get("content-type"),
+      body: aText.slice(0, 800),
+    };
+  } catch (e) {
+    results["conversion_insights_resource_error"] = String(e);
+  }
+
+  // ===== TEST 2: Try the v3 partner analytics endpoints that may have conversion data =====
+  // These were discovered from Pinterest's internal API patterns
+  const v3Tests = [
+    // Conversion insights summary (aggregate)
+    `https://api.pinterest.com/v3/users/${org.pinterest_user_id}/analytics/conversion_insights/?start_date=${start}&end_date=${end}&paid=2&in_profile=2&from_owned_content=2&click_window_days=30&view_window_days=1`,
+    // User-level conversion insights
+    `https://api.pinterest.com/v3/users/me/analytics/conversion_insights/?start_date=${start}&end_date=${end}&paid=2&in_profile=2&from_owned_content=2&click_window_days=30&view_window_days=1`,
+    // V3 analytics with organic filter
+    `https://api.pinterest.com/v3/users/me/analytics/?start_date=${start}&end_date=${end}&paid=2&in_profile=2&from_owned_content=2`,
   ];
 
-  for (const url of resourceEndpoints) {
+  for (const url of v3Tests) {
     try {
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
       const text = await res.text();
-      const name = url.split("/resource/")[1]?.split("/")[0] || "unknown";
-      results[`resource_${name}`] = {
+      const name = url.split("pinterest.com")[1]?.split("?")[0]?.replace(/\//g, "_") || "unknown";
+      results[`v3_${name}`] = {
         status: res.status,
-        body: text.slice(0, 400),
-        content_type: res.headers.get("content-type"),
+        body: text.slice(0, 500),
       };
     } catch (e) { /* skip */ }
   }
 
-  // ===== BATCH 4: Try async report with filters =====
-  try {
-    const reportBody = {
-      start_date: start,
-      end_date: end,
-      granularity: "DAY",
-      columns: ["TOTAL_PAGE_VISIT", "TOTAL_CLICK_ADD_TO_CART", "TOTAL_CLICK_CHECKOUT", "TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR", "TOTAL_VIEW_ADD_TO_CART", "TOTAL_VIEW_CHECKOUT", "TOTAL_VIEW_CHECKOUT_VALUE_IN_MICRO_DOLLAR"],
-      click_window_days: 30,
-      view_window_days: 1,
-      conversion_report_time: "TIME_OF_CONVERSION",
-      level: "ADVERTISER",
-      report_format: "JSON",
-      // Try adding filters for organic
-      filters: [
-        { field: "CONTENT_TYPE", operator: "=", values: ["ORGANIC"] },
-      ],
-    };
-    const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/reports`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(reportBody),
-    });
-    results.report_with_filter = { status: res.status, body: res.ok ? await res.json() : (await res.text()).slice(0, 400) };
-  } catch (e) { results.report_with_filter_error = String(e); }
+  // ===== TEST 3: Try v5 user_account with conversion columns =====
+  // The v5 user_account/analytics supports metric_types — try if conversion metrics are available
+  const conversionMetricTests = [
+    "TOTAL_PAGE_VISIT,TOTAL_CLICK_ADD_TO_CART,TOTAL_CLICK_CHECKOUT",
+    "PAGE_VISIT,ADD_TO_CART,CHECKOUT",
+    "CONVERSION_PAGE_VISIT,CONVERSION_ADD_TO_CART,CONVERSION_CHECKOUT",
+  ];
 
-  // ===== BATCH 5: Try report with entity_fields filter =====
-  try {
-    const reportBody = {
-      start_date: start,
-      end_date: end,
-      granularity: "DAY",
-      columns: ["TOTAL_PAGE_VISIT", "TOTAL_CLICK_ADD_TO_CART", "TOTAL_CLICK_CHECKOUT", "TOTAL_CLICK_CHECKOUT_VALUE_IN_MICRO_DOLLAR"],
-      click_window_days: 30,
-      view_window_days: 1,
-      conversion_report_time: "TIME_OF_CONVERSION",
-      level: "PIN_PROMOTION",
-      report_format: "JSON",
-      // No campaign/ad group filters = organic only?
-      entity_fields: ["PIN_PROMOTION_ID"],
-    };
-    const res = await fetch(`https://api.pinterest.com/v5/ad_accounts/${adId}/reports`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(reportBody),
-    });
-    results.report_pin_level = { status: res.status, body: res.ok ? await res.json() : (await res.text()).slice(0, 400) };
-  } catch (e) { results.report_pin_level_error = String(e); }
+  for (const metrics of conversionMetricTests) {
+    try {
+      const params = new URLSearchParams({
+        start_date: start,
+        end_date: end,
+        metric_types: metrics,
+        content_type: "ORGANIC",
+      });
+      const res = await fetch(`https://api.pinterest.com/v5/user_account/analytics?${params}`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      const text = await res.text();
+      results[`v5_user_conv_${metrics.split(",")[0]}`] = {
+        status: res.status,
+        body: text.slice(0, 500),
+      };
+    } catch (e) { /* skip */ }
+  }
 
-  // ===== BATCH 6: Outbound clicks from organic user_account analytics (closest proxy) =====
+  // ===== TEST 4: Pinterest web API with different header patterns =====
+  // Pinterest web app uses specific headers (x-pinterest-source, x-app-version, etc.)
   try {
-    const params = new URLSearchParams({
-      start_date: start,
-      end_date: end,
-      metric_types: "OUTBOUND_CLICK,IMPRESSION,SAVE,ENGAGEMENT",
-      content_type: "ORGANIC",
+    const webHeaders = {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "x-pinterest-source": "www",
+      "x-pinterest-pws-handler": "www/graphql.js",
+      "x-app-version": "default",
+      "Referer": "https://www.pinterest.com/conversion-insights/",
+      "Origin": "https://www.pinterest.com",
+    };
+
+    const gqlRes = await fetch("https://www.pinterest.com/graphql/", {
+      method: "POST",
+      headers: webHeaders,
+      body: JSON.stringify({
+        queryHash: topConversionPinsHash,
+        queryName: "v3AnalyticsTopConversionPinsGraphqlQuery",
+        variables: {
+          user: org.pinterest_user_id,
+          paid: "2",
+          inProfile: "2",
+          fromOwnedContent: "2",
+          appTypes: "all",
+          startDate: start,
+          endDate: end,
+          metricType: "totalPurchases",
+          clickWindowDays: "30",
+          viewWindowDays: "1",
+        },
+      }),
     });
-    const res = await fetch(`https://api.pinterest.com/v5/user_account/analytics?${params}`, { headers });
-    if (res.ok) {
-      const body = await res.json();
-      const daily = body?.all?.daily_metrics || [];
-      let totalOutbound = 0;
-      for (const d of daily) {
-        if (d.data_status === "READY" && d.metrics) {
-          totalOutbound += d.metrics.OUTBOUND_CLICK || 0;
-        }
-      }
-      results.organic_outbound_clicks_30d = { total: totalOutbound, days: daily.length, note: "This is the closest proxy for organic page visits" };
-    }
-  } catch (e) { results.organic_outbound_error = String(e); }
+    const text = await gqlRes.text();
+    results["graphql_web_headers"] = {
+      status: gqlRes.status,
+      content_type: gqlRes.headers.get("content-type"),
+      body: text.slice(0, 800),
+    };
+  } catch (e) {
+    results["graphql_web_headers_error"] = String(e);
+  }
+
+  // ===== TEST 5: Pinterest Resource API with source_url (how the SPA loads data) =====
+  try {
+    const sourceUrl = `/conversion-insights/?startDate=${start}&endDate=${end}`;
+    const resourceUrl = `https://www.pinterest.com/resource/ConversionInsightsResource/get/?source_url=${encodeURIComponent(sourceUrl)}&data=${encodeURIComponent(JSON.stringify({ options: { paid: "2", fromOwnedContent: "2", clickWindowDays: "30", viewWindowDays: "1" } }))}`;
+    const res = await fetch(resourceUrl, {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/json",
+        "x-pinterest-source": "www",
+      },
+    });
+    const text = await res.text();
+    results["resource_conversion_insights_v2"] = {
+      status: res.status,
+      content_type: res.headers.get("content-type"),
+      body: text.slice(0, 800),
+    };
+  } catch (e) {
+    results["resource_conversion_insights_v2_error"] = String(e);
+  }
 
   return NextResponse.json(results);
 }
