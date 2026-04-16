@@ -151,13 +151,17 @@ export default function OverviewPage() {
       const sum = (data: Record<string, number>[], field: string) =>
         data.reduce((s, a) => s + ((a as Record<string, number>)[field] || 0), 0);
 
+      // Engaged audience = unique engagers approximation (saves + pin_clicks for the period)
+      const currEngagedAudience = sum(currAccount, "saves") + sum(currAccount, "pin_clicks");
+      const prevEngagedAudience = sum(prevAccount, "saves") + sum(prevAccount, "pin_clicks");
+
       setOverall({
         impressions: { current: sum(currAccount, "impressions"), previous: sum(prevAccount, "impressions") },
         engagements: { current: sum(currAccount, "engagement"), previous: sum(prevAccount, "engagement") },
         outbound_clicks: { current: sum(currAccount, "outbound_clicks"), previous: sum(prevAccount, "outbound_clicks") },
         saves: { current: sum(currAccount, "saves"), previous: sum(prevAccount, "saves") },
-        total_audience: (orgResult.data as Record<string, number>)?.pinterest_monthly_views || 0,
-        engaged_audience: (orgResult.data as Record<string, number>)?.pinterest_follower_count || 0,
+        total_audience: 0,
+        engaged_audience: currEngagedAudience,
       });
 
       const currSales = currentSales.data || [];
@@ -287,13 +291,12 @@ export default function OverviewPage() {
           <Info className="w-3.5 h-3.5 text-muted-foreground" />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-px bg-border rounded-xl overflow-hidden border">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-px bg-border rounded-xl overflow-hidden border">
           {[
             { label: "Impressions", value: formatNumber(overall?.impressions.current || 0), trend: impressionsTrend },
             { label: "Engagements", value: formatNumber(overall?.engagements.current || 0), trend: engagementsTrend },
             { label: "Outbound clicks", value: formatNumber(overall?.outbound_clicks.current || 0), trend: outboundTrend },
             { label: "Saves", value: formatNumber(overall?.saves.current || 0), trend: savesTrend },
-            { label: "Total audience", value: formatNumber(overall?.total_audience || 0), trend: null },
             { label: "Engaged audience", value: formatNumber(overall?.engaged_audience || 0), trend: null },
           ].map(({ label, value, trend }) => (
             <div key={label} className="bg-background p-4">
@@ -313,27 +316,21 @@ export default function OverviewPage() {
       {/* CONVERSION INSIGHTS                       */}
       {/* ══════════════════════════════════════════ */}
       <div>
-        <div className="flex items-center gap-2 mb-1">
-          <h2 className="text-sm font-semibold">Sneak peek at conversion insights</h2>
-          <span className="text-[10px] bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300 px-1.5 py-0.5 rounded-full font-medium">Beta</span>
+        <div className="flex items-center gap-1.5 mb-1">
+          <h2 className="text-sm font-semibold">Conversion insights</h2>
+          <Info className="w-3.5 h-3.5 text-muted-foreground" />
         </div>
         <p className="text-xs text-muted-foreground mb-4">
           Revenue and conversions from organic Pinterest traffic
         </p>
 
-        <div className="flex items-center gap-2 mb-4">
-          <button className="text-xs font-medium bg-foreground text-background px-3 py-1 rounded-full">
-            Organic
-          </button>
-        </div>
-
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-px bg-border rounded-xl overflow-hidden border">
           {[
-            { label: "Revenue", value: formatCurrency(conversion?.revenue.current || 0), trend: revenueTrend },
             { label: "Page visits", value: formatNumber(conversion?.page_visits.current || 0), trend: pageVisitsTrend },
             { label: "Add to basket", value: formatNumber(conversion?.add_to_cart.current || 0), trend: atcTrend },
             { label: "Checkouts", value: formatNumber(conversion?.checkouts.current || 0), trend: checkoutsTrend },
             { label: "Average order value", value: formatCurrency(conversion?.aov.current || 0), trend: aovTrend },
+            { label: "Revenue", value: formatCurrency(conversion?.revenue.current || 0), trend: revenueTrend },
           ].map(({ label, value, trend }) => (
             <div key={label} className="bg-background p-4">
               <div className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
