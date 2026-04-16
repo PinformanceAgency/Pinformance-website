@@ -10,6 +10,10 @@ import {
   Check,
   X,
   Eye,
+  Sparkles,
+  CheckCircle2,
+  Clock,
+  Send,
 } from "lucide-react";
 import {
   addDays,
@@ -32,6 +36,7 @@ export default function CalendarPage() {
   );
   const [entries, setEntries] = useState<CalendarPin[]>([]);
   const [selectedPin, setSelectedPin] = useState<CalendarPin | null>(null);
+  const [pipelineStats, setPipelineStats] = useState({ generating: 0, approved: 0, scheduled: 0, posted: 0 });
 
   const loadEntries = useCallback(async () => {
     if (!org) return;
@@ -47,6 +52,15 @@ export default function CalendarPage() {
       .order("scheduled_time");
 
     setEntries((data as CalendarPin[]) || []);
+
+    const { data: allPins } = await supabase.from("pins").select("id, status").eq("org_id", org.id);
+    const pins = allPins || [];
+    setPipelineStats({
+      generating: pins.filter(p => p.status === "generating" || p.status === "generated").length,
+      approved: pins.filter(p => p.status === "approved").length,
+      scheduled: pins.filter(p => p.status === "scheduled").length,
+      posted: pins.filter(p => p.status === "posted").length,
+    });
   }, [org, weekStart]);
 
   useEffect(() => {
@@ -101,6 +115,60 @@ export default function CalendarPage() {
           >
             <ChevronRight className="w-4 h-4" />
           </button>
+        </div>
+      </div>
+
+      {/* Content Pipeline */}
+      <div className="border rounded-xl p-6 bg-background mb-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-sm font-semibold">Content Pipeline</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Your pins at every stage</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-lg p-4 text-center">
+            <div className="w-8 h-8 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-2">
+              <Sparkles className="w-4 h-4 text-amber-600" />
+            </div>
+            <div className="text-xl font-bold text-amber-700 dark:text-amber-400">{pipelineStats.generating}</div>
+            <div className="text-[11px] text-amber-600/80 font-medium mt-0.5">Generating</div>
+          </div>
+          <div className="bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 rounded-lg p-4 text-center">
+            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-2">
+              <CheckCircle2 className="w-4 h-4 text-blue-600" />
+            </div>
+            <div className="text-xl font-bold text-blue-700 dark:text-blue-400">{pipelineStats.approved}</div>
+            <div className="text-[11px] text-blue-600/80 font-medium mt-0.5">Approved</div>
+          </div>
+          <div className="bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 rounded-lg p-4 text-center">
+            <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-2">
+              <Clock className="w-4 h-4 text-purple-600" />
+            </div>
+            <div className="text-xl font-bold text-purple-700 dark:text-purple-400">{pipelineStats.scheduled}</div>
+            <div className="text-[11px] text-purple-600/80 font-medium mt-0.5">Scheduled</div>
+          </div>
+          <div className="bg-green-50/50 dark:bg-green-950/20 border border-green-100 dark:border-green-900/30 rounded-lg p-4 text-center">
+            <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-2">
+              <Send className="w-4 h-4 text-green-600" />
+            </div>
+            <div className="text-xl font-bold text-green-700 dark:text-green-400">{pipelineStats.posted}</div>
+            <div className="text-[11px] text-green-600/80 font-medium mt-0.5">Posted</div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center gap-0 mt-4 px-8">
+          <div className="flex-1 h-1.5 bg-amber-200 dark:bg-amber-800/40 rounded-l-full" />
+          <div className="flex-1 h-1.5 bg-blue-200 dark:bg-blue-800/40" />
+          <div className="flex-1 h-1.5 bg-purple-200 dark:bg-purple-800/40" />
+          <div className="flex-1 h-1.5 bg-green-200 dark:bg-green-800/40 rounded-r-full" />
+        </div>
+        <div className="flex items-center justify-between mt-1.5 px-8">
+          <span className="text-[10px] text-muted-foreground">Create</span>
+          <span className="text-[10px] text-muted-foreground">Review</span>
+          <span className="text-[10px] text-muted-foreground">Schedule</span>
+          <span className="text-[10px] text-muted-foreground">Live</span>
         </div>
       </div>
 
