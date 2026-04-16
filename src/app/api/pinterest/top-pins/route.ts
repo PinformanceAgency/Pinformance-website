@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     const end = new Date().toISOString().split("T")[0];
     const start = new Date(Date.now() - Math.min(days, 89) * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-    const result = await client.getTopPins(start, end);
+    const result = await client.getTopPins(start, end, "IMPRESSION", undefined, "ORGANIC");
 
     // Enrich with pin details (title, image) from Pinterest
     const enrichedPins = await Promise.all(

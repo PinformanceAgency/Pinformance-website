@@ -204,7 +204,8 @@ export class PinterestClient {
     startDate: string,
     endDate: string,
     sortBy: string = "IMPRESSION",
-    metricTypes: string[] = ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK"]
+    metricTypes: string[] = ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK"],
+    contentType?: string
   ) {
     const params = new URLSearchParams({
       start_date: startDate,
@@ -212,6 +213,9 @@ export class PinterestClient {
       sort_by: sortBy,
       metric_types: metricTypes.join(","),
     });
+    if (contentType) {
+      params.set("content_type", contentType);
+    }
     return this.request<{
       pins: Array<{
         pin_id: string;
