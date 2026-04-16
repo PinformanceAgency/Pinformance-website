@@ -177,6 +177,7 @@ export class PinterestClient {
       start_date: startDate,
       end_date: endDate,
       metric_types: metricTypes.join(","),
+      content_type: "ORGANIC",
     });
     return this.request<{
       all: {
