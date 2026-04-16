@@ -31,7 +31,8 @@ async function handlePullAnalytics(request: NextRequest) {
   }
 
   const endDate = new Date().toISOString().split("T")[0];
-  const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+  // 91 days to fully cover dashboard's 90-day period + previous-period comparison
+  const startDate = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000)
     .toISOString()
     .split("T")[0];
 
