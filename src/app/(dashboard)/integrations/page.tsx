@@ -53,6 +53,13 @@ export default function IntegrationsPage() {
   const [showKreaKey, setShowKreaKey] = useState(false);
   const [kreaExpanded, setKreaExpanded] = useState(false);
 
+  // Pinterest session cookie for organic conversion data
+  const [pinterestSession, setPinterestSession] = useState("");
+  const [savingSession, setSavingSession] = useState(false);
+  const [sessionSaved, setSessionSaved] = useState(false);
+  const [sessionError, setSessionError] = useState("");
+  const [showSession, setShowSession] = useState(false);
+
   // Shopify per-org credentials
   const [shopifyDomain, setShopifyDomain] = useState("");
   const [shopifyAccessToken, setShopifyAccessToken] = useState("");
@@ -164,6 +171,40 @@ export default function IntegrationsPage() {
   }
 
   // Load Shopify domain
+  useEffect(() => {
+    if (org?.pinterest_session_encrypted) {
+      setSessionSaved(true);
+    }
+  }, [org?.pinterest_session_encrypted]);
+
+  async function savePinterestSession() {
+    if (!pinterestSession.trim()) {
+      setSessionError("Please paste your Pinterest session cookie.");
+      return;
+    }
+    setSavingSession(true);
+    setSessionError("");
+    try {
+      const res = await fetch("/api/pinterest/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_cookie: pinterestSession.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSessionError(data.error || "Failed to save session");
+        return;
+      }
+      setSessionSaved(true);
+      setPinterestSession("");
+      setShowSession(false);
+    } catch {
+      setSessionError("Failed to save session cookie");
+    } finally {
+      setSavingSession(false);
+    }
+  }
+
   useEffect(() => {
     if (org?.shopify_domain) {
       setShopifyDomain(org.shopify_domain);
@@ -453,6 +494,91 @@ export default function IntegrationsPage() {
                 <p className="text-[11px] text-muted-foreground/60 mt-2">
                   Override the global Pinterest API credentials for this organization. The secret is encrypted at rest. Leave empty to use the global environment variable credentials.
                 </p>
+
+                {/* Pinterest Session Cookie for Organic Conversion Data */}
+                <div className="mt-5 pt-4 border-t border-border/30">
+                  <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Conversion Insights Session
+                    {sessionSaved && (
+                      <span className="text-green-600 flex items-center gap-0.5 ml-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Active
+                      </span>
+                    )}
+                    {org?.pinterest_session_expires_at && (
+                      <span className="text-muted-foreground/60 ml-1">
+                        — expires {new Date(org.pinterest_session_expires_at).toLocaleDateString()}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground/60 mb-3">
+                    Required for accurate organic conversion data (revenue, page visits, add to cart, checkouts).
+                    Pinterest does not expose this data through their public API.
+                  </p>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Pinterest Session Cookie
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showSession ? "text" : "password"}
+                        value={pinterestSession}
+                        onChange={(e) => { setPinterestSession(e.target.value); setSessionError(""); }}
+                        placeholder={sessionSaved ? "**** (paste new value to refresh)" : "Paste _pinterest_sess cookie value here"}
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 pr-9 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSession(!showSession)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showSession ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  {sessionError && (
+                    <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                      <XCircle className="w-3 h-3" />
+                      {sessionError}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      onClick={savePinterestSession}
+                      disabled={savingSession}
+                      className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {savingSession ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Validating &amp; Saving...
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          Save Session
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <details className="mt-3">
+                    <summary className="text-[11px] text-muted-foreground/60 cursor-pointer hover:text-muted-foreground">
+                      How to get your Pinterest session cookie
+                    </summary>
+                    <ol className="text-[11px] text-muted-foreground/60 mt-2 space-y-1 list-decimal list-inside">
+                      <li>Open <a href="https://www.pinterest.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">pinterest.com</a> in Chrome and log in</li>
+                      <li>Press F12 (or right-click → Inspect) to open DevTools</li>
+                      <li>Go to the <strong>Application</strong> tab → <strong>Cookies</strong> → <strong>https://www.pinterest.com</strong></li>
+                      <li>Find the cookie named <code className="bg-muted px-1 rounded">_pinterest_sess</code></li>
+                      <li>Double-click its <strong>Value</strong> column, copy the full value</li>
+                      <li>Paste it above and click Save Session</li>
+                    </ol>
+                    <p className="text-[11px] text-muted-foreground/60 mt-2">
+                      The session is valid for ~30 days. You will be notified when it needs to be refreshed.
+                    </p>
+                  </details>
+                </div>
               </div>
             )}
 

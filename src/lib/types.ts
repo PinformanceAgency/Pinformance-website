@@ -37,6 +37,8 @@ export interface Organization {
   onboarding_video_watched: boolean;
   anthropic_api_key_encrypted: string | null;
   krea_api_key_encrypted: string | null;
+  pinterest_session_encrypted: string | null;
+  pinterest_session_expires_at: string | null;
   settings: OrgSettings;
   created_at: string;
   updated_at: string;
