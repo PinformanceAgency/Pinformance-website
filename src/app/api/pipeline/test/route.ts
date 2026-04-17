@@ -850,6 +850,65 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "test-pinterest-token", ...results });
   }
 
+  // Bulk-post a list of pin IDs immediately to Pinterest with a small delay between them.
+  // Bypasses daily cap and rate limit for one-off board pre-fill operations.
+  if (step === "bulk-post-pins") {
+    const { pin_ids, delay_ms } = body;
+    if (!Array.isArray(pin_ids) || pin_ids.length === 0) {
+      return NextResponse.json({ error: "pin_ids required (non-empty array)" }, { status: 400 });
+    }
+    if (!org.pinterest_access_token_encrypted) {
+      return NextResponse.json({ error: "No Pinterest token" }, { status: 400 });
+    }
+    const token = decrypt(org.pinterest_access_token_encrypted);
+    const isTrial = (org.settings as Record<string, unknown>)?.pinterest_access_tier === "trial";
+    const pinterest = new PinterestClient(token, isTrial);
+    const delay = typeof delay_ms === "number" ? delay_ms : 5000;
+
+    const { data: pins } = await supabase
+      .from("pins")
+      .select("*, boards(pinterest_board_id, name)")
+      .in("id", pin_ids)
+      .eq("org_id", org.id);
+
+    const results: { id: string; status: string; pinterest_id?: string; error?: string }[] = [];
+    for (const pin of pins || []) {
+      const boardPinId = (pin.boards as { pinterest_board_id: string | null } | null)?.pinterest_board_id;
+      if (!boardPinId) { results.push({ id: pin.id, status: "skip", error: "no_board_pinterest_id" }); continue; }
+      if (!pin.image_url && !pin.video_url) { results.push({ id: pin.id, status: "skip", error: "no_media" }); continue; }
+      try {
+        await supabase.from("pins").update({ status: "posting" }).eq("id", pin.id);
+        let imageUrl = pin.image_url || "";
+        const iPath = imageUrl.split("/object/public/pin-images/")[1];
+        if (iPath) {
+          const { data: signed } = await supabase.storage.from("pin-images").createSignedUrl(iPath, 300);
+          if (signed?.signedUrl) imageUrl = signed.signedUrl;
+        }
+        const pPin = await pinterest.createPin({
+          board_id: boardPinId,
+          title: pin.title,
+          description: pin.description || undefined,
+          link: pin.link_url || undefined,
+          alt_text: pin.alt_text || undefined,
+          media_source: { source_type: "image_url", url: imageUrl },
+        });
+        await supabase.from("pins").update({
+          status: "posted",
+          pinterest_pin_id: pPin.id,
+          posted_at: new Date().toISOString(),
+        }).eq("id", pin.id);
+        results.push({ id: pin.id, status: "posted", pinterest_id: pPin.id });
+      } catch (e) {
+        await supabase.from("pins").update({ status: "approved" }).eq("id", pin.id);
+        results.push({ id: pin.id, status: "error", error: e instanceof Error ? e.message : "unknown" });
+      }
+      await new Promise(r => setTimeout(r, delay));
+    }
+    const posted = results.filter(r => r.status === "posted").length;
+    const errors = results.filter(r => r.status === "error").length;
+    return NextResponse.json({ success: true, step: "bulk-post-pins", total: results.length, posted, errors, results });
+  }
+
   // Update link_url on a specific pin
   if (step === "update-pin-link") {
     const { pin_id, link_url } = body;

@@ -96,24 +96,29 @@ async function handlePostPins(request: NextRequest) {
       const isTrial = (orgSettings.pinterest_access_tier as string) === "trial";
       const pinterest = new PinterestClient(token, isTrial);
 
-      // HARD CAP: Respect pins_per_day from org settings (default 2, absolute max 2)
-      const settingsPinsPerDay = (orgSettings.pins_per_day as number) || 2;
-      const pinsPerDay = Math.min(settingsPinsPerDay, 2); // HARD CEILING: never more than 2/day regardless of settings
+      // CATEGORY-AWARE CAP: 2 swimwear/day + 2 non-swimwear/day (absolute ceilings)
+      const SWIMWEAR_CAP = 2;
+      const OTHER_CAP = 2;
+      const isSwimBoardName = (name: string | null | undefined) => {
+        const n = (name || "").toLowerCase();
+        return n.includes("bikini") || n.includes("swimwear");
+      };
       const todayStart = new Date();
       todayStart.setUTCHours(0, 0, 0, 0);
       const { data: postedToday } = await admin
         .from("pins")
-        .select("id")
+        .select("id, boards(name)")
         .eq("org_id", org.id)
         .eq("status", "posted")
         .gte("posted_at", todayStart.toISOString());
-      const postedTodayCount = postedToday?.length || 0;
-      if (postedTodayCount >= pinsPerDay) {
-        skipReason = `daily_cap_reached_${postedTodayCount}/${pinsPerDay}`;
+      const postedList = (postedToday || []) as Array<{ id: string; boards: { name: string | null } | null }>;
+      const swimwearPostedToday = postedList.filter(p => isSwimBoardName(p.boards?.name)).length;
+      const otherPostedToday = postedList.length - swimwearPostedToday;
+      if (swimwearPostedToday >= SWIMWEAR_CAP && otherPostedToday >= OTHER_CAP) {
+        skipReason = `daily_cap_reached_sw${swimwearPostedToday}/${SWIMWEAR_CAP}_other${otherPostedToday}/${OTHER_CAP}`;
         results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
         continue;
       }
-      const remainingToday = pinsPerDay - postedTodayCount;
 
       // Rate limit: min 30 min between posts
       const { data: lastPosted } = await admin
@@ -133,15 +138,28 @@ async function handlePostPins(request: NextRequest) {
         }
       }
 
-      // Get overdue pins, capped by remaining daily quota
-      const { data: duePins } = await admin
+      // Get overdue pins, then filter by per-category remaining capacity
+      const { data: allDuePins } = await admin
         .from("pins")
         .select("*, boards(pinterest_board_id, name)")
         .eq("org_id", org.id)
         .in("status", ["approved", "scheduled"])
         .lte("scheduled_at", now)
         .order("scheduled_at", { ascending: true })
-        .limit(remainingToday);
+        .limit(10);
+
+      let remainingSwim = SWIMWEAR_CAP - swimwearPostedToday;
+      let remainingOther = OTHER_CAP - otherPostedToday;
+      const duePins: typeof allDuePins = [];
+      for (const pin of allDuePins || []) {
+        const bn = (pin.boards as { name: string | null } | null)?.name;
+        if (isSwimBoardName(bn)) {
+          if (remainingSwim > 0) { duePins.push(pin); remainingSwim--; }
+        } else {
+          if (remainingOther > 0) { duePins.push(pin); remainingOther--; }
+        }
+        if (duePins.length >= (SWIMWEAR_CAP + OTHER_CAP)) break;
+      }
 
       if (!duePins || duePins.length === 0) {
         skipReason = "no_due_pins";
