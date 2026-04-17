@@ -5,6 +5,27 @@ import { generateJSON, generateJSONWithImage } from "@/lib/ai/client";
 import { decrypt } from "@/lib/encryption";
 import { DeepgramClient } from "@/lib/deepgram/client";
 
+import sharp from "sharp";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+async function ensureClaudeSafeSize(imageUrl: string, admin: SupabaseClient): Promise<string> {
+  try {
+    const res = await fetch(imageUrl);
+    if (!res.ok) return imageUrl;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const meta = await sharp(buf).metadata();
+    if ((meta.width || 0) <= 7500 && (meta.height || 0) <= 7500) return imageUrl;
+    const resized = await sharp(buf).rotate().resize(7500, 7500, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 95, mozjpeg: true }).toBuffer();
+    const path = `tmp/claude-resize/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+    const { error } = await admin.storage.from("pin-images").upload(path, resized, { contentType: "image/jpeg", upsert: true });
+    if (error) return imageUrl;
+    const { data: signed } = await admin.storage.from("pin-images").createSignedUrl(path, 600);
+    return signed?.signedUrl || imageUrl;
+  } catch {
+    return imageUrl;
+  }
+}
+
 export const maxDuration = 120; // Transcription can take time
 
 interface AnalysisOutput {
@@ -245,7 +266,7 @@ Based on what you ACTUALLY SEE in this image, generate Pinterest SEO content.
     // Use vision for images, text-only for videos (transcript-based)
     const result = isVideo
       ? await generateJSON<AnalysisOutput>(systemPrompt, userPrompt, undefined, apiKey)
-      : await generateJSONWithImage<AnalysisOutput>(systemPrompt, userPrompt, image_url, undefined, apiKey);
+      : await generateJSONWithImage<AnalysisOutput>(systemPrompt, userPrompt, await ensureClaudeSafeSize(image_url, createAdminClient()), undefined, apiKey);
 
     // Match all suggested boards
     const suggestedNames = result.suggested_boards || (result.suggested_board ? [result.suggested_board] : []);
