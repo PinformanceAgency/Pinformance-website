@@ -276,13 +276,18 @@ export default function CreativesPage() {
       // Create ONE pin in the best matching board
       const bestBoard = a.boards?.[0] || { id: a.board_id!, name: a.board_name };
 
+      // Route swimwear/bikini creatives to the swimwear collection, else use brand default
+      const boardName = (bestBoard.name || "").toLowerCase();
+      const isSwimwear = boardName.includes("bikini") || boardName.includes("swimwear");
+      const linkUrl = isSwimwear ? "https://getfitcherries.com/nl/collections/swimwear" : defaultLinkUrl;
+
       const { error } = await supabase.from("pins").insert({
         org_id: org.id,
         board_id: bestBoard.id,
         title: a.title,
         description: a.description,
         alt_text: a.alt_text,
-        link_url: defaultLinkUrl,
+        link_url: linkUrl,
         keywords: a.keywords,
         pin_type: isVideo ? "video" : "static",
         image_url: isVideo ? null : finalImageUrl,
