@@ -850,6 +850,99 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "test-pinterest-token", ...results });
   }
 
+  // Orchestrate bikini launch: approve all generated bikini pins, redistribute evenly
+  // across the 4 swimwear boards (round-robin), split into pre-fill vs scheduled halves,
+  // and set scheduled_at for the scheduled half at 2/day on given hour slots.
+  if (step === "prepare-bikini-launch") {
+    const prefillCount = body.prefill_count ?? 25;
+    const pinsPerDay = body.pins_per_day ?? 2;
+    const hourSlots: number[] = body.hour_slots || [20, 21]; // bikinis at 20:XX/21:XX NL (18:XX/19:XX UTC)
+    const startDayOffset = body.start_day_offset ?? 1; // default start tomorrow
+
+    // Find the 4 swimwear boards
+    const { data: swimBoards } = await supabase
+      .from("boards")
+      .select("id, name, pinterest_board_id")
+      .eq("org_id", org.id)
+      .eq("status", "active");
+    const bikiniBoards = (swimBoards || []).filter(b => {
+      const n = (b.name || "").toLowerCase();
+      return n.includes("bikini") || n.includes("swimwear");
+    });
+    if (bikiniBoards.length === 0) return NextResponse.json({ error: "No swimwear boards found" }, { status: 400 });
+
+    // Find all generated/approved bikini pins (already assigned to swimwear boards)
+    const bikiniBoardIds = bikiniBoards.map(b => b.id);
+    const { data: pins } = await supabase
+      .from("pins")
+      .select("id, title, status, board_id, created_at")
+      .eq("org_id", org.id)
+      .in("board_id", bikiniBoardIds)
+      .in("status", ["generated", "approved"])
+      .order("created_at", { ascending: true });
+
+    if (!pins || pins.length === 0) return NextResponse.json({ error: "No bikini pins to process" }, { status: 400 });
+
+    // Redistribute all pins round-robin across 4 boards
+    const redistributed = pins.map((p, i) => ({
+      ...p,
+      new_board_id: bikiniBoards[i % bikiniBoards.length].id,
+    }));
+
+    const actualPrefill = Math.min(prefillCount, redistributed.length);
+    const prefillPins = redistributed.slice(0, actualPrefill);
+    const scheduledPins = redistributed.slice(actualPrefill);
+
+    // Set pre-fill pins to approved (bulk-post will handle the rest)
+    for (const p of prefillPins) {
+      await supabase.from("pins").update({
+        board_id: p.new_board_id,
+        status: "approved",
+        updated_at: new Date().toISOString(),
+      }).eq("id", p.id);
+    }
+
+    // Schedule the rest at pinsPerDay per day from startDayOffset days from now
+    const startDay = new Date();
+    startDay.setUTCHours(0, 0, 0, 0);
+    startDay.setDate(startDay.getDate() + startDayOffset);
+
+    const scheduledResult: { id: string; scheduled_at: string; board: string }[] = [];
+    for (let i = 0; i < scheduledPins.length; i++) {
+      const p = scheduledPins[i];
+      const dayOffset = Math.floor(i / pinsPerDay);
+      const slotInDay = i % pinsPerDay;
+      const hour = hourSlots[slotInDay % hourSlots.length];
+      const minute = (i * 7 + 13) % 60;
+      const d = new Date(startDay);
+      d.setDate(d.getDate() + dayOffset);
+      d.setUTCHours(hour - 2, minute, 0, 0); // CEST→UTC (summer, -2h)
+      const iso = d.toISOString();
+      await supabase.from("pins").update({
+        board_id: p.new_board_id,
+        status: "scheduled",
+        scheduled_at: iso,
+        updated_at: new Date().toISOString(),
+      }).eq("id", p.id);
+      scheduledResult.push({ id: p.id, scheduled_at: iso, board: bikiniBoards.find(b => b.id === p.new_board_id)?.name || "" });
+    }
+
+    return NextResponse.json({
+      success: true,
+      step: "prepare-bikini-launch",
+      total_pins: redistributed.length,
+      prefill: {
+        count: prefillPins.length,
+        pin_ids: prefillPins.map(p => p.id),
+      },
+      scheduled: {
+        count: scheduledPins.length,
+        first_3: scheduledResult.slice(0, 3),
+        last_3: scheduledResult.slice(-3),
+      },
+    });
+  }
+
   // Bulk-post a list of pin IDs immediately to Pinterest with a small delay between them.
   // Bypasses daily cap and rate limit for one-off board pre-fill operations.
   if (step === "bulk-post-pins") {
