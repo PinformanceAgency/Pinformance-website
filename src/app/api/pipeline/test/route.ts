@@ -850,6 +850,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "test-pinterest-token", ...results });
   }
 
+  // Update link_url on a specific pin
+  if (step === "update-pin-link") {
+    const { pin_id, link_url } = body;
+    if (!pin_id || !link_url) return NextResponse.json({ error: "pin_id and link_url required" }, { status: 400 });
+    const { data, error } = await supabase.from("pins").update({
+      link_url,
+      updated_at: new Date().toISOString(),
+    }).eq("id", pin_id).eq("org_id", org.id).select("id, title, link_url").single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, step: "update-pin-link", pin: data });
+  }
+
   // Reschedule a specific pin to a new scheduled_at (or now)
   if (step === "reschedule-pin") {
     const { pin_id, scheduled_at } = body;
