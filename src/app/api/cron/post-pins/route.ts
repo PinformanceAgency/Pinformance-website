@@ -111,7 +111,7 @@ async function handlePostPins(request: NextRequest) {
         .eq("org_id", org.id)
         .eq("status", "posted")
         .gte("posted_at", todayStart.toISOString());
-      const postedList = (postedToday || []) as Array<{ id: string; boards: { name: string | null } | null }>;
+      const postedList = (postedToday || []) as unknown as Array<{ id: string; boards: { name: string | null } | null }>;
       const swimwearPostedToday = postedList.filter(p => isSwimBoardName(p.boards?.name)).length;
       const otherPostedToday = postedList.length - swimwearPostedToday;
       if (swimwearPostedToday >= SWIMWEAR_CAP && otherPostedToday >= OTHER_CAP) {
