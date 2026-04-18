@@ -70,15 +70,16 @@ const SUB_BRACKETS: AdspendBracket[] = [
 // -----------------------------------------------------------------------------
 function formatEur(n: number): string {
   if (!Number.isFinite(n)) return "—";
-  return "€ " + Math.round(n).toLocaleString("nl-NL");
+  return "€ " + Math.round(n).toLocaleString("en-US");
 }
 
 function formatPct(n: number): string {
-  return n.toFixed(2).replace(".", ",") + " %";
+  return n.toFixed(2) + " %";
 }
 
 function parseNumber(s: string): number {
-  const cleaned = s.replace(/\./g, "").replace(",", ".");
+  // Accept both 100,000 and 100.000 as thousands separators
+  const cleaned = s.replace(/,/g, "").replace(/\.(?=\d{3}\b)/g, "");
   const n = parseFloat(cleaned);
   return Number.isFinite(n) ? n : NaN;
 }
@@ -187,10 +188,10 @@ function IntakeForm({
   onSubmit: () => void;
 }) {
   const [berInput, setBerInput] = useState(
-    Number.isFinite(intake.breakEvenRoas) ? String(intake.breakEvenRoas).replace(".", ",") : ""
+    Number.isFinite(intake.breakEvenRoas) ? String(intake.breakEvenRoas)  : ""
   );
   const [targetInput, setTargetInput] = useState(
-    Number.isFinite(intake.targetRoas) ? String(intake.targetRoas).replace(".", ",") : ""
+    Number.isFinite(intake.targetRoas) ? String(intake.targetRoas)  : ""
   );
   const [revenueInput, setRevenueInput] = useState(
     Number.isFinite(intake.expectedRevenue) ? String(Math.round(intake.expectedRevenue)) : ""
@@ -237,12 +238,12 @@ function IntakeForm({
           className="h-16 w-16 rounded-2xl shadow-[0_8px_24px_rgba(227,6,19,0.15)] sm:h-20 sm:w-20"
         />
         <h1 className="mt-6 max-w-2xl text-3xl font-bold tracking-tight text-[#0a0a0a] sm:text-5xl">
-          Ontdek wat je laat liggen op Pinterest.
+          What Pinterest can add to your revenue.
         </h1>
       </div>
 
       <div className="rounded-2xl border border-[#e2e4ea] bg-white p-6 shadow-sm sm:p-8">
-        <FormField step={1} label="Brandnaam" hint="Zoals jullie bekend staan bij klanten.">
+        <FormField step={1} label="Brand name">
           <input
             type="text"
             value={intake.brand}
@@ -254,23 +255,19 @@ function IntakeForm({
 
         <Divider />
 
-        <FormField
-          step={2}
-          label="Businessmodel"
-          hint="Runnen jullie een subscription-model of verkopen jullie op first-purchase basis?"
-        >
+        <FormField step={2} label="Business model">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModelCard
               active={intake.businessModel === "first_purchase"}
               onClick={() => setIntake({ ...intake, businessModel: "first_purchase" })}
               title="First purchase"
-              description="Eenmalige aankopen — we werken met performance fee op basis van behaalde ROAS."
+              description="One-time purchases. Performance fee on achieved ROAS."
             />
             <ModelCard
               active={intake.businessModel === "subscription"}
               onClick={() => setIntake({ ...intake, businessModel: "subscription" })}
               title="Subscription"
-              description="Terugkerend abonnementsmodel — we werken met een adspend fee structuur."
+              description="Recurring subscription model. Adspend fee structure."
             />
           </div>
         </FormField>
@@ -284,7 +281,7 @@ function IntakeForm({
                 inputMode="decimal"
                 value={berInput}
                 onChange={(e) => setBerInput(e.target.value)}
-                placeholder="1,6"
+                placeholder="1.6"
                 className="w-32 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-center text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
               />
             </FormField>
@@ -296,7 +293,7 @@ function IntakeForm({
         <FormField
           step={intake.businessModel === "first_purchase" ? 4 : 3}
           label="Minimum ROAS"
-          hint="De ROAS waar wij contractueel niet onder komen — onze commitment aan jullie."
+          hint="The ROAS floor we commit to in the contract."
         >
           <div className="flex items-center gap-3">
             <input
@@ -304,10 +301,9 @@ function IntakeForm({
               inputMode="decimal"
               value={targetInput}
               onChange={(e) => setTargetInput(e.target.value)}
-              placeholder="2,1"
+              placeholder="2.1"
               className="w-32 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-center text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
             />
-            <span className="text-xs text-[#9ca3af]">Bijv. Meta, Google, TikTok gemiddelde</span>
           </div>
         </FormField>
 
@@ -317,8 +313,8 @@ function IntakeForm({
           step={isSubscription ? 4 : 5}
           label={
             isSubscription
-              ? "Realistisch doel maandelijkse adspend"
-              : "Realistisch doel maandelijkse omzet via Pinterest"
+              ? "Monthly adspend target"
+              : "Monthly revenue target from Pinterest"
           }
         >
           <div className="flex items-center gap-2">
@@ -332,17 +328,14 @@ function IntakeForm({
                   ? setAdspendInput(e.target.value)
                   : setRevenueInput(e.target.value)
               }
-              placeholder={isSubscription ? "25.000" : "100.000"}
+              placeholder={isSubscription ? "25,000" : "100,000"}
               className="w-48 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
             />
-            <span className="text-xs text-[#9ca3af]">per maand</span>
+            <span className="text-xs text-[#9ca3af]">per month</span>
           </div>
         </FormField>
 
-        <div className="mt-8 flex items-center justify-between border-t border-[#e2e4ea] pt-6">
-          <p className="text-xs text-[#9ca3af]">
-            We stellen op basis van deze gegevens een gepersonaliseerd aanbod samen.
-          </p>
+        <div className="mt-8 flex items-center justify-end border-t border-[#e2e4ea] pt-6">
           <button
             onClick={handleSubmit}
             disabled={!canSubmit}
@@ -353,7 +346,7 @@ function IntakeForm({
                 : "cursor-not-allowed bg-[#e2e4ea] text-[#9ca3af]")
             }
           >
-            Toon aanbod →
+            Show offer →
           </button>
         </div>
       </div>
@@ -453,7 +446,7 @@ function ResultView({
         <div className="flex items-center justify-between gap-4 px-6 py-5 sm:px-8 sm:py-6">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-[#E30613]">
-              Gepersonaliseerd Pinformance aanbod
+              Your Pinformance offer
             </div>
             <h2 className="mt-1 text-2xl font-bold text-white sm:text-3xl">
               {intake.brand}
@@ -463,28 +456,28 @@ function ResultView({
                 <span>
                   <span className="text-white/50">Break-even ROAS:</span>{" "}
                   <span className="font-semibold text-white">
-                    {intake.breakEvenRoas.toFixed(1).replace(".", ",")}
+                    {intake.breakEvenRoas.toFixed(1)}
                   </span>
                 </span>
               )}
               <span>
                 <span className="text-white/50">Minimum ROAS:</span>{" "}
                 <span className="font-semibold text-white">
-                  {intake.targetRoas.toFixed(1).replace(".", ",")}
+                  {intake.targetRoas.toFixed(1)}
                 </span>
               </span>
               {intake.businessModel === "subscription" ? (
                 <span>
-                  <span className="text-white/50">Doel adspend:</span>{" "}
+                  <span className="text-white/50">Adspend target:</span>{" "}
                   <span className="font-semibold text-white">
-                    {formatEur(intake.expectedAdspend)}/mnd
+                    {formatEur(intake.expectedAdspend)}/mo
                   </span>
                 </span>
               ) : (
                 <span>
-                  <span className="text-white/50">Doel omzet:</span>{" "}
+                  <span className="text-white/50">Revenue target:</span>{" "}
                   <span className="font-semibold text-white">
-                    {formatEur(intake.expectedRevenue)}/mnd
+                    {formatEur(intake.expectedRevenue)}/mo
                   </span>
                 </span>
               )}
@@ -494,7 +487,7 @@ function ResultView({
             onClick={onBack}
             className="shrink-0 rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-xs font-medium text-white/80 transition-all hover:bg-white/10 hover:text-white"
           >
-            ← Pas aan
+            ← Edit
           </button>
         </div>
       </div>
@@ -553,13 +546,13 @@ function ProjectionHero({
         {/* Costs — subordinate but transparent */}
         <div className="bg-[#fafbfc] p-8 sm:p-10 lg:col-span-5 lg:p-14">
           <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
-            Pinformance kosten
+            Pinformance cost
           </div>
           <div className="mt-8 flex items-baseline gap-2">
             <span className="text-4xl font-bold text-[#0a0a0a] sm:text-5xl">
               {formatEur(totalCost)}
             </span>
-            <span className="text-sm font-medium text-[#9ca3af]">/ maand</span>
+            <span className="text-sm font-medium text-[#9ca3af]">/ month</span>
           </div>
 
           <div className="mt-8 space-y-3 text-sm">
@@ -574,10 +567,10 @@ function ProjectionHero({
             {effectivePct !== undefined && effectivePct > 0 && (
               <div className="mt-4 flex items-center justify-between border-t border-[#e2e4ea] pt-4 text-xs">
                 <span className="text-[#9ca3af]">
-                  {effectiveLabel ?? "Effectief"}
+                  {effectiveLabel ?? "Effective"}
                 </span>
                 <span className="font-semibold tabular-nums text-[#E30613]">
-                  {effectivePct.toFixed(2).replace(".", ",")} %
+                  {effectivePct.toFixed(2) } %
                 </span>
               </div>
             )}
@@ -593,29 +586,29 @@ function ProjectionHero({
 // Guarantees — 3 prominent cards that claim our promises
 // -----------------------------------------------------------------------------
 function GuaranteesFirstPurchase({ model }: { model: FpModel }) {
-  const g = model.guaranteeRoas.toString().replace(".", ",");
+  const g = model.guaranteeRoas.toString();
   return (
     <GuaranteesGrid
       items={[
         {
-          label: "Garantie",
-          headline: `ROAS onder ${g} — geen fee`,
-          body: `Behalen we de minimum ROAS van ${g} niet, dan rekenen we geen performance fee. Wij dragen het risico van prestatie.`,
+          label: "Guarantee",
+          headline: `ROAS below ${g} — no fee`,
+          body: `If we don't hit a ROAS of ${g}, you pay no performance fee. We carry the performance risk.`,
         },
         {
-          label: "Drempel",
-          headline: `Pas vanaf € ${MIN_REVENUE_FOR_PERF.toLocaleString("nl-NL")} revenue`,
-          body: `Onder dit maandelijks revenue-niveau rekenen we enkel de vaste base fee — geen variabele kosten.`,
+          label: "Threshold",
+          headline: `Only from € ${MIN_REVENUE_FOR_PERF.toLocaleString("en-US")} revenue`,
+          body: `Below this monthly revenue, only the base fee applies. No variable cost.`,
         },
         {
           label: "Maximum",
-          headline: `Fee maximaal € ${CAP.toLocaleString("nl-NL")} per maand`,
-          body: `Onze totale maandelijkse fee overstijgt dit bedrag nooit, ongeacht hoe hard we samen schalen.`,
+          headline: `Fee capped at € ${CAP.toLocaleString("en-US")} per month`,
+          body: `Our total monthly fee never goes above this, however far we scale.`,
         },
         {
           label: "Invoicing",
-          headline: "Achteraf, nooit vooraf",
-          body: "De performance fee wordt pas aan het einde van de maand berekend en gefactureerd — op basis van werkelijk behaalde resultaten. Jullie realiseren eerst de omzet, daarna pas de kosten.",
+          headline: "After the month, never before",
+          body: "The performance fee is calculated and invoiced at month-end, on actual results. You earn first, pay after.",
         },
       ]}
     />
@@ -623,31 +616,29 @@ function GuaranteesFirstPurchase({ model }: { model: FpModel }) {
 }
 
 function GuaranteesSubscription({ minimumRoas }: { minimumRoas: number }) {
-  const roasLabel = Number.isFinite(minimumRoas)
-    ? minimumRoas.toFixed(1).replace(".", ",")
-    : "—";
+  const roasLabel = Number.isFinite(minimumRoas) ? minimumRoas.toFixed(1) : "—";
   return (
     <GuaranteesGrid
       items={[
         {
-          label: "Garantie",
+          label: "Guarantee",
           headline: `Minimum ROAS ${roasLabel}`,
-          body: `Wij committeren ons contractueel aan een ROAS van minimaal ${roasLabel}. Komen we hieronder, dan rekenen we geen adspend fee — onze verantwoordelijkheid.`,
+          body: `We commit to a ROAS of at least ${roasLabel} in the contract. If we fall below, you pay no adspend fee. On us.`,
         },
         {
-          label: "Drempel",
-          headline: `Pas vanaf € ${MIN_ADSPEND_FOR_FEE.toLocaleString("nl-NL")} adspend`,
-          body: `Onder dit maandelijkse adspend-niveau rekenen we enkel de vaste base fee — geen variabele kosten.`,
+          label: "Threshold",
+          headline: `Only from € ${MIN_ADSPEND_FOR_FEE.toLocaleString("en-US")} adspend`,
+          body: `Below this monthly adspend, only the base fee applies. No variable cost.`,
         },
         {
           label: "Maximum",
-          headline: `Fee maximaal € ${CAP.toLocaleString("nl-NL")} per maand`,
-          body: `Onze totale maandelijkse fee overstijgt dit bedrag nooit, ongeacht hoe hard we samen schalen.`,
+          headline: `Fee capped at € ${CAP.toLocaleString("en-US")} per month`,
+          body: `Our total monthly fee never goes above this, however far we scale.`,
         },
         {
           label: "Invoicing",
-          headline: "Achteraf, nooit vooraf",
-          body: "De adspend fee wordt pas aan het einde van de maand berekend en gefactureerd — op basis van werkelijke adspend. Jullie realiseren eerst het resultaat, daarna pas de kosten.",
+          headline: "After the month, never before",
+          body: "The adspend fee is calculated and invoiced at month-end, on actual adspend. You run first, pay after.",
         },
       ]}
     />
@@ -663,10 +654,10 @@ function GuaranteesGrid({
     <section>
       <div className="mb-6">
         <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
-          Garanties & voorwaarden
+          Guarantees & terms
         </h3>
         <p className="mt-1 text-sm text-[#6b7280]">
-          Vastgelegd in NDA en service agreements.
+          Captured in the NDA and service agreement.
         </p>
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -702,7 +693,7 @@ function FirstPurchasePanel({
   intake: Intake;
 }) {
   const [roasInput, setRoasInput] = useState(
-    intake.targetRoas.toFixed(1).replace(".", ",")
+    intake.targetRoas.toFixed(1) 
   );
   const [revenueInput, setRevenueInput] = useState(
     String(Math.round(intake.expectedRevenue))
@@ -748,7 +739,7 @@ function FirstPurchasePanel({
       const r = t / 10;
       const pct = computePerfFeePct(r, model);
       out.push({
-        roas: r.toFixed(1).replace(".", ","),
+        roas: r.toFixed(1),
         pct: pct ?? 0,
       });
     }
@@ -757,11 +748,11 @@ function FirstPurchasePanel({
 
   let note: string | undefined;
   if (belowGuarantee) {
-    note = `Onder de garantie ROAS van ${model.guaranteeRoas.toString().replace(".", ",")} — geen performance fee van toepassing.`;
+    note = `Below the guaranteed ROAS of ${model.guaranteeRoas.toString()}. No performance fee.`;
   } else if (belowMinRev) {
-    note = `Onder € ${MIN_REVENUE_FOR_PERF.toLocaleString("nl-NL")} maandelijkse revenue — alleen de vaste base fee actief.`;
+    note = `Below € ${MIN_REVENUE_FOR_PERF.toLocaleString("en-US")} monthly revenue. Base fee only.`;
   } else if (capped) {
-    note = `Maximum fee bereikt — onze fee blijft op € ${CAP.toLocaleString("nl-NL")} per maand.`;
+    note = `Cap reached. Our fee stays at € ${CAP.toLocaleString("en-US")} per month.`;
   }
 
   const perfLabel =
@@ -771,30 +762,28 @@ function FirstPurchasePanel({
 
   return (
     <div className="space-y-10">
-      {/* 1. Combined projection — revenue dominant, costs transparent */}
       <ProjectionHero
         brand={intake.brand}
         mainValue={revenue}
-        mainLabel="Projectie maandelijkse omzet"
-        mainDescription="Extra maandelijkse revenue via Pinterest — een additioneel acquisitiekanaal naast jullie bestaande inspanningen."
+        mainLabel="Monthly revenue projection"
+        mainDescription="Extra monthly revenue from Pinterest — an additional channel alongside your existing ones."
         totalCost={total}
         breakdown={[
           { label: "Base fee", value: formatEur(BASE_FEE) },
           { label: perfLabel, value: formatEur(perfFee) },
         ]}
         effectivePct={!belowMinRev && !belowGuarantee ? effectivePct : undefined}
-        effectiveLabel="Effectief op revenue"
+        effectiveLabel="Effective on revenue"
         note={note}
       />
 
-      {/* 2. Live scenarios — inputs + chart, compact and clean */}
       <section>
         <div className="mb-6">
           <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
-            Scenario&apos;s doorrekenen
+            Scenarios
           </h3>
           <p className="mt-1 text-sm text-[#6b7280]">
-            Pas ROAS of revenue aan — de projectie werkt live mee.
+            Change ROAS or revenue — numbers update live.
           </p>
         </div>
 
@@ -802,7 +791,7 @@ function FirstPurchasePanel({
           <div className="space-y-4 lg:col-span-2">
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Behaalde ROAS
+                Achieved ROAS
               </div>
               <input
                 type="text"
@@ -814,7 +803,7 @@ function FirstPurchasePanel({
 
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Maandelijkse revenue
+                Monthly revenue
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-lg font-medium text-[#9ca3af]">€</span>
@@ -833,12 +822,11 @@ function FirstPurchasePanel({
           <div className="lg:col-span-3">
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-6">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Performance fee bij verschillende ROAS
+                Performance fee at different ROAS
               </div>
               <div className="text-base font-semibold text-[#0a0a0a]">
-                Bij een omzet van{" "}
-                <span className="text-[#E30613]">{formatEur(revenue)}</span> per
-                maand
+                At monthly revenue of{" "}
+                <span className="text-[#E30613]">{formatEur(revenue)}</span>
               </div>
               <div className="mt-5 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -854,9 +842,7 @@ function FirstPurchasePanel({
                       tick={{ fontSize: 11, fill: "#6b7280" }}
                       axisLine={false}
                       tickLine={false}
-                      tickFormatter={(v) =>
-                        Number(v).toFixed(1).replace(".", ",") + " %"
-                      }
+                      tickFormatter={(v) => Number(v).toFixed(1) + " %"}
                     />
                     <Tooltip
                       contentStyle={{
@@ -865,7 +851,7 @@ function FirstPurchasePanel({
                         fontSize: 12,
                       }}
                       formatter={(value) => [
-                        Number(value).toFixed(2).replace(".", ",") + " %",
+                        Number(value).toFixed(2) + " %",
                         "Performance fee",
                       ]}
                       labelFormatter={(l) => "ROAS " + l}
@@ -889,9 +875,8 @@ function FirstPurchasePanel({
       {/* 3. Startup fee — small footnote */}
       <div className="flex items-center justify-between gap-4 rounded-xl border border-[#e2e4ea] bg-white px-5 py-4 text-xs text-[#6b7280]">
         <span>
-          <span className="font-semibold text-[#0a0a0a]">Eenmalige startup fee </span>
-          € {STARTUP_FEE.toLocaleString("nl-NL")} · onboarding, strategie en
-          account setup.
+          <span className="font-semibold text-[#0a0a0a]">One-time setup fee </span>
+          € {STARTUP_FEE.toLocaleString("en-US")} — onboarding, strategy, account setup.
         </span>
       </div>
 
@@ -989,9 +974,9 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 
   let note: string | undefined;
   if (calc.belowMin) {
-    note = `Onder € ${MIN_ADSPEND_FOR_FEE.toLocaleString("nl-NL")} adspend — alleen de vaste base fee actief.`;
+    note = `Below € ${MIN_ADSPEND_FOR_FEE.toLocaleString("en-US")} adspend. Base fee only.`;
   } else if (calc.capped) {
-    note = `Maximum fee bereikt — onze fee blijft op € ${CAP.toLocaleString("nl-NL")} per maand.`;
+    note = `Cap reached. Our fee stays at € ${CAP.toLocaleString("en-US")} per month.`;
   }
 
   const breakdown: { label: string; value: string }[] = [
@@ -1004,22 +989,22 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
       <ProjectionHero
         brand={intake.brand}
         mainValue={adspend}
-        mainLabel="Maandelijkse adspend"
-        mainDescription="Het mediabudget dat wij actief voor jullie inzetten op Pinterest. Onze fee schaalt progressief met de adspend — hoe harder jullie groeien, hoe lager het effectieve percentage."
+        mainLabel="Monthly adspend"
+        mainDescription="The media budget we run on Pinterest. The rate drops as you scale — more adspend, lower percentage."
         totalCost={calc.total}
         breakdown={breakdown}
         effectivePct={!calc.belowMin ? calc.effectivePct : undefined}
-        effectiveLabel="Effectief op adspend"
+        effectiveLabel="Effective on adspend"
         note={note}
       />
 
       <section>
         <div className="mb-6">
           <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
-            Scenario&apos;s doorrekenen
+            Scenarios
           </h3>
           <p className="mt-1 text-sm text-[#6b7280]">
-            Pas de adspend aan — de projectie werkt live mee.
+            Change the adspend — numbers update live.
           </p>
         </div>
 
@@ -1027,7 +1012,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
           <div className="space-y-4 lg:col-span-2">
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Maandelijkse adspend
+                Monthly adspend
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-lg font-medium text-[#9ca3af]">€</span>
@@ -1039,8 +1024,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                 />
               </div>
               <p className="mt-3 text-[11px] text-[#9ca3af]">
-                Intake-doel: {formatEur(intakeAdspend)}. Pas live aan tijdens
-                de call indien nodig.
+                Intake target: {formatEur(intakeAdspend)}. Adjust live if needed.
               </p>
             </div>
 
@@ -1083,7 +1067,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
             {calc.brackets.length > 0 && (
               <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
                 <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                  Opbouw
+                  Breakdown
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between text-[#6b7280]">
@@ -1107,7 +1091,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                   ))}
                   <div className="mt-2 flex justify-between border-t border-[#e2e4ea] pt-2">
                     <span className="font-semibold text-[#0a0a0a]">
-                      Totaal{calc.capped ? " (cap)" : ""}
+                      Total{calc.capped ? " (cap)" : ""}
                     </span>
                     <span className="font-semibold tabular-nums text-[#E30613]">
                       {formatEur(calc.total)}
@@ -1121,12 +1105,11 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
           <div className="lg:col-span-3">
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-6">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Adspend fee bracket per niveau
+                Adspend fee rate per bracket
               </div>
               <div className="text-base font-semibold text-[#0a0a0a]">
-                Bij adspend van{" "}
-                <span className="text-[#E30613]">{formatEur(adspend)}</span> per
-                maand
+                At monthly adspend of{" "}
+                <span className="text-[#E30613]">{formatEur(adspend)}</span>
               </div>
               <div className="mt-5 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1155,7 +1138,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                         fontSize: 12,
                       }}
                       formatter={(value) => [
-                        Number(value).toFixed(1).replace(".", ",") + " %",
+                        Number(value).toFixed(1) + " %",
                         "Adspend fee",
                       ]}
                       labelFormatter={(l) => "Adspend " + l}
@@ -1197,9 +1180,8 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 
       <div className="flex items-center justify-between gap-4 rounded-xl border border-[#e2e4ea] bg-white px-5 py-4 text-xs text-[#6b7280]">
         <span>
-          <span className="font-semibold text-[#0a0a0a]">Eenmalige startup fee </span>
-          € {STARTUP_FEE.toLocaleString("nl-NL")} · onboarding, strategie en
-          account setup.
+          <span className="font-semibold text-[#0a0a0a]">One-time setup fee </span>
+          € {STARTUP_FEE.toLocaleString("en-US")} — onboarding, strategy, account setup.
         </span>
       </div>
 
@@ -1216,7 +1198,7 @@ function TiersCard({ model, activeRoas }: { model: FpModel; activeRoas: number }
   return (
     <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
       <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
-        Performance fee tiers — lineair
+        Performance fee tiers
       </div>
       <div className="grid grid-cols-4 gap-2">
         <TierBox
@@ -1236,10 +1218,10 @@ function TiersCard({ model, activeRoas }: { model: FpModel; activeRoas: number }
               key={i}
               label={
                 last
-                  ? `ROAS ${p.roas.toString().replace(".", ",")}+`
-                  : `ROAS ${p.roas.toString().replace(".", ",")}`
+                  ? `ROAS ${p.roas.toString() }+`
+                  : `ROAS ${p.roas.toString() }`
               }
-              pct={`${p.pct.toString().replace(".", ",")}%`}
+              pct={`${p.pct.toString() }%`}
               active={isActive}
             />
           );
