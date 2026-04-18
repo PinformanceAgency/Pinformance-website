@@ -103,7 +103,9 @@ function computePerfFeePct(roas: number, model: FpModel): number | null {
 
 function determineModel(intake: Intake): ModelKey {
   if (intake.businessModel === "subscription") return "sub";
-  return intake.breakEvenRoas >= 1.5 ? "high" : "low";
+  // BER 1.2 – 1.5 → Low model (guarantee ROAS 1.8, fee from ROAS 1.8)
+  // BER 1.6 – 2.0 → High model (guarantee ROAS 2.0, fee from ROAS 2.0)
+  return intake.breakEvenRoas >= 1.6 ? "high" : "low";
 }
 
 // -----------------------------------------------------------------------------
