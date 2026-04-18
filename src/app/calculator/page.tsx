@@ -590,6 +590,11 @@ function GuaranteesFirstPurchase({ model }: { model: FpModel }) {
           headline: `Fee maximaal € ${CAP.toLocaleString("nl-NL")} per maand`,
           body: `Onze totale maandelijkse fee overstijgt dit bedrag nooit, ongeacht hoe hard we samen schalen.`,
         },
+        {
+          label: "Invoicing",
+          headline: "Achteraf, nooit vooraf",
+          body: "De performance fee wordt pas aan het einde van de maand berekend en gefactureerd — op basis van werkelijk behaalde resultaten. Jullie realiseren eerst de omzet, daarna pas de investering.",
+        },
       ]}
     />
   );
@@ -601,8 +606,8 @@ function GuaranteesSubscription() {
       items={[
         {
           label: "Garantie",
-          headline: "Contractuele minimum ROAS",
-          body: "De minimum ROAS die wij garanderen leggen we vooraf contractueel vast op basis van jullie business. Halen we die niet, dan rekenen we geen adspend fee.",
+          headline: "Minimum ROAS per contract",
+          body: "De minimum ROAS die wij garanderen leggen we vooraf vast in jullie service agreement. Halen we die niet, dan rekenen we geen adspend fee.",
         },
         {
           label: "Drempel",
@@ -613,6 +618,11 @@ function GuaranteesSubscription() {
           label: "Maximum",
           headline: `Fee maximaal € ${CAP.toLocaleString("nl-NL")} per maand`,
           body: `Onze totale maandelijkse fee overstijgt dit bedrag nooit, ongeacht hoe hard we samen schalen.`,
+        },
+        {
+          label: "Invoicing",
+          headline: "Achteraf, nooit vooraf",
+          body: "De adspend fee wordt pas aan het einde van de maand berekend en gefactureerd — op basis van werkelijke adspend. Jullie realiseren eerst het resultaat, daarna pas de investering.",
         },
       ]}
     />
@@ -631,10 +641,10 @@ function GuaranteesGrid({
           Garanties & voorwaarden
         </h3>
         <p className="mt-1 text-sm text-[#6b7280]">
-          Contractueel vastgelegd. Transparant, zonder kleine lettertjes.
+          Vastgelegd in NDA en service agreements.
         </p>
       </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         {items.map((it, i) => (
           <div
             key={i}
@@ -703,10 +713,14 @@ function FirstPurchasePanel({
   const chartData = useMemo(() => {
     const min = model.guaranteeRoas;
     const max = model.points[model.points.length - 1].roas + 0.5;
-    const steps = 12;
+    // Walk in clean 0.1 increments so the labels on the X-axis line up
+    // exactly with the tier boundaries and the displayed percentages match
+    // the values shown in the tier cards.
     const out: { roas: string; pct: number }[] = [];
-    for (let i = 0; i <= steps; i++) {
-      const r = min + (i / steps) * (max - min);
+    const startTenths = Math.round(min * 10);
+    const endTenths = Math.round(max * 10);
+    for (let t = startTenths; t <= endTenths; t++) {
+      const r = t / 10;
       const pct = computePerfFeePct(r, model);
       out.push({
         roas: r.toFixed(1).replace(".", ","),
