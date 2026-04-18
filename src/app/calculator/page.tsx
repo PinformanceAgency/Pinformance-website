@@ -447,12 +447,6 @@ function ResultView({
               {intake.brand}
             </h2>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/70">
-              <span>
-                <span className="text-white/50">Businessmodel:</span>{" "}
-                <span className="font-semibold text-white">
-                  {intake.businessModel === "subscription" ? "Subscription" : "First purchase"}
-                </span>
-              </span>
               {intake.businessModel === "first_purchase" && (
                 <span>
                   <span className="text-white/50">Break-even ROAS:</span>{" "}
@@ -513,9 +507,6 @@ function ProjectionHero({
   effectiveLabel?: string;
   note?: string;
 }) {
-  const ratio =
-    totalCost > 0 && monthlyRevenue > 0 ? monthlyRevenue / totalCost : 0;
-
   return (
     <div className="overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
       <div className="grid grid-cols-1 lg:grid-cols-12">
@@ -570,23 +561,6 @@ function ProjectionHero({
         </div>
       </div>
 
-      {/* Ratio ribbon — quiet black strip, emphasises proportion */}
-      {ratio > 1 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#e2e4ea] bg-[#0a0a0a] px-8 py-5 text-sm text-white/70 sm:px-10 lg:px-14">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-white/50">
-            Verhouding
-          </span>
-          <span className="hidden h-3 w-px bg-white/20 sm:block" />
-          <span>
-            Voor elke <span className="font-semibold text-white">€ 1</span>{" "}
-            investering leveren we{" "}
-            <span className="font-semibold text-[#E30613]">
-              € {ratio.toFixed(ratio >= 10 ? 0 : 1).replace(".", ",")}
-            </span>{" "}
-            aan extra revenue op.
-          </span>
-        </div>
-      )}
     </div>
   );
 }
