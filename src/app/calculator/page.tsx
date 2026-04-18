@@ -158,23 +158,19 @@ export default function CalculatorPage() {
 // -----------------------------------------------------------------------------
 function Header() {
   return (
-    <header className="mb-8 flex items-center justify-between border-b border-[#e2e4ea] pb-6">
-      <div className="flex items-center gap-3">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/logo.png"
-          alt="Pinformance"
-          className="h-10 w-10 rounded-xl"
-        />
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#0a0a0a]">
-            Pinformance
-          </h1>
-          <p className="text-xs uppercase tracking-widest text-[#6b7280]">
-            Pinterest Performance Calculator
-          </p>
-        </div>
-      </div>
+    <header className="mb-10 flex flex-col items-center border-b border-[#e2e4ea] pb-10 text-center">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo.png"
+        alt="Pinformance"
+        className="h-20 w-20 rounded-2xl shadow-[0_8px_24px_rgba(227,6,19,0.15)] sm:h-24 sm:w-24"
+      />
+      <h1 className="mt-6 text-4xl font-bold tracking-tight text-[#0a0a0a] sm:text-6xl">
+        Pinformance
+      </h1>
+      <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.3em] text-[#6b7280] sm:text-sm">
+        Pinterest Performance Calculator
+      </p>
     </header>
   );
 }
