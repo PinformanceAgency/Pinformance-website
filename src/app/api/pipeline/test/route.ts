@@ -968,29 +968,69 @@ export async function POST(request: NextRequest) {
     for (const pin of pins || []) {
       const boardPinId = (pin.boards as { pinterest_board_id: string | null } | null)?.pinterest_board_id;
       if (!boardPinId) { results.push({ id: pin.id, status: "skip", error: "no_board_pinterest_id" }); continue; }
+      const isVideo = pin.pin_type === "video" || !!pin.video_url;
       if (!pin.image_url && !pin.video_url) { results.push({ id: pin.id, status: "skip", error: "no_media" }); continue; }
       try {
         await supabase.from("pins").update({ status: "posting" }).eq("id", pin.id);
-        let imageUrl = pin.image_url || "";
-        const iPath = imageUrl.split("/object/public/pin-images/")[1];
-        if (iPath) {
-          const { data: signed } = await supabase.storage.from("pin-images").createSignedUrl(iPath, 300);
-          if (signed?.signedUrl) imageUrl = signed.signedUrl;
+        let pPinId: string;
+        if (isVideo && pin.video_url) {
+          const media = await pinterest.registerMediaUpload();
+          let videoUrl = pin.video_url;
+          const vPath = videoUrl.split("/object/public/pin-images/")[1];
+          if (vPath) {
+            const { data: vSigned } = await supabase.storage.from("pin-images").createSignedUrl(vPath, 300);
+            if (vSigned?.signedUrl) videoUrl = vSigned.signedUrl;
+          }
+          const videoRes = await fetch(videoUrl);
+          if (!videoRes.ok) throw new Error(`Video download: ${videoRes.status}`);
+          const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+          const videoContentType = videoRes.headers.get("content-type") || "video/mp4";
+          await pinterest.uploadVideoToS3(media.upload_url, media.upload_parameters, videoBuffer, videoContentType);
+          let mediaReady = false;
+          for (let poll = 0; poll < 12; poll++) {
+            await new Promise(r => setTimeout(r, 5000));
+            try {
+              const st = await pinterest.getMediaStatus(media.media_id);
+              if (st.status === "succeeded" || st.status === "registered") { mediaReady = true; break; }
+              if (st.status === "failed") throw new Error(`Video processing failed for media ${media.media_id}`);
+            } catch (se) {
+              if (se instanceof Error && se.message.includes("failed")) throw se;
+            }
+          }
+          if (!mediaReady) throw new Error(`Video processing timeout for media ${media.media_id}`);
+          const vp = await pinterest.createVideoPin({
+            board_id: boardPinId,
+            title: pin.title,
+            description: pin.description || undefined,
+            link: pin.link_url || undefined,
+            alt_text: pin.alt_text || undefined,
+            media_id: media.media_id,
+            cover_image_key_frame_time: 1000,
+          });
+          pPinId = vp.id;
+        } else {
+          let imageUrl = pin.image_url || "";
+          const iPath = imageUrl.split("/object/public/pin-images/")[1];
+          if (iPath) {
+            const { data: signed } = await supabase.storage.from("pin-images").createSignedUrl(iPath, 300);
+            if (signed?.signedUrl) imageUrl = signed.signedUrl;
+          }
+          const pPin = await pinterest.createPin({
+            board_id: boardPinId,
+            title: pin.title,
+            description: pin.description || undefined,
+            link: pin.link_url || undefined,
+            alt_text: pin.alt_text || undefined,
+            media_source: { source_type: "image_url", url: imageUrl },
+          });
+          pPinId = pPin.id;
         }
-        const pPin = await pinterest.createPin({
-          board_id: boardPinId,
-          title: pin.title,
-          description: pin.description || undefined,
-          link: pin.link_url || undefined,
-          alt_text: pin.alt_text || undefined,
-          media_source: { source_type: "image_url", url: imageUrl },
-        });
         await supabase.from("pins").update({
           status: "posted",
-          pinterest_pin_id: pPin.id,
+          pinterest_pin_id: pPinId,
           posted_at: new Date().toISOString(),
         }).eq("id", pin.id);
-        results.push({ id: pin.id, status: "posted", pinterest_id: pPin.id });
+        results.push({ id: pin.id, status: "posted", pinterest_id: pPinId });
       } catch (e) {
         await supabase.from("pins").update({ status: "approved" }).eq("id", pin.id);
         results.push({ id: pin.id, status: "error", error: e instanceof Error ? e.message : "unknown" });
