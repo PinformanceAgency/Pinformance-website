@@ -275,17 +275,14 @@ function IntakeForm({
           <>
             <Divider />
             <FormField step={3} label="Break-even ROAS">
-              <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={berInput}
-                  onChange={(e) => setBerInput(e.target.value)}
-                  placeholder="1,6"
-                  className="w-32 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-center text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
-                />
-                <span className="text-xs text-[#9ca3af]">Alles daarboven = winst</span>
-              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={berInput}
+                onChange={(e) => setBerInput(e.target.value)}
+                placeholder="1,6"
+                className="w-32 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-center text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
+              />
             </FormField>
           </>
         )}
