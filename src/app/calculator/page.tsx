@@ -701,28 +701,20 @@ function FirstPurchasePanel({
   }, [roas, revenue, perfPct, belowGuarantee, belowMinRev]);
 
   const chartData = useMemo(() => {
-    if (Number.isNaN(revenue) || revenue <= 0) return [];
     const min = model.guaranteeRoas;
     const max = model.points[model.points.length - 1].roas + 0.5;
     const steps = 12;
-    const out: { roas: string; total: number; revenue: number }[] = [];
+    const out: { roas: string; pct: number }[] = [];
     for (let i = 0; i <= steps; i++) {
       const r = min + (i / steps) * (max - min);
       const pct = computePerfFeePct(r, model);
-      let tot = BASE_FEE;
-      if (pct !== null && revenue >= MIN_REVENUE_FOR_PERF) {
-        const raw = revenue * (pct / 100);
-        const maxPerf = CAP - BASE_FEE;
-        tot = BASE_FEE + Math.min(raw, maxPerf);
-      }
       out.push({
         roas: r.toFixed(1).replace(".", ","),
-        total: Math.round(tot),
-        revenue: Math.round(revenue),
+        pct: pct ?? 0,
       });
     }
     return out;
-  }, [model, revenue]);
+  }, [model]);
 
   let note: string | undefined;
   if (belowGuarantee) {
@@ -799,11 +791,13 @@ function FirstPurchasePanel({
 
           <div className="lg:col-span-3">
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-6">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Fee bij verschillende ROAS
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+                Performance fee bij verschillende ROAS
               </div>
-              <div className="text-sm text-[#6b7280]">
-                Bij revenue van {formatEur(revenue)} per maand
+              <div className="text-base font-semibold text-[#0a0a0a]">
+                Bij een omzet van{" "}
+                <span className="text-[#E30613]">{formatEur(revenue)}</span> per
+                maand
               </div>
               <div className="mt-5 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -819,7 +813,9 @@ function FirstPurchasePanel({
                       tick={{ fontSize: 11, fill: "#6b7280" }}
                       axisLine={false}
                       tickLine={false}
-                      tickFormatter={(v) => "€ " + (v / 1000).toFixed(0) + "k"}
+                      tickFormatter={(v) =>
+                        Number(v).toFixed(1).replace(".", ",") + " %"
+                      }
                     />
                     <Tooltip
                       contentStyle={{
@@ -827,12 +823,15 @@ function FirstPurchasePanel({
                         border: "1px solid #e2e4ea",
                         fontSize: 12,
                       }}
-                      formatter={(value) => [formatEur(Number(value)), "Pinformance fee"]}
+                      formatter={(value) => [
+                        Number(value).toFixed(2).replace(".", ",") + " %",
+                        "Performance fee",
+                      ]}
                       labelFormatter={(l) => "ROAS " + l}
                     />
                     <Line
                       type="monotone"
-                      dataKey="total"
+                      dataKey="pct"
                       stroke="#E30613"
                       strokeWidth={2.5}
                       dot={{ r: 3, fill: "#E30613" }}
