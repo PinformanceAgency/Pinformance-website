@@ -42,9 +42,9 @@ const FP_MODELS: Record<FpModelId, FpModel> = {
     title: "First purchase",
     guaranteeRoas: 2,
     points: [
-      { roas: 2, pct: 2 },
-      { roas: 2.5, pct: 3 },
-      { roas: 3, pct: 4 },
+      { roas: 2, pct: 2.5 },
+      { roas: 2.5, pct: 3.5 },
+      { roas: 3, pct: 4.5 },
     ],
   },
   low: {
@@ -52,9 +52,9 @@ const FP_MODELS: Record<FpModelId, FpModel> = {
     title: "First purchase",
     guaranteeRoas: 1.8,
     points: [
-      { roas: 1.8, pct: 2 },
-      { roas: 2.2, pct: 3 },
-      { roas: 2.6, pct: 4 },
+      { roas: 1.8, pct: 2.5 },
+      { roas: 2.2, pct: 3.5 },
+      { roas: 2.6, pct: 4.5 },
     ],
   },
 };
@@ -1185,7 +1185,7 @@ function TiersCard({ model, activeRoas }: { model: FpModel; activeRoas: number }
                   ? `ROAS ${p.roas.toString().replace(".", ",")}+`
                   : `ROAS ${p.roas.toString().replace(".", ",")}`
               }
-              pct={`${p.pct}%`}
+              pct={`${p.pct.toString().replace(".", ",")}%`}
               active={isActive}
             />
           );
