@@ -315,7 +315,6 @@ function IntakeForm({
         <FormField
           step={intake.businessModel === "first_purchase" ? 5 : 4}
           label="Realistisch doel maandelijkse omzet via Pinterest"
-          hint="Wat willen jullie per maand via Pinterest binnenhalen?"
         >
           <div className="flex items-center gap-2">
             <span className="text-xl font-semibold text-[#9ca3af]">€</span>
