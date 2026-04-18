@@ -15,7 +15,7 @@ import {
 } from "recharts";
 
 // -----------------------------------------------------------------------------
-// Constants — mirror the pricing logic from the agency HTML calculator
+// Constants
 // -----------------------------------------------------------------------------
 const CAP = 10_000;
 const BASE_FEE = 750;
@@ -32,7 +32,6 @@ type FpPoint = { roas: number; pct: number };
 type FpModel = {
   id: FpModelId;
   title: string;
-  berRange: string;
   guaranteeRoas: number;
   points: FpPoint[];
 };
@@ -40,8 +39,7 @@ type FpModel = {
 const FP_MODELS: Record<FpModelId, FpModel> = {
   high: {
     id: "high",
-    title: "First purchase — High performance",
-    berRange: "BER 1.5 – 2.0",
+    title: "First purchase",
     guaranteeRoas: 2,
     points: [
       { roas: 2, pct: 2 },
@@ -51,8 +49,7 @@ const FP_MODELS: Record<FpModelId, FpModel> = {
   },
   low: {
     id: "low",
-    title: "First purchase — Value performance",
-    berRange: "BER 1.2 – 1.4",
+    title: "First purchase",
     guaranteeRoas: 1.8,
     points: [
       { roas: 1.8, pct: 2 },
@@ -136,7 +133,6 @@ export default function CalculatorPage() {
   return (
     <div className="min-h-screen bg-[#f8f9fb] dot-grid-bg py-10 px-4 sm:px-6 lg:px-10">
       <div className="mx-auto max-w-6xl">
-        <Header />
         {step === "intake" ? (
           <IntakeForm
             intake={intake}
@@ -144,7 +140,10 @@ export default function CalculatorPage() {
             onSubmit={() => setStep("result")}
           />
         ) : (
-          <ResultView intake={intake} onBack={() => setStep("intake")} />
+          <>
+            <Header />
+            <ResultView intake={intake} onBack={() => setStep("intake")} />
+          </>
         )}
         <Footer />
       </div>
@@ -153,15 +152,18 @@ export default function CalculatorPage() {
 }
 
 // -----------------------------------------------------------------------------
-// Header
+// Header — matches dashboard logo usage
 // -----------------------------------------------------------------------------
 function Header() {
   return (
     <header className="mb-8 flex items-center justify-between border-b border-[#e2e4ea] pb-6">
-      <div className="flex items-center gap-4">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#E30613] font-bold text-white shadow-[0_2px_8px_rgba(227,6,19,0.2)]">
-          P
-        </div>
+      <div className="flex items-center gap-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo.png"
+          alt="Pinformance"
+          className="h-10 w-10 rounded-xl"
+        />
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#0a0a0a]">
             Pinformance
@@ -171,19 +173,12 @@ function Header() {
           </p>
         </div>
       </div>
-      <div className="hidden items-center gap-2 rounded-full border border-[#e2e4ea] bg-white px-3 py-1.5 text-xs text-[#6b7280] sm:flex">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#E30613] opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-[#E30613]" />
-        </span>
-        Live pricing tool
-      </div>
     </header>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Intake form — sales person fills in during call
+// Intake form
 // -----------------------------------------------------------------------------
 function IntakeForm({
   intake,
@@ -230,27 +225,20 @@ function IntakeForm({
 
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-6 text-center">
-        <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#e2e4ea] bg-white px-3 py-1 text-[10px] font-medium uppercase tracking-widest text-[#6b7280]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#E30613]" />
-          Intake
-        </div>
-        <h2 className="text-2xl font-bold tracking-tight text-[#0a0a0a] sm:text-3xl">
-          Laten we jullie aanbod samenstellen
-        </h2>
-        <p className="mt-2 text-sm text-[#6b7280]">
-          Vul onderstaande gegevens in. Wij bepalen op basis daarvan het
-          beste Pinformance-model voor jullie brand.
-        </p>
+      <div className="mb-10 flex flex-col items-center text-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo.png"
+          alt="Pinformance"
+          className="h-16 w-16 rounded-2xl shadow-[0_8px_24px_rgba(227,6,19,0.15)] sm:h-20 sm:w-20"
+        />
+        <h1 className="mt-6 max-w-2xl text-3xl font-bold tracking-tight text-[#0a0a0a] sm:text-5xl">
+          Ontdek wat je laat liggen op Pinterest.
+        </h1>
       </div>
 
       <div className="rounded-2xl border border-[#e2e4ea] bg-white p-6 shadow-sm sm:p-8">
-        {/* Brand name */}
-        <FormField
-          step={1}
-          label="Brandnaam"
-          hint="Zoals jullie bekend staan bij klanten."
-        >
+        <FormField step={1} label="Brandnaam" hint="Zoals jullie bekend staan bij klanten.">
           <input
             type="text"
             value={intake.brand}
@@ -262,7 +250,6 @@ function IntakeForm({
 
         <Divider />
 
-        {/* Business model */}
         <FormField
           step={2}
           label="Businessmodel"
@@ -271,24 +258,19 @@ function IntakeForm({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModelCard
               active={intake.businessModel === "first_purchase"}
-              onClick={() =>
-                setIntake({ ...intake, businessModel: "first_purchase" })
-              }
+              onClick={() => setIntake({ ...intake, businessModel: "first_purchase" })}
               title="First purchase"
               description="Eenmalige aankopen — we werken met performance fee op basis van behaalde ROAS."
             />
             <ModelCard
               active={intake.businessModel === "subscription"}
-              onClick={() =>
-                setIntake({ ...intake, businessModel: "subscription" })
-              }
+              onClick={() => setIntake({ ...intake, businessModel: "subscription" })}
               title="Subscription"
               description="Terugkerend abonnementsmodel — we werken met een adspend fee structuur."
             />
           </div>
         </FormField>
 
-        {/* BER — only relevant for first purchase */}
         {intake.businessModel === "first_purchase" && (
           <>
             <Divider />
@@ -306,9 +288,7 @@ function IntakeForm({
                   placeholder="1,6"
                   className="w-32 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-center text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
                 />
-                <span className="text-xs text-[#9ca3af]">
-                  Alles daarboven = winst
-                </span>
+                <span className="text-xs text-[#9ca3af]">Alles daarboven = winst</span>
               </div>
             </FormField>
           </>
@@ -316,11 +296,10 @@ function IntakeForm({
 
         <Divider />
 
-        {/* Target ROAS */}
         <FormField
           step={intake.businessModel === "first_purchase" ? 4 : 3}
-          label="Huidige ROAS op Meta of ander platform"
-          hint="Welke ROAS draaien jullie nu gemiddeld? Dit gebruiken we als realistisch doel op Pinterest."
+          label="Schaal ROAS / Target ROAS"
+          hint="Welke ROAS draaien jullie gemiddeld, dit gebruiken we als realistisch doel op Pinterest."
         >
           <div className="flex items-center gap-3">
             <input
@@ -331,19 +310,16 @@ function IntakeForm({
               placeholder="2,1"
               className="w-32 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-center text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
             />
-            <span className="text-xs text-[#9ca3af]">
-              Bijv. Meta, Google, TikTok gemiddelde
-            </span>
+            <span className="text-xs text-[#9ca3af]">Bijv. Meta, Google, TikTok gemiddelde</span>
           </div>
         </FormField>
 
         <Divider />
 
-        {/* Expected revenue */}
         <FormField
           step={intake.businessModel === "first_purchase" ? 5 : 4}
-          label="Verwachte maandelijkse omzet via Pinterest"
-          hint="Realistisch doel — wat willen jullie per maand via Pinterest binnenhalen?"
+          label="Realistisch doel maandelijkse omzet via Pinterest"
+          hint="Wat willen jullie per maand via Pinterest binnenhalen?"
         >
           <div className="flex items-center gap-2">
             <span className="text-xl font-semibold text-[#9ca3af]">€</span>
@@ -361,8 +337,7 @@ function IntakeForm({
 
         <div className="mt-8 flex items-center justify-between border-t border-[#e2e4ea] pt-6">
           <p className="text-xs text-[#9ca3af]">
-            We stellen op basis van deze gegevens een gepersonaliseerd aanbod
-            samen.
+            We stellen op basis van deze gegevens een gepersonaliseerd aanbod samen.
           </p>
           <button
             onClick={handleSubmit}
@@ -400,12 +375,8 @@ function FormField({
           {step}
         </span>
         <div>
-          <label className="text-sm font-semibold text-[#0a0a0a]">
-            {label}
-          </label>
-          {hint && (
-            <p className="mt-0.5 text-xs text-[#6b7280]">{hint}</p>
-          )}
+          <label className="text-sm font-semibold text-[#0a0a0a]">{label}</label>
+          {hint && <p className="mt-0.5 text-xs text-[#6b7280]">{hint}</p>}
         </div>
       </div>
       <div className="pl-9">{children}</div>
@@ -439,23 +410,18 @@ function ModelCard({
         <span
           className={
             "h-4 w-4 rounded-full border-2 " +
-            (active
-              ? "border-[#E30613] bg-[#E30613]"
-              : "border-[#d1d5db] bg-white")
+            (active ? "border-[#E30613] bg-[#E30613]" : "border-[#d1d5db] bg-white")
           }
         />
         <span
           className={
-            "text-sm font-semibold " +
-            (active ? "text-[#E30613]" : "text-[#0a0a0a]")
+            "text-sm font-semibold " + (active ? "text-[#E30613]" : "text-[#0a0a0a]")
           }
         >
           {title}
         </span>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-[#6b7280]">
-        {description}
-      </p>
+      <p className="mt-2 text-xs leading-relaxed text-[#6b7280]">{description}</p>
     </button>
   );
 }
@@ -465,7 +431,7 @@ function Divider() {
 }
 
 // -----------------------------------------------------------------------------
-// Result view — shows only the determined model, pre-filled
+// Result view
 // -----------------------------------------------------------------------------
 function ResultView({
   intake,
@@ -492,9 +458,7 @@ function ResultView({
               <span>
                 <span className="text-white/50">Businessmodel:</span>{" "}
                 <span className="font-semibold text-white">
-                  {intake.businessModel === "subscription"
-                    ? "Subscription"
-                    : "First purchase"}
+                  {intake.businessModel === "subscription" ? "Subscription" : "First purchase"}
                 </span>
               </span>
               {intake.businessModel === "first_purchase" && (
@@ -506,7 +470,7 @@ function ResultView({
                 </span>
               )}
               <span>
-                <span className="text-white/50">Huidige ROAS:</span>{" "}
+                <span className="text-white/50">Schaal ROAS:</span>{" "}
                 <span className="font-semibold text-white">
                   {intake.targetRoas.toFixed(1).replace(".", ",")}
                 </span>
@@ -528,24 +492,169 @@ function ResultView({
         </div>
       </div>
 
-      {/* Model label */}
-      <div className="mb-4 flex items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E30613] px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-white">
-          Aanbevolen model
-        </span>
-        <span className="text-sm font-semibold text-[#0a0a0a]">
-          {modelKey === "sub"
-            ? "Subscription — Adspend fee"
-            : FP_MODELS[modelKey].title}
-        </span>
-      </div>
-
       {modelKey === "sub" ? (
         <SubscriptionPanel intake={intake} />
       ) : (
         <FirstPurchasePanel model={FP_MODELS[modelKey]} intake={intake} />
       )}
     </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Revenue hero — the eye-catcher
+// -----------------------------------------------------------------------------
+function RevenueHero({
+  brand,
+  monthlyRevenue,
+}: {
+  brand: string;
+  monthlyRevenue: number;
+}) {
+  const yearly = monthlyRevenue * 12;
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-[#E30613]/20 bg-gradient-to-br from-[#E30613] via-[#c10510] to-[#9a040d] p-8 text-white shadow-[0_20px_60px_rgba(227,6,19,0.25)] sm:p-10">
+      {/* Decorative radial glow */}
+      <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -left-20 h-72 w-72 rounded-full bg-black/20 blur-3xl" />
+
+      <div className="relative">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/80">
+          Wat Pinformance oplevert voor {brand}
+        </div>
+        <div className="mt-3 flex items-baseline gap-3">
+          <span className="text-5xl font-bold tracking-tight sm:text-7xl">
+            {formatEur(monthlyRevenue)}
+          </span>
+          <span className="text-lg font-medium text-white/80 sm:text-xl">
+            / maand
+          </span>
+        </div>
+        <p className="mt-3 max-w-xl text-base text-white/85 sm:text-lg">
+          Extra maandelijkse omzet via Pinterest — een volledig nieuw, schaalbaar
+          acquisitiekanaal naast je bestaande inspanningen.
+        </p>
+
+        <div className="mt-6 inline-flex items-center gap-3 rounded-full border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-semibold backdrop-blur">
+          <span className="h-2 w-2 rounded-full bg-white" />
+          <span>
+            Oftewel{" "}
+            <span className="text-white">{formatEur(yearly)}</span> extra omzet
+            op jaarbasis
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Guarantees — 3 prominent cards that claim our promises
+// -----------------------------------------------------------------------------
+function GuaranteesFirstPurchase({ model }: { model: FpModel }) {
+  return (
+    <GuaranteesGrid
+      title="Onze garanties voor jou"
+      subtitle="Transparant, meetbaar, en zonder kleine lettertjes."
+      items={[
+        {
+          icon: "🛡",
+          headline: `Garantie ROAS ${model.guaranteeRoas.toString().replace(".", ",")}`,
+          body: `Onder een ROAS van ${model.guaranteeRoas.toString().replace(".", ",")} betaal je 0 performance fee. Wij dragen het risico van prestatie.`,
+          accent: "Zero-fee zone",
+        },
+        {
+          icon: "📈",
+          headline: `Performance fee vanaf € ${MIN_REVENUE_FOR_PERF.toLocaleString("nl-NL")}`,
+          body: `Pas wanneer Pinterest minimaal € ${MIN_REVENUE_FOR_PERF.toLocaleString("nl-NL")} per maand voor je genereert, wordt er performance fee berekend. Daaronder alleen de vaste base fee.`,
+          accent: "Drempel",
+        },
+        {
+          icon: "🔒",
+          headline: `Maximale fee € ${CAP.toLocaleString("nl-NL")}`,
+          body: `Onze totale maandelijkse fee kan nooit hoger zijn dan € ${CAP.toLocaleString("nl-NL")}. Een harde cap — hoe hard we ook groeien.`,
+          accent: "Hard cap",
+        },
+      ]}
+    />
+  );
+}
+
+function GuaranteesSubscription() {
+  return (
+    <GuaranteesGrid
+      title="Onze garanties voor jou"
+      subtitle="Transparant, meetbaar, en zonder kleine lettertjes."
+      items={[
+        {
+          icon: "🛡",
+          headline: "Garantie ROAS per contract",
+          body: "De minimum ROAS die wij garanderen leggen we vooraf contractueel vast op basis van jullie business. Halen we die niet? Dan geen fee.",
+          accent: "Contractueel",
+        },
+        {
+          icon: "📈",
+          headline: `Adspend fee vanaf € ${MIN_ADSPEND_FOR_FEE.toLocaleString("nl-NL")}`,
+          body: `Pas wanneer de maandelijkse adspend minimaal € ${MIN_ADSPEND_FOR_FEE.toLocaleString("nl-NL")} is, wordt er adspend fee berekend. Daaronder alleen de vaste base fee.`,
+          accent: "Drempel",
+        },
+        {
+          icon: "🔒",
+          headline: `Maximale fee € ${CAP.toLocaleString("nl-NL")}`,
+          body: `Onze totale maandelijkse fee kan nooit hoger zijn dan € ${CAP.toLocaleString("nl-NL")}. Een harde cap — hoe hard we ook groeien.`,
+          accent: "Hard cap",
+        },
+      ]}
+    />
+  );
+}
+
+function GuaranteesGrid({
+  title,
+  subtitle,
+  items,
+}: {
+  title: string;
+  subtitle: string;
+  items: { icon: string; headline: string; body: string; accent: string }[];
+}) {
+  return (
+    <section>
+      <div className="mb-4 flex items-end justify-between">
+        <div>
+          <h3 className="text-xl font-bold tracking-tight text-[#0a0a0a] sm:text-2xl">
+            {title}
+          </h3>
+          <p className="mt-1 text-sm text-[#6b7280]">{subtitle}</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {items.map((it, i) => (
+          <div
+            key={i}
+            className="relative overflow-hidden rounded-2xl border border-[#e2e4ea] bg-white p-6 shadow-sm transition-all hover:border-[#E30613]/30 hover:shadow-[0_12px_32px_rgba(227,6,19,0.08)]"
+          >
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#E30613] to-transparent" />
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fef2f2] text-lg">
+                {it.icon}
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-[#E30613]">
+                  {it.accent}
+                </div>
+                <div className="mt-1 text-lg font-bold leading-tight text-[#0a0a0a]">
+                  {it.headline}
+                </div>
+              </div>
+            </div>
+            <p className="mt-4 text-sm leading-relaxed text-[#6b7280]">
+              {it.body}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -573,24 +682,12 @@ function FirstPurchasePanel({
   const belowGuarantee = perfPct === null;
   const belowMinRev = !Number.isNaN(revenue) && revenue < MIN_REVENUE_FOR_PERF;
 
-  const { perfFee, capped, total, effectivePct, netExtra } = useMemo(() => {
+  const { perfFee, capped, total, effectivePct } = useMemo(() => {
     if (Number.isNaN(roas) || roas <= 0 || Number.isNaN(revenue) || revenue <= 0) {
-      return {
-        perfFee: 0,
-        capped: false,
-        total: BASE_FEE,
-        effectivePct: 0,
-        netExtra: 0,
-      };
+      return { perfFee: 0, capped: false, total: BASE_FEE, effectivePct: 0 };
     }
     if (belowGuarantee || belowMinRev) {
-      return {
-        perfFee: 0,
-        capped: false,
-        total: BASE_FEE,
-        effectivePct: 0,
-        netExtra: revenue - BASE_FEE,
-      };
+      return { perfFee: 0, capped: false, total: BASE_FEE, effectivePct: 0 };
     }
     const raw = Math.round(revenue * ((perfPct as number) / 100));
     const maxPerf = CAP - BASE_FEE;
@@ -602,7 +699,6 @@ function FirstPurchasePanel({
       capped: isCapped,
       total: tot,
       effectivePct: (tot / revenue) * 100,
-      netExtra: revenue - tot,
     };
   }, [roas, revenue, perfPct, belowGuarantee, belowMinRev]);
 
@@ -611,11 +707,7 @@ function FirstPurchasePanel({
     const min = model.guaranteeRoas;
     const max = model.points[model.points.length - 1].roas + 0.5;
     const steps = 12;
-    const out: {
-      roas: string;
-      total: number;
-      netExtra: number;
-    }[] = [];
+    const out: { roas: string; total: number; revenue: number }[] = [];
     for (let i = 0; i <= steps; i++) {
       const r = min + (i / steps) * (max - min);
       const pct = computePerfFeePct(r, model);
@@ -628,206 +720,184 @@ function FirstPurchasePanel({
       out.push({
         roas: r.toFixed(1).replace(".", ","),
         total: Math.round(tot),
-        netExtra: Math.round(revenue - tot),
+        revenue: Math.round(revenue),
       });
     }
     return out;
   }, [model, revenue]);
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-      <div className="space-y-4 lg:col-span-2">
-        <FeesCard />
-        <ConditionsCard model={model} />
-        <TiersCard model={model} activeRoas={roas} />
+    <div className="space-y-8">
+      {/* 1. The big revenue hero — what we deliver */}
+      <RevenueHero brand={intake.brand} monthlyRevenue={revenue} />
 
-        <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
-            Behaalde ROAS
-          </div>
-          <div className="flex items-end justify-between">
-            <input
-              type="text"
-              value={roasInput}
-              onChange={(e) => setRoasInput(e.target.value)}
-              className="w-28 rounded-lg border border-[#e2e4ea] bg-white px-3 py-2 text-center text-2xl font-bold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
-            />
-            <div className="text-right">
-              <div className="text-[10px] uppercase tracking-widest text-[#9ca3af]">
-                Performance fee
-              </div>
-              <div className="flex items-baseline justify-end gap-1.5">
-                <span className="text-3xl font-bold text-[#E30613]">
-                  {belowGuarantee
-                    ? "0 %"
-                    : perfPct !== null
-                      ? formatPct(perfPct)
-                      : "—"}
-                </span>
-                <span className="text-xs text-[#9ca3af]">van revenue</span>
-              </div>
-            </div>
-          </div>
+      {/* 2. Guarantees — our promises, big and clear */}
+      <GuaranteesFirstPurchase model={model} />
 
-          {belowGuarantee && (
-            <div className="mt-3 rounded-lg border border-[#fce4e4] bg-[#fef2f2] px-3 py-2 text-xs font-medium text-[#E30613]">
-              Onder garantie ROAS {model.guaranteeRoas} — geen performance fee
-            </div>
-          )}
+      {/* 3. Investment section — kept compact so it feels 'worth every cent' */}
+      <section>
+        <div className="mb-4">
+          <h3 className="text-xl font-bold tracking-tight text-[#0a0a0a] sm:text-2xl">
+            Jouw investering
+          </h3>
+          <p className="mt-1 text-sm text-[#6b7280]">
+            Aanpasbaar — tijdens de call kunnen we live scenario&apos;s doorrekenen.
+          </p>
         </div>
 
-        <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
-            Maandelijkse revenue
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xl font-semibold text-[#9ca3af]">€</span>
-            <input
-              type="text"
-              value={revenueInput}
-              onChange={(e) => setRevenueInput(e.target.value)}
-              className="w-full rounded-lg border border-[#e2e4ea] bg-white px-3 py-2 text-2xl font-bold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
-            />
-          </div>
-          {belowMinRev && (
-            <div className="mt-3 rounded-lg border border-[#e2e4ea] bg-[#f0f1f5] px-3 py-2 text-xs text-[#6b7280]">
-              Onder € {MIN_REVENUE_FOR_PERF.toLocaleString("nl-NL")} revenue —
-              performance fee nog niet actief
-            </div>
-          )}
-        </div>
-      </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+          {/* Inputs */}
+          <div className="space-y-4 lg:col-span-2">
+            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                Behaalde ROAS
+              </div>
+              <div className="flex items-end justify-between">
+                <input
+                  type="text"
+                  value={roasInput}
+                  onChange={(e) => setRoasInput(e.target.value)}
+                  className="w-28 rounded-lg border border-[#e2e4ea] bg-white px-3 py-2 text-center text-2xl font-bold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
+                />
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-widest text-[#9ca3af]">
+                    Performance fee
+                  </div>
+                  <div className="flex items-baseline justify-end gap-1.5">
+                    <span className="text-2xl font-bold text-[#E30613]">
+                      {belowGuarantee
+                        ? "0 %"
+                        : perfPct !== null
+                          ? formatPct(perfPct)
+                          : "—"}
+                    </span>
+                    <span className="text-xs text-[#9ca3af]">van revenue</span>
+                  </div>
+                </div>
+              </div>
 
-      <div className="space-y-4 lg:col-span-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <MetricCard label="Base fee" value={formatEur(BASE_FEE)} />
-          <MetricCard
-            label="Performance fee"
-            value={formatEur(perfFee)}
-            badge={
-              belowGuarantee
-                ? { text: `Garantie ${model.guaranteeRoas}`, tone: "red" }
-                : belowMinRev
-                  ? { text: "Onder € 20k", tone: "gray" }
-                  : capped
-                    ? { text: "Cap bereikt", tone: "red" }
+              {belowGuarantee && (
+                <div className="mt-3 rounded-lg border border-[#fce4e4] bg-[#fef2f2] px-3 py-2 text-xs font-medium text-[#E30613]">
+                  Onder garantie ROAS {model.guaranteeRoas} — geen performance fee
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                Maandelijkse revenue
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-semibold text-[#9ca3af]">€</span>
+                <input
+                  type="text"
+                  value={revenueInput}
+                  onChange={(e) => setRevenueInput(e.target.value)}
+                  className="w-full rounded-lg border border-[#e2e4ea] bg-white px-3 py-2 text-2xl font-bold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
+                />
+              </div>
+              {belowMinRev && (
+                <div className="mt-3 rounded-lg border border-[#e2e4ea] bg-[#f0f1f5] px-3 py-2 text-xs text-[#6b7280]">
+                  Onder € {MIN_REVENUE_FOR_PERF.toLocaleString("nl-NL")} revenue — performance fee nog niet actief
+                </div>
+              )}
+            </div>
+
+            <TiersCard model={model} activeRoas={roas} />
+          </div>
+
+          {/* Cost breakdown */}
+          <div className="space-y-4 lg:col-span-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <MetricCard label="Base fee" value={formatEur(BASE_FEE)} />
+              <MetricCard
+                label="Performance fee"
+                value={formatEur(perfFee)}
+                badge={
+                  belowGuarantee
+                    ? { text: `Garantie ${model.guaranteeRoas}`, tone: "red" }
+                    : belowMinRev
+                      ? { text: "Onder € 20k", tone: "gray" }
+                      : capped
+                        ? { text: "Cap bereikt", tone: "red" }
+                        : undefined
+                }
+              />
+              <MetricCard
+                label="Totaal / maand"
+                value={formatEur(total)}
+                sub={
+                  !belowMinRev && !belowGuarantee && revenue > 0
+                    ? "Effectief " + effectivePct.toFixed(2).replace(".", ",") + " %"
                     : undefined
-            }
-          />
-          <MetricCard
-            label="Totaal / maand"
-            value={formatEur(total)}
-            sub={
-              !belowMinRev && !belowGuarantee && revenue > 0
-                ? "Effectief " + effectivePct.toFixed(2).replace(".", ",") + " %"
-                : undefined
-            }
-            highlight
-          />
-        </div>
-
-        <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
-          <div className="mb-1 flex items-start justify-between">
-            <div>
-              <div className="text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
-                Scenario analyse
-              </div>
-              <div className="mt-1 text-sm font-semibold text-[#0a0a0a]">
-                Netto extra revenue bij verschillende ROAS
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[10px] uppercase tracking-widest text-[#9ca3af]">
-                Bij revenue
-              </div>
-              <div className="text-sm font-semibold text-[#0a0a0a]">
-                {formatEur(revenue)}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e4ea" vertical={false} />
-                <XAxis
-                  dataKey="roas"
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  axisLine={{ stroke: "#e2e4ea" }}
-                  tickLine={false}
-                  label={{
-                    value: "ROAS",
-                    position: "insideBottom",
-                    offset: -4,
-                    fontSize: 11,
-                    fill: "#9ca3af",
-                  }}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => "€ " + (v / 1000).toFixed(0) + "k"}
-                />
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: 8,
-                    border: "1px solid #e2e4ea",
-                    fontSize: 12,
-                  }}
-                  formatter={(value, name) => [
-                    formatEur(Number(value)),
-                    name === "netExtra" ? "Netto voor jou" : "Pinformance fee",
-                  ]}
-                  labelFormatter={(l) => "ROAS " + l}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="netExtra"
-                  stroke="#E30613"
-                  strokeWidth={3}
-                  dot={{ r: 3, fill: "#E30613" }}
-                  activeDot={{ r: 6 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="total"
-                  stroke="#9ca3af"
-                  strokeWidth={2}
-                  dot={{ r: 2 }}
-                  strokeDasharray="4 4"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {!belowMinRev && !belowGuarantee && revenue > 0 && (
-          <div className="overflow-hidden rounded-2xl border border-[#e2e4ea] shadow-sm">
-            <div className="border-b border-[#252832] bg-[#0f1117] px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-[#E30613]">
-                Wat Pinformance voor {intake.brand} oplevert
-              </div>
-              <div className="mt-1 text-lg font-bold text-white">
-                {formatEur(revenue)} extra revenue vanuit Pinterest
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-4 bg-white px-5 py-4 sm:grid-cols-3">
-              <ValueItem
-                label="Extra revenue uit Pinterest"
-                value={formatEur(revenue)}
-                accent
-              />
-              <ValueItem label="Kosten Pinformance" value={formatEur(total)} />
-              <ValueItem
-                label="Netto extra omzet"
-                value={formatEur(netExtra)}
-                accent
+                }
+                highlight
               />
             </div>
+
+            <div className="rounded-xl border border-[#e2e4ea] bg-white p-4 text-xs text-[#6b7280]">
+              <span className="font-semibold text-[#0a0a0a]">Eenmalige startup fee: </span>
+              € {STARTUP_FEE.toLocaleString("nl-NL")} — voor onboarding, strategie en
+              account setup.
+            </div>
+
+            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
+              <div className="mb-1">
+                <div className="text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                  Scenario analyse
+                </div>
+                <div className="mt-1 text-sm font-semibold text-[#0a0a0a]">
+                  Fee bij verschillende ROAS — revenue blijft {formatEur(revenue)}
+                </div>
+              </div>
+
+              <div className="mt-4 h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e4ea" vertical={false} />
+                    <XAxis
+                      dataKey="roas"
+                      tick={{ fontSize: 11, fill: "#6b7280" }}
+                      axisLine={{ stroke: "#e2e4ea" }}
+                      tickLine={false}
+                      label={{
+                        value: "ROAS",
+                        position: "insideBottom",
+                        offset: -4,
+                        fontSize: 11,
+                        fill: "#9ca3af",
+                      }}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: "#6b7280" }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => "€ " + (v / 1000).toFixed(0) + "k"}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: 8,
+                        border: "1px solid #e2e4ea",
+                        fontSize: 12,
+                      }}
+                      formatter={(value) => [formatEur(Number(value)), "Pinformance fee"]}
+                      labelFormatter={(l) => "ROAS " + l}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="total"
+                      stroke="#E30613"
+                      strokeWidth={3}
+                      dot={{ r: 3, fill: "#E30613" }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -836,7 +906,6 @@ function FirstPurchasePanel({
 // Subscription panel
 // -----------------------------------------------------------------------------
 function SubscriptionPanel({ intake }: { intake: Intake }) {
-  // Default adspend derived from revenue / target ROAS
   const derivedAdspend =
     Number.isFinite(intake.expectedRevenue) &&
     Number.isFinite(intake.targetRoas) &&
@@ -846,6 +915,12 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 
   const [adspendInput, setAdspendInput] = useState(String(derivedAdspend));
   const adspend = parseNumber(adspendInput);
+
+  // The revenue we "deliver" — adspend times target ROAS
+  const deliveredRevenue = useMemo(() => {
+    if (!Number.isFinite(adspend) || !Number.isFinite(intake.targetRoas)) return 0;
+    return adspend * intake.targetRoas;
+  }, [adspend, intake.targetRoas]);
 
   const calc = useMemo(() => {
     if (Number.isNaN(adspend) || adspend <= 0) {
@@ -906,11 +981,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
   const chartData = useMemo(() => {
     const steps = 16;
     const max = Math.max(adspend * 2.5, 150_000);
-    const out: {
-      adspend: string;
-      total: number;
-      isCurrent: boolean;
-    }[] = [];
+    const out: { adspend: string; total: number; isCurrent: boolean }[] = [];
     for (let i = 0; i <= steps; i++) {
       const s = (i / steps) * max;
       let t = BASE_FEE;
@@ -936,234 +1007,196 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
   }, [adspend]);
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-      <div className="space-y-4 lg:col-span-2">
-        <FeesCard />
+    <div className="space-y-8">
+      <RevenueHero brand={intake.brand} monthlyRevenue={deliveredRevenue} />
 
-        <div className="space-y-2">
-          <ConditionRow
-            label="Garantie ROAS — Variabel, per contract"
-            value="Per contract"
-            red
-          />
-          <ConditionRow
-            label="Adspend fee pas actief vanaf"
-            value={`€ ${MIN_ADSPEND_FOR_FEE.toLocaleString("nl-NL")}`}
-          />
-          <ConditionRow
-            label="Maandelijkse cap"
-            value={`Max. € ${CAP.toLocaleString("nl-NL")}`}
-          />
-        </div>
+      <GuaranteesSubscription />
 
-        <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
-          <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
-            Adspend fee brackets — progressief
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {SUB_BRACKETS.map((b, i) => {
-              const active = calc.activeIdx >= i && !calc.belowMin;
-              return (
-                <div
-                  key={i}
-                  className={
-                    "rounded-lg border px-3 py-3 text-center transition-all " +
-                    (active
-                      ? "border-[#E30613] bg-[#fef2f2]"
-                      : "border-[#e2e4ea] bg-[#fafafa]")
-                  }
-                >
-                  <div className="text-[9px] uppercase tracking-widest text-[#9ca3af]">
-                    {b.max === Number.POSITIVE_INFINITY
-                      ? `€ ${b.min / 1000}k+`
-                      : `€ ${b.min / 1000}k – ${b.max / 1000}k`}
-                  </div>
-                  <div
-                    className={
-                      "mt-1 text-lg font-bold " +
-                      (active ? "text-[#E30613]" : "text-[#0a0a0a]")
-                    }
-                  >
-                    {b.pct}%
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
-            Maandelijkse adspend
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xl font-semibold text-[#9ca3af]">€</span>
-            <input
-              type="text"
-              value={adspendInput}
-              onChange={(e) => setAdspendInput(e.target.value)}
-              className="w-full rounded-lg border border-[#e2e4ea] bg-white px-3 py-2 text-2xl font-bold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
-            />
-          </div>
-          <p className="mt-2 text-[11px] text-[#9ca3af]">
-            Afgeleid uit revenue / target ROAS = {formatEur(derivedAdspend)}.
-            Pas aan indien nodig.
+      <section>
+        <div className="mb-4">
+          <h3 className="text-xl font-bold tracking-tight text-[#0a0a0a] sm:text-2xl">
+            Jouw investering
+          </h3>
+          <p className="mt-1 text-sm text-[#6b7280]">
+            Aanpasbaar — tijdens de call kunnen we live scenario&apos;s doorrekenen.
           </p>
-          {calc.belowMin && (
-            <div className="mt-3 rounded-lg border border-[#e2e4ea] bg-[#f0f1f5] px-3 py-2 text-xs text-[#6b7280]">
-              Onder € {MIN_ADSPEND_FOR_FEE.toLocaleString("nl-NL")} — alleen
-              base fee actief
-            </div>
-          )}
         </div>
 
-        {calc.brackets.length > 0 && (
-          <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
-            <div className="mb-2 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
-              Opbouw
-            </div>
-            <div className="space-y-1.5 text-sm">
-              <div className="flex justify-between text-[#6b7280]">
-                <span>Base fee</span>
-                <span className="font-semibold text-[#0a0a0a]">
-                  {formatEur(BASE_FEE)}
-                </span>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+          <div className="space-y-4 lg:col-span-2">
+            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                Maandelijkse adspend
               </div>
-              {calc.brackets.map((b, i) => (
-                <div key={i} className="flex justify-between text-[#6b7280]">
-                  <span>
-                    {b.range} × {b.pct}%
-                  </span>
-                  <span className="font-semibold text-[#0a0a0a]">
-                    {formatEur(b.fee)}
-                  </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-semibold text-[#9ca3af]">€</span>
+                <input
+                  type="text"
+                  value={adspendInput}
+                  onChange={(e) => setAdspendInput(e.target.value)}
+                  className="w-full rounded-lg border border-[#e2e4ea] bg-white px-3 py-2 text-2xl font-bold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-[#9ca3af]">
+                Afgeleid uit revenue / schaal ROAS = {formatEur(derivedAdspend)}. Pas aan indien nodig.
+              </p>
+              {calc.belowMin && (
+                <div className="mt-3 rounded-lg border border-[#e2e4ea] bg-[#f0f1f5] px-3 py-2 text-xs text-[#6b7280]">
+                  Onder € {MIN_ADSPEND_FOR_FEE.toLocaleString("nl-NL")} — alleen base fee actief
                 </div>
-              ))}
-              <div className="mt-2 flex justify-between border-t border-[#e2e4ea] pt-2 text-[#E30613]">
-                <span className="font-bold">
-                  Totaal{calc.capped ? " (cap)" : ""}
-                </span>
-                <span className="font-bold">{formatEur(calc.total)}</span>
-              </div>
+              )}
             </div>
-          </div>
-        )}
-      </div>
 
-      <div className="space-y-4 lg:col-span-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <MetricCard
-            label="Base fee"
-            value={formatEur(BASE_FEE)}
-            sub={calc.belowMin ? undefined : "Altijd"}
-          />
-          <MetricCard
-            label="Adspend fee"
-            value={formatEur(calc.adspendFee)}
-            badge={
-              calc.belowMin
-                ? { text: "Onder € 7.500", tone: "gray" }
-                : calc.capped
-                  ? { text: "Cap bereikt", tone: "red" }
-                  : undefined
-            }
-          />
-          <MetricCard
-            label="Totaal / maand"
-            value={formatEur(calc.total)}
-            sub={
-              !calc.belowMin && adspend > 0
-                ? "Effectief " + calc.effectivePct.toFixed(1).replace(".", ",") + " %"
-                : undefined
-            }
-            highlight
-          />
-        </div>
-
-        <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
-          <div className="mb-1 flex items-start justify-between">
-            <div>
-              <div className="text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
-                Scenario analyse
+            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
+              <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                Adspend fee brackets — progressief
               </div>
-              <div className="mt-1 text-sm font-semibold text-[#0a0a0a]">
-                Totale fee bij verschillende adspend niveaus
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[10px] uppercase tracking-widest text-[#9ca3af]">
-                Huidige adspend
-              </div>
-              <div className="text-sm font-semibold text-[#0a0a0a]">
-                {formatEur(adspend)}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e4ea" vertical={false} />
-                <XAxis
-                  dataKey="adspend"
-                  tick={{ fontSize: 10, fill: "#6b7280" }}
-                  axisLine={{ stroke: "#e2e4ea" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => "€ " + (v / 1000).toFixed(1) + "k"}
-                />
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: 8,
-                    border: "1px solid #e2e4ea",
-                    fontSize: 12,
-                  }}
-                  formatter={(value) => [formatEur(Number(value)), "Totale fee"]}
-                  labelFormatter={(l) => "Adspend " + l}
-                />
-                <Bar dataKey="total" radius={[6, 6, 0, 0]}>
-                  {chartData.map((d, i) => (
-                    <Cell
+              <div className="grid grid-cols-2 gap-2">
+                {SUB_BRACKETS.map((b, i) => {
+                  const active = calc.activeIdx >= i && !calc.belowMin;
+                  return (
+                    <div
                       key={i}
-                      fill={d.isCurrent ? "#E30613" : "#fca5a5"}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {!calc.belowMin && adspend > 0 && (
-          <div className="overflow-hidden rounded-2xl border border-[#e2e4ea] shadow-sm">
-            <div className="border-b border-[#252832] bg-[#0f1117] px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-[#E30613]">
-                Kostenoverzicht voor {intake.brand}
-              </div>
-              <div className="mt-1 text-lg font-bold text-white">
-                {formatEur(calc.total)} per maand totaal
+                      className={
+                        "rounded-lg border px-3 py-3 text-center transition-all " +
+                        (active ? "border-[#E30613] bg-[#fef2f2]" : "border-[#e2e4ea] bg-[#fafafa]")
+                      }
+                    >
+                      <div className="text-[9px] uppercase tracking-widest text-[#9ca3af]">
+                        {b.max === Number.POSITIVE_INFINITY
+                          ? `€ ${b.min / 1000}k+`
+                          : `€ ${b.min / 1000}k – ${b.max / 1000}k`}
+                      </div>
+                      <div
+                        className={
+                          "mt-1 text-lg font-bold " +
+                          (active ? "text-[#E30613]" : "text-[#0a0a0a]")
+                        }
+                      >
+                        {b.pct}%
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-4 bg-white px-5 py-4 sm:grid-cols-3">
-              <ValueItem label="Base fee" value={formatEur(BASE_FEE)} />
-              <ValueItem
+
+            {calc.brackets.length > 0 && (
+              <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
+                <div className="mb-2 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                  Opbouw
+                </div>
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between text-[#6b7280]">
+                    <span>Base fee</span>
+                    <span className="font-semibold text-[#0a0a0a]">
+                      {formatEur(BASE_FEE)}
+                    </span>
+                  </div>
+                  {calc.brackets.map((b, i) => (
+                    <div key={i} className="flex justify-between text-[#6b7280]">
+                      <span>
+                        {b.range} × {b.pct}%
+                      </span>
+                      <span className="font-semibold text-[#0a0a0a]">
+                        {formatEur(b.fee)}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="mt-2 flex justify-between border-t border-[#e2e4ea] pt-2 text-[#E30613]">
+                    <span className="font-bold">
+                      Totaal{calc.capped ? " (cap)" : ""}
+                    </span>
+                    <span className="font-bold">{formatEur(calc.total)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 lg:col-span-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <MetricCard
+                label="Base fee"
+                value={formatEur(BASE_FEE)}
+                sub={calc.belowMin ? undefined : "Altijd"}
+              />
+              <MetricCard
                 label="Adspend fee"
                 value={formatEur(calc.adspendFee)}
-                accent
+                badge={
+                  calc.belowMin
+                    ? { text: "Onder € 7.500", tone: "gray" }
+                    : calc.capped
+                      ? { text: "Cap bereikt", tone: "red" }
+                      : undefined
+                }
               />
-              <ValueItem
-                label="Effectief % op adspend"
-                value={calc.effectivePct.toFixed(1).replace(".", ",") + " %"}
-                accent
+              <MetricCard
+                label="Totaal / maand"
+                value={formatEur(calc.total)}
+                sub={
+                  !calc.belowMin && adspend > 0
+                    ? "Effectief " + calc.effectivePct.toFixed(1).replace(".", ",") + " %"
+                    : undefined
+                }
+                highlight
               />
             </div>
+
+            <div className="rounded-xl border border-[#e2e4ea] bg-white p-4 text-xs text-[#6b7280]">
+              <span className="font-semibold text-[#0a0a0a]">Eenmalige startup fee: </span>
+              € {STARTUP_FEE.toLocaleString("nl-NL")} — voor onboarding, strategie en
+              account setup.
+            </div>
+
+            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
+              <div className="mb-1">
+                <div className="text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                  Scenario analyse
+                </div>
+                <div className="mt-1 text-sm font-semibold text-[#0a0a0a]">
+                  Fee bij verschillende adspend niveaus
+                </div>
+              </div>
+
+              <div className="mt-4 h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e4ea" vertical={false} />
+                    <XAxis
+                      dataKey="adspend"
+                      tick={{ fontSize: 10, fill: "#6b7280" }}
+                      axisLine={{ stroke: "#e2e4ea" }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: "#6b7280" }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => "€ " + (v / 1000).toFixed(1) + "k"}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: 8,
+                        border: "1px solid #e2e4ea",
+                        fontSize: 12,
+                      }}
+                      formatter={(value) => [formatEur(Number(value)), "Totale fee"]}
+                      labelFormatter={(l) => "Adspend " + l}
+                    />
+                    <Bar dataKey="total" radius={[6, 6, 0, 0]}>
+                      {chartData.map((d, i) => (
+                        <Cell key={i} fill={d.isCurrent ? "#E30613" : "#fca5a5"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1171,81 +1204,6 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 // -----------------------------------------------------------------------------
 // Reusable sub-components
 // -----------------------------------------------------------------------------
-function FeesCard() {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <div className="rounded-xl border border-[#e2e4ea] bg-white p-4 shadow-sm">
-        <div className="text-[10px] uppercase tracking-widest text-[#9ca3af]">
-          Eenmalig
-        </div>
-        <div className="mt-1 text-base font-bold text-[#0a0a0a]">
-          € {STARTUP_FEE.toLocaleString("nl-NL")}
-        </div>
-        <div className="text-[11px] text-[#9ca3af]">startup fee</div>
-      </div>
-      <div className="rounded-xl border border-[#e2e4ea] bg-white p-4 shadow-sm">
-        <div className="text-[10px] uppercase tracking-widest text-[#9ca3af]">
-          Maandelijks
-        </div>
-        <div className="mt-1 text-base font-bold text-[#0a0a0a]">
-          € {BASE_FEE.toLocaleString("nl-NL")}
-        </div>
-        <div className="text-[11px] text-[#9ca3af]">base fee</div>
-      </div>
-    </div>
-  );
-}
-
-function ConditionsCard({ model }: { model: FpModel }) {
-  return (
-    <div className="space-y-2">
-      <ConditionRow
-        label={`Garantie — Onder ROAS ${model.guaranteeRoas} geen performance fee`}
-        value={`ROAS ${model.guaranteeRoas}`}
-        red
-      />
-      <ConditionRow
-        label="Performance fee pas vanaf"
-        value={`€ ${MIN_REVENUE_FOR_PERF.toLocaleString("nl-NL")} revenue`}
-      />
-      <ConditionRow
-        label="Maandelijkse cap"
-        value={`Max. € ${CAP.toLocaleString("nl-NL")}`}
-      />
-    </div>
-  );
-}
-
-function ConditionRow({
-  label,
-  value,
-  red,
-}: {
-  label: string;
-  value: string;
-  red?: boolean;
-}) {
-  return (
-    <div
-      className={
-        "flex items-center justify-between rounded-lg border px-3.5 py-2.5 text-xs " +
-        (red
-          ? "border-[#fce4e4] bg-[#fef2f2]"
-          : "border-[#e2e4ea] bg-white")
-      }
-    >
-      <span className={red ? "text-[#E30613]" : "text-[#6b7280]"}>{label}</span>
-      <span
-        className={
-          "font-semibold " + (red ? "text-[#E30613]" : "text-[#0a0a0a]")
-        }
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function TiersCard({ model, activeRoas }: { model: FpModel; activeRoas: number }) {
   const points = model.points;
   return (
@@ -1299,9 +1257,7 @@ function TierBox({
     <div
       className={
         "rounded-lg border px-2 py-3 text-center transition-colors " +
-        (active
-          ? "border-[#E30613] bg-[#fef2f2]"
-          : "border-[#e2e4ea] bg-[#fafafa]")
+        (active ? "border-[#E30613] bg-[#fef2f2]" : "border-[#e2e4ea] bg-[#fafafa]")
       }
     >
       <div className="text-[9px] uppercase tracking-widest text-[#9ca3af]">
@@ -1370,32 +1326,6 @@ function MetricCard({
         ) : (
           <span className="text-[#9ca3af]">{sub ?? ""}</span>
         )}
-      </div>
-    </div>
-  );
-}
-
-function ValueItem({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-widest text-[#9ca3af]">
-        {label}
-      </div>
-      <div
-        className={
-          "mt-1 text-lg font-bold " +
-          (accent ? "text-[#E30613]" : "text-[#0a0a0a]")
-        }
-      >
-        {value}
       </div>
     </div>
   );
