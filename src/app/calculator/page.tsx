@@ -291,9 +291,13 @@ function IntakeForm({
         <Divider />
 
         <FormField
-          step={intake.businessModel === "first_purchase" ? 4 : 3}
-          label="Minimum ROAS"
-          hint="The ROAS floor we commit to in the contract."
+          step={isSubscription ? 3 : 4}
+          label={isSubscription ? "Minimum ROAS" : "Target ROAS"}
+          hint={
+            isSubscription
+              ? "The ROAS floor we commit to in the contract."
+              : "Your current ROAS on Meta, Google, TikTok or another platform."
+          }
         >
           <div className="flex items-center gap-3">
             <input
@@ -461,7 +465,11 @@ function ResultView({
                 </span>
               )}
               <span>
-                <span className="text-white/50">Minimum ROAS:</span>{" "}
+                <span className="text-white/50">
+                  {intake.businessModel === "subscription"
+                    ? "Minimum ROAS:"
+                    : "Target ROAS:"}
+                </span>{" "}
                 <span className="font-semibold text-white">
                   {intake.targetRoas.toFixed(1)}
                 </span>
