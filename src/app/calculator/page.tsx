@@ -2,10 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -978,33 +975,17 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
   }, [adspend]);
 
   const chartData = useMemo(() => {
-    // Anchor labels at clean 10k increments so brackets are visible
-    const max = Math.max(adspend * 2.2, 150_000);
-    const stepSize = max <= 150_000 ? 10_000 : 20_000;
-    const out: {
-      adspend: string;
-      bracketPct: number;
-      isCurrent: boolean;
-    }[] = [];
-    for (let s = 0; s <= max; s += stepSize) {
-      let pct = 0;
-      if (s >= MIN_ADSPEND_FOR_FEE) {
-        for (const b of SUB_BRACKETS) {
-          if (s >= b.min && s < b.max) {
-            pct = b.pct;
-            break;
-          }
-        }
-      }
-      out.push({
-        adspend: "€ " + (s / 1000).toFixed(0) + "k",
-        bracketPct: pct,
-        isCurrent:
-          !Number.isNaN(adspend) && Math.abs(s - adspend) < stepSize / 2,
-      });
-    }
-    return out;
-  }, [adspend]);
+    // One point per bracket boundary — shows the step-down in fee as
+    // adspend scales up. Labels use the bracket start.
+    return SUB_BRACKETS.map((b, i) => ({
+      adspend:
+        b.max === Number.POSITIVE_INFINITY
+          ? `€ ${(b.min / 1000).toFixed(0)}k+`
+          : `€ ${(b.min / 1000).toFixed(0)}k`,
+      pct: b.pct,
+      isCurrent: i === calc.activeIdx && !calc.belowMin,
+    }));
+  }, [calc.activeIdx, calc.belowMin]);
 
   let note: string | undefined;
   if (calc.belowMin) {
@@ -1069,7 +1050,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {SUB_BRACKETS.map((b, i) => {
-                  const active = calc.activeIdx >= i && !calc.belowMin;
+                  const active = calc.activeIdx === i && !calc.belowMin;
                   return (
                     <div
                       key={i}
@@ -1149,14 +1130,14 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
               </div>
               <div className="mt-5 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
+                  <LineChart
                     data={chartData}
-                    margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+                    margin={{ top: 8, right: 24, left: 0, bottom: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e4ea" vertical={false} />
                     <XAxis
                       dataKey="adspend"
-                      tick={{ fontSize: 10, fill: "#6b7280" }}
+                      tick={{ fontSize: 11, fill: "#6b7280" }}
                       axisLine={{ stroke: "#e2e4ea" }}
                       tickLine={false}
                     />
@@ -1164,7 +1145,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                       tick={{ fontSize: 11, fill: "#6b7280" }}
                       axisLine={false}
                       tickLine={false}
-                      domain={[0, 12]}
+                      domain={[6, 11]}
                       tickFormatter={(v) => Number(v).toFixed(0) + " %"}
                     />
                     <Tooltip
@@ -1179,12 +1160,34 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                       ]}
                       labelFormatter={(l) => "Adspend " + l}
                     />
-                    <Bar dataKey="bracketPct" radius={[6, 6, 0, 0]}>
-                      {chartData.map((d, i) => (
-                        <Cell key={i} fill={d.isCurrent ? "#E30613" : "#e5e7eb"} />
-                      ))}
-                    </Bar>
-                  </BarChart>
+                    <Line
+                      type="monotone"
+                      dataKey="pct"
+                      stroke="#E30613"
+                      strokeWidth={2.5}
+                      dot={(props) => {
+                        const { cx, cy, payload, index } = props as {
+                          cx?: number;
+                          cy?: number;
+                          payload?: { isCurrent?: boolean };
+                          index?: number;
+                        };
+                        const isCurrent = !!payload?.isCurrent;
+                        return (
+                          <circle
+                            key={`sub-dot-${index ?? 0}`}
+                            cx={cx}
+                            cy={cy}
+                            r={isCurrent ? 8 : 4}
+                            fill={isCurrent ? "#E30613" : "#fff"}
+                            stroke="#E30613"
+                            strokeWidth={isCurrent ? 0 : 2}
+                          />
+                        );
+                      }}
+                      activeDot={{ r: 8, fill: "#E30613", stroke: "#fff", strokeWidth: 2 }}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
