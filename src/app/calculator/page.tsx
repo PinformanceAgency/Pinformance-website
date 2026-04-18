@@ -298,8 +298,8 @@ function IntakeForm({
 
         <FormField
           step={intake.businessModel === "first_purchase" ? 4 : 3}
-          label="Schaal ROAS / Target ROAS"
-          hint="Welke ROAS draaien jullie gemiddeld, dit gebruiken we als realistisch doel op Pinterest."
+          label="Minimum ROAS"
+          hint="De ROAS waar wij contractueel niet onder komen — onze commitment aan jullie."
         >
           <div className="flex items-center gap-3">
             <input
@@ -471,7 +471,7 @@ function ResultView({
                 </span>
               )}
               <span>
-                <span className="text-white/50">Schaal ROAS:</span>{" "}
+                <span className="text-white/50">Minimum ROAS:</span>{" "}
                 <span className="font-semibold text-white">
                   {intake.targetRoas.toFixed(1).replace(".", ",")}
                 </span>
@@ -625,14 +625,17 @@ function GuaranteesFirstPurchase({ model }: { model: FpModel }) {
   );
 }
 
-function GuaranteesSubscription() {
+function GuaranteesSubscription({ minimumRoas }: { minimumRoas: number }) {
+  const roasLabel = Number.isFinite(minimumRoas)
+    ? minimumRoas.toFixed(1).replace(".", ",")
+    : "—";
   return (
     <GuaranteesGrid
       items={[
         {
           label: "Garantie",
-          headline: "Minimum ROAS per contract",
-          body: "De minimum ROAS die wij garanderen leggen we vooraf vast in jullie service agreement. Halen we die niet, dan rekenen we geen adspend fee.",
+          headline: `Minimum ROAS ${roasLabel}`,
+          body: `Wij committeren ons contractueel aan een ROAS van minimaal ${roasLabel}. Komen we hieronder, dan rekenen we geen adspend fee — onze verantwoordelijkheid.`,
         },
         {
           label: "Drempel",
@@ -922,6 +925,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
         belowMin: true,
         effectivePct: 0,
         activeIdx: -1,
+        flatPct: 0,
       };
     }
     if (adspend < MIN_ADSPEND_FOR_FEE) {
@@ -933,29 +937,33 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
         belowMin: true,
         effectivePct: (BASE_FEE / adspend) * 100,
         activeIdx: -1,
+        flatPct: 0,
       };
     }
-    const brackets: { range: string; pct: number; fee: number }[] = [];
-    let fee = 0;
+    // Flat rate: find the bracket the adspend sits in and apply that
+    // percentage to the ENTIRE adspend — not progressive per bracket.
     let activeIdx = -1;
+    let flatPct = 0;
     for (let i = 0; i < SUB_BRACKETS.length; i++) {
       const b = SUB_BRACKETS[i];
-      if (adspend <= b.min) break;
-      const hi = b.max === Number.POSITIVE_INFINITY ? adspend : Math.min(adspend, b.max);
-      const taxable = hi - b.min;
-      if (taxable <= 0) continue;
-      const bracketFee = Math.round(taxable * (b.pct / 100));
-      fee += bracketFee;
-      activeIdx = i;
-      const rangeLabel =
-        b.max === Number.POSITIVE_INFINITY
-          ? `€ ${(b.min / 1000).toFixed(0)}k+`
-          : `€ ${(b.min / 1000).toFixed(0)}k – ${(b.max / 1000).toFixed(0)}k`;
-      brackets.push({ range: rangeLabel, pct: b.pct, fee: bracketFee });
+      if (adspend >= b.min && adspend < b.max) {
+        activeIdx = i;
+        flatPct = b.pct;
+        break;
+      }
     }
+    const b = SUB_BRACKETS[activeIdx];
+    const rangeLabel =
+      b.max === Number.POSITIVE_INFINITY
+        ? `€ ${(b.min / 1000).toFixed(0)}k+`
+        : `€ ${(b.min / 1000).toFixed(0)}k – ${(b.max / 1000).toFixed(0)}k`;
+    let fee = Math.round(adspend * (flatPct / 100));
     const maxFee = CAP - BASE_FEE;
     const isCapped = fee > maxFee;
     if (isCapped) fee = maxFee;
+    const brackets = [
+      { range: rangeLabel, pct: flatPct, fee },
+    ];
     const tot = BASE_FEE + fee;
     return {
       brackets,
@@ -965,6 +973,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
       belowMin: false,
       effectivePct: (tot / adspend) * 100,
       activeIdx,
+      flatPct,
     };
   }, [adspend]);
 
@@ -1108,7 +1117,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                       className="flex justify-between text-[#6b7280]"
                     >
                       <span>
-                        {b.range} × {b.pct}%
+                        {formatEur(adspend)} × {b.pct}%
                       </span>
                       <span className="font-medium tabular-nums text-[#0a0a0a]">
                         {formatEur(b.fee)}
@@ -1191,7 +1200,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
         </span>
       </div>
 
-      <GuaranteesSubscription />
+      <GuaranteesSubscription minimumRoas={intake.targetRoas} />
     </div>
   );
 }
