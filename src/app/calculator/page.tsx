@@ -274,11 +274,7 @@ function IntakeForm({
         {intake.businessModel === "first_purchase" && (
           <>
             <Divider />
-            <FormField
-              step={3}
-              label="Break-even ROAS"
-              hint="Bij welke ROAS zijn jullie kostendekkend? Bijvoorbeeld 1,6."
-            >
+            <FormField step={3} label="Break-even ROAS">
               <div className="flex items-center gap-3">
                 <input
                   type="text"
