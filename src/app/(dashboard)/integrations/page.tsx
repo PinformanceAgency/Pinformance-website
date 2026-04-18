@@ -301,7 +301,7 @@ export default function IntegrationsPage() {
     { key: "NEXT_PUBLIC_SUPABASE_URL", description: "Supabase project URL", required: true },
     { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", description: "Supabase anonymous key", required: true },
     { key: "SUPABASE_SERVICE_ROLE_KEY", description: "Supabase service role key (server-side)", required: true },
-    { key: "NEXT_PUBLIC_APP_URL", description: "Your app URL (e.g. https://pinformance.vercel.app)", required: true },
+    { key: "NEXT_PUBLIC_APP_URL", description: "Your app URL (e.g. https://pinformance-dashboard.vercel.app)", required: true },
     { key: "ANTHROPIC_API_KEY", description: "Claude AI API key for content generation", required: true },
     { key: "KREA_API_KEY", description: "Krea/kie.ai API key for image generation", required: true },
     { key: "ENCRYPTION_KEY", description: "32-byte hex key for encrypting API tokens", required: true },

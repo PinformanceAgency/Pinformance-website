@@ -34,6 +34,7 @@ export async function updateSession(request: NextRequest) {
   // Public routes (login, webhooks, cron jobs, pipeline test — these use their own auth via x-cron-secret)
   if (
     pathname.startsWith("/login") ||
+    pathname.startsWith("/calculator") ||
     pathname.startsWith("/api/webhooks") ||
     pathname.startsWith("/api/cron") ||
     pathname.startsWith("/api/pipeline") ||
