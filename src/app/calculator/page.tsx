@@ -116,7 +116,8 @@ interface Intake {
   businessModel: BusinessModel;
   breakEvenRoas: number;
   targetRoas: number;
-  expectedRevenue: number;
+  expectedRevenue: number; // first_purchase target
+  expectedAdspend: number; // subscription target
 }
 
 // -----------------------------------------------------------------------------
@@ -130,6 +131,7 @@ export default function CalculatorPage() {
     breakEvenRoas: NaN,
     targetRoas: NaN,
     expectedRevenue: NaN,
+    expectedAdspend: NaN,
   });
 
   return (
@@ -196,19 +198,25 @@ function IntakeForm({
   const [revenueInput, setRevenueInput] = useState(
     Number.isFinite(intake.expectedRevenue) ? String(Math.round(intake.expectedRevenue)) : ""
   );
+  const [adspendInput, setAdspendInput] = useState(
+    Number.isFinite(intake.expectedAdspend) ? String(Math.round(intake.expectedAdspend)) : ""
+  );
 
   const ber = parseFloat(berInput.replace(",", "."));
   const target = parseFloat(targetInput.replace(",", "."));
   const revenue = parseNumber(revenueInput);
+  const adspend = parseNumber(adspendInput);
+
+  const isSubscription = intake.businessModel === "subscription";
 
   const canSubmit =
     intake.brand.trim().length > 0 &&
-    (intake.businessModel === "subscription" ||
-      (Number.isFinite(ber) && ber > 0)) &&
+    (isSubscription || (Number.isFinite(ber) && ber > 0)) &&
     Number.isFinite(target) &&
     target > 0 &&
-    Number.isFinite(revenue) &&
-    revenue > 0;
+    (isSubscription
+      ? Number.isFinite(adspend) && adspend > 0
+      : Number.isFinite(revenue) && revenue > 0);
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -216,7 +224,8 @@ function IntakeForm({
       ...intake,
       breakEvenRoas: ber,
       targetRoas: target,
-      expectedRevenue: revenue,
+      expectedRevenue: isSubscription ? NaN : revenue,
+      expectedAdspend: isSubscription ? adspend : NaN,
     });
     onSubmit();
   }
@@ -308,17 +317,25 @@ function IntakeForm({
         <Divider />
 
         <FormField
-          step={intake.businessModel === "first_purchase" ? 5 : 4}
-          label="Realistisch doel maandelijkse omzet via Pinterest"
+          step={isSubscription ? 4 : 5}
+          label={
+            isSubscription
+              ? "Realistisch doel maandelijkse adspend"
+              : "Realistisch doel maandelijkse omzet via Pinterest"
+          }
         >
           <div className="flex items-center gap-2">
             <span className="text-xl font-semibold text-[#9ca3af]">€</span>
             <input
               type="text"
               inputMode="numeric"
-              value={revenueInput}
-              onChange={(e) => setRevenueInput(e.target.value)}
-              placeholder="100.000"
+              value={isSubscription ? adspendInput : revenueInput}
+              onChange={(e) =>
+                isSubscription
+                  ? setAdspendInput(e.target.value)
+                  : setRevenueInput(e.target.value)
+              }
+              placeholder={isSubscription ? "25.000" : "100.000"}
               className="w-48 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
             />
             <span className="text-xs text-[#9ca3af]">per maand</span>
@@ -459,12 +476,21 @@ function ResultView({
                   {intake.targetRoas.toFixed(1).replace(".", ",")}
                 </span>
               </span>
-              <span>
-                <span className="text-white/50">Target revenue:</span>{" "}
-                <span className="font-semibold text-white">
-                  {formatEur(intake.expectedRevenue)}/mnd
+              {intake.businessModel === "subscription" ? (
+                <span>
+                  <span className="text-white/50">Doel adspend:</span>{" "}
+                  <span className="font-semibold text-white">
+                    {formatEur(intake.expectedAdspend)}/mnd
+                  </span>
                 </span>
-              </span>
+              ) : (
+                <span>
+                  <span className="text-white/50">Doel omzet:</span>{" "}
+                  <span className="font-semibold text-white">
+                    {formatEur(intake.expectedRevenue)}/mnd
+                  </span>
+                </span>
+              )}
             </div>
           </div>
           <button
@@ -490,7 +516,9 @@ function ResultView({
 // -----------------------------------------------------------------------------
 function ProjectionHero({
   brand,
-  monthlyRevenue,
+  mainValue,
+  mainLabel,
+  mainDescription,
   totalCost,
   breakdown,
   effectivePct,
@@ -498,7 +526,9 @@ function ProjectionHero({
   note,
 }: {
   brand: string;
-  monthlyRevenue: number;
+  mainValue: number;
+  mainLabel: string;
+  mainDescription: string;
   totalCost: number;
   breakdown: { label: string; value: string }[];
   effectivePct?: number;
@@ -508,26 +538,25 @@ function ProjectionHero({
   return (
     <div className="overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
       <div className="grid grid-cols-1 lg:grid-cols-12">
-        {/* Revenue — dominant */}
+        {/* Main value — dominant */}
         <div className="relative border-b border-[#e2e4ea] p-8 sm:p-10 lg:col-span-7 lg:border-b-0 lg:border-r lg:p-14">
           <div className="absolute left-8 right-8 top-0 h-px bg-gradient-to-r from-[#E30613] via-[#E30613]/40 to-transparent sm:left-10 lg:left-14" />
           <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
-            Projectie maandelijkse omzet · {brand}
+            {mainLabel} · {brand}
           </div>
           <div className="mt-8 text-6xl font-bold leading-none tracking-tight text-[#0a0a0a] sm:text-7xl lg:text-[88px]">
-            {formatEur(monthlyRevenue)}
+            {formatEur(mainValue)}
           </div>
           <p className="mt-6 max-w-md text-base leading-relaxed text-[#6b7280]">
-            Extra maandelijkse revenue via Pinterest — een additioneel
-            acquisitiekanaal naast jullie bestaande inspanningen.
+            {mainDescription}
           </p>
           {note && <p className="mt-5 text-xs text-[#9ca3af]">{note}</p>}
         </div>
 
-        {/* Investment — subordinate but transparent */}
+        {/* Costs — subordinate but transparent */}
         <div className="bg-[#fafbfc] p-8 sm:p-10 lg:col-span-5 lg:p-14">
           <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
-            Pinformance investering
+            Pinformance kosten
           </div>
           <div className="mt-8 flex items-baseline gap-2">
             <span className="text-4xl font-bold text-[#0a0a0a] sm:text-5xl">
@@ -589,7 +618,7 @@ function GuaranteesFirstPurchase({ model }: { model: FpModel }) {
         {
           label: "Invoicing",
           headline: "Achteraf, nooit vooraf",
-          body: "De performance fee wordt pas aan het einde van de maand berekend en gefactureerd — op basis van werkelijk behaalde resultaten. Jullie realiseren eerst de omzet, daarna pas de investering.",
+          body: "De performance fee wordt pas aan het einde van de maand berekend en gefactureerd — op basis van werkelijk behaalde resultaten. Jullie realiseren eerst de omzet, daarna pas de kosten.",
         },
       ]}
     />
@@ -618,7 +647,7 @@ function GuaranteesSubscription() {
         {
           label: "Invoicing",
           headline: "Achteraf, nooit vooraf",
-          body: "De adspend fee wordt pas aan het einde van de maand berekend en gefactureerd — op basis van werkelijke adspend. Jullie realiseren eerst het resultaat, daarna pas de investering.",
+          body: "De adspend fee wordt pas aan het einde van de maand berekend en gefactureerd — op basis van werkelijke adspend. Jullie realiseren eerst het resultaat, daarna pas de kosten.",
         },
       ]}
     />
@@ -742,10 +771,12 @@ function FirstPurchasePanel({
 
   return (
     <div className="space-y-10">
-      {/* 1. Combined projection — revenue dominant, investment transparent */}
+      {/* 1. Combined projection — revenue dominant, costs transparent */}
       <ProjectionHero
         brand={intake.brand}
-        monthlyRevenue={revenue}
+        mainValue={revenue}
+        mainLabel="Projectie maandelijkse omzet"
+        mainDescription="Extra maandelijkse revenue via Pinterest — een additioneel acquisitiekanaal naast jullie bestaande inspanningen."
         totalCost={total}
         breakdown={[
           { label: "Base fee", value: formatEur(BASE_FEE) },
@@ -874,21 +905,12 @@ function FirstPurchasePanel({
 // Subscription panel
 // -----------------------------------------------------------------------------
 function SubscriptionPanel({ intake }: { intake: Intake }) {
-  const derivedAdspend =
-    Number.isFinite(intake.expectedRevenue) &&
-    Number.isFinite(intake.targetRoas) &&
-    intake.targetRoas > 0
-      ? Math.round(intake.expectedRevenue / intake.targetRoas)
-      : 25_000;
+  const intakeAdspend = Number.isFinite(intake.expectedAdspend)
+    ? Math.round(intake.expectedAdspend)
+    : 25_000;
 
-  const [adspendInput, setAdspendInput] = useState(String(derivedAdspend));
+  const [adspendInput, setAdspendInput] = useState(String(intakeAdspend));
   const adspend = parseNumber(adspendInput);
-
-  // The revenue we "deliver" — adspend times target ROAS
-  const deliveredRevenue = useMemo(() => {
-    if (!Number.isFinite(adspend) || !Number.isFinite(intake.targetRoas)) return 0;
-    return adspend * intake.targetRoas;
-  }, [adspend, intake.targetRoas]);
 
   const calc = useMemo(() => {
     if (Number.isNaN(adspend) || adspend <= 0) {
@@ -947,28 +969,29 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
   }, [adspend]);
 
   const chartData = useMemo(() => {
-    const steps = 16;
-    const max = Math.max(adspend * 2.5, 150_000);
-    const out: { adspend: string; total: number; isCurrent: boolean }[] = [];
-    for (let i = 0; i <= steps; i++) {
-      const s = (i / steps) * max;
-      let t = BASE_FEE;
+    // Anchor labels at clean 10k increments so brackets are visible
+    const max = Math.max(adspend * 2.2, 150_000);
+    const stepSize = max <= 150_000 ? 10_000 : 20_000;
+    const out: {
+      adspend: string;
+      bracketPct: number;
+      isCurrent: boolean;
+    }[] = [];
+    for (let s = 0; s <= max; s += stepSize) {
+      let pct = 0;
       if (s >= MIN_ADSPEND_FOR_FEE) {
-        let fee = 0;
         for (const b of SUB_BRACKETS) {
-          if (s <= b.min) break;
-          const hi = b.max === Number.POSITIVE_INFINITY ? s : Math.min(s, b.max);
-          const tx = hi - b.min;
-          if (tx > 0) fee += tx * (b.pct / 100);
+          if (s >= b.min && s < b.max) {
+            pct = b.pct;
+            break;
+          }
         }
-        fee = Math.min(fee, CAP - BASE_FEE);
-        t = BASE_FEE + fee;
       }
       out.push({
         adspend: "€ " + (s / 1000).toFixed(0) + "k",
-        total: Math.round(t),
+        bracketPct: pct,
         isCurrent:
-          !Number.isNaN(adspend) && Math.abs(s - adspend) < max / steps / 2,
+          !Number.isNaN(adspend) && Math.abs(s - adspend) < stepSize / 2,
       });
     }
     return out;
@@ -990,7 +1013,9 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
     <div className="space-y-10">
       <ProjectionHero
         brand={intake.brand}
-        monthlyRevenue={deliveredRevenue}
+        mainValue={adspend}
+        mainLabel="Maandelijkse adspend"
+        mainDescription="Het mediabudget dat wij actief voor jullie inzetten op Pinterest. Onze fee schaalt progressief met de adspend — hoe harder jullie groeien, hoe lager het effectieve percentage."
         totalCost={calc.total}
         breakdown={breakdown}
         effectivePct={!calc.belowMin ? calc.effectivePct : undefined}
@@ -1024,8 +1049,8 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                 />
               </div>
               <p className="mt-3 text-[11px] text-[#9ca3af]">
-                Afgeleid uit revenue ÷ schaal ROAS ={" "}
-                {formatEur(derivedAdspend)}. Pas aan indien nodig.
+                Intake-doel: {formatEur(intakeAdspend)}. Pas live aan tijdens
+                de call indien nodig.
               </p>
             </div>
 
@@ -1105,11 +1130,13 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 
           <div className="lg:col-span-3">
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-6">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Fee bij verschillende adspend niveaus
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+                Adspend fee bracket per niveau
               </div>
-              <div className="text-sm text-[#6b7280]">
-                Rode staaf = huidige adspend
+              <div className="text-base font-semibold text-[#0a0a0a]">
+                Bij adspend van{" "}
+                <span className="text-[#E30613]">{formatEur(adspend)}</span> per
+                maand
               </div>
               <div className="mt-5 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1128,7 +1155,8 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                       tick={{ fontSize: 11, fill: "#6b7280" }}
                       axisLine={false}
                       tickLine={false}
-                      tickFormatter={(v) => "€ " + (v / 1000).toFixed(1) + "k"}
+                      domain={[0, 12]}
+                      tickFormatter={(v) => Number(v).toFixed(0) + " %"}
                     />
                     <Tooltip
                       contentStyle={{
@@ -1136,10 +1164,13 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                         border: "1px solid #e2e4ea",
                         fontSize: 12,
                       }}
-                      formatter={(value) => [formatEur(Number(value)), "Totale fee"]}
+                      formatter={(value) => [
+                        Number(value).toFixed(1).replace(".", ",") + " %",
+                        "Adspend fee",
+                      ]}
                       labelFormatter={(l) => "Adspend " + l}
                     />
-                    <Bar dataKey="total" radius={[6, 6, 0, 0]}>
+                    <Bar dataKey="bracketPct" radius={[6, 6, 0, 0]}>
                       {chartData.map((d, i) => (
                         <Cell key={i} fill={d.isCurrent ? "#E30613" : "#e5e7eb"} />
                       ))}
