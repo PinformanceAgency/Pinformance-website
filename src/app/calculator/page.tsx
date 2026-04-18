@@ -305,7 +305,7 @@ function IntakeForm({
               inputMode="decimal"
               value={targetInput}
               onChange={(e) => setTargetInput(e.target.value)}
-              placeholder="2.1"
+              placeholder={isSubscription ? "1.0" : "2.1"}
               className="w-32 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-center text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
             />
           </div>
@@ -332,7 +332,7 @@ function IntakeForm({
                   ? setAdspendInput(e.target.value)
                   : setRevenueInput(e.target.value)
               }
-              placeholder={isSubscription ? "25,000" : "100,000"}
+              placeholder={isSubscription ? "50,000" : "100,000"}
               className="w-48 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
             />
             <span className="text-xs text-[#9ca3af]">per month</span>
