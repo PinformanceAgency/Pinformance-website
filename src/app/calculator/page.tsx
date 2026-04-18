@@ -243,8 +243,8 @@ function IntakeForm({
             type="text"
             value={intake.brand}
             onChange={(e) => setIntake({ ...intake, brand: e.target.value })}
-            placeholder="Bijv. Bikinilove"
-            className="w-full rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
+            placeholder=""
+            className="w-full rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-lg font-semibold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
           />
         </FormField>
 
