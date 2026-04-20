@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("products")
     .select("*")
-    .eq("org_id", profile.org_id)
+    .eq("org_id", getOrgIdFromProfile(profile))
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
   const products = Array.isArray(body) ? body : [body];
 
   const rows = products.map((p: Record<string, unknown>) => ({
-    org_id: profile.org_id,
+    org_id: getOrgIdFromProfile(profile),
     title: p.title,
     description: p.description || null,
     product_type: p.product_type || null,

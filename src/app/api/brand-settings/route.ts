@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 /**
  * GET /api/brand-settings — Load brand profile settings
@@ -16,11 +17,11 @@ async function getUserOrgId(): Promise<string | null> {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
 
-  return profile?.org_id || null;
+  return getOrgIdFromProfile(profile) || null;
 }
 
 export async function GET() {

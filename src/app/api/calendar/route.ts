@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase
     .from("calendar_entries")
     .select("*, pin:pins(*)")
-    .eq("org_id", profile.org_id)
+    .eq("org_id", getOrgIdFromProfile(profile))
     .gte("scheduled_date", startDate)
     .lte("scheduled_date", endDate)
     .order("scheduled_date", { ascending: true })
@@ -57,7 +58,7 @@ export async function PATCH(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -80,7 +81,7 @@ export async function PATCH(request: NextRequest) {
     .from("calendar_entries")
     .update(updates)
     .eq("id", entry_id)
-    .eq("org_id", profile.org_id)
+    .eq("org_id", getOrgIdFromProfile(profile))
     .select("*, pin:pins(*)")
     .single();
 
@@ -97,7 +98,7 @@ export async function PATCH(request: NextRequest) {
     const { data: orgData } = await supabase
       .from("organizations")
       .select("settings")
-      .eq("id", profile.org_id)
+      .eq("id", getOrgIdFromProfile(profile))
       .single();
     const tz = orgData?.settings?.timezone || "UTC";
 

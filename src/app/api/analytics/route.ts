@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("pin_analytics")
     .select("*")
-    .eq("org_id", profile.org_id)
+    .eq("org_id", getOrgIdFromProfile(profile))
     .order("date", { ascending: true });
 
   if (startDate) query = query.gte("date", startDate);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function GET(
   request: NextRequest,
@@ -16,7 +17,7 @@ export async function GET(
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -27,7 +28,7 @@ export async function GET(
     .from("pins")
     .select("*, board:boards(*), product:products(*)")
     .eq("id", id)
-    .eq("org_id", profile.org_id)
+    .eq("org_id", getOrgIdFromProfile(profile))
     .single();
 
   if (error || !data) {
@@ -52,7 +53,7 @@ export async function PATCH(
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -80,7 +81,7 @@ export async function PATCH(
     .from("pins")
     .update(updates)
     .eq("id", id)
-    .eq("org_id", profile.org_id)
+    .eq("org_id", getOrgIdFromProfile(profile))
     .select()
     .single();
 

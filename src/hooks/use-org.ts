@@ -36,7 +36,6 @@ export function useOrg() {
 
         if (profileError) {
           console.error("Profile error:", profileError.message, profileError.code);
-          // If user doesn't exist in users table, try to get org from auth metadata
           setError(`Profile not found: ${profileError.message}`);
           setLoading(false);
           return;
@@ -50,16 +49,22 @@ export function useOrg() {
 
         setUser(profile as User);
 
-        // Step 3: Get organization - use service-level RPC to bypass RLS issues
+        // Step 3: Determine the effective org.
+        // SECURITY: active_org_id is ONLY honoured for agency_admin. Everyone else
+        // is strictly scoped to their own profile.org_id.
+        const isAgencyAdmin = (profile as User).role === "agency_admin";
+        const effectiveOrgId = isAgencyAdmin
+          ? (profile as User & { active_org_id?: string | null }).active_org_id || profile.org_id
+          : profile.org_id;
+
         const { data: orgData, error: orgError } = await supabase
           .from("organizations")
           .select("*")
-          .eq("id", profile.org_id)
+          .eq("id", effectiveOrgId)
           .single();
 
         if (orgError) {
           console.error("Org error:", orgError.message, orgError.code);
-          // Still set org to null but don't block — user data is enough for onboarding
           setOrg(null);
         } else {
           setOrg(orgData as Organization);

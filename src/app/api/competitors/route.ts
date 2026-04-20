@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase
     .from("competitors")
     .select("*")
-    .eq("org_id", profile.org_id)
+    .eq("org_id", getOrgIdFromProfile(profile))
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase
     .from("competitors")
     .insert({
-      org_id: profile.org_id,
+      org_id: getOrgIdFromProfile(profile),
       pinterest_username,
       pinterest_url: pinterest_url || null,
       display_name: display_name || pinterest_username,

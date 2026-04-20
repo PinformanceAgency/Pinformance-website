@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
   const { data: orgData } = await supabase
     .from("organizations")
     .select("pinterest_app_id, pinterest_app_secret_encrypted")
-    .eq("id", profile.org_id)
+    .eq("id", getOrgIdFromProfile(profile))
     .single();
 
   let orgAppId: string | undefined;
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
     orgAppId = orgData.pinterest_app_id;
   }
 
-  const state = encrypt(profile.org_id);
+  const state = encrypt(getOrgIdFromProfile(profile));
   const url = PinterestClient.getAuthUrl(state, orgAppId);
 
   return NextResponse.json({ url });

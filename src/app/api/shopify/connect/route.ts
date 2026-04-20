@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { encrypt, maskKey } from "@/lib/encryption";
 import { ShopifyClient } from "@/lib/shopify/client";
 import { KreaClient } from "@/lib/krea/client";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id, role")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
         onboarding_step: 6,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", profile.org_id);
+      .eq("id", getOrgIdFromProfile(profile));
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
       onboarding_step: 2,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", profile.org_id);
+    .eq("id", getOrgIdFromProfile(profile));
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -12,16 +13,16 @@ export async function GET(request: NextRequest) {
   // Get user's org
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
-  if (!profile?.org_id) return NextResponse.json({ error: "No org" }, { status: 400 });
+  if (!getOrgIdFromProfile(profile)) return NextResponse.json({ error: "No org" }, { status: 400 });
 
   const admin = createAdminClient();
   const { data: org } = await admin
     .from("organizations")
     .select("pinterest_access_token_encrypted, pinterest_token_expires_at, settings")
-    .eq("id", profile.org_id)
+    .eq("id", getOrgIdFromProfile(profile))
     .single();
   if (!org?.pinterest_access_token_encrypted) {
     return NextResponse.json({ pins: [] });

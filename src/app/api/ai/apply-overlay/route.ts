@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import sharp from "sharp";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export const maxDuration = 60;
 
@@ -125,8 +126,8 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { data: profile } = await supabase.from("users").select("org_id").eq("id", user.id).single();
-    orgId = profile?.org_id || null;
+    const { data: profile } = await supabase.from("users").select("org_id, role, active_org_id").eq("id", user.id).single();
+    orgId = getOrgIdFromProfile(profile) || null;
   }
 
   if (!orgId) return NextResponse.json({ error: "No org" }, { status: 400 });

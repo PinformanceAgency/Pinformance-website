@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { generateJSON, generateJSONWithImage } from "@/lib/ai/client";
 import { decrypt } from "@/lib/encryption";
 import { DeepgramClient } from "@/lib/deepgram/client";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 import sharp from "sharp";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -50,12 +51,12 @@ export async function POST(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
 
-  if (!profile?.org_id) return NextResponse.json({ error: "No org" }, { status: 400 });
-  const orgId = profile.org_id;
+  if (!getOrgIdFromProfile(profile)) return NextResponse.json({ error: "No org" }, { status: 400 });
+  const orgId = getOrgIdFromProfile(profile);
 
   const body = await request.json();
   const { image_url, media_type, file_name, thumbnail_url } = body;

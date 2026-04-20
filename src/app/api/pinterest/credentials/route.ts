@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { encrypt } from "@/lib/encryption";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from("users")
-      .select("org_id, role")
+      .select("org_id, role, active_org_id")
       .eq("id", user.id)
       .single();
     if (!profile) {
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
         pinterest_app_secret_encrypted: encrypt(app_secret),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", profile.org_id);
+      .eq("id", getOrgIdFromProfile(profile));
 
     if (updateError) {
       throw new Error(`Failed to save credentials: ${updateError.message}`);

@@ -5,6 +5,7 @@ import { decrypt } from "@/lib/encryption";
 import { runStrategyPipeline } from "@/lib/ai/pipelines/strategy-pipeline";
 import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
 import { runFeedbackPipeline } from "@/lib/ai/pipelines/feedback-pipeline";
+import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id, role")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
   const { data: orgData } = await admin
     .from("organizations")
     .select("anthropic_api_key_encrypted")
-    .eq("id", profile.org_id)
+    .eq("id", getOrgIdFromProfile(profile))
     .single();
 
   let anthropicApiKey: string | undefined;
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
   try {
     switch (pipeline) {
       case "strategy": {
-        const result = await runStrategyPipeline(profile.org_id, anthropicApiKey);
+        const result = await runStrategyPipeline(getOrgIdFromProfile(profile), anthropicApiKey);
         return NextResponse.json({
           success: true,
           pipeline: "strategy",
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
 
       case "content": {
         const days = options?.days || 7;
-        const result = await runContentPipeline(profile.org_id, days, anthropicApiKey);
+        const result = await runContentPipeline(getOrgIdFromProfile(profile), days, anthropicApiKey);
         return NextResponse.json({
           success: true,
           pipeline: "content",
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
       }
 
       case "feedback": {
-        const result = await runFeedbackPipeline(profile.org_id, anthropicApiKey);
+        const result = await runFeedbackPipeline(getOrgIdFromProfile(profile), anthropicApiKey);
         return NextResponse.json({
           success: true,
           pipeline: "feedback",

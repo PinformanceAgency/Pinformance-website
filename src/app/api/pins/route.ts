@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("org_id")
+    .select("org_id, role, active_org_id")
     .eq("id", user.id)
     .single();
   if (!profile) {
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("pins")
     .select("*", { count: "exact" })
-    .eq("org_id", profile.org_id)
+    .eq("org_id", getOrgIdFromProfile(profile))
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
