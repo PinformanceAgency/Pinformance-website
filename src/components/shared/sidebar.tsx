@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
 import { createClient } from "@/lib/supabase/client";
 import { useState } from "react";
+import { OrgSwitcher } from "./org-switcher";
 
 const clientNav = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
@@ -103,8 +104,9 @@ export function Sidebar() {
         </Link>
       </div>
 
-      {/* Organization badge */}
-      {org && (
+      {/* Organization — dropdown for agency_admin, static badge for everyone else */}
+      {org && isAgencyAdmin && <OrgSwitcher currentOrgName={org.name} />}
+      {org && !isAgencyAdmin && (
         <div className="mx-4 mb-4 px-3 py-2.5 bg-white/[0.04] rounded-lg border border-white/[0.06]">
           <div className="text-[10px] uppercase tracking-widest text-white/40 font-medium">
             Organization

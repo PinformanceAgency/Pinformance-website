@@ -1042,6 +1042,74 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "bulk-post-pins", total: results.length, posted, errors, results });
   }
 
+  // One-off: create a super-admin user (agency_admin role) with email+password.
+  // Idempotent: if auth user exists, updates profile to agency_admin.
+  if (step === "create-super-admin") {
+    const { email, password, full_name } = body;
+    if (!email || !password) {
+      return NextResponse.json({ error: "email and password required" }, { status: 400 });
+    }
+
+    // 1. Create (or fetch) the auth user via service-role admin API
+    let authUserId: string | null = null;
+    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: full_name || "Pinformance admin" },
+    });
+
+    if (createErr && !/already/i.test(createErr.message)) {
+      return NextResponse.json({ error: `Auth create failed: ${createErr.message}` }, { status: 500 });
+    }
+
+    if (created?.user?.id) {
+      authUserId = created.user.id;
+    } else {
+      // User may already exist — look up by email via admin.listUsers
+      const { data: list } = await supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
+      const existing = list?.users?.find((u) => u.email?.toLowerCase() === String(email).toLowerCase());
+      authUserId = existing?.id || null;
+    }
+
+    if (!authUserId) {
+      return NextResponse.json({ error: "Could not resolve auth user id" }, { status: 500 });
+    }
+
+    // 2. Upsert profile in public.users with role=agency_admin.
+    // Needs an org_id (schema constraint). Use the first org as the anchor.
+    const { data: firstOrg } = await supabase.from("organizations").select("id").limit(1).single();
+    if (!firstOrg) {
+      return NextResponse.json({ error: "No organisation exists to anchor admin" }, { status: 500 });
+    }
+
+    const { data: existingProfile } = await supabase.from("users").select("id, role").eq("id", authUserId).single();
+    if (existingProfile) {
+      await supabase.from("users").update({
+        role: "agency_admin",
+        full_name: full_name || "Pinformance admin",
+        updated_at: new Date().toISOString(),
+      }).eq("id", authUserId);
+    } else {
+      await supabase.from("users").insert({
+        id: authUserId,
+        email,
+        full_name: full_name || "Pinformance admin",
+        org_id: firstOrg.id,
+        role: "agency_admin",
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      step: "create-super-admin",
+      user_id: authUserId,
+      email,
+      role: "agency_admin",
+      anchor_org_id: firstOrg.id,
+    });
+  }
+
   // Update link_url on a specific pin
   if (step === "update-pin-link") {
     const { pin_id, link_url } = body;
