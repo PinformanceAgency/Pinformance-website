@@ -10,9 +10,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *   to org_id as the safest default.
  */
 export function getOrgIdFromProfile(
-  profile: { org_id: string; role?: string | null; active_org_id?: string | null }
+  profile: { org_id: string; role?: string | null; active_org_id?: string | null } | null | undefined
 ): string {
-  if (!profile) return "";
+  if (!profile || !profile.org_id) return "";
   if (profile.role !== "agency_admin") return profile.org_id;
   return profile.active_org_id || profile.org_id;
 }
