@@ -238,7 +238,7 @@ function IntakeForm({
           className="h-16 w-16 rounded-2xl shadow-[0_8px_24px_rgba(227,6,19,0.15)] sm:h-20 sm:w-20"
         />
         <h1 className="mt-6 max-w-2xl text-3xl font-bold tracking-tight text-[#0a0a0a] sm:text-5xl">
-          Let&apos;s see what you&apos;re currently missing out on.
+          Let&apos;s see what you&apos;re currently missing out on
         </h1>
       </div>
 
