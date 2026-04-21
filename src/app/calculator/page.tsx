@@ -517,6 +517,7 @@ function ProjectionHero({
   mainValue,
   mainLabel,
   mainDescription,
+  includes,
   totalCost,
   breakdown,
   effectivePct,
@@ -527,6 +528,7 @@ function ProjectionHero({
   mainValue: number;
   mainLabel: string;
   mainDescription: string;
+  includes: string[];
   totalCost: number;
   breakdown: { label: string; value: string }[];
   effectivePct?: number;
@@ -534,25 +536,49 @@ function ProjectionHero({
   note?: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
+    <div className="overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_12px_48px_rgba(0,0,0,0.05)]">
+      {/* Meta strip */}
+      <div className="flex items-center justify-between gap-3 border-b border-[#e2e4ea] bg-[#fafbfc] px-8 py-3 sm:px-10 lg:px-14">
+        <div className="flex items-center gap-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#E30613]" />
+          <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#6b7280]">
+            Tailored proposal · {brand}
+          </span>
+        </div>
+        <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-[#9ca3af]">
+          Pinformance
+        </span>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12">
         {/* Main value — dominant */}
-        <div className="relative border-b border-[#e2e4ea] p-8 sm:p-10 lg:col-span-7 lg:border-b-0 lg:border-r lg:p-14">
-          <div className="absolute left-8 right-8 top-0 h-px bg-gradient-to-r from-[#E30613] via-[#E30613]/40 to-transparent sm:left-10 lg:left-14" />
+        <div className="relative p-8 sm:p-10 lg:col-span-7 lg:p-14">
           <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
-            {mainLabel} · {brand}
+            {mainLabel}
           </div>
-          <div className="mt-8 text-6xl font-bold leading-none tracking-tight text-[#0a0a0a] sm:text-7xl lg:text-[88px]">
+          <div className="mt-6 text-6xl font-bold leading-none tracking-tight text-[#0a0a0a] sm:text-7xl lg:text-[96px]">
             {formatEur(mainValue)}
           </div>
           <p className="mt-6 max-w-md text-base leading-relaxed text-[#6b7280]">
             {mainDescription}
           </p>
+          {includes.length > 0 && (
+            <div className="mt-7 flex flex-wrap gap-x-2 gap-y-2">
+              {includes.map((it, i) => (
+                <span
+                  key={i}
+                  className="rounded-full border border-[#e2e4ea] bg-white px-3 py-1 text-xs font-medium text-[#6b7280]"
+                >
+                  {it}
+                </span>
+              ))}
+            </div>
+          )}
           {note && <p className="mt-5 text-xs text-[#9ca3af]">{note}</p>}
         </div>
 
         {/* Costs — subordinate but transparent */}
-        <div className="bg-[#fafbfc] p-8 sm:p-10 lg:col-span-5 lg:p-14">
+        <div className="border-t border-[#e2e4ea] bg-[#fafbfc] p-8 sm:p-10 lg:col-span-5 lg:border-l lg:border-t-0 lg:p-14">
           <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
             Pinformance cost
           </div>
@@ -775,6 +801,13 @@ function FirstPurchasePanel({
         mainValue={revenue}
         mainLabel="Monthly revenue projection"
         mainDescription="Extra monthly revenue from Pinterest — an additional channel alongside your existing ones."
+        includes={[
+          "Strategy & keyword research",
+          "Creative production",
+          "Ads management",
+          "Monthly reporting",
+          "Dedicated account team",
+        ]}
         totalCost={total}
         breakdown={[
           { label: "Base fee", value: formatEur(BASE_FEE) },
@@ -838,19 +871,37 @@ function FirstPurchasePanel({
               </div>
               <div className="mt-5 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <LineChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 18 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e4ea" vertical={false} />
                     <XAxis
                       dataKey="roas"
                       tick={{ fontSize: 11, fill: "#6b7280" }}
                       axisLine={{ stroke: "#e2e4ea" }}
                       tickLine={false}
+                      label={{
+                        value: "ROAS",
+                        position: "insideBottom",
+                        offset: -12,
+                        fontSize: 10,
+                        fill: "#9ca3af",
+                        letterSpacing: "0.2em",
+                      }}
                     />
                     <YAxis
                       tick={{ fontSize: 11, fill: "#6b7280" }}
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={(v) => Number(v).toFixed(1) + " %"}
+                      label={{
+                        value: "PERFORMANCE FEE",
+                        angle: -90,
+                        position: "insideLeft",
+                        offset: 12,
+                        fontSize: 10,
+                        fill: "#9ca3af",
+                        letterSpacing: "0.2em",
+                        style: { textAnchor: "middle" },
+                      }}
                     />
                     <Tooltip
                       contentStyle={{
@@ -880,15 +931,8 @@ function FirstPurchasePanel({
         </div>
       </section>
 
-      {/* 3. Startup fee — small footnote */}
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-[#e2e4ea] bg-white px-5 py-4 text-xs text-[#6b7280]">
-        <span>
-          <span className="font-semibold text-[#0a0a0a]">One-time setup fee </span>
-          € {STARTUP_FEE.toLocaleString("en-US")} — onboarding, strategy, account setup.
-        </span>
-      </div>
+      <SetupFeeSection />
 
-      {/* 4. Guarantees */}
       <GuaranteesFirstPurchase model={model} />
     </div>
   );
@@ -999,6 +1043,13 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
         mainValue={adspend}
         mainLabel="Monthly adspend"
         mainDescription="The media budget we run on Pinterest. The rate drops as you scale — more adspend, lower percentage."
+        includes={[
+          "Strategy & keyword research",
+          "Creative production",
+          "Ads management",
+          "Monthly reporting",
+          "Dedicated account team",
+        ]}
         totalCost={calc.total}
         breakdown={breakdown}
         effectivePct={!calc.belowMin ? calc.effectivePct : undefined}
@@ -1123,7 +1174,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart
                     data={chartData}
-                    margin={{ top: 8, right: 24, left: 0, bottom: 0 }}
+                    margin={{ top: 8, right: 24, left: 8, bottom: 18 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e4ea" vertical={false} />
                     <XAxis
@@ -1131,6 +1182,14 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                       tick={{ fontSize: 11, fill: "#6b7280" }}
                       axisLine={{ stroke: "#e2e4ea" }}
                       tickLine={false}
+                      label={{
+                        value: "ADSPEND",
+                        position: "insideBottom",
+                        offset: -12,
+                        fontSize: 10,
+                        fill: "#9ca3af",
+                        letterSpacing: "0.2em",
+                      }}
                     />
                     <YAxis
                       tick={{ fontSize: 11, fill: "#6b7280" }}
@@ -1138,6 +1197,16 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                       tickLine={false}
                       domain={[6, 11]}
                       tickFormatter={(v) => Number(v).toFixed(0) + " %"}
+                      label={{
+                        value: "ADSPEND FEE",
+                        angle: -90,
+                        position: "insideLeft",
+                        offset: 12,
+                        fontSize: 10,
+                        fill: "#9ca3af",
+                        letterSpacing: "0.2em",
+                        style: { textAnchor: "middle" },
+                      }}
                     />
                     <Tooltip
                       contentStyle={{
@@ -1186,12 +1255,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
         </div>
       </section>
 
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-[#e2e4ea] bg-white px-5 py-4 text-xs text-[#6b7280]">
-        <span>
-          <span className="font-semibold text-[#0a0a0a]">One-time setup fee </span>
-          € {STARTUP_FEE.toLocaleString("en-US")} — onboarding, strategy, account setup.
-        </span>
-      </div>
+      <SetupFeeSection />
 
       <GuaranteesSubscription minimumRoas={intake.targetRoas} />
     </div>
@@ -1273,6 +1337,78 @@ function TierBox({
         {pct}
       </div>
     </div>
+  );
+}
+
+function SetupFeeSection() {
+  const items = [
+    {
+      title: "Account & tracking setup",
+      body: "Pinterest business account, conversion tracking, audience pixels, feed integration.",
+    },
+    {
+      title: "Audience & competitor research",
+      body: "We map your buyer, your category search behaviour on Pinterest, and where competitors win.",
+    },
+    {
+      title: "Initial creative production",
+      body: "First batch of Pin creative — imagery, copy, and variants ready for launch day.",
+    },
+    {
+      title: "90-day strategy roadmap",
+      body: "Keyword plan, content calendar, budget pacing and KPIs — signed off before month one.",
+    },
+  ];
+  return (
+    <section>
+      <div className="mb-6">
+        <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
+          Setup
+        </h3>
+        <p className="mt-1 text-sm text-[#6b7280]">
+          What we do before your first month runs.
+        </p>
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-[#e2e4ea] bg-white shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
+        <div className="grid grid-cols-1 lg:grid-cols-12">
+          <div className="border-b border-[#e2e4ea] bg-[#fafbfc] p-8 lg:col-span-4 lg:border-b-0 lg:border-r lg:p-10">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
+              One-time
+            </div>
+            <div className="mt-4 flex items-baseline gap-2">
+              <span className="text-4xl font-bold text-[#0a0a0a] sm:text-5xl">
+                € {STARTUP_FEE.toLocaleString("en-US")}
+              </span>
+            </div>
+            <p className="mt-4 text-sm leading-relaxed text-[#6b7280]">
+              Billed once, before month one. A proper foundation is what lets
+              the performance model work from day one — we don&apos;t skip it,
+              and we don&apos;t pass the cost into your monthly fee.
+            </p>
+          </div>
+          <div className="p-8 lg:col-span-8 lg:p-10">
+            <div className="mb-4 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
+              What&apos;s covered
+            </div>
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              {items.map((it, i) => (
+                <div key={i} className="flex gap-3">
+                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#E30613]" />
+                  <div>
+                    <div className="text-sm font-semibold text-[#0a0a0a]">
+                      {it.title}
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-[#6b7280]">
+                      {it.body}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
