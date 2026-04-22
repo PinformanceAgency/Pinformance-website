@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -131,6 +131,15 @@ export default function CalculatorPage() {
     expectedRevenue: NaN,
     expectedAdspend: NaN,
   });
+
+  // Whenever the step changes, jump the viewport back to the top so the
+  // salesperson lands on the logo + hero — not wherever the intake form
+  // happened to be scrolled to.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [step]);
 
   return (
     <div className="min-h-screen bg-[#f8f9fb] dot-grid-bg py-10 px-4 sm:px-6 lg:px-10">
