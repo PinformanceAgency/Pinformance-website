@@ -1591,7 +1591,7 @@ function SetupFeeSection() {
     },
     {
       title: "Creative gameplan",
-      body: "Concept roadmap, Pin formats, and shooting cadence built around your brand.",
+      body: "Creative guidance and format direction for what wins on Pinterest.",
     },
     {
       title: "Understanding your internal workprocess and apps",
