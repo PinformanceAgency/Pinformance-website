@@ -1571,7 +1571,7 @@ function SetupFeeSection() {
   const items = [
     {
       title: "Pinterest profile setup",
-      body: "Your Pinterest profile configured the right way — bio, branding, verified domain, board structure and discoverability all dialled in.",
+      body: "Your Pinterest profile configured the right way — bio, branding, board structure and discoverability all dialled in.",
     },
     {
       title: "Paid advertising setup",
