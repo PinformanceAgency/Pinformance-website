@@ -1599,7 +1599,7 @@ function SetupFeeSection() {
     },
     {
       title: "Dedicated organic dashboard",
-      body: "Live view of scheduled Pins, board growth, organic reach and impressions.",
+      body: "Live view of scheduled Pins, board growth, reach, impressions, and organic revenue.",
     },
   ];
   return (
