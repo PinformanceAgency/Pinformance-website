@@ -547,13 +547,10 @@ function ThenVsNowHero({
       <div className="grid grid-cols-1 lg:grid-cols-12">
         {/* LEFT — Currently (quieter, smaller column) */}
         <div className="relative border-b border-[#e2e4ea] bg-gradient-to-br from-[#fafbfc] to-[#f4f5f8] p-10 sm:p-12 lg:col-span-5 lg:border-b-0 lg:border-r lg:p-14">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#b8bcc6]">
-            Currently
-          </div>
-          <div className="mt-2 text-xs font-medium text-[#9ca3af]">
+          <div className="text-xl font-semibold text-[#9ca3af] sm:text-2xl lg:text-3xl">
             {currentlyLabel}
           </div>
-          <div className="mt-10 flex items-start gap-1.5">
+          <div className="mt-6 flex items-start gap-1.5">
             <span className="mt-2 text-xl font-semibold text-[#b8bcc6] sm:mt-3 sm:text-2xl lg:text-3xl">
               €
             </span>
@@ -574,13 +571,10 @@ function ThenVsNowHero({
           {/* Subtle top highlight line */}
           <div className="absolute inset-x-0 top-0 h-px bg-white/25" />
           <div className="relative">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-white">
-              With Pinformance
-            </div>
-            <div className="mt-2 text-xs font-medium text-white/70">
+            <div className="text-xl font-semibold text-white sm:text-2xl lg:text-3xl">
               {projectionLabel}
             </div>
-            <div className="mt-10 flex items-start gap-2 whitespace-nowrap">
+            <div className="mt-6 flex items-start gap-2 whitespace-nowrap">
               <span className="mt-2 text-2xl font-semibold text-white/80 sm:mt-3 sm:text-3xl lg:mt-4 lg:text-4xl">
                 €
               </span>
