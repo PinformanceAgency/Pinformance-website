@@ -1340,7 +1340,7 @@ function TiersCard({
   model: FpModel;
   activeRoas: number;
   breakdown?: {
-    scenarioLabel: string;
+    scenarioLabel: React.ReactNode;
     items: { label: string; value: string; hint?: string }[];
     total: { label: string; value: string; hint?: string };
   };
