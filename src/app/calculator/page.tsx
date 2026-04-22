@@ -1579,7 +1579,7 @@ function SetupFeeSection() {
     },
     {
       title: "Connecting to our internal AI systems",
-      body: "AI bid management, creative testing at scale, daily budget pacing.",
+      body: "Your ad account plugged into our internal AI stack.",
     },
     {
       title: "Organic setup",
