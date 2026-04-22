@@ -1578,7 +1578,7 @@ function SetupFeeSection() {
       body: "Ads account, campaign architecture.",
     },
     {
-      title: "Dedicated AI systems",
+      title: "Connecting to internal AI systems",
       body: "Proprietary AI built for maximum ROAS and revenue.",
     },
     {
