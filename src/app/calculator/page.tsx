@@ -569,35 +569,39 @@ function ThenVsNowHero({
           </p>
         </div>
 
-        {/* RIGHT — With Pinformance (dominant column) */}
-        <div className="relative p-10 sm:p-12 lg:col-span-7 lg:p-14">
-          {/* Top accent hairline */}
-          <div className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-[#E30613] via-[#E30613]/40 to-transparent sm:inset-x-12 lg:inset-x-14" />
-          {/* Subtle background glow top-right */}
+        {/* RIGHT — With Pinformance (dominant column, high-impact red) */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-[#E30613] via-[#c80610] to-[#8b0209] p-10 sm:p-12 lg:col-span-7 lg:p-14">
+          {/* Decorative glows */}
           <div
             aria-hidden
-            className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#E30613]/[0.06] blur-3xl"
+            className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl"
           />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-black/20 blur-3xl"
+          />
+          {/* Top accent hairline */}
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-white/30 via-white/10 to-transparent" />
 
           <div className="relative">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#E30613]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-white">
               With Pinformance
             </div>
-            <div className="mt-2 text-xs font-medium text-[#6b7280]">
+            <div className="mt-2 text-xs font-medium text-white/70">
               {projectionLabel}
             </div>
             <div className="mt-10 flex items-start gap-2 whitespace-nowrap">
-              <span className="mt-2 text-2xl font-semibold text-[#6b7280] sm:mt-3 sm:text-3xl lg:mt-4 lg:text-4xl">
+              <span className="mt-2 text-2xl font-semibold text-white/80 sm:mt-3 sm:text-3xl lg:mt-4 lg:text-4xl">
                 €
               </span>
-              <span className="text-6xl font-bold leading-none tracking-tight tabular-nums text-[#0a0a0a] sm:text-7xl lg:text-[92px]">
+              <span className="text-6xl font-bold leading-none tracking-tight tabular-nums text-white sm:text-7xl lg:text-[92px]">
                 {projectionNum}
               </span>
             </div>
-            <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
+            <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/70">
               Per month
             </div>
-            <p className="mt-8 max-w-md text-base leading-relaxed text-[#6b7280]">
+            <p className="mt-8 max-w-md text-base leading-relaxed text-white/85">
               {projectionDescription}
             </p>
           </div>
@@ -737,7 +741,10 @@ function GuaranteesGrid({
   return (
     <section>
       <div className="mb-6">
-        <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#E30613]">
+          Zero risk on our side
+        </div>
+        <h3 className="mt-2 text-2xl font-semibold tracking-tight text-[#0a0a0a] sm:text-3xl">
           Guarantees & terms
         </h3>
         <p className="mt-1 text-sm text-[#6b7280]">
@@ -748,17 +755,26 @@ function GuaranteesGrid({
         {items.map((it, i) => (
           <div
             key={i}
-            className="relative rounded-2xl border border-[#e2e4ea] bg-white p-7"
+            className="group relative overflow-hidden rounded-2xl border border-[#e2e4ea] bg-white p-7 shadow-[0_4px_16px_rgba(10,10,10,0.03)] transition-all hover:border-[#E30613]/30 hover:shadow-[0_12px_32px_rgba(227,6,19,0.08)]"
           >
-            <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
-              {it.label}
+            {/* Red top accent line */}
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#E30613] via-[#E30613]/60 to-transparent" />
+            {/* Subtle red glow on hover */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full bg-[#E30613]/[0.04] blur-2xl transition-opacity group-hover:bg-[#E30613]/[0.08]"
+            />
+            <div className="relative">
+              <div className="inline-flex items-center rounded-full bg-[#fef2f2] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
+                {it.label}
+              </div>
+              <div className="mt-5 text-lg font-semibold leading-snug text-[#0a0a0a]">
+                {it.headline}
+              </div>
+              <p className="mt-4 text-sm leading-relaxed text-[#6b7280]">
+                {it.body}
+              </p>
             </div>
-            <div className="mt-4 text-lg font-semibold leading-snug text-[#0a0a0a]">
-              {it.headline}
-            </div>
-            <p className="mt-4 text-sm leading-relaxed text-[#6b7280]">
-              {it.body}
-            </p>
           </div>
         ))}
       </div>
@@ -845,7 +861,8 @@ function FirstPurchasePanel({
       : `Performance fee (${formatPct(perfPct)})`;
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-12">
+      {/* 1. Hero — what you earn */}
       <ThenVsNowHero
         brand={intake.brand}
         projection={revenue}
@@ -855,6 +872,10 @@ function FirstPurchasePanel({
         currentlyCopy="No Pinterest performance channel running today."
       />
 
+      {/* 2. Guarantees — what we commit to (de-risks the cost reveal next) */}
+      <GuaranteesFirstPurchase model={model} />
+
+      {/* 3. Cost — quiet, transparent, framed against guarantees above */}
       <CompactCostCard
         totalCost={total}
         breakdown={[
@@ -979,9 +1000,8 @@ function FirstPurchasePanel({
         </div>
       </section>
 
+      {/* 5. Setup — natural next-step */}
       <SetupFeeSection />
-
-      <GuaranteesFirstPurchase model={model} />
     </div>
   );
 }
@@ -1085,7 +1105,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
   ];
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-12">
       <ThenVsNowHero
         brand={intake.brand}
         projection={adspend}
@@ -1094,6 +1114,8 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
         currentlyLabel="Active Pinterest adspend"
         currentlyCopy="No Pinterest performance channel running today."
       />
+
+      <GuaranteesSubscription minimumRoas={intake.targetRoas} />
 
       <CompactCostCard
         totalCost={calc.total}
@@ -1302,8 +1324,6 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
       </section>
 
       <SetupFeeSection />
-
-      <GuaranteesSubscription minimumRoas={intake.targetRoas} />
     </div>
   );
 }
