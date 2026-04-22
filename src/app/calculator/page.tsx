@@ -527,59 +527,80 @@ function ThenVsNowHero({
   currentlyLabel: string;
   currentlyCopy: string;
 }) {
+  const projectionNum = Math.round(projection).toLocaleString("en-US");
+
   return (
-    <div className="overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
+    <div className="relative overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_20px_80px_rgba(10,10,10,0.06)]">
       {/* Meta strip */}
-      <div className="flex items-center justify-between gap-3 border-b border-[#e2e4ea] bg-[#fafbfc] px-8 py-3 sm:px-10 lg:px-14">
-        <div className="flex items-center gap-2">
+      <div className="relative flex items-center justify-between gap-3 border-b border-[#e2e4ea] bg-gradient-to-b from-[#fafbfc] to-white px-8 py-3.5 sm:px-10 lg:px-14">
+        <div className="flex items-center gap-2.5">
           <span className="h-1.5 w-1.5 rounded-full bg-[#E30613]" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#6b7280]">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#6b7280]">
             Tailored proposal · {brand}
           </span>
         </div>
-        <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-[#9ca3af]">
+        <span className="hidden text-[10px] font-medium uppercase tracking-[0.3em] text-[#c1c5cf] sm:inline">
           Pinformance
         </span>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2">
-        {/* LEFT — Currently */}
-        <div className="relative border-b border-[#e2e4ea] bg-[#fafbfc] p-8 sm:p-10 lg:border-b-0 lg:border-r lg:p-14">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
+      <div className="grid grid-cols-1 lg:grid-cols-12">
+        {/* LEFT — Currently (quieter, smaller column) */}
+        <div className="relative border-b border-[#e2e4ea] bg-gradient-to-br from-[#fafbfc] to-[#f4f5f8] p-10 sm:p-12 lg:col-span-5 lg:border-b-0 lg:border-r lg:p-14">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#b8bcc6]">
             Currently
           </div>
           <div className="mt-2 text-xs font-medium text-[#9ca3af]">
             {currentlyLabel}
           </div>
-          <div className="mt-8 flex items-baseline gap-2">
-            <span className="text-5xl font-bold leading-none tracking-tight text-[#b8bcc6] sm:text-6xl lg:text-7xl">
-              € 0
+          <div className="mt-10 flex items-start gap-1.5">
+            <span className="mt-2 text-xl font-semibold text-[#b8bcc6] sm:mt-3 sm:text-2xl lg:text-3xl">
+              €
             </span>
-            <span className="text-sm font-medium text-[#b8bcc6]">/month</span>
+            <span className="text-5xl font-bold leading-none tracking-tight tabular-nums text-[#b8bcc6] sm:text-6xl lg:text-7xl">
+              0
+            </span>
           </div>
-          <p className="mt-6 max-w-xs text-sm leading-relaxed text-[#9ca3af]">
+          <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#b8bcc6]">
+            Per month
+          </div>
+          <p className="mt-8 max-w-xs text-sm leading-relaxed text-[#9ca3af]">
             {currentlyCopy}
           </p>
         </div>
 
-        {/* RIGHT — With Pinformance */}
-        <div className="relative p-8 sm:p-10 lg:p-14">
-          <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-[#E30613] via-[#E30613]/40 to-transparent sm:inset-x-10 lg:inset-x-14" />
-          <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
-            With Pinformance
+        {/* RIGHT — With Pinformance (dominant column) */}
+        <div className="relative p-10 sm:p-12 lg:col-span-7 lg:p-14">
+          {/* Top accent hairline */}
+          <div className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-[#E30613] via-[#E30613]/40 to-transparent sm:inset-x-12 lg:inset-x-14" />
+          {/* Subtle background glow top-right */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#E30613]/[0.06] blur-3xl"
+          />
+
+          <div className="relative">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#E30613]">
+              With Pinformance
+            </div>
+            <div className="mt-2 text-xs font-medium text-[#6b7280]">
+              {projectionLabel}
+            </div>
+            <div className="mt-10 flex items-start gap-2 whitespace-nowrap">
+              <span className="mt-2 text-2xl font-semibold text-[#6b7280] sm:mt-3 sm:text-3xl lg:mt-4 lg:text-4xl">
+                €
+              </span>
+              <span className="text-6xl font-bold leading-none tracking-tight tabular-nums text-[#0a0a0a] sm:text-7xl lg:text-[92px]">
+                {projectionNum}
+              </span>
+            </div>
+            <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
+              Per month
+            </div>
+            <p className="mt-8 max-w-md text-base leading-relaxed text-[#6b7280]">
+              {projectionDescription}
+            </p>
           </div>
-          <div className="mt-2 text-xs font-medium text-[#6b7280]">
-            {projectionLabel}
-          </div>
-          <div className="mt-8 flex items-baseline gap-2">
-            <span className="text-6xl font-bold leading-none tracking-tight text-[#0a0a0a] sm:text-7xl lg:text-[92px]">
-              {formatEur(projection)}
-            </span>
-            <span className="text-sm font-medium text-[#9ca3af]">/month</span>
-          </div>
-          <p className="mt-6 max-w-md text-base leading-relaxed text-[#6b7280]">
-            {projectionDescription}
-          </p>
         </div>
       </div>
     </div>
