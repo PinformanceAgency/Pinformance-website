@@ -903,9 +903,19 @@ function FirstPurchasePanel({
               activeRoas={roas}
               breakdown={{
                 scenarioLabel:
-                  !Number.isNaN(roas) && !Number.isNaN(revenue) && revenue > 0
-                    ? `At ROAS ${roasInput} · ${formatEur(revenue)} revenue`
-                    : "Fee breakdown",
+                  !Number.isNaN(roas) && !Number.isNaN(revenue) && revenue > 0 ? (
+                    <span>
+                      At ROAS{" "}
+                      <span className="text-[#E30613]">{roasInput}</span>, you
+                      earn{" "}
+                      <span className="text-[#E30613]">
+                        {formatEur(revenue)}
+                      </span>{" "}
+                      per month
+                    </span>
+                  ) : (
+                    "Fee breakdown"
+                  ),
                 items: [
                   { label: "Base fee", value: formatEur(BASE_FEE) },
                   {
@@ -1191,7 +1201,15 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
               </div>
               {calc.brackets.length > 0 && (
                 <BreakdownFooter
-                  scenarioLabel={`At ${formatEur(adspend)} adspend`}
+                  scenarioLabel={
+                    <span>
+                      At{" "}
+                      <span className="text-[#E30613]">
+                        {formatEur(adspend)}
+                      </span>{" "}
+                      monthly adspend
+                    </span>
+                  }
                   items={[
                     { label: "Base fee", value: formatEur(BASE_FEE) },
                     ...calc.brackets.map((b) => ({
@@ -1370,13 +1388,13 @@ function BreakdownFooter({
   items,
   total,
 }: {
-  scenarioLabel: string;
+  scenarioLabel: React.ReactNode;
   items: { label: string; value: string; hint?: string }[];
   total: { label: string; value: string; hint?: string };
 }) {
   return (
     <div className="mt-5 border-t border-[#e2e4ea] pt-5">
-      <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.2em] text-[#9ca3af]">
+      <div className="mb-4 text-sm font-semibold text-[#0a0a0a] sm:text-base">
         {scenarioLabel}
       </div>
       <div className="space-y-2 text-sm">
