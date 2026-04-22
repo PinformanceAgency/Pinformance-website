@@ -1594,6 +1594,10 @@ function SetupFeeSection() {
       body: "Ongoing creative direction informed by what's performing — the feed keeps moving and the brief keeps sharpening.",
     },
     {
+      title: "Workflow & SOPs",
+      body: "We map your existing systems and build SOPs so our team works inside your environment — not alongside it.",
+    },
+    {
       title: "Dedicated brand dashboard",
       body: "A dashboard built for your brand where organic progress and the content calendar of Pins we're publishing are live at all times.",
     },
