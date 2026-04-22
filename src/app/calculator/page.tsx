@@ -1217,10 +1217,6 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                   total={{
                     label: `Total${calc.capped ? " (cap)" : ""}`,
                     value: formatEur(calc.total),
-                    hint:
-                      !calc.belowMin && adspend > 0
-                        ? `Eff. ${calc.effectivePct.toFixed(1)} %`
-                        : undefined,
                   }}
                 />
               )}
