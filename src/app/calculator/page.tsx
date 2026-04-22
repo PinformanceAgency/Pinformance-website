@@ -1594,8 +1594,8 @@ function SetupFeeSection() {
       body: "Ongoing briefs, performance-led iteration.",
     },
     {
-      title: "Workflow & SOPs",
-      body: "SOPs built around your existing systems.",
+      title: "Understanding your internal workprocess and apps",
+      body: "Tools, processes, collaboration mapped.",
     },
     {
       title: "Dedicated brand dashboard",
