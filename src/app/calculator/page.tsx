@@ -1571,35 +1571,35 @@ function SetupFeeSection() {
   const items = [
     {
       title: "Pinterest profile setup",
-      body: "Your Pinterest profile configured the right way — bio, branding, board structure and discoverability all dialled in.",
+      body: "Bio, branding, board structure, discoverability.",
     },
     {
       title: "Paid advertising setup",
-      body: "Pinterest Ads account, conversion tracking, audience pixels and campaign architecture configured and ready.",
+      body: "Ads account, conversion tracking, audience pixels, campaign architecture.",
     },
     {
       title: "Dedicated AI systems",
-      body: "Your brand connected to our dedicated AI systems — built to push ROAS and revenue in your ad account to their highest potential.",
+      body: "Proprietary AI built for maximum ROAS and revenue.",
     },
     {
       title: "Organic setup",
-      body: "Boards developed, Pin schedule built, content calendar live — the organic engine running alongside paid.",
+      body: "Boards, Pin schedule, live content calendar.",
     },
     {
       title: "Brand research",
-      body: "We make sure we target the right persona on Pinterest, informed by both SEA and SEO behaviour.",
+      body: "Right persona on Pinterest — SEA + SEO behaviour.",
     },
     {
       title: "Creative direction and research",
-      body: "Ongoing creative direction informed by what's performing — the feed keeps moving and the brief keeps sharpening.",
+      body: "Ongoing briefs, performance-led iteration.",
     },
     {
       title: "Workflow & SOPs",
-      body: "We map your existing systems and build SOPs so our team works inside your environment — not alongside it.",
+      body: "SOPs built around your existing systems.",
     },
     {
       title: "Dedicated brand dashboard",
-      body: "A dashboard built for your brand where organic progress and the content calendar of Pins we're publishing are live at all times.",
+      body: "Live organic progress, content calendar, scheduled Pins.",
     },
   ];
   return (
