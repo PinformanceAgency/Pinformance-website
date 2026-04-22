@@ -862,24 +862,52 @@ function FirstPurchasePanel({
             Your investment
           </h3>
           <p className="mt-1 text-sm text-[#6b7280]">
-            Adjust live to run different scenarios during the call.
+            Adjust live during the call to run different scenarios.
           </p>
         </div>
 
-        {/* Metric cards row — ROAS input + fees + total highlighted */}
-        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
-          <MetricInputCard
-            label="Achieved ROAS"
-            value={roasInput}
-            onChange={setRoasInput}
-            accent={
-              belowGuarantee
-                ? { text: "0 %", tone: "gray" }
-                : perfPct !== null
-                  ? { text: formatPct(perfPct), tone: "red" }
-                  : undefined
-            }
-          />
+        {/* LIVE ADJUST panel — obvious inputs with quick presets */}
+        <AdjustPanel>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <AdjustInput
+              label="Achieved ROAS"
+              value={roasInput}
+              onChange={setRoasInput}
+              accent={
+                belowGuarantee
+                  ? { text: "0 % fee", tone: "gray" }
+                  : perfPct !== null
+                    ? { text: formatPct(perfPct) + " fee", tone: "red" }
+                    : undefined
+              }
+              presets={model.points.map((p) => ({
+                label: p.roas.toString(),
+                value: p.roas.toString(),
+              }))}
+            />
+            <AdjustInput
+              label="Monthly revenue"
+              value={revenueInput}
+              onChange={setRevenueInput}
+              prefix="€"
+              presets={[
+                { label: "€ 50k", value: "50000" },
+                { label: "€ 100k", value: "100000" },
+                { label: "€ 250k", value: "250000" },
+                { label: "€ 500k", value: "500000" },
+              ]}
+            />
+          </div>
+        </AdjustPanel>
+
+        {note && (
+          <div className="mt-5 rounded-xl border border-[#fce4e4] bg-[#fef2f2] px-4 py-3 text-xs text-[#E30613]">
+            {note}
+          </div>
+        )}
+
+        {/* COST metric cards — subtle, all equal weight */}
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <MetricCard label="Base fee" value={formatEur(BASE_FEE)} />
           <MetricCard
             label="Performance fee"
@@ -898,23 +926,10 @@ function FirstPurchasePanel({
                 ? "Effective " + effectivePct.toFixed(2) + " %"
                 : undefined
             }
-            highlight
-          />
-          <MetricInputCard
-            label="Monthly revenue"
-            value={revenueInput}
-            onChange={setRevenueInput}
-            prefix="€"
           />
         </div>
 
-        {note && (
-          <div className="mb-5 rounded-xl border border-[#fce4e4] bg-[#fef2f2] px-4 py-3 text-xs text-[#E30613]">
-            {note}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-5">
           <div className="space-y-4 lg:col-span-2">
             <TiersCard model={model} activeRoas={roas} />
           </div>
@@ -1113,18 +1128,41 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
             Your investment
           </h3>
           <p className="mt-1 text-sm text-[#6b7280]">
-            Adjust live to run different scenarios during the call.
+            Adjust live during the call to run different scenarios.
           </p>
         </div>
 
-        {/* Metric cards row */}
-        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
-          <MetricInputCard
-            label="Monthly adspend"
-            value={adspendInput}
-            onChange={setAdspendInput}
-            prefix="€"
-          />
+        <AdjustPanel>
+          <div className="grid grid-cols-1 gap-6">
+            <AdjustInput
+              label="Monthly adspend"
+              value={adspendInput}
+              onChange={setAdspendInput}
+              prefix="€"
+              accent={{
+                text:
+                  "Intake target " + formatEur(intakeAdspend),
+                tone: "gray",
+              }}
+              presets={[
+                { label: "€ 10k", value: "10000" },
+                { label: "€ 25k", value: "25000" },
+                { label: "€ 50k", value: "50000" },
+                { label: "€ 100k", value: "100000" },
+                { label: "€ 200k", value: "200000" },
+              ]}
+            />
+          </div>
+        </AdjustPanel>
+
+        {note && (
+          <div className="mt-5 rounded-xl border border-[#fce4e4] bg-[#fef2f2] px-4 py-3 text-xs text-[#E30613]">
+            {note}
+          </div>
+        )}
+
+        {/* COST metric cards — subtle, all equal weight */}
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <MetricCard label="Base fee" value={formatEur(BASE_FEE)} />
           <MetricCard
             label="Adspend fee"
@@ -1143,36 +1181,11 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                 ? "Effective " + calc.effectivePct.toFixed(1) + " %"
                 : undefined
             }
-            highlight
-          />
-          <MetricCard
-            label="Minimum ROAS"
-            value={
-              Number.isFinite(intake.targetRoas)
-                ? intake.targetRoas.toFixed(1)
-                : "—"
-            }
-            sub="Contractual floor"
           />
         </div>
 
-        {note && (
-          <div className="mb-5 rounded-xl border border-[#fce4e4] bg-[#fef2f2] px-4 py-3 text-xs text-[#E30613]">
-            {note}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-5">
           <div className="space-y-4 lg:col-span-2">
-            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Intake target
-              </div>
-              <div className="text-sm text-[#6b7280]">
-                {formatEur(intakeAdspend)} — adjust the metric card above to
-                run live scenarios.
-              </div>
-            </div>
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
               <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
                 Adspend fee brackets
@@ -1391,34 +1404,17 @@ function MetricCard({
   label,
   value,
   sub,
-  highlight,
 }: {
   label: string;
   value: string;
   sub?: string;
-  highlight?: boolean;
 }) {
-  if (highlight) {
-    return (
-      <div className="relative overflow-hidden rounded-xl bg-[#E30613] px-4 py-4 text-white shadow-[0_8px_24px_rgba(227,6,19,0.22)]">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/75">
-          {label}
-        </div>
-        <div className="mt-1.5 text-xl font-bold tabular-nums sm:text-2xl">
-          {value}
-        </div>
-        <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-white/80">
-          {sub ?? ""}
-        </div>
-      </div>
-    );
-  }
   return (
-    <div className="rounded-xl border border-[#e2e4ea] bg-white px-4 py-4">
+    <div className="rounded-xl border border-[#e2e4ea] bg-white px-5 py-4">
       <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
         {label}
       </div>
-      <div className="mt-1.5 text-xl font-bold tabular-nums text-[#0a0a0a] sm:text-2xl">
+      <div className="mt-1.5 text-xl font-semibold tabular-nums text-[#0a0a0a] sm:text-2xl">
         {value}
       </div>
       <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#9ca3af]">
@@ -1428,50 +1424,90 @@ function MetricCard({
   );
 }
 
-function MetricInputCard({
+function AdjustPanel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-[#E30613]/25 bg-white p-6 shadow-[0_8px_32px_rgba(227,6,19,0.06)] sm:p-7">
+      <div className="mb-5 flex items-center gap-2.5">
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#E30613] opacity-60" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-[#E30613]" />
+        </span>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#E30613]">
+          Live · adjust during the call
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function AdjustInput({
   label,
   value,
   onChange,
   prefix,
   accent,
+  presets,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   prefix?: string;
   accent?: { text: string; tone: "red" | "gray" };
+  presets?: { label: string; value: string }[];
 }) {
   return (
-    <div className="rounded-xl border border-[#e2e4ea] bg-white px-4 py-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#6b7280]">
           {label}
         </div>
         {accent && (
           <span
             className={
-              "rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums " +
+              "rounded-full px-2.5 py-1 text-[10px] font-semibold tabular-nums " +
               (accent.tone === "red"
                 ? "bg-[#fef2f2] text-[#E30613]"
-                : "bg-[#f0f1f5] text-[#9ca3af]")
+                : "bg-[#f0f1f5] text-[#6b7280]")
             }
           >
             {accent.text}
           </span>
         )}
       </div>
-      <div className="mt-1.5 flex items-baseline gap-1">
+      <div className="flex items-baseline gap-2 rounded-xl border border-[#e2e4ea] bg-[#fafbfc] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-white">
         {prefix && (
-          <span className="text-base font-medium text-[#9ca3af]">{prefix}</span>
+          <span className="text-lg font-semibold text-[#9ca3af]">{prefix}</span>
         )}
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-transparent text-xl font-bold tabular-nums text-[#0a0a0a] outline-none placeholder:text-[#d1d5db] sm:text-2xl"
+          className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#0a0a0a] outline-none placeholder:text-[#d1d5db] sm:text-3xl"
         />
       </div>
-      <div className="mt-0.5 min-h-[14px]" />
+      {presets && presets.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#9ca3af]">
+            Try:
+          </span>
+          {presets.map((p, i) => (
+            <button
+              key={i}
+              onClick={() => onChange(p.value)}
+              className={
+                "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors " +
+                (value === p.value
+                  ? "border-[#E30613] bg-[#fef2f2] text-[#E30613]"
+                  : "border-[#e2e4ea] bg-white text-[#6b7280] hover:border-[#d1d5db] hover:text-[#0a0a0a]")
+              }
+              type="button"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
