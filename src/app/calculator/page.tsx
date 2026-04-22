@@ -1598,8 +1598,8 @@ function SetupFeeSection() {
       body: "We plug into Slack, Notion, and your approval flows.",
     },
     {
-      title: "Dedicated brand dashboard",
-      body: "Live view of scheduled Pins, board growth, organic reach, ROAS.",
+      title: "Dedicated organic dashboard",
+      body: "Live view of scheduled Pins, board growth, organic reach and impressions.",
     },
   ];
   return (
