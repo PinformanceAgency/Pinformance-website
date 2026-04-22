@@ -761,9 +761,6 @@ function GuaranteesGrid({
               <div className="mt-5 text-lg font-semibold leading-snug text-[#0a0a0a]">
                 {it.headline}
               </div>
-              <p className="mt-4 text-sm leading-relaxed text-[#6b7280]">
-                {it.body}
-              </p>
             </div>
           </div>
         ))}
@@ -856,8 +853,8 @@ function FirstPurchasePanel({
       <ThenVsNowHero
         brand={intake.brand}
         projection={revenue}
-        projectionLabel="Monthly revenue projection"
-        projectionDescription="Extra monthly revenue from Pinterest — an additional channel alongside your existing ones."
+        projectionLabel="Revenue you're missing out on"
+        projectionDescription="Extra monthly revenue from purely Pinterest."
         currentlyLabel="Pinterest performance revenue"
         currentlyCopy="No Pinterest performance channel running today."
       />
