@@ -861,9 +861,6 @@ function FirstPurchasePanel({
           <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
             Your investment
           </h3>
-          <p className="mt-1 text-sm text-[#6b7280]">
-            Adjust live during the call to run different scenarios.
-          </p>
         </div>
 
         {/* LIVE ADJUST panel — obvious inputs with quick presets */}
@@ -1127,9 +1124,6 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
           <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
             Your investment
           </h3>
-          <p className="mt-1 text-sm text-[#6b7280]">
-            Adjust live during the call to run different scenarios.
-          </p>
         </div>
 
         <AdjustPanel>
