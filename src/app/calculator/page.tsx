@@ -1582,8 +1582,8 @@ function SetupFeeSection() {
       body: "We make sure we target the right persona on Pinterest, informed by both SEA and SEO behaviour.",
     },
     {
-      title: "Weekly creative direction",
-      body: "A fresh creative brief every week based on what's performing — the feed keeps moving.",
+      title: "Creative direction and research",
+      body: "Ongoing creative direction informed by what's performing — the feed keeps moving and the brief keeps sharpening.",
     },
   ];
   return (
