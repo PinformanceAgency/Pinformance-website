@@ -1613,20 +1613,16 @@ function SetupFeeSection() {
         </p>
       </div>
       <div className="overflow-hidden rounded-2xl border border-[#e2e4ea] bg-white shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
-        {/* TOP: fee badge, full width */}
-        <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[#e2e4ea] bg-[#fafbfc] px-8 py-7 sm:px-10">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
-              One-time setup
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-4xl font-bold text-[#0a0a0a] sm:text-5xl">
-                € {STARTUP_FEE.toLocaleString("en-US")}
-              </span>
-            </div>
+        {/* TOP: fee badge, centred */}
+        <div className="border-b border-[#e2e4ea] bg-[#fafbfc] px-8 py-8 text-center sm:px-10">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
+            One-time setup
           </div>
-          <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-[#9ca3af]">
-            Billed once · before month one
+          <div className="mt-3 text-3xl font-bold tabular-nums text-[#0a0a0a] sm:text-4xl">
+            € {STARTUP_FEE.toLocaleString("en-US")}
+          </div>
+          <div className="mt-2 text-[11px] font-medium uppercase tracking-[0.2em] text-[#9ca3af]">
+            Billed once
           </div>
         </div>
 
