@@ -896,32 +896,37 @@ function FirstPurchasePanel({
           </div>
         )}
 
-        {/* COST metric cards — subtle, all equal weight */}
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <MetricCard label="Base fee" value={formatEur(BASE_FEE)} />
-          <MetricCard
-            label="Performance fee"
-            value={formatEur(perfFee)}
-            sub={
-              !belowGuarantee && !belowMinRev && perfPct !== null
-                ? formatPct(perfPct) + " of revenue"
-                : undefined
-            }
-          />
-          <MetricCard
-            label="Total / month"
-            value={formatEur(total)}
-            sub={
-              !belowMinRev && !belowGuarantee && revenue > 0
-                ? "Effective " + effectivePct.toFixed(2) + " %"
-                : undefined
-            }
-          />
-        </div>
-
         <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-5">
           <div className="space-y-4 lg:col-span-2">
-            <TiersCard model={model} activeRoas={roas} />
+            <TiersCard
+              model={model}
+              activeRoas={roas}
+              breakdown={{
+                scenarioLabel:
+                  !Number.isNaN(roas) && !Number.isNaN(revenue) && revenue > 0
+                    ? `At ROAS ${roasInput} · ${formatEur(revenue)} revenue`
+                    : "Fee breakdown",
+                items: [
+                  { label: "Base fee", value: formatEur(BASE_FEE) },
+                  {
+                    label: "Performance fee",
+                    value: formatEur(perfFee),
+                    hint:
+                      !belowGuarantee && !belowMinRev && perfPct !== null
+                        ? formatPct(perfPct)
+                        : undefined,
+                  },
+                ],
+                total: {
+                  label: "Total / month",
+                  value: formatEur(total),
+                  hint:
+                    !belowMinRev && !belowGuarantee && revenue > 0
+                      ? `Eff. ${effectivePct.toFixed(2)} %`
+                      : undefined,
+                },
+              }}
+            />
           </div>
 
           <div className="lg:col-span-3">
@@ -1148,33 +1153,10 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
           </div>
         )}
 
-        {/* COST metric cards — subtle, all equal weight */}
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <MetricCard label="Base fee" value={formatEur(BASE_FEE)} />
-          <MetricCard
-            label="Adspend fee"
-            value={formatEur(calc.adspendFee)}
-            sub={
-              !calc.belowMin && calc.flatPct > 0
-                ? calc.flatPct + " % of adspend"
-                : undefined
-            }
-          />
-          <MetricCard
-            label="Total / month"
-            value={formatEur(calc.total)}
-            sub={
-              !calc.belowMin && adspend > 0
-                ? "Effective " + calc.effectivePct.toFixed(1) + " %"
-                : undefined
-            }
-          />
-        </div>
-
         <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-5">
           <div className="space-y-4 lg:col-span-2">
-            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
-              <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
+              <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
                 Adspend fee brackets
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -1207,44 +1189,27 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                   );
                 })}
               </div>
+              {calc.brackets.length > 0 && (
+                <BreakdownFooter
+                  scenarioLabel={`At ${formatEur(adspend)} adspend`}
+                  items={[
+                    { label: "Base fee", value: formatEur(BASE_FEE) },
+                    ...calc.brackets.map((b) => ({
+                      label: `${formatEur(adspend)} × ${b.pct}%`,
+                      value: formatEur(b.fee),
+                    })),
+                  ]}
+                  total={{
+                    label: `Total${calc.capped ? " (cap)" : ""}`,
+                    value: formatEur(calc.total),
+                    hint:
+                      !calc.belowMin && adspend > 0
+                        ? `Eff. ${calc.effectivePct.toFixed(1)} %`
+                        : undefined,
+                  }}
+                />
+              )}
             </div>
-
-            {calc.brackets.length > 0 && (
-              <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
-                <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                  Breakdown
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between text-[#6b7280]">
-                    <span>Base fee</span>
-                    <span className="font-medium tabular-nums text-[#0a0a0a]">
-                      {formatEur(BASE_FEE)}
-                    </span>
-                  </div>
-                  {calc.brackets.map((b, i) => (
-                    <div
-                      key={i}
-                      className="flex justify-between text-[#6b7280]"
-                    >
-                      <span>
-                        {formatEur(adspend)} × {b.pct}%
-                      </span>
-                      <span className="font-medium tabular-nums text-[#0a0a0a]">
-                        {formatEur(b.fee)}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="mt-2 flex justify-between border-t border-[#e2e4ea] pt-2">
-                    <span className="font-semibold text-[#0a0a0a]">
-                      Total{calc.capped ? " (cap)" : ""}
-                    </span>
-                    <span className="font-semibold tabular-nums text-[#E30613]">
-                      {formatEur(calc.total)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="lg:col-span-3">
@@ -1349,7 +1314,19 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 // -----------------------------------------------------------------------------
 // Reusable sub-components
 // -----------------------------------------------------------------------------
-function TiersCard({ model, activeRoas }: { model: FpModel; activeRoas: number }) {
+function TiersCard({
+  model,
+  activeRoas,
+  breakdown,
+}: {
+  model: FpModel;
+  activeRoas: number;
+  breakdown?: {
+    scenarioLabel: string;
+    items: { label: string; value: string; hint?: string }[];
+    total: { label: string; value: string; hint?: string };
+  };
+}) {
   const points = model.points;
   return (
     <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
@@ -1374,14 +1351,59 @@ function TiersCard({ model, activeRoas }: { model: FpModel; activeRoas: number }
               key={i}
               label={
                 last
-                  ? `ROAS ${p.roas.toString() }+`
-                  : `ROAS ${p.roas.toString() }`
+                  ? `ROAS ${p.roas.toString()}+`
+                  : `ROAS ${p.roas.toString()}`
               }
-              pct={`${p.pct.toString() }%`}
+              pct={`${p.pct.toString()}%`}
               active={isActive}
             />
           );
         })}
+      </div>
+      {breakdown && <BreakdownFooter {...breakdown} />}
+    </div>
+  );
+}
+
+function BreakdownFooter({
+  scenarioLabel,
+  items,
+  total,
+}: {
+  scenarioLabel: string;
+  items: { label: string; value: string; hint?: string }[];
+  total: { label: string; value: string; hint?: string };
+}) {
+  return (
+    <div className="mt-5 border-t border-[#e2e4ea] pt-5">
+      <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.2em] text-[#9ca3af]">
+        {scenarioLabel}
+      </div>
+      <div className="space-y-2 text-sm">
+        {items.map((it, i) => (
+          <div key={i} className="flex justify-between">
+            <span className="text-[#6b7280]">
+              {it.label}
+              {it.hint && (
+                <span className="text-[#c1c5cf]"> · {it.hint}</span>
+              )}
+            </span>
+            <span className="font-medium tabular-nums text-[#0a0a0a]">
+              {it.value}
+            </span>
+          </div>
+        ))}
+        <div className="mt-2 flex items-baseline justify-between border-t border-[#e2e4ea] pt-2">
+          <span className="font-semibold text-[#0a0a0a]">{total.label}</span>
+          <span className="font-semibold tabular-nums text-[#E30613]">
+            {total.value}
+            {total.hint && (
+              <span className="ml-2 text-[10px] font-medium uppercase tracking-wider text-[#9ca3af]">
+                {total.hint}
+              </span>
+            )}
+          </span>
+        </div>
       </div>
     </div>
   );
