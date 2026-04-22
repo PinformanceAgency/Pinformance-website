@@ -512,31 +512,23 @@ function ResultView({
 // -----------------------------------------------------------------------------
 // Projection hero — revenue (dominant) paired with investment (transparent)
 // -----------------------------------------------------------------------------
-function ProjectionHero({
+function ThenVsNowHero({
   brand,
-  mainValue,
-  mainLabel,
-  mainDescription,
-  includes,
-  totalCost,
-  breakdown,
-  effectivePct,
-  effectiveLabel,
-  note,
+  projection,
+  projectionLabel,
+  projectionDescription,
+  currentlyLabel,
+  currentlyCopy,
 }: {
   brand: string;
-  mainValue: number;
-  mainLabel: string;
-  mainDescription: string;
-  includes: string[];
-  totalCost: number;
-  breakdown: { label: string; value: string }[];
-  effectivePct?: number;
-  effectiveLabel?: string;
-  note?: string;
+  projection: number;
+  projectionLabel: string;
+  projectionDescription: string;
+  currentlyLabel: string;
+  currentlyCopy: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_12px_48px_rgba(0,0,0,0.05)]">
+    <div className="overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
       {/* Meta strip */}
       <div className="flex items-center justify-between gap-3 border-b border-[#e2e4ea] bg-[#fafbfc] px-8 py-3 sm:px-10 lg:px-14">
         <div className="flex items-center gap-2">
@@ -550,68 +542,105 @@ function ProjectionHero({
         </span>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12">
-        {/* Main value — dominant */}
-        <div className="relative p-8 sm:p-10 lg:col-span-7 lg:p-14">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
-            {mainLabel}
+      <div className="grid grid-cols-1 lg:grid-cols-2">
+        {/* LEFT — Currently */}
+        <div className="relative border-b border-[#e2e4ea] bg-[#fafbfc] p-8 sm:p-10 lg:border-b-0 lg:border-r lg:p-14">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
+            Currently
           </div>
-          <div className="mt-6 text-6xl font-bold leading-none tracking-tight text-[#0a0a0a] sm:text-7xl lg:text-[96px]">
-            {formatEur(mainValue)}
+          <div className="mt-2 text-xs font-medium text-[#9ca3af]">
+            {currentlyLabel}
           </div>
-          <p className="mt-6 max-w-md text-base leading-relaxed text-[#6b7280]">
-            {mainDescription}
+          <div className="mt-8 flex items-baseline gap-2">
+            <span className="text-5xl font-bold leading-none tracking-tight text-[#b8bcc6] sm:text-6xl lg:text-7xl">
+              € 0
+            </span>
+            <span className="text-sm font-medium text-[#b8bcc6]">/month</span>
+          </div>
+          <p className="mt-6 max-w-xs text-sm leading-relaxed text-[#9ca3af]">
+            {currentlyCopy}
           </p>
-          {includes.length > 0 && (
-            <div className="mt-7 flex flex-wrap gap-x-2 gap-y-2">
-              {includes.map((it, i) => (
-                <span
-                  key={i}
-                  className="rounded-full border border-[#e2e4ea] bg-white px-3 py-1 text-xs font-medium text-[#6b7280]"
-                >
-                  {it}
-                </span>
-              ))}
-            </div>
-          )}
-          {note && <p className="mt-5 text-xs text-[#9ca3af]">{note}</p>}
         </div>
 
-        {/* Costs — subordinate but transparent */}
-        <div className="border-t border-[#e2e4ea] bg-[#fafbfc] p-8 sm:p-10 lg:col-span-5 lg:border-l lg:border-t-0 lg:p-14">
+        {/* RIGHT — With Pinformance */}
+        <div className="relative p-8 sm:p-10 lg:p-14">
+          <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-[#E30613] via-[#E30613]/40 to-transparent sm:inset-x-10 lg:inset-x-14" />
+          <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
+            With Pinformance
+          </div>
+          <div className="mt-2 text-xs font-medium text-[#6b7280]">
+            {projectionLabel}
+          </div>
+          <div className="mt-8 flex items-baseline gap-2">
+            <span className="text-6xl font-bold leading-none tracking-tight text-[#0a0a0a] sm:text-7xl lg:text-[92px]">
+              {formatEur(projection)}
+            </span>
+            <span className="text-sm font-medium text-[#9ca3af]">/month</span>
+          </div>
+          <p className="mt-6 max-w-md text-base leading-relaxed text-[#6b7280]">
+            {projectionDescription}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompactCostCard({
+  totalCost,
+  breakdown,
+  effectivePct,
+  effectiveLabel,
+  note,
+}: {
+  totalCost: number;
+  breakdown: { label: string; value: string }[];
+  effectivePct?: number;
+  effectiveLabel?: string;
+  note?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#e2e4ea] bg-white p-6 sm:p-8">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-baseline">
+        <div className="lg:col-span-4">
           <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
             Pinformance cost
           </div>
-          <div className="mt-8 flex items-baseline gap-2">
-            <span className="text-4xl font-bold text-[#0a0a0a] sm:text-5xl">
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-[#0a0a0a] sm:text-4xl">
               {formatEur(totalCost)}
             </span>
-            <span className="text-sm font-medium text-[#9ca3af]">/ month</span>
-          </div>
-
-          <div className="mt-8 space-y-3 text-sm">
-            {breakdown.map((b, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <span className="text-[#6b7280]">{b.label}</span>
-                <span className="font-medium tabular-nums text-[#0a0a0a]">
-                  {b.value}
-                </span>
-              </div>
-            ))}
-            {effectivePct !== undefined && effectivePct > 0 && (
-              <div className="mt-4 flex items-center justify-between border-t border-[#e2e4ea] pt-4 text-xs">
-                <span className="text-[#9ca3af]">
-                  {effectiveLabel ?? "Effective"}
-                </span>
-                <span className="font-semibold tabular-nums text-[#E30613]">
-                  {effectivePct.toFixed(2) } %
-                </span>
-              </div>
-            )}
+            <span className="text-sm text-[#9ca3af]">/month</span>
           </div>
         </div>
+        <div className="flex flex-wrap gap-x-8 gap-y-4 text-sm lg:col-span-8 lg:justify-end">
+          {breakdown.map((b, i) => (
+            <div key={i}>
+              <div className="text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                {b.label}
+              </div>
+              <div className="mt-1 font-semibold tabular-nums text-[#0a0a0a]">
+                {b.value}
+              </div>
+            </div>
+          ))}
+          {effectivePct !== undefined && effectivePct > 0 && (
+            <div>
+              <div className="text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+                {effectiveLabel ?? "Effective"}
+              </div>
+              <div className="mt-1 font-semibold tabular-nums text-[#E30613]">
+                {effectivePct.toFixed(2)} %
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-
+      {note && (
+        <p className="mt-5 border-t border-[#e2e4ea] pt-4 text-xs text-[#9ca3af]">
+          {note}
+        </p>
+      )}
     </div>
   );
 }
@@ -796,18 +825,16 @@ function FirstPurchasePanel({
 
   return (
     <div className="space-y-10">
-      <ProjectionHero
+      <ThenVsNowHero
         brand={intake.brand}
-        mainValue={revenue}
-        mainLabel="Monthly revenue projection"
-        mainDescription="Extra monthly revenue from Pinterest — an additional channel alongside your existing ones."
-        includes={[
-          "Strategy & keyword research",
-          "Creative production",
-          "Ads management",
-          "Monthly reporting",
-          "Dedicated account team",
-        ]}
+        projection={revenue}
+        projectionLabel="Monthly revenue projection"
+        projectionDescription="Extra monthly revenue from Pinterest — an additional channel alongside your existing ones."
+        currentlyLabel="Pinterest performance revenue"
+        currentlyCopy="No Pinterest performance channel running today."
+      />
+
+      <CompactCostCard
         totalCost={total}
         breakdown={[
           { label: "Base fee", value: formatEur(BASE_FEE) },
@@ -1038,18 +1065,16 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 
   return (
     <div className="space-y-10">
-      <ProjectionHero
+      <ThenVsNowHero
         brand={intake.brand}
-        mainValue={adspend}
-        mainLabel="Monthly adspend"
-        mainDescription="The media budget we run on Pinterest. The rate drops as you scale — more adspend, lower percentage."
-        includes={[
-          "Strategy & keyword research",
-          "Creative production",
-          "Ads management",
-          "Monthly reporting",
-          "Dedicated account team",
-        ]}
+        projection={adspend}
+        projectionLabel="Monthly Pinterest adspend"
+        projectionDescription="The media budget we run on Pinterest for you. The rate drops as you scale — more adspend, lower percentage."
+        currentlyLabel="Active Pinterest adspend"
+        currentlyCopy="No Pinterest performance channel running today."
+      />
+
+      <CompactCostCard
         totalCost={calc.total}
         breakdown={breakdown}
         effectivePct={!calc.belowMin ? calc.effectivePct : undefined}
