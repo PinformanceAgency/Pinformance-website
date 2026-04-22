@@ -1575,7 +1575,7 @@ function SetupFeeSection() {
     },
     {
       title: "Paid advertising setup",
-      body: "Ads account, conversion tracking, audience pixels, campaign architecture.",
+      body: "Ads account, campaign architecture.",
     },
     {
       title: "Dedicated AI systems",
