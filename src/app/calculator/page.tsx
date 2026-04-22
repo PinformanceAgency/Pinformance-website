@@ -870,13 +870,6 @@ function FirstPurchasePanel({
               label="Achieved ROAS"
               value={roasInput}
               onChange={setRoasInput}
-              accent={
-                belowGuarantee
-                  ? { text: "0 % fee", tone: "gray" }
-                  : perfPct !== null
-                    ? { text: formatPct(perfPct) + " fee", tone: "red" }
-                    : undefined
-              }
               presets={model.points.map((p) => ({
                 label: p.roas.toString(),
                 value: p.roas.toString(),
@@ -1421,15 +1414,6 @@ function MetricCard({
 function AdjustPanel({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-[#E30613]/25 bg-white p-6 shadow-[0_8px_32px_rgba(227,6,19,0.06)] sm:p-7">
-      <div className="mb-5 flex items-center gap-2.5">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#E30613] opacity-60" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-[#E30613]" />
-        </span>
-        <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#E30613]">
-          Live · adjust during the call
-        </div>
-      </div>
       {children}
     </div>
   );
