@@ -734,10 +734,7 @@ function GuaranteesGrid({
   return (
     <section>
       <div className="mb-6">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#E30613]">
-          Zero risk on our side
-        </div>
-        <h3 className="mt-2 text-2xl font-semibold tracking-tight text-[#0a0a0a] sm:text-3xl">
+        <h3 className="text-2xl font-semibold tracking-tight text-[#0a0a0a] sm:text-3xl">
           Guarantees & terms
         </h3>
         <p className="mt-1 text-sm text-[#6b7280]">
