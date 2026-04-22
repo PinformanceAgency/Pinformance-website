@@ -1570,20 +1570,20 @@ function TierBox({
 function SetupFeeSection() {
   const items = [
     {
-      title: "Account & tracking setup",
-      body: "Pinterest business account, conversion tracking, audience pixels, feed integration.",
+      title: "Paid advertising setup",
+      body: "Pinterest Ads account, conversion tracking, audience pixels and campaign architecture configured and ready.",
     },
     {
-      title: "Audience & competitor research",
-      body: "We map your buyer, your category search behaviour on Pinterest, and where competitors win.",
+      title: "Organic setup",
+      body: "Boards developed, Pin schedule built, content calendar live — the organic engine running alongside paid.",
     },
     {
-      title: "Initial creative production",
-      body: "First batch of Pin creative — imagery, copy, and variants ready for launch day.",
+      title: "Brand research",
+      body: "We make sure we target the right persona on Pinterest, informed by both SEA and SEO behaviour.",
     },
     {
-      title: "90-day strategy roadmap",
-      body: "Keyword plan, content calendar, budget pacing and KPIs — signed off before month one.",
+      title: "Weekly creative direction",
+      body: "A fresh creative brief every week based on what's performing — the feed keeps moving.",
     },
   ];
   return (
