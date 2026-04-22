@@ -664,7 +664,7 @@ function GuaranteesFirstPurchase({ model }: { model: FpModel }) {
       items={[
         {
           label: "Guarantee",
-          headline: `ROAS below ${g} — no fee`,
+          headline: `ROAS below ${g} — no performance fee`,
           body: `If we don't hit a ROAS of ${g}, you pay no performance fee. We carry the performance risk.`,
         },
         {
