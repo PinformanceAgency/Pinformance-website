@@ -1122,15 +1122,6 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 
   return (
     <div className="space-y-12">
-      <ThenVsNowHero
-        brand={intake.brand}
-        projection={adspend}
-        projectionLabel="Monthly Pinterest adspend"
-        projectionDescription="The media budget we run on Pinterest for you. The rate drops as you scale — more adspend, lower percentage."
-        currentlyLabel="Active Pinterest adspend"
-        currentlyCopy="No Pinterest performance channel running today."
-      />
-
       <GuaranteesSubscription minimumRoas={intake.targetRoas} />
 
       <section>
