@@ -906,12 +906,12 @@ function FirstPurchasePanel({
                   !Number.isNaN(roas) && !Number.isNaN(revenue) && revenue > 0 ? (
                     <span>
                       At ROAS{" "}
-                      <span className="text-[#E30613]">{roasInput}</span>, you
-                      earn{" "}
+                      <span className="text-[#E30613]">{roasInput}</span>
+                      {" · "}
                       <span className="text-[#E30613]">
                         {formatEur(revenue)}
                       </span>{" "}
-                      per month
+                      revenue
                     </span>
                   ) : (
                     "Fee breakdown"
@@ -1207,7 +1207,7 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
                       <span className="text-[#E30613]">
                         {formatEur(adspend)}
                       </span>{" "}
-                      monthly adspend
+                      adspend
                     </span>
                   }
                   items={[
@@ -1394,7 +1394,7 @@ function BreakdownFooter({
 }) {
   return (
     <div className="mt-5 border-t border-[#e2e4ea] pt-5">
-      <div className="mb-4 text-sm font-semibold text-[#0a0a0a] sm:text-base">
+      <div className="mb-4 text-center text-sm font-bold uppercase tracking-[0.15em] text-[#0a0a0a] sm:text-base">
         {scenarioLabel}
       </div>
       <div className="space-y-2 text-sm">
