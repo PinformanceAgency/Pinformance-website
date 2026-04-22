@@ -1590,12 +1590,12 @@ function SetupFeeSection() {
       body: "Buyer persona, competitor audit, keyword + trend deep-dive.",
     },
     {
-      title: "Creative direction and research",
-      body: "Weekly briefs based on your top-performing Pin formats.",
+      title: "Creative gameplan",
+      body: "Concept roadmap, Pin formats, and shooting cadence built around your brand.",
     },
     {
       title: "Understanding your internal workprocess and apps",
-      body: "We plug into Slack, Notion, and your approval flows.",
+      body: "Notion, DataAds, Tagbox, Triple Whale, Atria — whatever's in your stack.",
     },
     {
       title: "Dedicated organic dashboard",
