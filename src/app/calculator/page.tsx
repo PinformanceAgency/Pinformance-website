@@ -569,20 +569,10 @@ function ThenVsNowHero({
           </p>
         </div>
 
-        {/* RIGHT — With Pinformance (dominant column, high-impact red) */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#E30613] via-[#c80610] to-[#8b0209] p-10 sm:p-12 lg:col-span-7 lg:p-14">
-          {/* Decorative glows */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-black/20 blur-3xl"
-          />
-          {/* Top accent hairline */}
-          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-white/30 via-white/10 to-transparent" />
-
+        {/* RIGHT — With Pinformance (dominant column, flat brand red) */}
+        <div className="relative overflow-hidden bg-[#E30613] p-10 sm:p-12 lg:col-span-7 lg:p-14">
+          {/* Subtle top highlight line */}
+          <div className="absolute inset-x-0 top-0 h-px bg-white/25" />
           <div className="relative">
             <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-white">
               With Pinformance
@@ -875,57 +865,66 @@ function FirstPurchasePanel({
       {/* 2. Guarantees — what we commit to (de-risks the cost reveal next) */}
       <GuaranteesFirstPurchase model={model} />
 
-      {/* 3. Cost — quiet, transparent, framed against guarantees above */}
-      <CompactCostCard
-        totalCost={total}
-        breakdown={[
-          { label: "Base fee", value: formatEur(BASE_FEE) },
-          { label: perfLabel, value: formatEur(perfFee) },
-        ]}
-        effectivePct={!belowMinRev && !belowGuarantee ? effectivePct : undefined}
-        effectiveLabel="Effective on revenue"
-        note={note}
-      />
-
       <section>
         <div className="mb-6">
           <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
-            Scenarios
+            Your investment
           </h3>
           <p className="mt-1 text-sm text-[#6b7280]">
-            Change ROAS or revenue — numbers update live.
+            Adjust live to run different scenarios during the call.
           </p>
         </div>
 
+        {/* Metric cards row — ROAS input + fees + total highlighted */}
+        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
+          <MetricInputCard
+            label="Achieved ROAS"
+            value={roasInput}
+            onChange={setRoasInput}
+            accent={
+              belowGuarantee
+                ? { text: "0 %", tone: "gray" }
+                : perfPct !== null
+                  ? { text: formatPct(perfPct), tone: "red" }
+                  : undefined
+            }
+          />
+          <MetricCard label="Base fee" value={formatEur(BASE_FEE)} />
+          <MetricCard
+            label="Performance fee"
+            value={formatEur(perfFee)}
+            sub={
+              !belowGuarantee && !belowMinRev && perfPct !== null
+                ? formatPct(perfPct) + " of revenue"
+                : undefined
+            }
+          />
+          <MetricCard
+            label="Total / month"
+            value={formatEur(total)}
+            sub={
+              !belowMinRev && !belowGuarantee && revenue > 0
+                ? "Effective " + effectivePct.toFixed(2) + " %"
+                : undefined
+            }
+            highlight
+          />
+          <MetricInputCard
+            label="Monthly revenue"
+            value={revenueInput}
+            onChange={setRevenueInput}
+            prefix="€"
+          />
+        </div>
+
+        {note && (
+          <div className="mb-5 rounded-xl border border-[#fce4e4] bg-[#fef2f2] px-4 py-3 text-xs text-[#E30613]">
+            {note}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
           <div className="space-y-4 lg:col-span-2">
-            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Achieved ROAS
-              </div>
-              <input
-                type="text"
-                value={roasInput}
-                onChange={(e) => setRoasInput(e.target.value)}
-                className="w-full rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-center text-2xl font-semibold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
-              />
-            </div>
-
-            <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Monthly revenue
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-medium text-[#9ca3af]">€</span>
-                <input
-                  type="text"
-                  value={revenueInput}
-                  onChange={(e) => setRevenueInput(e.target.value)}
-                  className="w-full rounded-lg border border-[#e2e4ea] bg-white px-3 py-3 text-2xl font-semibold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
-                />
-              </div>
-            </div>
-
             <TiersCard model={model} activeRoas={roas} />
           </div>
 
@@ -1117,44 +1116,72 @@ function SubscriptionPanel({ intake }: { intake: Intake }) {
 
       <GuaranteesSubscription minimumRoas={intake.targetRoas} />
 
-      <CompactCostCard
-        totalCost={calc.total}
-        breakdown={breakdown}
-        effectivePct={!calc.belowMin ? calc.effectivePct : undefined}
-        effectiveLabel="Effective on adspend"
-        note={note}
-      />
-
       <section>
         <div className="mb-6">
           <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
-            Scenarios
+            Your investment
           </h3>
           <p className="mt-1 text-sm text-[#6b7280]">
-            Change the adspend — numbers update live.
+            Adjust live to run different scenarios during the call.
           </p>
         </div>
+
+        {/* Metric cards row */}
+        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
+          <MetricInputCard
+            label="Monthly adspend"
+            value={adspendInput}
+            onChange={setAdspendInput}
+            prefix="€"
+          />
+          <MetricCard label="Base fee" value={formatEur(BASE_FEE)} />
+          <MetricCard
+            label="Adspend fee"
+            value={formatEur(calc.adspendFee)}
+            sub={
+              !calc.belowMin && calc.flatPct > 0
+                ? calc.flatPct + " % of adspend"
+                : undefined
+            }
+          />
+          <MetricCard
+            label="Total / month"
+            value={formatEur(calc.total)}
+            sub={
+              !calc.belowMin && adspend > 0
+                ? "Effective " + calc.effectivePct.toFixed(1) + " %"
+                : undefined
+            }
+            highlight
+          />
+          <MetricCard
+            label="Minimum ROAS"
+            value={
+              Number.isFinite(intake.targetRoas)
+                ? intake.targetRoas.toFixed(1)
+                : "—"
+            }
+            sub="Contractual floor"
+          />
+        </div>
+
+        {note && (
+          <div className="mb-5 rounded-xl border border-[#fce4e4] bg-[#fef2f2] px-4 py-3 text-xs text-[#E30613]">
+            {note}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
           <div className="space-y-4 lg:col-span-2">
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
-                Monthly adspend
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+                Intake target
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-medium text-[#9ca3af]">€</span>
-                <input
-                  type="text"
-                  value={adspendInput}
-                  onChange={(e) => setAdspendInput(e.target.value)}
-                  className="w-full rounded-lg border border-[#e2e4ea] bg-white px-3 py-3 text-2xl font-semibold text-[#0a0a0a] outline-none transition-colors focus:border-[#E30613]"
-                />
+              <div className="text-sm text-[#6b7280]">
+                {formatEur(intakeAdspend)} — adjust the metric card above to
+                run live scenarios.
               </div>
-              <p className="mt-3 text-[11px] text-[#9ca3af]">
-                Intake target: {formatEur(intakeAdspend)}. Adjust live if needed.
-              </p>
             </div>
-
             <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5">
               <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
                 Adspend fee brackets
@@ -1365,6 +1392,95 @@ function TiersCard({ model, activeRoas }: { model: FpModel; activeRoas: number }
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  sub,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  highlight?: boolean;
+}) {
+  if (highlight) {
+    return (
+      <div className="relative overflow-hidden rounded-xl bg-[#E30613] px-4 py-4 text-white shadow-[0_8px_24px_rgba(227,6,19,0.22)]">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/75">
+          {label}
+        </div>
+        <div className="mt-1.5 text-xl font-bold tabular-nums sm:text-2xl">
+          {value}
+        </div>
+        <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-white/80">
+          {sub ?? ""}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-[#e2e4ea] bg-white px-4 py-4">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+        {label}
+      </div>
+      <div className="mt-1.5 text-xl font-bold tabular-nums text-[#0a0a0a] sm:text-2xl">
+        {value}
+      </div>
+      <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#9ca3af]">
+        {sub ?? ""}
+      </div>
+    </div>
+  );
+}
+
+function MetricInputCard({
+  label,
+  value,
+  onChange,
+  prefix,
+  accent,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  prefix?: string;
+  accent?: { text: string; tone: "red" | "gray" };
+}) {
+  return (
+    <div className="rounded-xl border border-[#e2e4ea] bg-white px-4 py-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+          {label}
+        </div>
+        {accent && (
+          <span
+            className={
+              "rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums " +
+              (accent.tone === "red"
+                ? "bg-[#fef2f2] text-[#E30613]"
+                : "bg-[#f0f1f5] text-[#9ca3af]")
+            }
+          >
+            {accent.text}
+          </span>
+        )}
+      </div>
+      <div className="mt-1.5 flex items-baseline gap-1">
+        {prefix && (
+          <span className="text-base font-medium text-[#9ca3af]">{prefix}</span>
+        )}
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full bg-transparent text-xl font-bold tabular-nums text-[#0a0a0a] outline-none placeholder:text-[#d1d5db] sm:text-2xl"
+        />
+      </div>
+      <div className="mt-0.5 min-h-[14px]" />
     </div>
   );
 }
