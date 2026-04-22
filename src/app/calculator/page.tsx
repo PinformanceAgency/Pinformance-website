@@ -1578,6 +1578,10 @@ function SetupFeeSection() {
       body: "Pinterest Ads account, conversion tracking, audience pixels and campaign architecture configured and ready.",
     },
     {
+      title: "Dedicated AI systems",
+      body: "Your brand connected to our dedicated AI systems — built to push ROAS and revenue in your ad account to their highest potential.",
+    },
+    {
       title: "Organic setup",
       body: "Boards developed, Pin schedule built, content calendar live — the organic engine running alongside paid.",
     },
