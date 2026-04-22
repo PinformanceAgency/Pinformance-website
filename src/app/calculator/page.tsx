@@ -1393,11 +1393,11 @@ function BreakdownFooter({
   total: { label: string; value: string; hint?: string };
 }) {
   return (
-    <div className="mt-5 border-t border-[#e2e4ea] pt-5">
-      <div className="mb-4 text-center text-sm font-bold uppercase tracking-[0.15em] text-[#0a0a0a] sm:text-base">
+    <div className="mt-6 border-t border-[#e2e4ea] pt-6">
+      <div className="mb-6 text-center text-sm font-bold uppercase tracking-[0.15em] text-[#0a0a0a] sm:text-base">
         {scenarioLabel}
       </div>
-      <div className="space-y-2 text-sm">
+      <div className="space-y-3.5 text-sm">
         {items.map((it, i) => (
           <div key={i} className="flex justify-between">
             <span className="text-[#6b7280]">
@@ -1411,7 +1411,7 @@ function BreakdownFooter({
             </span>
           </div>
         ))}
-        <div className="mt-2 flex items-baseline justify-between border-t border-[#e2e4ea] pt-2">
+        <div className="mt-5 flex items-baseline justify-between border-t border-[#e2e4ea] pt-5">
           <span className="font-semibold text-[#0a0a0a]">{total.label}</span>
           <span className="font-semibold tabular-nums text-[#E30613]">
             {total.value}
