@@ -1578,7 +1578,7 @@ function SetupFeeSection() {
       body: "Ads Manager configured, full-funnel campaign structure.",
     },
     {
-      title: "To our internal AI systems",
+      title: "Connecting to our internal AI systems",
       body: "AI bid management, creative testing at scale, daily budget pacing.",
     },
     {
