@@ -1571,35 +1571,35 @@ function SetupFeeSection() {
   const items = [
     {
       title: "Pinterest profile setup",
-      body: "Bio, branding, board structure, discoverability.",
+      body: "Branded bio, keyword-led boards, SEO-tuned profile page.",
     },
     {
       title: "Paid advertising setup",
-      body: "Ads account, campaign architecture.",
+      body: "Ads Manager configured, full-funnel campaign structure.",
     },
     {
       title: "Connecting to internal AI systems",
-      body: "Proprietary AI built for maximum ROAS and revenue.",
+      body: "AI bid management, creative testing at scale, daily budget pacing.",
     },
     {
       title: "Organic setup",
-      body: "Boards, Pin schedule, live content calendar.",
+      body: "20+ topic boards, daily Pin schedule, 90-day content calendar.",
     },
     {
       title: "Brand research",
-      body: "Right persona on Pinterest — SEA + SEO behaviour.",
+      body: "Buyer persona, competitor audit, keyword + trend deep-dive.",
     },
     {
       title: "Creative direction and research",
-      body: "Ongoing briefs, performance-led iteration.",
+      body: "Weekly briefs based on your top-performing Pin formats.",
     },
     {
       title: "Understanding your internal workprocess and apps",
-      body: "Tools, processes, collaboration mapped.",
+      body: "We plug into Slack, Notion, and your approval flows.",
     },
     {
       title: "Dedicated brand dashboard",
-      body: "Live organic progress, content calendar, scheduled Pins.",
+      body: "Live view of scheduled Pins, board growth, organic reach, ROAS.",
     },
   ];
   return (
@@ -1613,36 +1613,42 @@ function SetupFeeSection() {
         </p>
       </div>
       <div className="overflow-hidden rounded-2xl border border-[#e2e4ea] bg-white shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
-        <div className="grid grid-cols-1 lg:grid-cols-12">
-          <div className="border-b border-[#e2e4ea] bg-[#fafbfc] p-8 lg:col-span-4 lg:border-b-0 lg:border-r lg:p-10">
+        {/* TOP: fee badge, full width */}
+        <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[#e2e4ea] bg-[#fafbfc] px-8 py-7 sm:px-10">
+          <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
-              One-time
+              One-time setup
             </div>
-            <div className="mt-4 flex items-baseline gap-2">
+            <div className="mt-3 flex items-baseline gap-2">
               <span className="text-4xl font-bold text-[#0a0a0a] sm:text-5xl">
                 € {STARTUP_FEE.toLocaleString("en-US")}
               </span>
             </div>
           </div>
-          <div className="p-8 lg:col-span-8 lg:p-10">
-            <div className="mb-4 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
-              What&apos;s covered
-            </div>
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-              {items.map((it, i) => (
-                <div key={i} className="flex gap-3">
-                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#E30613]" />
-                  <div>
-                    <div className="text-sm font-semibold text-[#0a0a0a]">
-                      {it.title}
-                    </div>
-                    <p className="mt-1 text-xs leading-relaxed text-[#6b7280]">
-                      {it.body}
-                    </p>
+          <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-[#9ca3af]">
+            Billed once · before month one
+          </div>
+        </div>
+
+        {/* BOTTOM: deliverables grid, 2 cols on md, 4 cols on xl */}
+        <div className="px-8 py-8 sm:px-10">
+          <div className="mb-6 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
+            What&apos;s covered
+          </div>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+            {items.map((it, i) => (
+              <div key={i} className="flex gap-3">
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#E30613]" />
+                <div>
+                  <div className="text-sm font-semibold text-[#0a0a0a]">
+                    {it.title}
                   </div>
+                  <p className="mt-1 text-xs leading-relaxed text-[#6b7280]">
+                    {it.body}
+                  </p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
