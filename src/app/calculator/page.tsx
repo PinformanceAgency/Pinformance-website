@@ -1585,6 +1585,10 @@ function SetupFeeSection() {
       title: "Creative direction and research",
       body: "Ongoing creative direction informed by what's performing — the feed keeps moving and the brief keeps sharpening.",
     },
+    {
+      title: "Dedicated brand dashboard",
+      body: "A dashboard built for your brand where organic progress and the content calendar of Pins we're publishing are live at all times.",
+    },
   ];
   return (
     <section>
@@ -1607,11 +1611,6 @@ function SetupFeeSection() {
                 € {STARTUP_FEE.toLocaleString("en-US")}
               </span>
             </div>
-            <p className="mt-4 text-sm leading-relaxed text-[#6b7280]">
-              Billed once, before month one. A proper foundation is what lets
-              the performance model work from day one — we don&apos;t skip it,
-              and we don&apos;t pass the cost into your monthly fee.
-            </p>
           </div>
           <div className="p-8 lg:col-span-8 lg:p-10">
             <div className="mb-4 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
