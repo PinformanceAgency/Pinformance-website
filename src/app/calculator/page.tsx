@@ -577,19 +577,6 @@ function ThenVsNowHero({
 
   return (
     <div className="relative overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_20px_80px_rgba(10,10,10,0.06)]">
-      {/* Meta strip */}
-      <div className="relative flex items-center justify-between gap-3 border-b border-[#e2e4ea] bg-gradient-to-b from-[#fafbfc] to-white px-8 py-3.5 sm:px-10 lg:px-14">
-        <div className="flex items-center gap-2.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#E30613]" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#6b7280]">
-            Tailored proposal · {brand}
-          </span>
-        </div>
-        <span className="hidden text-[10px] font-medium uppercase tracking-[0.3em] text-[#c1c5cf] sm:inline">
-          Pinformance
-        </span>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-12">
         {/* LEFT — Currently (quieter, smaller column) */}
         <div className="relative border-b border-[#e2e4ea] bg-gradient-to-br from-[#fafbfc] to-[#f4f5f8] p-10 sm:p-12 lg:col-span-5 lg:border-b-0 lg:border-r lg:p-14">
