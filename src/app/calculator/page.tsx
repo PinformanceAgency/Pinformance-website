@@ -114,6 +114,7 @@ interface Intake {
   businessModel: BusinessModel;
   breakEvenRoas: number;
   targetRoas: number;
+  currentRevenue: number; // first_purchase — current Pinterest revenue today
   expectedRevenue: number; // first_purchase target
   expectedAdspend: number; // subscription target
 }
@@ -128,6 +129,7 @@ export default function CalculatorPage() {
     businessModel: "first_purchase",
     breakEvenRoas: NaN,
     targetRoas: NaN,
+    currentRevenue: 0,
     expectedRevenue: NaN,
     expectedAdspend: NaN,
   });
@@ -202,6 +204,9 @@ function IntakeForm({
   const [targetInput, setTargetInput] = useState(
     Number.isFinite(intake.targetRoas) ? String(intake.targetRoas)  : ""
   );
+  const [currentRevenueInput, setCurrentRevenueInput] = useState(
+    Number.isFinite(intake.currentRevenue) ? String(Math.round(intake.currentRevenue)) : "0"
+  );
   const [revenueInput, setRevenueInput] = useState(
     Number.isFinite(intake.expectedRevenue) ? String(Math.round(intake.expectedRevenue)) : ""
   );
@@ -211,6 +216,7 @@ function IntakeForm({
 
   const ber = parseFloat(berInput.replace(",", "."));
   const target = parseFloat(targetInput.replace(",", "."));
+  const currentRevenue = parseNumber(currentRevenueInput);
   const revenue = parseNumber(revenueInput);
   const adspend = parseNumber(adspendInput);
 
@@ -223,7 +229,10 @@ function IntakeForm({
     target > 0 &&
     (isSubscription
       ? Number.isFinite(adspend) && adspend > 0
-      : Number.isFinite(revenue) && revenue > 0);
+      : Number.isFinite(revenue) &&
+        revenue > 0 &&
+        Number.isFinite(currentRevenue) &&
+        currentRevenue >= 0);
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -231,6 +240,7 @@ function IntakeForm({
       ...intake,
       breakEvenRoas: ber,
       targetRoas: target,
+      currentRevenue: isSubscription ? 0 : currentRevenue,
       expectedRevenue: isSubscription ? NaN : revenue,
       expectedAdspend: isSubscription ? adspend : NaN,
     });
@@ -320,10 +330,34 @@ function IntakeForm({
           </div>
         </FormField>
 
+        {!isSubscription && (
+          <>
+            <Divider />
+            <FormField
+              step={5}
+              label="Current monthly Pinterest revenue"
+              hint="Enter 0 if you're not running Pinterest today."
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-semibold text-[#9ca3af]">€</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={currentRevenueInput}
+                  onChange={(e) => setCurrentRevenueInput(e.target.value)}
+                  placeholder="0"
+                  className="w-48 rounded-lg border border-[#e2e4ea] bg-white px-4 py-3 text-lg font-semibold text-[#0a0a0a] outline-none transition-colors placeholder:text-[#d1d5db] focus:border-[#E30613]"
+                />
+                <span className="text-xs text-[#9ca3af]">per month</span>
+              </div>
+            </FormField>
+          </>
+        )}
+
         <Divider />
 
         <FormField
-          step={isSubscription ? 4 : 5}
+          step={isSubscription ? 4 : 6}
           label={
             isSubscription
               ? "Monthly adspend target"
@@ -526,6 +560,7 @@ function ThenVsNowHero({
   projection,
   projectionLabel,
   projectionDescription,
+  currentValue,
   currentlyLabel,
   currentlyCopy,
 }: {
@@ -533,10 +568,12 @@ function ThenVsNowHero({
   projection: number;
   projectionLabel: string;
   projectionDescription: string;
+  currentValue: number;
   currentlyLabel: string;
   currentlyCopy: string;
 }) {
   const projectionNum = Math.round(projection).toLocaleString("en-US");
+  const currentNum = Math.round(currentValue).toLocaleString("en-US");
 
   return (
     <div className="relative overflow-hidden rounded-3xl border border-[#e2e4ea] bg-white shadow-[0_20px_80px_rgba(10,10,10,0.06)]">
@@ -564,7 +601,7 @@ function ThenVsNowHero({
               €
             </span>
             <span className="text-5xl font-bold leading-none tracking-tight tabular-nums text-[#b8bcc6] sm:text-6xl lg:text-7xl">
-              0
+              {currentNum}
             </span>
           </div>
           <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#b8bcc6]">
@@ -855,8 +892,13 @@ function FirstPurchasePanel({
         projection={revenue}
         projectionLabel="Revenue you're missing out on"
         projectionDescription="Extra monthly revenue from purely Pinterest."
+        currentValue={Number.isFinite(intake.currentRevenue) ? intake.currentRevenue : 0}
         currentlyLabel="Pinterest performance revenue"
-        currentlyCopy="No Pinterest performance channel running today."
+        currentlyCopy={
+          intake.currentRevenue > 0
+            ? "Your current monthly Pinterest performance revenue."
+            : "No Pinterest performance channel running today."
+        }
       />
 
       {/* 2. Guarantees — what we commit to (de-risks the cost reveal next) */}
