@@ -893,7 +893,7 @@ function FirstPurchasePanel({
         projectionLabel="Revenue you're missing out on"
         projectionDescription="Extra monthly revenue from purely Pinterest."
         currentValue={Number.isFinite(intake.currentRevenue) ? intake.currentRevenue : 0}
-        currentlyLabel="Pinterest performance revenue"
+        currentlyLabel="Current revenue on Pinterest"
         currentlyCopy={
           intake.currentRevenue > 0
             ? "Your current monthly Pinterest performance revenue."
