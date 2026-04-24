@@ -318,7 +318,7 @@ function IntakeForm({
           hint={
             isSubscription
               ? "The ROAS floor we commit to in the contract."
-              : "Your current ROAS on Meta, Google, TikTok or another platform."
+              : "The realistic ROAS you currently hit on Meta, Google, TikTok or another platform."
           }
         >
           <div className="flex items-center gap-3">
