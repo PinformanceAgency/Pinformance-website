@@ -280,19 +280,16 @@ function IntakeForm({
               active={intake.businessModel === "first_purchase"}
               onClick={() => setIntake({ ...intake, businessModel: "first_purchase" })}
               title="Brand"
-              description="One-time purchases from a DTC brand. Performance fee on achieved ROAS."
             />
             <ModelCard
               active={intake.businessModel === "subscription"}
               onClick={() => setIntake({ ...intake, businessModel: "subscription" })}
               title="Subscription"
-              description="Recurring subscription model. Adspend fee structure."
             />
             <ModelCard
               active={intake.businessModel === "dropship"}
               onClick={() => setIntake({ ...intake, businessModel: "dropship" })}
               title="Dropship store"
-              description="Dropship store fulfilling on demand. Lower base fee, no setup fee."
             />
           </div>
         </FormField>
@@ -438,12 +435,10 @@ function ModelCard({
   active,
   onClick,
   title,
-  description,
 }: {
   active: boolean;
   onClick: () => void;
   title: string;
-  description: string;
 }) {
   return (
     <button
@@ -471,7 +466,6 @@ function ModelCard({
           {title}
         </span>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-[#6b7280]">{description}</p>
     </button>
   );
 }
