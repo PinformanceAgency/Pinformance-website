@@ -294,7 +294,7 @@ function IntakeForm({
           </div>
         </FormField>
 
-        {intake.businessModel === "first_purchase" && (
+        {!isSubscription && (
           <>
             <Divider />
             <FormField step={3} label="Break-even ROAS">
