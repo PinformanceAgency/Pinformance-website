@@ -21,7 +21,7 @@ const MIN_REVENUE_FOR_PERF = 20_000;
 const MIN_ADSPEND_FOR_FEE = 7_500;
 
 type FpModelId = "high" | "low";
-type BusinessModel = "first_purchase" | "subscription";
+type BusinessModel = "first_purchase" | "subscription" | "dropship";
 type ModelKey = "high" | "low" | "sub";
 
 type FpPoint = { roas: number; pct: number };
@@ -275,18 +275,24 @@ function IntakeForm({
         <Divider />
 
         <FormField step={2} label="Business model">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <ModelCard
               active={intake.businessModel === "first_purchase"}
               onClick={() => setIntake({ ...intake, businessModel: "first_purchase" })}
-              title="First purchase"
-              description="One-time purchases. Performance fee on achieved ROAS."
+              title="Brand"
+              description="One-time purchases from a DTC brand. Performance fee on achieved ROAS."
             />
             <ModelCard
               active={intake.businessModel === "subscription"}
               onClick={() => setIntake({ ...intake, businessModel: "subscription" })}
               title="Subscription"
               description="Recurring subscription model. Adspend fee structure."
+            />
+            <ModelCard
+              active={intake.businessModel === "dropship"}
+              onClick={() => setIntake({ ...intake, businessModel: "dropship" })}
+              title="Dropship store"
+              description="Dropship store fulfilling on demand. Lower base fee, no setup fee."
             />
           </div>
         </FormField>
@@ -499,7 +505,7 @@ function ResultView({
               {intake.brand}
             </h2>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/70">
-              {intake.businessModel === "first_purchase" && (
+              {intake.businessModel !== "subscription" && (
                 <span>
                   <span className="text-white/50">Break-even ROAS:</span>{" "}
                   <span className="font-semibold text-white">
@@ -803,8 +809,11 @@ function FirstPurchasePanel({
   model: FpModel;
   intake: Intake;
 }) {
+  const isDropship = intake.businessModel === "dropship";
+  const baseFee = isDropship ? 500 : BASE_FEE;
+
   const [roasInput, setRoasInput] = useState(
-    intake.targetRoas.toFixed(1) 
+    intake.targetRoas.toFixed(1)
   );
   const [revenueInput, setRevenueInput] = useState(
     String(Math.round(intake.expectedRevenue))
@@ -819,23 +828,23 @@ function FirstPurchasePanel({
 
   const { perfFee, capped, total, effectivePct } = useMemo(() => {
     if (Number.isNaN(roas) || roas <= 0 || Number.isNaN(revenue) || revenue <= 0) {
-      return { perfFee: 0, capped: false, total: BASE_FEE, effectivePct: 0 };
+      return { perfFee: 0, capped: false, total: baseFee, effectivePct: 0 };
     }
     if (belowGuarantee || belowMinRev) {
-      return { perfFee: 0, capped: false, total: BASE_FEE, effectivePct: 0 };
+      return { perfFee: 0, capped: false, total: baseFee, effectivePct: 0 };
     }
     const raw = Math.round(revenue * ((perfPct as number) / 100));
-    const maxPerf = CAP - BASE_FEE;
+    const maxPerf = CAP - baseFee;
     const isCapped = raw > maxPerf;
     const perf = isCapped ? maxPerf : raw;
-    const tot = BASE_FEE + perf;
+    const tot = baseFee + perf;
     return {
       perfFee: perf,
       capped: isCapped,
       total: tot,
       effectivePct: (tot / revenue) * 100,
     };
-  }, [roas, revenue, perfPct, belowGuarantee, belowMinRev]);
+  }, [roas, revenue, perfPct, belowGuarantee, belowMinRev, baseFee]);
 
   const chartData = useMemo(() => {
     const min = model.guaranteeRoas;
@@ -952,7 +961,7 @@ function FirstPurchasePanel({
                     "Fee breakdown"
                   ),
                 items: [
-                  { label: "Base fee", value: formatEur(BASE_FEE) },
+                  { label: "Base fee", value: formatEur(baseFee) },
                   {
                     label: "Performance fee",
                     value: formatEur(perfFee),
@@ -1045,8 +1054,8 @@ function FirstPurchasePanel({
         </div>
       </section>
 
-      {/* 5. Setup — natural next-step */}
-      <SetupFeeSection />
+      {/* 5. Setup — natural next-step (dropship skips the setup fee) */}
+      {!isDropship && <SetupFeeSection />}
     </div>
   );
 }
