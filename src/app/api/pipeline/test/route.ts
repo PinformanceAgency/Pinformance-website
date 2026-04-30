@@ -1042,6 +1042,124 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, step: "bulk-post-pins", total: results.length, posted, errors, results });
   }
 
+  // Onboard a new brand: create org + client_admin auth user + users row.
+  // Idempotent: if org/user already exist, updates them. NEVER touches other orgs.
+  if (step === "onboard-brand") {
+    const { brand_name, brand_slug, email, password, full_name } = body;
+    if (!brand_name || !brand_slug || !email || !password) {
+      return NextResponse.json({
+        error: "brand_name, brand_slug, email, password required",
+      }, { status: 400 });
+    }
+
+    // 1. Upsert org
+    const defaultSettings = {
+      timezone: "Europe/Amsterdam",
+      content_mix: { video: 20, static: 70, carousel: 10 },
+      auto_approve: false,
+      pins_per_day: 2,
+      posting_hours: [18, 19, 20, 21],
+      weekend_boost: false,
+      pillar_rotation: true,
+      max_pins_per_day: 5,
+      seed_pins_per_board: 7,
+      min_post_interval_minutes: 30,
+    };
+
+    const { data: existingOrg } = await supabase
+      .from("organizations")
+      .select("id, name, slug")
+      .eq("slug", brand_slug)
+      .single();
+
+    let orgId: string;
+    if (existingOrg) {
+      orgId = existingOrg.id;
+    } else {
+      const { data: newOrg, error: orgErr } = await supabase
+        .from("organizations")
+        .insert({ name: brand_name, slug: brand_slug, settings: defaultSettings })
+        .select("id")
+        .single();
+      if (orgErr || !newOrg) {
+        return NextResponse.json({ error: `Org create failed: ${orgErr?.message}` }, { status: 500 });
+      }
+      orgId = newOrg.id;
+    }
+
+    // 2. Create or fetch the auth user
+    let authUserId: string | null = null;
+    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: full_name || brand_name },
+    });
+
+    if (createErr && !/already/i.test(createErr.message)) {
+      return NextResponse.json({ error: `Auth create failed: ${createErr.message}` }, { status: 500 });
+    }
+
+    if (created?.user?.id) {
+      authUserId = created.user.id;
+    } else {
+      const { data: list } = await supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
+      const existing = list?.users?.find((u) => u.email?.toLowerCase() === String(email).toLowerCase());
+      authUserId = existing?.id || null;
+      // If user exists, update password to match request
+      if (authUserId && createErr) {
+        await supabase.auth.admin.updateUserById(authUserId, { password });
+      }
+    }
+
+    if (!authUserId) {
+      return NextResponse.json({ error: "Could not resolve auth user id" }, { status: 500 });
+    }
+
+    // 3. Upsert the users row with role=client_admin and link to this org
+    const { data: existingProfile } = await supabase.from("users").select("id, role, org_id").eq("id", authUserId).single();
+    if (existingProfile) {
+      // Only allow re-link if existing profile is also for this org or is freshly created.
+      // Do NOT silently move an agency_admin or another brand's user to a new org.
+      if (existingProfile.role === "agency_admin") {
+        return NextResponse.json({
+          error: "Refusing to re-link an existing agency_admin user as a client_admin",
+        }, { status: 409 });
+      }
+      await supabase.from("users").update({
+        role: "client_admin",
+        org_id: orgId,
+        full_name: full_name || brand_name,
+        updated_at: new Date().toISOString(),
+      }).eq("id", authUserId);
+    } else {
+      await supabase.from("users").insert({
+        id: authUserId,
+        email,
+        full_name: full_name || brand_name,
+        org_id: orgId,
+        role: "client_admin",
+      });
+    }
+
+    // 4. Optional: create empty brand_profiles row so the org is ready for use
+    const { data: existingBp } = await supabase.from("brand_profiles").select("id").eq("org_id", orgId).single();
+    if (!existingBp) {
+      await supabase.from("brand_profiles").insert({
+        org_id: orgId,
+        raw_data: {},
+        brand_voice: "",
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      step: "onboard-brand",
+      org: { id: orgId, name: brand_name, slug: brand_slug },
+      user: { id: authUserId, email, role: "client_admin" },
+    });
+  }
+
   // One-off: create a super-admin user (agency_admin role) with email+password.
   // Idempotent: if auth user exists, updates profile to agency_admin.
   if (step === "create-super-admin") {
