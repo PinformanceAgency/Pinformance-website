@@ -35,7 +35,7 @@ const clientNav = [
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/pins", label: "Pins", icon: Image },
   { href: "/creatives", label: "Creatives", icon: Sparkles },
-  { href: "/raw-content", label: "Raw Content", icon: FolderOpen },
+  { href: "/content-hub", label: "Content Hub", icon: FolderOpen },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/keywords", label: "Keywords", icon: Search },
   { href: "/pipeline", label: "Pipeline", icon: Zap },

@@ -48,7 +48,7 @@ function getTypeMeta(t: string) {
   return SOURCE_TYPES.find((s) => s.value === t) || SOURCE_TYPES[SOURCE_TYPES.length - 1];
 }
 
-export default function RawContentPage() {
+export default function ContentHubPage() {
   const { org, loading: orgLoading } = useOrg();
   const [sources, setSources] = useState<ContentSource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +95,7 @@ export default function RawContentPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Raw Content</h1>
+          <h1 className="text-2xl font-semibold">Content Hub</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             External content sources for {org?.name || "this brand"} — Tagbox, Canva, Google Drive, Dropbox, etc.
           </p>
