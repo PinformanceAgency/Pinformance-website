@@ -73,7 +73,7 @@ export default function RawContentPage() {
   }, [org?.id]);
 
   async function remove(id: string) {
-    if (!confirm("Verwijder deze content source?")) return;
+    if (!confirm("Delete this content source?")) return;
     const res = await fetch(`/api/content-sources?id=${id}`, { method: "DELETE" });
     if (res.ok) setSources((s) => s.filter((x) => x.id !== id));
   }
@@ -97,7 +97,7 @@ export default function RawContentPage() {
         <div>
           <h1 className="text-2xl font-semibold">Raw Content</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Externe content-bronnen voor {org?.name || "this brand"} — Tagbox, Canva, Google Drive, Dropbox, etc.
+            External content sources for {org?.name || "this brand"} — Tagbox, Canva, Google Drive, Dropbox, etc.
           </p>
         </div>
         <button
@@ -114,7 +114,7 @@ export default function RawContentPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Zoeken..."
+            placeholder="Search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -159,9 +159,9 @@ export default function RawContentPage() {
       ) : filtered.length === 0 ? (
         <div className="border border-dashed border-border rounded-xl p-12 text-center bg-card">
           <ImageIcon className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-          <h3 className="text-foreground font-medium">Nog geen content-bronnen</h3>
+          <h3 className="text-foreground font-medium">No content sources yet</h3>
           <p className="text-muted-foreground text-sm mt-1">
-            Voeg de eerste link toe (Tagbox, Canva, Google Drive, etc.)
+            Add the first link (Tagbox, Canva, Google Drive, etc.)
           </p>
           <button
             onClick={() => { setEditing(null); setShowForm(true); }}
@@ -317,7 +317,7 @@ function SourceForm({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="bv. Spring 2026 Photoshoot"
+              placeholder="e.g. Spring 2026 Photoshoot"
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
@@ -336,7 +336,7 @@ function SourceForm({
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Wat zit hier in? Wie heeft toegang? Etc."
+              placeholder="What's in here? Who has access? Etc."
               rows={3}
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
             />
@@ -351,7 +351,7 @@ function SourceForm({
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
             <p className="text-[10px] text-muted-foreground mt-1">
-              Optioneel: directe link naar een preview-image (jpg/png). Anders wordt het type-icoon getoond.
+              Optional: direct link to a preview image (jpg/png). Otherwise the type icon is shown.
             </p>
           </div>
           {error && <div className="text-xs text-red-600">{error}</div>}
