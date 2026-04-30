@@ -816,6 +816,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, count: data?.length || 0, pins: data });
   }
 
+  // Inspect Pinterest token scopes + try a sample ads endpoint to confirm ads:read works
+  if (step === "check-ads-access") {
+    if (!org.pinterest_access_token_encrypted) return NextResponse.json({ error: "No Pinterest token" }, { status: 400 });
+    const token = decrypt(org.pinterest_access_token_encrypted);
+    const tier = (org.settings as Record<string, unknown>)?.pinterest_access_tier;
+    const base = tier === "trial" ? "https://api-sandbox.pinterest.com" : "https://api.pinterest.com";
+
+    const result: Record<string, unknown> = {
+      org_name: org.name,
+      stored_scopes: (org as { pinterest_token_scopes?: string }).pinterest_token_scopes || "(not stored)",
+      tier: tier || "(not set)",
+      base_url: base,
+    };
+
+    // 1. List ad accounts (requires ads:read)
+    try {
+      const res = await fetch(`${base}/v5/ad_accounts`, { headers: { Authorization: `Bearer ${token}` } });
+      result["ad_accounts_status"] = res.status;
+      const body = await res.text();
+      result["ad_accounts_body"] = body.substring(0, 500);
+    } catch (e) {
+      result["ad_accounts_error"] = e instanceof Error ? e.message : String(e);
+    }
+
+    return NextResponse.json({ success: true, step: "check-ads-access", ...result });
+  }
+
   // Test Pinterest token directly via user_account endpoint
   if (step === "test-pinterest-token") {
     if (!org.pinterest_access_token_encrypted) return NextResponse.json({ error: "No token" }, { status: 400 });
