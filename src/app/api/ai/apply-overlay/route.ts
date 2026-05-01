@@ -10,8 +10,30 @@ type Style = "hero-bottom" | "editorial-top" | "minimal-bottom" | "accent-center
 
 const ALL_STYLES: Style[] = ["hero-bottom", "editorial-top", "minimal-bottom", "accent-center", "split-top", "bold-bottom", "elegant-top", "dark-bar"];
 
-function pickStyle(): Style {
-  return ALL_STYLES[Math.floor(Math.random() * ALL_STYLES.length)];
+function pickStyle(activeStyles?: Style[]): Style {
+  const pool = activeStyles && activeStyles.length > 0 ? activeStyles : ALL_STYLES;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+type TextRules = { prefix?: string; suffix?: string; max_length?: number; blocklist?: string[] };
+
+function applyTextRules(headline: string, rules: TextRules | undefined): string {
+  if (!rules) return headline;
+  let h = headline;
+  // Blocklist: replace blocked words with empty (preserves rest)
+  if (rules.blocklist && rules.blocklist.length > 0) {
+    for (const word of rules.blocklist) {
+      if (!word) continue;
+      const re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+      h = h.replace(re, "").replace(/\s+/g, " ").trim();
+    }
+  }
+  // Max length truncation (before prefix/suffix added)
+  if (rules.max_length && h.length > rules.max_length) {
+    h = h.substring(0, rules.max_length).trim();
+  }
+  // Prefix + suffix
+  return `${rules.prefix || ""}${h}${rules.suffix || ""}`;
 }
 
 function textDiv(text: string, style: Record<string, unknown>) {
@@ -219,9 +241,17 @@ export async function POST(request: NextRequest) {
     const fontRes = await fetch("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYMZhrib2Bg-4.ttf");
     const fontBuffer = Buffer.from(await fontRes.arrayBuffer());
 
+    // Read brand overlay config (active_styles + text_rules)
+    const { data: bpCfg } = await admin.from("brand_profiles").select("raw_data").eq("org_id", orgId).single();
+    const overlayCfg = ((bpCfg?.raw_data as Record<string, unknown>)?.overlay_config || {}) as {
+      active_styles?: Style[];
+      text_rules?: TextRules;
+    };
+
     // Render overlay
-    const style = pickStyle();
-    const overlay = buildOverlay(headline, brandName, style);
+    const style = pickStyle(overlayCfg.active_styles);
+    const finalHeadline = applyTextRules(headline, overlayCfg.text_rules);
+    const overlay = buildOverlay(finalHeadline, brandName, style);
     const satori = (await import("satori")).default;
     const svg = await satori(overlay as React.ReactNode, {
       width: 1000, height: 1500,

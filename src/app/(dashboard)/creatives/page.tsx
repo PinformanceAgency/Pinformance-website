@@ -41,8 +41,9 @@ export default function CreativesPage() {
   const [saved, setSaved] = useState(false);
   const [defaultLinkUrl, setDefaultLinkUrl] = useState("");
   const [activeTab, setActiveTab] = useState<"video" | "static">("video");
-  const staticCounterRef = useRef(0); // Per 5: 0,1,2=full overlay+logo, 3=logo only, 4=clean
+  const staticCounterRef = useRef(0);
   const [logoUrl, setLogoUrl] = useState("");
+  const [rotation, setRotation] = useState({ full_overlay: 3, logo_only: 1, clean: 1 });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -50,6 +51,13 @@ export default function CreativesPage() {
     fetch("/api/brand-settings").then(r => r.ok ? r.json() : null).then(d => {
       if (d?.default_link_url) setDefaultLinkUrl(d.default_link_url);
       if (d?.logo_url) setLogoUrl(d.logo_url);
+      if (d?.overlay_config?.rotation) {
+        setRotation({
+          full_overlay: d.overlay_config.rotation.full_overlay ?? 3,
+          logo_only: d.overlay_config.rotation.logo_only ?? 1,
+          clean: d.overlay_config.rotation.clean ?? 1,
+        });
+      }
     });
   }, [org]);
 
@@ -163,11 +171,15 @@ export default function CreativesPage() {
           const data = await res.json();
           const analysis = data.analysis;
 
-          // For statics: apply overlay based on rotation (3 full, 1 logo-only, 1 clean per 5)
+          // For statics: apply overlay based on per-brand rotation config (full / logo-only / clean)
           if (!isVideo && mediaType === "image" && analysis) {
-            const counter = staticCounterRef.current % 5;
+            const cycleSize = Math.max(1, rotation.full_overlay + rotation.logo_only + rotation.clean);
+            const counter = staticCounterRef.current % cycleSize;
             staticCounterRef.current++;
-            const overlayVariant = counter < 3 ? "full" : counter === 3 ? "logo-only" : "clean";
+            let overlayVariant: "full" | "logo-only" | "clean";
+            if (counter < rotation.full_overlay) overlayVariant = "full";
+            else if (counter < rotation.full_overlay + rotation.logo_only) overlayVariant = "logo-only";
+            else overlayVariant = "clean";
 
             setCreatives((prev) =>
               prev.map((c) =>

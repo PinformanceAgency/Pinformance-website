@@ -49,6 +49,11 @@ export async function GET() {
     clean_products: rd.clean_products || [],
     default_link_url: rd.default_link_url || "",
     logo_url: rd.logo_url || "",
+    overlay_config: rd.overlay_config || {
+      rotation: { full_overlay: 3, logo_only: 1, clean: 1 },
+      active_styles: ["hero-bottom", "editorial-top", "minimal-bottom", "accent-center", "split-top", "bold-bottom", "elegant-top", "dark-bar"],
+      text_rules: { prefix: "", suffix: "", max_length: 60, blocklist: [] },
+    },
   });
 }
 
@@ -57,7 +62,7 @@ export async function POST(request: NextRequest) {
   if (!orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
-  const { brand_voice, custom_prompts, reference_images, custom_screenshots, clean_products } = body;
+  const { brand_voice, custom_prompts, reference_images, custom_screenshots, clean_products, logo_url, overlay_config } = body;
 
   const admin = createAdminClient();
 
@@ -75,6 +80,8 @@ export async function POST(request: NextRequest) {
   if (reference_images !== undefined) newData.reference_images = reference_images;
   if (custom_screenshots !== undefined) newData.custom_screenshots = custom_screenshots;
   if (clean_products !== undefined) newData.clean_products = clean_products;
+  if (logo_url !== undefined) newData.logo_url = logo_url;
+  if (overlay_config !== undefined) newData.overlay_config = overlay_config;
 
   const updatePayload: Record<string, unknown> = {
     raw_data: newData,

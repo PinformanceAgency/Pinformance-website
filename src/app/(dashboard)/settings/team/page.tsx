@@ -22,6 +22,7 @@ const TABS = [
   { href: "/settings/api-keys", label: "API Keys" },
   { href: "/settings/prompts", label: "Prompts" },
   { href: "/settings/images", label: "Images" },
+  { href: "/settings/overlays", label: "Statics & Overlays" },
 ];
 
 const ROLE_LABELS: Record<UserRole, string> = {
