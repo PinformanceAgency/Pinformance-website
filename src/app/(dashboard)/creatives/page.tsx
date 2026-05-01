@@ -13,8 +13,10 @@ import {
   X,
   Video,
   Camera,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { OverlaySettings } from "@/components/creatives/overlay-settings";
 
 interface UploadedCreative {
   image_url: string;
@@ -40,7 +42,7 @@ export default function CreativesPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [defaultLinkUrl, setDefaultLinkUrl] = useState("");
-  const [activeTab, setActiveTab] = useState<"video" | "static">("video");
+  const [activeTab, setActiveTab] = useState<"video" | "static" | "settings">("video");
   const staticCounterRef = useRef(0);
   const [logoUrl, setLogoUrl] = useState("");
   const [rotation, setRotation] = useState({ full_overlay: 3, logo_only: 1, clean: 1 });
@@ -339,32 +341,51 @@ export default function CreativesPage() {
         </p>
       </div>
 
-      {/* Video / Static tabs */}
-      <div className="flex gap-2">
+      {/* Video / Static / Settings tabs */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab("video")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+              activeTab === "video"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Video className="w-4 h-4" /> Videos
+          </button>
+          <button
+            onClick={() => setActiveTab("static")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+              activeTab === "static"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Camera className="w-4 h-4" /> Statics
+          </button>
+        </div>
         <button
-          onClick={() => setActiveTab("video")}
+          onClick={() => setActiveTab("settings")}
           className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-            activeTab === "video"
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ml-auto",
+            activeTab === "settings"
               ? "bg-primary text-primary-foreground"
               : "bg-muted text-muted-foreground hover:text-foreground"
           )}
         >
-          <Video className="w-4 h-4" /> Videos
-        </button>
-        <button
-          onClick={() => setActiveTab("static")}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-            activeTab === "static"
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Camera className="w-4 h-4" /> Statics
+          <SettingsIcon className="w-4 h-4" /> Settings
         </button>
       </div>
 
+      {/* Settings tab content */}
+      {activeTab === "settings" && <OverlaySettings orgName={org?.name} />}
+
+      {/* Upload UI hidden when on settings tab */}
+      {activeTab !== "settings" && (
+      <>
       {/* Info card */}
       <div className="bg-card border border-border rounded-xl p-5">
         {activeTab === "video" ? (
@@ -596,6 +617,8 @@ export default function CreativesPage() {
             {creatives.filter((c) => c.status === "analyzing" || c.status === "applying_overlay").length} processing
           </span>
         </div>
+      )}
+      </>
       )}
     </div>
   );
