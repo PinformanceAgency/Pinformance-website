@@ -113,7 +113,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 1. List ads (paginate up to MAX_ADS_TO_FETCH).
+    // 1. List ads (paginate up to MAX_ADS_TO_FETCH). Request all statuses so
+    //    we don't silently exclude paused/archived/draft ads that had spend
+    //    in the period — Campaign Manager shows them too.
     const adList: Array<{
       id: string;
       name?: string;
@@ -125,7 +127,11 @@ export async function GET(request: NextRequest) {
     }> = [];
     let bookmark: string | undefined;
     do {
-      const page = await client.getAds(adAccount.id, { bookmark, pageSize: 100 });
+      const page = await client.getAds(adAccount.id, {
+        bookmark,
+        pageSize: 100,
+        entityStatuses: ["ACTIVE", "PAUSED", "ARCHIVED", "DRAFT"],
+      });
       adList.push(...(page.items || []));
       bookmark = page.bookmark;
       if (adList.length >= MAX_ADS_TO_FETCH) break;

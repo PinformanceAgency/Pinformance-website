@@ -26,9 +26,13 @@ function shiftDateIso(iso: string, days: number): string {
 }
 
 export function presetToRange(days: number): DateRange {
-  const end = todayIso();
-  if (days === 0) return { start: end, end };
-  const start = shiftDateIso(end, -days);
+  const today = todayIso();
+  if (days === 0) return { start: today, end: today };
+  // "Last N days" = the N most recent complete days, ending yesterday.
+  // Pinterest Campaign Manager uses the same convention (today is excluded
+  // because reporting is still incomplete).
+  const end = shiftDateIso(today, -1);
+  const start = shiftDateIso(end, -(days - 1));
   return { start, end };
 }
 

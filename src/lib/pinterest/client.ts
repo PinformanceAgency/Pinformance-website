@@ -314,8 +314,10 @@ export class PinterestClient {
       conversion_report_time: opts.conversionReportTime ?? "TIME_OF_CONVERSION",
       click_window_days: String(opts.clickWindowDays ?? 30),
       view_window_days: String(opts.viewWindowDays ?? 1),
-      engagement_window_days: String(opts.clickWindowDays ?? 30),
     });
+    // engagement_window_days is intentionally NOT sent — Pinterest Campaign
+    // Manager doesn't expose it in the 30/1-style settings, so leaving it
+    // unset matches CM's defaulting behavior.
     return this.request(`/ad_accounts/${adAccountId}/ads/analytics?${params}`);
   }
 

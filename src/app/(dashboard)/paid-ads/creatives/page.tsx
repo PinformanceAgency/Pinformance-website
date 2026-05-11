@@ -12,6 +12,7 @@ import {
   Settings as SettingsIcon,
   Check,
   ChevronDown,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -124,6 +125,8 @@ export default function PaidAdsCreativesPage() {
   const [recentKpi, setRecentKpi] = useState<KpiKey>("spend");
   // Default: ads launched in the last 14 days.
   const [recentSince, setRecentSince] = useState<string>(() => presetToRange(14).start);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [ads, setAds] = useState<AdRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [adsConnected, setAdsConnected] = useState(false);
@@ -175,6 +178,7 @@ export default function PaidAdsCreativesPage() {
         setConnectionError(json.error);
         if (json.currency) setCurrency(json.currency);
         if (json.ad_account_name) setAdAccountName(json.ad_account_name);
+        setLastRefreshed(new Date());
       } catch (e) {
         if (!cancelled) {
           setAds([]);
@@ -191,7 +195,7 @@ export default function PaidAdsCreativesPage() {
     return () => {
       cancelled = true;
     };
-  }, [org, dateRange, conversionWindow]);
+  }, [org, dateRange, conversionWindow, refreshKey]);
 
   const adsWithSpend = useMemo(() => ads.filter((a) => a.spend != null && a.spend > 0), [ads]);
   const hasAdsData = adsWithSpend.length > 0;
@@ -247,7 +251,37 @@ export default function PaidAdsCreativesPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <ConversionSettings value={conversionWindow} onChange={updateConversionWindow} />
           <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <button
+            onClick={() => setRefreshKey((k) => k + 1)}
+            disabled={loading}
+            title="Refresh from Pinterest"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-border bg-card text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+            Refresh
+          </button>
         </div>
+      </div>
+
+      {/* Query trace — exact params we sent to Pinterest, for comparison
+          against Campaign Manager. */}
+      <div className="text-[11px] text-muted-foreground flex items-center gap-3 flex-wrap">
+        <span>
+          Query: <strong className="text-foreground">{dateRange.start}</strong> →{" "}
+          <strong className="text-foreground">{dateRange.end}</strong>
+        </span>
+        <span>·</span>
+        <span>
+          Conversion window <strong className="text-foreground">{conversionWindow}</strong>
+        </span>
+        <span>·</span>
+        <span>Date of conversion event</span>
+        {lastRefreshed && (
+          <>
+            <span>·</span>
+            <span>Refreshed {lastRefreshed.toLocaleTimeString("en-US")}</span>
+          </>
+        )}
       </div>
 
       {hasAdsData && <KpiRow totals={totals} currency={currency} count={adsWithSpend.length} />}
