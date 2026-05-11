@@ -29,7 +29,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useState } from "react";
 import { OrgSwitcher } from "./org-switcher";
 
-const clientNav = [
+const organicNav = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
   { href: "/boards", label: "Boards", icon: LayoutGrid },
   { href: "/calendar", label: "Calendar", icon: Calendar },
@@ -41,11 +41,18 @@ const clientNav = [
   { href: "/pipeline", label: "Pipeline", icon: Zap },
   { href: "/affiliates", label: "Affiliates", icon: Link2 },
   { href: "/documents", label: "Documents", icon: FileText },
+];
+
+const paidAdsNav = [
+  { href: "/paid-ads/creatives", label: "Creatives", icon: Sparkles },
+];
+
+const adminSharedNav = [
   { href: "/integrations", label: "Integrations", icon: Key },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-const adminNav = [
+const adminOnlyNav = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/clients", label: "All Clients", icon: Users },
   { href: "/admin/moderation", label: "Moderation", icon: Shield },
@@ -122,9 +129,9 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto relative z-10">
         <div className="text-[10px] font-semibold text-white/30 px-3 pb-2 uppercase tracking-[0.15em]">
-          Dashboard
+          Organic
         </div>
-        {clientNav.map((item) => {
+        {organicNav.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
@@ -146,34 +153,76 @@ export function Sidebar() {
           );
         })}
 
-        {isAgencyAdmin && (
-          <>
-            <div className="text-[10px] font-semibold text-white/30 px-3 pt-5 pb-2 uppercase tracking-[0.15em]">
-              Agency Admin
-            </div>
-            {adminNav.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all relative",
-                    isActive
-                      ? "sidebar-nav-active font-medium"
-                      : "text-white/50 sidebar-nav-item hover:text-white/80"
-                  )}
-                >
-                  <item.icon className="w-4 h-4 flex-shrink-0" />
-                  <span className="flex-1">{item.label}</span>
-                  {isActive && (
-                    <ChevronRight className="w-3.5 h-3.5 opacity-60" />
-                  )}
-                </Link>
-              );
-            })}
-          </>
-        )}
+        <div className="text-[10px] font-semibold text-white/30 px-3 pt-5 pb-2 uppercase tracking-[0.15em]">
+          Paid Ads
+        </div>
+        {paidAdsNav.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all relative",
+                isActive
+                  ? "sidebar-nav-active font-medium"
+                  : "text-white/50 sidebar-nav-item hover:text-white/80"
+              )}
+            >
+              <item.icon className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1">{item.label}</span>
+              {isActive && (
+                <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+              )}
+            </Link>
+          );
+        })}
+
+        <div className="text-[10px] font-semibold text-white/30 px-3 pt-5 pb-2 uppercase tracking-[0.15em]">
+          Agency Admin
+        </div>
+        {adminSharedNav.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all relative",
+                isActive
+                  ? "sidebar-nav-active font-medium"
+                  : "text-white/50 sidebar-nav-item hover:text-white/80"
+              )}
+            >
+              <item.icon className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1">{item.label}</span>
+              {isActive && (
+                <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+              )}
+            </Link>
+          );
+        })}
+        {isAgencyAdmin && adminOnlyNav.map((item) => {
+          const isActive = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all relative",
+                isActive
+                  ? "sidebar-nav-active font-medium"
+                  : "text-white/50 sidebar-nav-item hover:text-white/80"
+              )}
+            >
+              <item.icon className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1">{item.label}</span>
+              {isActive && (
+                <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+              )}
+            </Link>
+          );
+        })}
       </nav>
 
       {/* Footer */}
