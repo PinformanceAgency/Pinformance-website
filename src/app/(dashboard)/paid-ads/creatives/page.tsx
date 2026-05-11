@@ -110,12 +110,19 @@ interface AccountTotals {
   cpa: number | null;
 }
 
+interface AdAccountChoice {
+  id: string;
+  name: string;
+  currency?: string;
+}
+
 interface ApiResponse {
   ads: AdRow[];
   account_totals?: AccountTotals | null;
   ads_connected: boolean;
   ad_account_id?: string;
   ad_account_name?: string;
+  available_ad_accounts?: AdAccountChoice[];
   currency?: string;
   reason?: string;
   error?: string;
@@ -149,6 +156,9 @@ export default function PaidAdsCreativesPage() {
   const [connectionError, setConnectionError] = useState<string | undefined>();
   const [currency, setCurrency] = useState("USD");
   const [adAccountName, setAdAccountName] = useState<string | undefined>();
+  const [adAccountId, setAdAccountId] = useState<string | undefined>();
+  const [availableAdAccounts, setAvailableAdAccounts] = useState<AdAccountChoice[]>([]);
+  const [savingAdAccount, setSavingAdAccount] = useState(false);
   const [accountTotals, setAccountTotals] = useState<AccountTotals | null>(null);
   const [conversionWindow, setConversionWindow] = useState<ConversionWindow>("30/1");
 
@@ -165,6 +175,21 @@ export default function PaidAdsCreativesPage() {
     setConversionWindow(w);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(CONVERSION_SETTINGS_KEY, w);
+    }
+  }
+
+  async function switchAdAccount(newId: string) {
+    setSavingAdAccount(true);
+    try {
+      const res = await fetch("/api/pinterest/ad-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ad_account_id: newId }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setRefreshKey((k) => k + 1);
+    } finally {
+      setSavingAdAccount(false);
     }
   }
 
@@ -195,6 +220,8 @@ export default function PaidAdsCreativesPage() {
         setConnectionError(json.error);
         if (json.currency) setCurrency(json.currency);
         if (json.ad_account_name) setAdAccountName(json.ad_account_name);
+        setAdAccountId(json.ad_account_id);
+        setAvailableAdAccounts(json.available_ad_accounts || []);
         setLastRefreshed(new Date());
       } catch (e) {
         if (!cancelled) {
@@ -279,11 +306,26 @@ export default function PaidAdsCreativesPage() {
           </div>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Paid Ads — Creatives</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {adAccountName
-                ? `Performance per ad in ${adAccountName} (Pinterest Ads).`
-                : "Performance per ad from Pinterest Ads."}
-            </p>
+            <div className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+              <span>Performance per ad in</span>
+              {availableAdAccounts.length > 1 ? (
+                <select
+                  value={adAccountId || ""}
+                  onChange={(e) => switchAdAccount(e.target.value)}
+                  disabled={savingAdAccount || loading}
+                  className="text-xs font-medium rounded-md border border-border bg-card px-2 py-0.5 text-foreground hover:bg-muted disabled:opacity-50"
+                >
+                  {availableAdAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.id})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <strong className="text-foreground">{adAccountName || "Pinterest Ads"}</strong>
+              )}
+              <span>(Pinterest Ads).</span>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
+import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 import { generateWeeklyReport } from "@/lib/reports/weekly-report";
 
@@ -122,8 +123,16 @@ export async function POST(request: NextRequest) {
     const isTrial = ((org.settings as Record<string, unknown>)?.pinterest_access_tier as string) === "trial";
     const client = new PinterestClient(token, isTrial);
 
-    const adAccounts = await client.getAdAccounts();
-    const adAccount = adAccounts.items?.[0];
+    const settings = (org.settings as Record<string, unknown>) || {};
+    const preferredAdAccountId =
+      typeof settings.pinterest_ad_account_id === "string"
+        ? settings.pinterest_ad_account_id
+        : null;
+    const { chosen: adAccount } = await selectAdAccount(
+      client,
+      org.name as string | null,
+      preferredAdAccountId
+    );
     if (!adAccount) {
       return NextResponse.json({ error: "No ad account on Pinterest" }, { status: 400 });
     }

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
+import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
 interface AdRow {
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
   const { data: org } = await admin
     .from("organizations")
-    .select("pinterest_access_token_encrypted, settings")
+    .select("name, pinterest_access_token_encrypted, settings")
     .eq("id", orgId)
     .single();
 
@@ -103,8 +104,16 @@ export async function GET(request: NextRequest) {
     const isTrial = ((org.settings as Record<string, unknown>)?.pinterest_access_tier as string) === "trial";
     const client = new PinterestClient(token, isTrial);
 
-    const adAccounts = await client.getAdAccounts();
-    const adAccount = adAccounts.items?.[0];
+    const settings = (org.settings as Record<string, unknown>) || {};
+    const preferredAdAccountId =
+      typeof settings.pinterest_ad_account_id === "string"
+        ? settings.pinterest_ad_account_id
+        : null;
+    const { chosen: adAccount, all: allAdAccounts } = await selectAdAccount(
+      client,
+      org.name as string | null,
+      preferredAdAccountId
+    );
     if (!adAccount?.id) {
       return NextResponse.json({
         ads: [],
@@ -308,6 +317,7 @@ export async function GET(request: NextRequest) {
       ads_connected: true,
       ad_account_id: adAccount.id,
       ad_account_name: adAccount.name,
+      available_ad_accounts: allAdAccounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency })),
       currency: adAccount.currency || "USD",
       start_date: startDate,
       end_date: endDate,
