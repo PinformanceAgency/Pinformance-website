@@ -5,19 +5,29 @@ import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
-interface AdsPerformancePin {
-  id: string;
-  pinterest_pin_id: string | null;
-  title: string;
+interface AdRow {
+  ad_id: string;
+  ad_name: string;
+  pin_id: string | null;
+  ad_group_id: string | null;
+  campaign_id: string | null;
+  status: string | null;
+  created_at: string | null;
   image_url: string | null;
-  posted_at: string | null;
-  created_at: string;
   spend: number | null;
   revenue: number | null;
   purchases: number | null;
   impressions: number | null;
   clicks: number | null;
+  ctr: number | null;
+  cpm: number | null;
+  cpc: number | null;
+  roas: number | null;
+  cpa: number | null;
 }
+
+const MAX_ADS_TO_FETCH = 500;
+const MAX_PIN_DETAILS = 50;
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -39,110 +49,156 @@ export async function GET(request: NextRequest) {
     .eq("id", orgId)
     .single();
 
-  // Date range
   const days = Math.min(parseInt(request.nextUrl.searchParams.get("days") || "30"), 90);
   const end = new Date();
   const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const endDate = end.toISOString().split("T")[0];
   const startDate = start.toISOString().split("T")[0];
 
-  // Pull pins from our DB for this org within (or overlapping) the timeframe.
-  const { data: pinRows } = await admin
-    .from("pins")
-    .select("id, pinterest_pin_id, title, image_url, posted_at, created_at")
-    .eq("org_id", orgId)
-    .not("pinterest_pin_id", "is", null)
-    .order("posted_at", { ascending: false, nullsFirst: false })
-    .limit(50);
-
-  const pins: AdsPerformancePin[] = (pinRows || []).map((p) => ({
-    id: p.id as string,
-    pinterest_pin_id: (p.pinterest_pin_id as string) || null,
-    title: (p.title as string) || "Untitled",
-    image_url: (p.image_url as string) || null,
-    posted_at: (p.posted_at as string) || null,
-    created_at: p.created_at as string,
-    spend: null,
-    revenue: null,
-    purchases: null,
-    impressions: null,
-    clicks: null,
-  }));
-
   if (!org?.pinterest_access_token_encrypted) {
     return NextResponse.json({
-      pins,
+      ads: [],
       ads_connected: false,
       reason: "no_token",
     });
   }
 
-  // Try to enrich with paid metrics from Pinterest Ads.
   try {
     const token = decrypt(org.pinterest_access_token_encrypted);
     const isTrial = ((org.settings as Record<string, unknown>)?.pinterest_access_tier as string) === "trial";
     const client = new PinterestClient(token, isTrial);
 
     const adAccounts = await client.getAdAccounts();
-    const adAccountId = adAccounts.items?.[0]?.id;
-    if (!adAccountId) {
+    const adAccount = adAccounts.items?.[0];
+    if (!adAccount?.id) {
       return NextResponse.json({
-        pins,
+        ads: [],
         ads_connected: false,
         reason: "no_ad_account",
       });
     }
 
-    const pinIds = pins
-      .map((p) => p.pinterest_pin_id)
-      .filter((id): id is string => !!id);
+    // 1. List ads (paginate up to MAX_ADS_TO_FETCH).
+    const adList: Array<{
+      id: string;
+      name?: string;
+      pin_id?: string;
+      ad_group_id?: string;
+      campaign_id?: string;
+      status?: string;
+      created_time?: number;
+    }> = [];
+    let bookmark: string | undefined;
+    do {
+      const page = await client.getAds(adAccount.id, { bookmark, pageSize: 100 });
+      adList.push(...(page.items || []));
+      bookmark = page.bookmark;
+      if (adList.length >= MAX_ADS_TO_FETCH) break;
+    } while (bookmark);
 
-    if (pinIds.length === 0) {
+    if (adList.length === 0) {
       return NextResponse.json({
-        pins,
+        ads: [],
         ads_connected: true,
-        ad_account_id: adAccountId,
-        reason: "no_promoted_pins",
+        ad_account_id: adAccount.id,
+        currency: adAccount.currency || "USD",
+        reason: "no_ads",
       });
     }
 
-    const analytics = await client.getAdPinAnalytics(adAccountId, pinIds, startDate, endDate);
-
-    // Pinterest returns one row per pin. Index by PIN_ID.
-    const byPin = new Map<string, Record<string, number | string>>();
-    for (const row of analytics || []) {
-      const pid = String(row["PIN_ID"] ?? "");
-      if (pid) byPin.set(pid, row);
+    // 2. Fetch analytics in batches of 100.
+    const byAdId = new Map<string, Record<string, number | string>>();
+    for (let i = 0; i < adList.length; i += 100) {
+      const batch = adList.slice(i, i + 100).map((a) => a.id);
+      const analytics = await client.getAdAnalytics(adAccount.id, batch, startDate, endDate);
+      for (const row of analytics || []) {
+        const adId = String(row["AD_ID"] ?? "");
+        if (adId) byAdId.set(adId, row);
+      }
     }
 
-    for (const pin of pins) {
-      if (!pin.pinterest_pin_id) continue;
-      const m = byPin.get(pin.pinterest_pin_id);
-      if (!m) continue;
+    // 3. Build rows with computed metrics.
+    const rows: AdRow[] = adList.map((a) => {
+      const m = byAdId.get(a.id) || {};
       const spend = num(m["SPEND_IN_DOLLAR"]);
       const purchases = num(m["TOTAL_CHECKOUT"]);
       const revenue = num(m["TOTAL_CHECKOUT_VALUE_IN_DOLLAR"]);
       const impressions = num(m["IMPRESSION_1"]);
       const clicks = num(m["CLICKTHROUGH_1"]);
-      pin.spend = spend;
-      pin.purchases = purchases;
-      pin.revenue = revenue;
-      pin.impressions = impressions;
-      pin.clicks = clicks;
+      const ctr = num(m["CTR"]);
+      const cpm = num(m["CPM_IN_DOLLAR"]);
+      const cpc = num(m["ECPC_IN_DOLLAR"]);
+      let roas = num(m["CHECKOUT_ROAS"]);
+      if (roas == null && spend != null && spend > 0 && revenue != null) {
+        roas = revenue / spend;
+      }
+      const cpa =
+        purchases != null && purchases > 0 && spend != null ? spend / purchases : null;
+
+      return {
+        ad_id: a.id,
+        ad_name: a.name || `Ad ${a.id.slice(-6)}`,
+        pin_id: a.pin_id || null,
+        ad_group_id: a.ad_group_id || null,
+        campaign_id: a.campaign_id || null,
+        status: a.status || null,
+        created_at: a.created_time
+          ? new Date(a.created_time * 1000).toISOString()
+          : null,
+        image_url: null,
+        spend,
+        revenue,
+        purchases,
+        impressions,
+        clicks,
+        ctr,
+        cpm,
+        cpc,
+        roas,
+        cpa,
+      };
+    });
+
+    // 4. Enrich top-spending ads with pin image (cap to MAX_PIN_DETAILS).
+    const topForImages = [...rows]
+      .filter((r) => r.pin_id && r.spend != null && r.spend > 0)
+      .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))
+      .slice(0, MAX_PIN_DETAILS);
+
+    const imageByPin = new Map<string, string>();
+    await Promise.all(
+      topForImages.map(async (r) => {
+        if (!r.pin_id) return;
+        try {
+          const pin = await client.getPin(r.pin_id);
+          const url =
+            pin.media?.images?.["600x"]?.url ||
+            pin.media?.images?.["400x300"]?.url ||
+            pin.media?.images?.["150x150"]?.url ||
+            "";
+          if (url) imageByPin.set(r.pin_id, url);
+        } catch {
+          // pin lookup failed — skip
+        }
+      })
+    );
+    for (const r of rows) {
+      if (r.pin_id) r.image_url = imageByPin.get(r.pin_id) || null;
     }
 
     return NextResponse.json({
-      pins,
+      ads: rows,
       ads_connected: true,
-      ad_account_id: adAccountId,
-      currency: adAccounts.items[0]?.currency || "USD",
+      ad_account_id: adAccount.id,
+      ad_account_name: adAccount.name,
+      currency: adAccount.currency || "USD",
       start_date: startDate,
       end_date: endDate,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
     return NextResponse.json({
-      pins,
+      ads: [],
       ads_connected: false,
       reason: "fetch_failed",
       error: message,
@@ -151,7 +207,7 @@ export async function GET(request: NextRequest) {
 }
 
 function num(v: unknown): number | null {
-  if (v == null) return null;
+  if (v == null || v === "") return null;
   if (typeof v === "number") return v;
   const parsed = Number(v);
   return isNaN(parsed) ? null : parsed;

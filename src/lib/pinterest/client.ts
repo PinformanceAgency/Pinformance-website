@@ -244,6 +244,67 @@ export class PinterestClient {
   }
 
   /**
+   * List ads in an ad account. Paginate via bookmark.
+   */
+  async getAds(
+    adAccountId: string,
+    opts: { bookmark?: string; pageSize?: number; entityStatuses?: string[] } = {}
+  ): Promise<{
+    items: Array<{
+      id: string;
+      name?: string;
+      pin_id?: string;
+      ad_group_id?: string;
+      campaign_id?: string;
+      status?: string;
+      created_time?: number;
+    }>;
+    bookmark?: string;
+  }> {
+    const params = new URLSearchParams({
+      page_size: String(opts.pageSize ?? 100),
+    });
+    if (opts.bookmark) params.set("bookmark", opts.bookmark);
+    if (opts.entityStatuses?.length) {
+      params.set("entity_statuses", opts.entityStatuses.join(","));
+    }
+    return this.request(`/ad_accounts/${adAccountId}/ads?${params}`);
+  }
+
+  /**
+   * Ad-level paid analytics. Max 100 ad_ids per call.
+   * Pinterest returns one entry per ad with the requested columns + AD_ID.
+   */
+  async getAdAnalytics(
+    adAccountId: string,
+    adIds: string[],
+    startDate: string,
+    endDate: string,
+    columns: string[] = [
+      "SPEND_IN_DOLLAR",
+      "IMPRESSION_1",
+      "CLICKTHROUGH_1",
+      "CTR",
+      "CPM_IN_DOLLAR",
+      "ECPC_IN_DOLLAR",
+      "TOTAL_CHECKOUT",
+      "TOTAL_CHECKOUT_VALUE_IN_DOLLAR",
+      "CHECKOUT_ROAS",
+    ]
+  ): Promise<Array<Record<string, number | string>>> {
+    if (adIds.length === 0) return [];
+    const params = new URLSearchParams({
+      ad_ids: adIds.slice(0, 100).join(","),
+      start_date: startDate,
+      end_date: endDate,
+      columns: columns.join(","),
+      granularity: "TOTAL",
+      conversion_report_time: "TIME_OF_AD_ACTION",
+    });
+    return this.request(`/ad_accounts/${adAccountId}/ads/analytics?${params}`);
+  }
+
+  /**
    * Pin-level paid analytics. Pinterest returns metrics aggregated per pin
    * across whatever campaigns/ads include those pins.
    * Max 50 pin_ids per call. Date range is inclusive.
