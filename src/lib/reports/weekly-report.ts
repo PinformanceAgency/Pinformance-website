@@ -19,7 +19,12 @@ interface AdRow {
 }
 
 interface PendingImage {
+  /** Relationship ID for the image embed (a:blip r:embed). */
   rId: string;
+  /** Relationship ID for the clickable hyperlink (a:hlinkClick r:id). */
+  hyperlinkRId: string;
+  /** Target URL for the hyperlink (the Pinterest pin URL). */
+  hyperlinkUrl: string;
   filename: string;
   ext: "png" | "jpeg" | "jpg";
   buffer: Buffer;
@@ -82,62 +87,73 @@ function xmlEscape(s: string): string {
 }
 
 /**
- * Build raw OOXML for the pin cell paragraph. If an image is embedded
- * (rId provided), the paragraph contains an inline drawing wrapped in a
- * HYPERLINK field-code so the image itself is clickable. Otherwise falls
- * back to a plain "View pin" text hyperlink. Field-code hyperlinks need
- * no rels mutation, so this stays simple.
+ * Build raw OOXML for the pin cell paragraph. If an embedded image is
+ * available, render it as an inline drawing in Pinterest's 2:3 portrait
+ * aspect ratio with an <a:hlinkClick> on the docPr so clicking the image
+ * opens the pin in Word/Pages/Google Docs. Otherwise falls back to a
+ * "View pin" text hyperlink.
  */
-function pinLinkXml(pinId: string | null, imageRId: string | null): string {
+function pinLinkXml(
+  pinId: string | null,
+  image: { rId: string; hyperlinkRId: string } | null
+): string {
   if (!pinId) {
     return `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>—</w:t></w:r></w:p>`;
   }
   const url = `https://www.pinterest.com/pin/${pinId}/`;
   const safe = xmlEscape(url);
-  const openLink =
-    `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
-    `<w:r><w:instrText xml:space="preserve"> HYPERLINK "${safe}" </w:instrText></w:r>` +
-    `<w:r><w:fldChar w:fldCharType="separate"/></w:r>`;
-  const closeLink = `<w:r><w:fldChar w:fldCharType="end"/></w:r>`;
 
-  if (imageRId) {
-    // EMUs: 914400 = 1 inch. 0.65" thumbnail.
-    const cx = 594360;
-    const cy = 594360;
-    const drawing = `<w:r><w:drawing>` +
-      `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">` +
-        `<wp:extent cx="${cx}" cy="${cy}"/>` +
-        `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
-        `<wp:docPr id="${imageRId.replace(/\D/g, "")}" name="Pin ${pinId}" descr="Pin ${pinId}"/>` +
-        `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
-        `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
-          `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-            `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-              `<pic:nvPicPr>` +
-                `<pic:cNvPr id="${imageRId.replace(/\D/g, "")}" name="Pin ${pinId}"/>` +
-                `<pic:cNvPicPr/>` +
-              `</pic:nvPicPr>` +
-              `<pic:blipFill>` +
-                `<a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${imageRId}"/>` +
-                `<a:stretch><a:fillRect/></a:stretch>` +
-              `</pic:blipFill>` +
-              `<pic:spPr>` +
-                `<a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
-                `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>` +
-              `</pic:spPr>` +
-            `</pic:pic>` +
-          `</a:graphicData>` +
-        `</a:graphic>` +
-      `</wp:inline>` +
-    `</w:drawing></w:r>`;
-    return `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${openLink}${drawing}${closeLink}</w:p>`;
+  if (image) {
+    // 2:3 portrait — Pinterest's standard pin aspect.
+    // 0.55" wide × 0.825" tall  (502920 × 754380 EMU).
+    const cx = 502920;
+    const cy = 754380;
+    const numericId = image.rId.replace(/\D/g, "") || "1";
+    const drawing =
+      `<w:r><w:drawing>` +
+        `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">` +
+          `<wp:extent cx="${cx}" cy="${cy}"/>` +
+          `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
+          `<wp:docPr id="${numericId}" name="Pin ${pinId}" descr="Pin ${pinId}">` +
+            `<a:hlinkClick xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${image.hyperlinkRId}"/>` +
+          `</wp:docPr>` +
+          `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
+          `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+            `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+              `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+                `<pic:nvPicPr>` +
+                  `<pic:cNvPr id="${numericId}" name="Pin ${pinId}">` +
+                    `<a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${image.hyperlinkRId}"/>` +
+                  `</pic:cNvPr>` +
+                  `<pic:cNvPicPr/>` +
+                `</pic:nvPicPr>` +
+                `<pic:blipFill>` +
+                  `<a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${image.rId}"/>` +
+                  `<a:srcRect/>` +
+                  `<a:stretch><a:fillRect/></a:stretch>` +
+                `</pic:blipFill>` +
+                `<pic:spPr>` +
+                  `<a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
+                  `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>` +
+                `</pic:spPr>` +
+              `</pic:pic>` +
+            `</a:graphicData>` +
+          `</a:graphic>` +
+        `</wp:inline>` +
+      `</w:drawing></w:r>`;
+    return `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${drawing}</w:p>`;
   }
 
-  // No image — fall back to a plain "View pin" link.
-  return `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${openLink}` +
+  // No image — fall back to a plain "View pin" link via field-code (no rels).
+  return (
+    `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+    `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+    `<w:r><w:instrText xml:space="preserve"> HYPERLINK "${safe}" </w:instrText></w:r>` +
+    `<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
     `<w:r><w:rPr><w:rStyle w:val="Hyperlink"/><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr><w:t>View pin</w:t></w:r>` +
-    closeLink +
-    `</w:p>`;
+    `<w:r><w:fldChar w:fldCharType="end"/></w:r>` +
+    `</w:p>`
+  );
 }
 
 async function downloadImageBuffer(
@@ -174,10 +190,18 @@ function manualNotesXml(text: string): string {
     .join("");
 }
 
-function mapAdRow(ad: AdRow, rank: number, currency: string, imageRId: string | null) {
+function mapAdRow(
+  ad: AdRow,
+  rank: number,
+  currency: string,
+  image: PendingImage | null
+) {
   return {
     rank: String(rank),
-    pin_link: pinLinkXml(ad.pin_id, imageRId),
+    pin_link: pinLinkXml(
+      ad.pin_id,
+      image ? { rId: image.rId, hyperlinkRId: image.hyperlinkRId } : null
+    ),
     spend: fmtCurrency(ad.spend, currency),
     revenue: fmtCurrency(ad.revenue, currency),
     roas: fmtRoas(ad.roas),
@@ -200,8 +224,13 @@ async function downloadAdImages(
       const dl = await downloadImageBuffer(ad.image_url);
       if (!dl) return;
       const localSeq = seq++;
+      const url = ad.pin_id
+        ? `https://www.pinterest.com/pin/${ad.pin_id}/`
+        : ad.image_url;
       out.set(ad.ad_id, {
         rId: `rIdImg${localSeq}`,
+        hyperlinkRId: `rIdHlink${localSeq}`,
+        hyperlinkUrl: url,
         filename: `creative_${localSeq}.${dl.ext === "jpeg" ? "jpg" : dl.ext}`,
         ext: dl.ext === "jpeg" ? "jpg" : dl.ext,
         buffer: dl.buffer,
@@ -233,20 +262,24 @@ export async function generateWeeklyReport(input: ReportInput): Promise<Buffer> 
   const topKpiLabel = KPI_LABELS[input.top_section.kpi];
   const recentKpiLabel = KPI_LABELS[input.recent_section.kpi];
 
-  const showRecent = input.recent_section.n > 0;
+  // Section is rendered only when the user actually requested it AND ads
+  // matched the filter. Avoids leaving an empty table with a header row.
+  const showRecent =
+    input.recent_section.n > 0 && input.recent_section.ads.length > 0;
+  const actualRecentCount = input.recent_section.ads.length;
 
   doc.render({
     client_name: input.client_name || "—",
     date_range: input.date_range_label,
-    top_section_title: `Top ${input.top_section.n} Performing Ads  |  ${topKpiLabel}  |  ${input.date_range_label}`,
+    top_section_title: `Top ${input.top_section.ads.length} Performing Ads  |  ${topKpiLabel}  |  ${input.date_range_label}`,
     top_section_description: `Best performing ads ranked by ${topKpiLabel} over ${input.date_range_label}.`,
     recent_section_title: `Recently Launched Ads  |  ${recentKpiLabel}  |  ${input.date_range_label}`,
-    recent_section_description: `${input.recent_section.n} ads launched since ${input.recent_section.since_date}, ranked by ${recentKpiLabel}.`,
+    recent_section_description: `${actualRecentCount} ad${actualRecentCount === 1 ? "" : "s"} launched since ${input.recent_section.since_date}, ranked by ${recentKpiLabel}.`,
     top_ads: input.top_section.ads.map((a, i) =>
-      mapAdRow(a, i + 1, input.currency, topImages.get(a.ad_id)?.rId || null)
+      mapAdRow(a, i + 1, input.currency, topImages.get(a.ad_id) || null)
     ),
     recent_ads: input.recent_section.ads.map((a, i) =>
-      mapAdRow(a, i + 1, input.currency, recentImages.get(a.ad_id)?.rId || null)
+      mapAdRow(a, i + 1, input.currency, recentImages.get(a.ad_id) || null)
     ),
     show_recent: showRecent,
     manual_notes: manualNotesXml(input.manual_notes),
@@ -270,18 +303,33 @@ function injectImages(zip: PizZip, images: PendingImage[]) {
     zip.file(`word/media/${img.filename}`, img.buffer);
   }
 
-  // 2. Append relationships to word/_rels/document.xml.rels.
+  // 2. Append image + hyperlink relationships to word/_rels/document.xml.rels.
   const relsPath = "word/_rels/document.xml.rels";
   const relsFile = zip.file(relsPath);
   if (relsFile) {
     let relsXml = relsFile.asText();
-    const newRels = images
+    const escape = (s: string) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const imageRels = images
       .map(
         (img) =>
           `<Relationship Id="${img.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${img.filename}"/>`
       )
       .join("");
-    relsXml = relsXml.replace("</Relationships>", `${newRels}</Relationships>`);
+    const hyperlinkRels = images
+      .map(
+        (img) =>
+          `<Relationship Id="${img.hyperlinkRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${escape(img.hyperlinkUrl)}" TargetMode="External"/>`
+      )
+      .join("");
+    relsXml = relsXml.replace(
+      "</Relationships>",
+      `${imageRels}${hyperlinkRels}</Relationships>`
+    );
     zip.file(relsPath, relsXml);
   }
 
