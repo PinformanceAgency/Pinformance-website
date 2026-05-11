@@ -97,8 +97,19 @@ interface AdRow {
   cpa: number | null;
 }
 
+interface AccountTotals {
+  spend: number | null;
+  revenue: number | null;
+  purchases: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  roas: number | null;
+  cpa: number | null;
+}
+
 interface ApiResponse {
   ads: AdRow[];
+  account_totals?: AccountTotals | null;
   ads_connected: boolean;
   ad_account_id?: string;
   ad_account_name?: string;
@@ -134,6 +145,7 @@ export default function PaidAdsCreativesPage() {
   const [connectionError, setConnectionError] = useState<string | undefined>();
   const [currency, setCurrency] = useState("USD");
   const [adAccountName, setAdAccountName] = useState<string | undefined>();
+  const [accountTotals, setAccountTotals] = useState<AccountTotals | null>(null);
   const [conversionWindow, setConversionWindow] = useState<ConversionWindow>("30/1");
 
   // Restore persisted conversion window on mount.
@@ -173,6 +185,7 @@ export default function PaidAdsCreativesPage() {
         const json = (await res.json()) as ApiResponse;
         if (cancelled) return;
         setAds(json.ads || []);
+        setAccountTotals(json.account_totals ?? null);
         setAdsConnected(!!json.ads_connected);
         setConnectionReason(json.reason);
         setConnectionError(json.error);
@@ -182,6 +195,7 @@ export default function PaidAdsCreativesPage() {
       } catch (e) {
         if (!cancelled) {
           setAds([]);
+          setAccountTotals(null);
           setAdsConnected(false);
           setConnectionReason("fetch_failed");
           setConnectionError(e instanceof Error ? e.message : "Unknown");
@@ -214,8 +228,27 @@ export default function PaidAdsCreativesPage() {
     return sortByKpi(launchedSince, recentKpi).slice(0, recentLimit);
   }, [ads, recentLimit, recentKpi, recentSince]);
 
-  // Aggregate row for headline KPIs.
+  // Headline KPI bar: prefer Pinterest's account-level totals (what
+  // Campaign Manager shows), fall back to summed ad-level if missing.
   const totals = useMemo(() => {
+    if (accountTotals && accountTotals.spend != null) {
+      const spend = accountTotals.spend ?? 0;
+      const revenue = accountTotals.revenue ?? 0;
+      const purchases = accountTotals.purchases ?? 0;
+      const impressions = accountTotals.impressions ?? 0;
+      const clicks = accountTotals.clicks ?? 0;
+      return {
+        spend,
+        revenue,
+        purchases,
+        impressions,
+        clicks,
+        roas: accountTotals.roas ?? (spend > 0 ? revenue / spend : 0),
+        cpa: accountTotals.cpa ?? (purchases > 0 ? spend / purchases : 0),
+        ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+        source: "account" as const,
+      };
+    }
     const t = { spend: 0, revenue: 0, purchases: 0, impressions: 0, clicks: 0 };
     for (const a of adsWithSpend) {
       t.spend += a.spend ?? 0;
@@ -229,8 +262,9 @@ export default function PaidAdsCreativesPage() {
       roas: t.spend > 0 ? t.revenue / t.spend : 0,
       cpa: t.purchases > 0 ? t.spend / t.purchases : 0,
       ctr: t.impressions > 0 ? (t.clicks / t.impressions) * 100 : 0,
+      source: "ads_sum" as const,
     };
-  }, [adsWithSpend]);
+  }, [accountTotals, adsWithSpend]);
 
   return (
     <div className="space-y-6">

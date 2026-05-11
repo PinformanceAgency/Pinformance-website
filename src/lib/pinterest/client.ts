@@ -250,6 +250,45 @@ export class PinterestClient {
   }
 
   /**
+   * Account-level paid analytics. Returns one row of totals for the whole
+   * ad account over the date range — this is what Pinterest Campaign
+   * Manager shows in the headline numbers. Use this for top-line KPIs.
+   * Summing ad-level analytics rows does NOT always equal this because
+   * Pinterest sometimes attributes conversions at campaign/ad-group level
+   * rather than down to a specific ad.
+   */
+  async getAdAccountAnalytics(
+    adAccountId: string,
+    startDate: string,
+    endDate: string,
+    opts: {
+      columns?: string[];
+      clickWindowDays?: 1 | 7 | 14 | 30 | 60;
+      viewWindowDays?: 1 | 7 | 14 | 30 | 60;
+      conversionReportTime?: "TIME_OF_AD_ACTION" | "TIME_OF_CONVERSION";
+    } = {}
+  ): Promise<Array<Record<string, number | string>>> {
+    const columns = opts.columns ?? [
+      "SPEND_IN_DOLLAR",
+      "IMPRESSION_1",
+      "CLICKTHROUGH_1",
+      "TOTAL_CHECKOUT",
+      "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+      "CHECKOUT_ROAS",
+    ];
+    const params = new URLSearchParams({
+      start_date: startDate,
+      end_date: endDate,
+      columns: columns.join(","),
+      granularity: "TOTAL",
+      conversion_report_time: opts.conversionReportTime ?? "TIME_OF_CONVERSION",
+      click_window_days: String(opts.clickWindowDays ?? 30),
+      view_window_days: String(opts.viewWindowDays ?? 1),
+    });
+    return this.request(`/ad_accounts/${adAccountId}/analytics?${params}`);
+  }
+
+  /**
    * List ads in an ad account. Paginate via bookmark.
    */
   async getAds(

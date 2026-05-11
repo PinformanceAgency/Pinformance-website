@@ -113,6 +113,50 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // 0. Account-level totals (what Pinterest Campaign Manager shows in the
+    //    headline). Summing ad-level analytics doesn't always match these
+    //    because Pinterest sometimes attributes conversions at campaign/ad-
+    //    group level rather than to a specific ad.
+    let accountTotals: {
+      spend: number | null;
+      revenue: number | null;
+      purchases: number | null;
+      impressions: number | null;
+      clicks: number | null;
+      roas: number | null;
+      cpa: number | null;
+    } | null = null;
+    try {
+      const accountRows = await client.getAdAccountAnalytics(adAccount.id, startDate, endDate, {
+        clickWindowDays: clickWindow,
+        viewWindowDays: viewWindow,
+        conversionReportTime,
+      });
+      const t = accountRows?.[0] || {};
+      const aSpend = num(t["SPEND_IN_DOLLAR"]);
+      const aPurchases = num(t["TOTAL_CHECKOUT"]);
+      const aRevenueMicro = num(t["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]);
+      const aRevenue = aRevenueMicro != null ? aRevenueMicro / 1_000_000 : null;
+      const aImpressions = num(t["IMPRESSION_1"]);
+      const aClicks = num(t["CLICKTHROUGH_1"]);
+      let aRoas = num(t["CHECKOUT_ROAS"]);
+      if (aRoas == null && aSpend != null && aSpend > 0 && aRevenue != null) {
+        aRoas = aRevenue / aSpend;
+      }
+      const aCpa = aPurchases != null && aPurchases > 0 && aSpend != null ? aSpend / aPurchases : null;
+      accountTotals = {
+        spend: aSpend,
+        revenue: aRevenue,
+        purchases: aPurchases,
+        impressions: aImpressions,
+        clicks: aClicks,
+        roas: aRoas,
+        cpa: aCpa,
+      };
+    } catch {
+      // If account-level fails for some reason, fall back to ad-level summed.
+    }
+
     // 1. List ads (paginate up to MAX_ADS_TO_FETCH). Request all statuses so
     //    we don't silently exclude paused/archived/draft ads that had spend
     //    in the period — Campaign Manager shows them too.
@@ -260,6 +304,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       ads: rows,
+      account_totals: accountTotals,
       ads_connected: true,
       ad_account_id: adAccount.id,
       ad_account_name: adAccount.name,
