@@ -699,12 +699,15 @@ function CreateReportModal({
             <div className="flex items-center gap-2 mb-3">
               <Rocket className="w-3.5 h-3.5 text-muted-foreground" />
               <div className="text-sm font-medium">Recently launched ads</div>
+              <span className="text-[11px] text-muted-foreground">— set count to 0 to omit this section</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <NumberPicker label="Count" value={recentN} options={[3, 5, 10, 15, 20]} onChange={setRecentN} />
-              <KpiSelect label="Rank by" value={recentKpi} onChange={setRecentKpi} />
+              <NumberPicker label="Count" value={recentN} options={[0, 3, 5, 10, 15, 20]} onChange={setRecentN} />
+              <div className={recentN === 0 ? "opacity-40 pointer-events-none" : ""}>
+                <KpiSelect label="Rank by" value={recentKpi} onChange={setRecentKpi} />
+              </div>
             </div>
-            <div className="mt-3">
+            <div className={cn("mt-3", recentN === 0 && "opacity-40 pointer-events-none")}>
               <div className="text-[11px] text-muted-foreground mb-1.5">Launched since</div>
               <SinceDatePicker value={recentSince} onChange={setRecentSince} align="left" />
             </div>

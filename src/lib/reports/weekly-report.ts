@@ -135,6 +135,8 @@ export async function generateWeeklyReport(input: ReportInput): Promise<Buffer> 
   const topKpiLabel = KPI_LABELS[input.top_section.kpi];
   const recentKpiLabel = KPI_LABELS[input.recent_section.kpi];
 
+  const showRecent = input.recent_section.n > 0;
+
   doc.render({
     client_name: input.client_name || "—",
     date_range: input.date_range_label,
@@ -144,6 +146,7 @@ export async function generateWeeklyReport(input: ReportInput): Promise<Buffer> 
     recent_section_description: `${input.recent_section.n} ads launched since ${input.recent_section.since_date}, ranked by ${recentKpiLabel}.`,
     top_ads: input.top_section.ads.map((a, i) => mapAdRow(a, i + 1, input.currency)),
     recent_ads: input.recent_section.ads.map((a, i) => mapAdRow(a, i + 1, input.currency)),
+    show_recent: showRecent,
     manual_notes: manualNotesXml(input.manual_notes),
   });
 
