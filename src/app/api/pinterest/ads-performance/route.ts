@@ -122,7 +122,8 @@ export async function GET(request: NextRequest) {
       const m = byAdId.get(a.id) || {};
       const spend = num(m["SPEND_IN_DOLLAR"]);
       const purchases = num(m["TOTAL_CHECKOUT"]);
-      const revenue = num(m["TOTAL_CHECKOUT_VALUE_IN_DOLLAR"]);
+      const revenueMicro = num(m["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]);
+      const revenue = revenueMicro != null ? revenueMicro / 1_000_000 : null;
       const impressions = num(m["IMPRESSION_1"]);
       const clicks = num(m["CLICKTHROUGH_1"]);
       const ctr = num(m["CTR"]);

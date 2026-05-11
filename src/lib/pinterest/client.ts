@@ -288,7 +288,7 @@ export class PinterestClient {
       "CPM_IN_DOLLAR",
       "ECPC_IN_DOLLAR",
       "TOTAL_CHECKOUT",
-      "TOTAL_CHECKOUT_VALUE_IN_DOLLAR",
+      "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
       "CHECKOUT_ROAS",
     ]
   ): Promise<Array<Record<string, number | string>>> {
