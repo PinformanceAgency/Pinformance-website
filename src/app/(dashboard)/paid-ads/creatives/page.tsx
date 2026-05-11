@@ -76,7 +76,9 @@ export default function PaidAdsCreativesPage() {
     async function load() {
       setLoading(true);
       try {
-        const res = await fetch(`/api/pinterest/ads-performance?days=${timeFrame}`);
+        const res = await fetch(`/api/pinterest/ads-performance?days=${timeFrame}`, {
+          cache: "no-store",
+        });
         const json = (await res.json()) as ApiResponse;
         if (cancelled) return;
         setAds(json.ads || []);

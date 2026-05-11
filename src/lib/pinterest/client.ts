@@ -304,36 +304,6 @@ export class PinterestClient {
     return this.request(`/ad_accounts/${adAccountId}/ads/analytics?${params}`);
   }
 
-  /**
-   * Pin-level paid analytics. Pinterest returns metrics aggregated per pin
-   * across whatever campaigns/ads include those pins.
-   * Max 50 pin_ids per call. Date range is inclusive.
-   */
-  async getAdPinAnalytics(
-    adAccountId: string,
-    pinIds: string[],
-    startDate: string,
-    endDate: string,
-    columns: string[] = [
-      "SPEND_IN_DOLLAR",
-      "TOTAL_CHECKOUT",
-      "TOTAL_CHECKOUT_VALUE_IN_DOLLAR",
-      "IMPRESSION_1",
-      "CLICKTHROUGH_1",
-    ]
-  ): Promise<Array<Record<string, number | string>>> {
-    if (pinIds.length === 0) return [];
-    const params = new URLSearchParams({
-      pin_ids: pinIds.slice(0, 50).join(","),
-      start_date: startDate,
-      end_date: endDate,
-      columns: columns.join(","),
-      granularity: "TOTAL",
-      conversion_report_time: "TIME_OF_AD_ACTION",
-    });
-    return this.request(`/ad_accounts/${adAccountId}/pins/analytics?${params}`);
-  }
-
   static async exchangeCode(
     code: string,
     redirectUri: string,
