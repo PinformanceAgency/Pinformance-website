@@ -11,7 +11,6 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
 import { useOrg } from "@/hooks/use-org";
 
 type TimeFrame = "7" | "14" | "30";
@@ -24,7 +23,6 @@ interface PinRow {
   image_url: string | null;
   posted_at: string | null;
   created_at: string;
-  // Paid-ads metrics — populated once Pinterest Ads sync is connected.
   spend: number | null;
   revenue: number | null;
   purchases: number | null;
@@ -35,6 +33,14 @@ interface DisplayRow extends PinRow {
   cpa: number | null;
 }
 
+interface ApiResponse {
+  pins: PinRow[];
+  ads_connected: boolean;
+  reason?: string;
+  error?: string;
+  currency?: string;
+}
+
 function computeMetrics(row: PinRow): { roas: number | null; cpa: number | null } {
   if (row.spend == null || row.revenue == null) return { roas: null, cpa: null };
   const roas = row.spend > 0 ? row.revenue / row.spend : 0;
@@ -42,19 +48,22 @@ function computeMetrics(row: PinRow): { roas: number | null; cpa: number | null 
   return { roas, cpa };
 }
 
-const fmtCurrency = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(n);
+const fmtCurrency = (n: number, currency: string) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
 const fmtNum = (n: number) => new Intl.NumberFormat("en-US").format(n);
 const fmtRoas = (n: number) => `${n.toFixed(2)}x`;
 const dash = "—";
 
 export default function PaidAdsCreativesPage() {
-  const { org, loading: orgLoading } = useOrg();
+  const { org } = useOrg();
   const [timeFrame, setTimeFrame] = useState<TimeFrame>("30");
   const [recentLimit, setRecentLimit] = useState<RecentLimit>(10);
   const [recentSort, setRecentSort] = useState<SortDir>("desc");
   const [pins, setPins] = useState<PinRow[]>([]);
   const [pinsLoading, setPinsLoading] = useState(true);
+  const [adsConnected, setAdsConnected] = useState(false);
+  const [connectionReason, setConnectionReason] = useState<string | undefined>();
+  const [currency, setCurrency] = useState("USD");
 
   useEffect(() => {
     if (!org) return;
@@ -62,32 +71,23 @@ export default function PaidAdsCreativesPage() {
 
     async function load() {
       setPinsLoading(true);
-      const supabase = createClient();
-      const daysAgo = new Date();
-      daysAgo.setDate(daysAgo.getDate() - parseInt(timeFrame));
-      const sinceIso = daysAgo.toISOString();
-
-      const { data } = await supabase
-        .from("pins")
-        .select("id, title, image_url, posted_at, created_at")
-        .eq("org_id", org!.id)
-        .or(`posted_at.gte.${sinceIso},created_at.gte.${sinceIso}`)
-        .order("posted_at", { ascending: false, nullsFirst: false })
-        .limit(50);
-
-      if (cancelled) return;
-      const rows: PinRow[] = (data || []).map((p) => ({
-        id: p.id as string,
-        title: (p.title as string) || "Untitled",
-        image_url: (p.image_url as string) || null,
-        posted_at: (p.posted_at as string) || null,
-        created_at: p.created_at as string,
-        spend: null,
-        revenue: null,
-        purchases: null,
-      }));
-      setPins(rows);
-      setPinsLoading(false);
+      try {
+        const res = await fetch(`/api/pinterest/ads-performance?days=${timeFrame}`);
+        const json = (await res.json()) as ApiResponse;
+        if (cancelled) return;
+        setPins(json.pins || []);
+        setAdsConnected(!!json.ads_connected);
+        setConnectionReason(json.reason);
+        if (json.currency) setCurrency(json.currency);
+      } catch {
+        if (!cancelled) {
+          setPins([]);
+          setAdsConnected(false);
+          setConnectionReason("fetch_failed");
+        }
+      } finally {
+        if (!cancelled) setPinsLoading(false);
+      }
     }
 
     load();
@@ -96,7 +96,7 @@ export default function PaidAdsCreativesPage() {
     };
   }, [org, timeFrame]);
 
-  const hasAdsData = useMemo(() => pins.some((p) => p.spend != null), [pins]);
+  const hasAdsData = useMemo(() => pins.some((p) => p.spend != null && p.spend > 0), [pins]);
 
   const topPins: DisplayRow[] = useMemo(() => {
     const withMetrics = pins.map((p) => ({ ...p, ...computeMetrics(p) }));
@@ -143,19 +143,7 @@ export default function PaidAdsCreativesPage() {
       </div>
 
       {!hasAdsData && !pinsLoading && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
-          <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <div className="font-medium text-foreground">Ads reporting not connected yet</div>
-            <p className="text-muted-foreground mt-1 leading-relaxed">
-              Pins below are loaded from your account, but spend, revenue, ROAS, CPA and
-              purchase metrics will stay empty until Pinterest Ads reporting is connected.{" "}
-              <Link href="/integrations" className="text-primary hover:underline">
-                Connect your ad account in Integrations →
-              </Link>
-            </p>
-          </div>
-        </div>
+        <ConnectionBanner adsConnected={adsConnected} reason={connectionReason} />
       )}
 
       {/* Top performing pins */}
@@ -170,7 +158,7 @@ export default function PaidAdsCreativesPage() {
           </div>
           <TimeFrameToggle value={timeFrame} onChange={setTimeFrame} />
         </div>
-        <PinPerformanceTable pins={topPins} loading={pinsLoading} />
+        <PinPerformanceTable pins={topPins} loading={pinsLoading} currency={currency} />
       </section>
 
       {/* Recently launched */}
@@ -188,8 +176,75 @@ export default function PaidAdsCreativesPage() {
             <SortToggle value={recentSort} onChange={setRecentSort} disabled={!hasAdsData} />
           </div>
         </div>
-        <PinPerformanceTable pins={recentPins} loading={pinsLoading} />
+        <PinPerformanceTable pins={recentPins} loading={pinsLoading} currency={currency} />
       </section>
+    </div>
+  );
+}
+
+function ConnectionBanner({
+  adsConnected,
+  reason,
+}: {
+  adsConnected: boolean;
+  reason?: string;
+}) {
+  let title = "Ads reporting not connected yet";
+  let body: React.ReactNode = (
+    <>
+      Connect your ad account in{" "}
+      <Link href="/integrations" className="text-primary hover:underline">
+        Integrations
+      </Link>{" "}
+      to populate spend, ROAS, CPA, revenue and purchases.
+    </>
+  );
+
+  if (adsConnected && reason === "no_promoted_pins") {
+    title = "No promoted pins in this period";
+    body = (
+      <>
+        Your ad account is connected, but no pins in the selected timeframe are running in
+        a paid campaign. Once pins are promoted, their performance will appear here.
+      </>
+    );
+  } else if (adsConnected) {
+    title = "No paid performance data yet";
+    body = (
+      <>
+        Pinterest returned no spend for these pins in the selected period. Try a longer
+        timeframe, or promote pins via the Pinterest Ads Manager.
+      </>
+    );
+  } else if (reason === "no_ad_account") {
+    title = "Pinterest account has no ad accounts";
+    body = (
+      <>
+        Your Pinterest connection works, but the account has no ad accounts attached. Set
+        one up in Pinterest Ads Manager, then refresh this page.
+      </>
+    );
+  } else if (reason === "fetch_failed") {
+    title = "Could not load ads data";
+    body = (
+      <>
+        Pinterest returned an error when fetching ad analytics. This usually means the
+        connected token does not include the <code className="px-1 rounded bg-muted text-xs">ads:read</code> scope. Reconnect Pinterest from{" "}
+        <Link href="/integrations" className="text-primary hover:underline">
+          Integrations
+        </Link>
+        .
+      </>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+      <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+      <div className="flex-1">
+        <div className="font-medium text-foreground">{title}</div>
+        <p className="text-muted-foreground mt-1 leading-relaxed">{body}</p>
+      </div>
     </div>
   );
 }
@@ -281,9 +336,11 @@ function SortToggle({
 function PinPerformanceTable({
   pins,
   loading,
+  currency,
 }: {
   pins: DisplayRow[];
   loading: boolean;
+  currency: string;
 }) {
   if (loading) {
     return <div className="h-48 bg-muted animate-pulse rounded-xl" />;
@@ -347,13 +404,13 @@ function PinPerformanceTable({
                     {p.roas == null ? dash : fmtRoas(p.roas)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-foreground">
-                    {p.cpa == null ? dash : fmtCurrency(p.cpa)}
+                    {p.cpa == null ? dash : fmtCurrency(p.cpa, currency)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-foreground">
-                    {p.revenue == null ? dash : fmtCurrency(p.revenue)}
+                    {p.revenue == null ? dash : fmtCurrency(p.revenue, currency)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-foreground">
-                    {p.spend == null ? dash : fmtCurrency(p.spend)}
+                    {p.spend == null ? dash : fmtCurrency(p.spend, currency)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-foreground">
                     {p.purchases == null ? dash : fmtNum(p.purchases)}
