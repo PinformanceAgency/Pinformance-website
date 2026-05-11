@@ -280,7 +280,15 @@ export class PinterestClient {
     adIds: string[],
     startDate: string,
     endDate: string,
-    columns: string[] = [
+    opts: {
+      columns?: string[];
+      clickWindowDays?: 1 | 7 | 14 | 30 | 60;
+      viewWindowDays?: 1 | 7 | 14 | 30 | 60;
+      conversionReportTime?: "TIME_OF_AD_ACTION" | "TIME_OF_CONVERSION";
+    } = {}
+  ): Promise<Array<Record<string, number | string>>> {
+    if (adIds.length === 0) return [];
+    const columns = opts.columns ?? [
       "SPEND_IN_DOLLAR",
       "IMPRESSION_1",
       "CLICKTHROUGH_1",
@@ -290,16 +298,17 @@ export class PinterestClient {
       "TOTAL_CHECKOUT",
       "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
       "CHECKOUT_ROAS",
-    ]
-  ): Promise<Array<Record<string, number | string>>> {
-    if (adIds.length === 0) return [];
+    ];
     const params = new URLSearchParams({
       ad_ids: adIds.slice(0, 100).join(","),
       start_date: startDate,
       end_date: endDate,
       columns: columns.join(","),
       granularity: "TOTAL",
-      conversion_report_time: "TIME_OF_AD_ACTION",
+      conversion_report_time: opts.conversionReportTime ?? "TIME_OF_CONVERSION",
+      click_window_days: String(opts.clickWindowDays ?? 30),
+      view_window_days: String(opts.viewWindowDays ?? 1),
+      engagement_window_days: String(opts.clickWindowDays ?? 30),
     });
     return this.request(`/ad_accounts/${adAccountId}/ads/analytics?${params}`);
   }

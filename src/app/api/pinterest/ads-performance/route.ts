@@ -55,6 +55,28 @@ export async function GET(request: NextRequest) {
   const endDate = end.toISOString().split("T")[0];
   const startDate = start.toISOString().split("T")[0];
 
+  // Conversion attribution settings. Default to 30-day click / 1-day view +
+  // TIME_OF_CONVERSION to match Pinterest Campaign Manager defaults.
+  const allowedWindows = new Set([1, 7, 14, 30, 60]);
+  const clickWindowParam = parseInt(request.nextUrl.searchParams.get("click_window") || "30");
+  const viewWindowParam = parseInt(request.nextUrl.searchParams.get("view_window") || "1");
+  const clickWindow = (allowedWindows.has(clickWindowParam) ? clickWindowParam : 30) as
+    | 1
+    | 7
+    | 14
+    | 30
+    | 60;
+  const viewWindow = (allowedWindows.has(viewWindowParam) ? viewWindowParam : 1) as
+    | 1
+    | 7
+    | 14
+    | 30
+    | 60;
+  const conversionReportTime =
+    request.nextUrl.searchParams.get("report_time") === "TIME_OF_AD_ACTION"
+      ? "TIME_OF_AD_ACTION"
+      : "TIME_OF_CONVERSION";
+
   if (!org?.pinterest_access_token_encrypted) {
     return NextResponse.json({
       ads: [],
@@ -110,7 +132,11 @@ export async function GET(request: NextRequest) {
     const byAdId = new Map<string, Record<string, number | string>>();
     for (let i = 0; i < adList.length; i += 100) {
       const batch = adList.slice(i, i + 100).map((a) => a.id);
-      const analytics = await client.getAdAnalytics(adAccount.id, batch, startDate, endDate);
+      const analytics = await client.getAdAnalytics(adAccount.id, batch, startDate, endDate, {
+        clickWindowDays: clickWindow,
+        viewWindowDays: viewWindow,
+        conversionReportTime,
+      });
       for (const row of analytics || []) {
         const adId = String(row["AD_ID"] ?? "");
         if (adId) byAdId.set(adId, row);
@@ -195,6 +221,9 @@ export async function GET(request: NextRequest) {
       currency: adAccount.currency || "USD",
       start_date: startDate,
       end_date: endDate,
+      click_window_days: clickWindow,
+      view_window_days: viewWindow,
+      conversion_report_time: conversionReportTime,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
