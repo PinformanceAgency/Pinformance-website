@@ -10,10 +10,7 @@ import {
   BarChart3,
   Search,
   Settings,
-  Shield,
   Users,
-  MessageSquare,
-  Activity,
   Sparkles,
   Link2,
   FileText,
@@ -55,10 +52,6 @@ const adminSharedNav = [
 const adminOnlyNav = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/clients", label: "All Clients", icon: Users },
-  { href: "/admin/moderation", label: "Moderation", icon: Shield },
-  { href: "/admin/rules", label: "AI Rules", icon: MessageSquare },
-  { href: "/admin/system", label: "System", icon: Activity },
-  { href: "/admin/patterns", label: "Patterns", icon: Sparkles },
 ];
 
 export function Sidebar() {
