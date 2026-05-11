@@ -130,17 +130,12 @@ export default function OverviewPage() {
   const [chartMetric, setChartMetric] = useState<ChartMetricKey>("impressions");
   const [chartDropdownOpen, setChartDropdownOpen] = useState(false);
 
-  useEffect(() => {
-    if (loading) return;
-    if (!user) return;
-    if (!user.onboarding_completed_at && !org?.onboarding_completed_at) {
-      router.push("/onboarding");
-    }
-  }, [loading, user, org, router]);
+  // The onboarding flow has been removed — every new user lands directly on
+  // the overview. Keeping the route file in place is fine; nothing redirects
+  // to it anymore.
 
   useEffect(() => {
     if (!org || !user) return;
-    if (!user.onboarding_completed_at && !org.onboarding_completed_at) return;
 
     async function loadStats() {
       const supabase = createClient();

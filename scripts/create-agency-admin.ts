@@ -103,6 +103,8 @@ async function main() {
     full_name: fullName || email.split("@")[0],
     org_id: orgId,
     role: "agency_admin",
+    onboarding_step: 5,
+    onboarding_completed_at: new Date().toISOString(),
   });
   if (profileErr) {
     console.error("Failed to insert profile:", profileErr.message);
