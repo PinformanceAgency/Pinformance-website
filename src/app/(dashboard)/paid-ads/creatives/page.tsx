@@ -15,8 +15,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
+import {
+  DateRangePicker,
+  SinceDatePicker,
+  presetToRange,
+  type DateRange,
+} from "@/components/shared/date-range-picker";
 
-type TimeFrame = "7" | "14" | "30";
 type RecentLimit = 5 | 10 | 15;
 type KpiKey = "roas" | "cpa" | "revenue" | "spend" | "checkouts";
 type ConversionWindow =
@@ -111,10 +116,14 @@ const dash = "—";
 
 export default function PaidAdsCreativesPage() {
   const { org } = useOrg();
-  const [timeFrame, setTimeFrame] = useState<TimeFrame>("30");
+  // Default to "Last 7 days" since Pinterest reports have ~1 day delay; today
+  // would be incomplete.
+  const [dateRange, setDateRange] = useState<DateRange>(() => presetToRange(7));
   const [recentLimit, setRecentLimit] = useState<RecentLimit>(10);
   const [topKpi, setTopKpi] = useState<KpiKey>("roas");
   const [recentKpi, setRecentKpi] = useState<KpiKey>("spend");
+  // Default: ads launched in the last 14 days.
+  const [recentSince, setRecentSince] = useState<string>(() => presetToRange(14).start);
   const [ads, setAds] = useState<AdRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [adsConnected, setAdsConnected] = useState(false);
@@ -149,7 +158,8 @@ export default function PaidAdsCreativesPage() {
       try {
         const cw = CONVERSION_WINDOWS.find((w) => w.key === conversionWindow)!;
         const qs = new URLSearchParams({
-          days: timeFrame,
+          start_date: dateRange.start,
+          end_date: dateRange.end,
           click_window: String(cw.click),
           view_window: String(cw.view),
           report_time: "TIME_OF_CONVERSION",
@@ -181,7 +191,7 @@ export default function PaidAdsCreativesPage() {
     return () => {
       cancelled = true;
     };
-  }, [org, timeFrame, conversionWindow]);
+  }, [org, dateRange, conversionWindow]);
 
   const adsWithSpend = useMemo(() => ads.filter((a) => a.spend != null && a.spend > 0), [ads]);
   const hasAdsData = adsWithSpend.length > 0;
@@ -190,15 +200,15 @@ export default function PaidAdsCreativesPage() {
     return sortByKpi(adsWithSpend, topKpi).slice(0, 10);
   }, [adsWithSpend, topKpi]);
 
-  // Recently launched: take the most recently created ads (within timeframe),
-  // then rank that subset by the selected KPI.
+  // Recently launched: ads created on or after the chosen "since" date,
+  // then ranked by the selected KPI, then trimmed to the limit.
   const recent = useMemo(() => {
-    const newestFirst = [...ads]
-      .filter((a) => a.created_at)
-      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
-      .slice(0, recentLimit);
-    return sortByKpi(newestFirst, recentKpi);
-  }, [ads, recentLimit, recentKpi]);
+    const sinceCutoff = recentSince + "T00:00:00Z";
+    const launchedSince = ads.filter(
+      (a) => a.created_at && a.created_at >= sinceCutoff
+    );
+    return sortByKpi(launchedSince, recentKpi).slice(0, recentLimit);
+  }, [ads, recentLimit, recentKpi, recentSince]);
 
   // Aggregate row for headline KPIs.
   const totals = useMemo(() => {
@@ -236,7 +246,7 @@ export default function PaidAdsCreativesPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <ConversionSettings value={conversionWindow} onChange={updateConversionWindow} />
-          <TimeFrameToggle value={timeFrame} onChange={setTimeFrame} />
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
         </div>
       </div>
 
@@ -275,7 +285,8 @@ export default function PaidAdsCreativesPage() {
               {KPI_OPTIONS.find((o) => o.key === recentKpi)!.label}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <SinceDatePicker value={recentSince} onChange={setRecentSince} />
             <LimitToggle value={recentLimit} onChange={setRecentLimit} />
             <KpiPicker value={recentKpi} onChange={setRecentKpi} />
           </div>
@@ -427,38 +438,6 @@ function ConversionSettings({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function TimeFrameToggle({
-  value,
-  onChange,
-}: {
-  value: TimeFrame;
-  onChange: (v: TimeFrame) => void;
-}) {
-  const opts: { key: TimeFrame; label: string }[] = [
-    { key: "7", label: "Last 7 days" },
-    { key: "14", label: "Last 14 days" },
-    { key: "30", label: "Last 30 days" },
-  ];
-  return (
-    <div className="inline-flex bg-muted rounded-lg p-1">
-      {opts.map((o) => (
-        <button
-          key={o.key}
-          onClick={() => onChange(o.key)}
-          className={cn(
-            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-            value === o.key
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
     </div>
   );
 }

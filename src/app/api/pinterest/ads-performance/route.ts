@@ -50,11 +50,23 @@ export async function GET(request: NextRequest) {
     .eq("id", orgId)
     .single();
 
-  const days = Math.min(parseInt(request.nextUrl.searchParams.get("days") || "30"), 90);
-  const end = new Date();
-  const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  const endDate = end.toISOString().split("T")[0];
-  const startDate = start.toISOString().split("T")[0];
+  // Accept either explicit start_date/end_date (YYYY-MM-DD) or a `days` lookback.
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  const startParam = request.nextUrl.searchParams.get("start_date");
+  const endParam = request.nextUrl.searchParams.get("end_date");
+  let startDate: string;
+  let endDate: string;
+  if (startParam && endParam && dateRe.test(startParam) && dateRe.test(endParam)) {
+    startDate = startParam;
+    endDate = endParam;
+    if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
+  } else {
+    const days = Math.min(parseInt(request.nextUrl.searchParams.get("days") || "30"), 365);
+    const end = new Date();
+    const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    endDate = end.toISOString().split("T")[0];
+    startDate = start.toISOString().split("T")[0];
+  }
 
   // Conversion attribution settings. Default to 30-day click / 1-day view +
   // TIME_OF_CONVERSION to match Pinterest Campaign Manager defaults.
