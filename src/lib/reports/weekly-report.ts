@@ -109,8 +109,9 @@ function pinLinkXml(
     const cx = 502920;
     const cy = 754380;
     const numericId = image.rId.replace(/\D/g, "") || "1";
+
     const drawing =
-      `<w:r><w:drawing>` +
+      `<w:drawing>` +
         `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">` +
           `<wp:extent cx="${cx}" cy="${cy}"/>` +
           `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
@@ -140,8 +141,19 @@ function pinLinkXml(
             `</a:graphicData>` +
           `</a:graphic>` +
         `</wp:inline>` +
-      `</w:drawing></w:r>`;
-    return `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${drawing}</w:p>`;
+      `</w:drawing>`;
+
+    // Wrap the run containing the drawing in a <w:hyperlink>. This is what
+    // Word/Pages/Google Docs actually click-handle on images — the
+    // <a:hlinkClick> inside docPr alone is honored by some apps (Word) but
+    // ignored by others (Pages). Doing both is the most compatible.
+    return (
+      `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+        `<w:hyperlink r:id="${image.hyperlinkRId}" w:history="1">` +
+          `<w:r>${drawing}</w:r>` +
+        `</w:hyperlink>` +
+      `</w:p>`
+    );
   }
 
   // No image — fall back to a plain "View pin" link via field-code (no rels).
