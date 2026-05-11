@@ -385,6 +385,7 @@ export class PinterestClient {
       ad_group_id?: string;
       campaign_id?: string;
       status?: string;
+      creative_type?: string;
       created_time?: number;
     }>;
     bookmark?: string;

@@ -13,6 +13,7 @@ interface AdRow {
   ad_group_id: string | null;
   campaign_id: string | null;
   status: string | null;
+  creative_type: string | null;
   created_at: string | null;
   image_url: string | null;
   spend: number | null;
@@ -177,6 +178,7 @@ export async function GET(request: NextRequest) {
       ad_group_id?: string;
       campaign_id?: string;
       status?: string;
+      creative_type?: string;
       created_time?: number;
     }> = [];
     let bookmark: string | undefined;
@@ -245,6 +247,7 @@ export async function GET(request: NextRequest) {
         ad_group_id: a.ad_group_id || null,
         campaign_id: a.campaign_id || null,
         status: a.status || null,
+        creative_type: a.creative_type || null,
         created_at: a.created_time
           ? new Date(a.created_time * 1000).toISOString()
           : null,
@@ -290,20 +293,36 @@ export async function GET(request: NextRequest) {
 
     const imageByPin = new Map<string, string>();
     let imageFetchFailures = 0;
+
+    const adAccountIdForPins = adAccount.id;
+    async function fetchPinImageWithRetry(pinId: string, attempt = 0): Promise<void> {
+      try {
+        const pin = await client.getPin(pinId, adAccountIdForPins);
+        const url = extractPinImageUrl(pin);
+        if (url) {
+          imageByPin.set(pinId, url);
+          return;
+        }
+        // pin returned but no image in any expected shape — no point retrying
+        imageFetchFailures++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        const isRateLimitOr5xx = /\b(429|5\d\d)\b/.test(msg);
+        if (attempt < 2 && isRateLimitOr5xx) {
+          await new Promise((res) => setTimeout(res, 400 * (attempt + 1)));
+          return fetchPinImageWithRetry(pinId, attempt + 1);
+        }
+        imageFetchFailures++;
+      }
+    }
+
     for (let i = 0; i < pinIdsToFetch.length; i += IMAGE_BATCH_SIZE) {
       const batch = pinIdsToFetch.slice(i, i + IMAGE_BATCH_SIZE);
-      await Promise.all(
-        batch.map(async (pinId) => {
-          try {
-            const pin = await client.getPin(pinId, adAccount.id);
-            const url = extractPinImageUrl(pin);
-            if (url) imageByPin.set(pinId, url);
-            else imageFetchFailures++;
-          } catch {
-            imageFetchFailures++;
-          }
-        })
-      );
+      await Promise.all(batch.map((pinId) => fetchPinImageWithRetry(pinId)));
+      // Brief pause between batches to ease Pinterest's per-second rate limit.
+      if (i + IMAGE_BATCH_SIZE < pinIdsToFetch.length) {
+        await new Promise((res) => setTimeout(res, 120));
+      }
     }
     for (const r of rows) {
       if (r.pin_id) r.image_url = imageByPin.get(r.pin_id) || null;

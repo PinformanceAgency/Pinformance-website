@@ -16,6 +16,9 @@ import {
   FileText,
   X,
   Loader2,
+  Video as VideoIcon,
+  Images as ImagesIcon,
+  BookOpen as StoryIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -86,6 +89,7 @@ interface AdRow {
   ad_group_id: string | null;
   campaign_id: string | null;
   status: string | null;
+  creative_type: string | null;
   created_at: string | null;
   image_url: string | null;
   spend: number | null;
@@ -98,6 +102,20 @@ interface AdRow {
   cpc: number | null;
   roas: number | null;
   cpa: number | null;
+}
+
+function FallbackThumb({ creativeType }: { creativeType: string | null }) {
+  const ct = (creativeType || "").toUpperCase();
+  if (ct.includes("VIDEO")) {
+    return <VideoIcon className="w-4 h-4 text-muted-foreground" />;
+  }
+  if (ct === "CAROUSEL" || ct === "COLLECTION" || ct === "SHOPPING") {
+    return <ImagesIcon className="w-4 h-4 text-muted-foreground" />;
+  }
+  if (ct === "IDEA" || ct === "SHOWCASE") {
+    return <StoryIcon className="w-4 h-4 text-muted-foreground" />;
+  }
+  return <ImageIcon className="w-4 h-4 text-muted-foreground" />;
 }
 
 interface AccountTotals {
@@ -1075,7 +1093,7 @@ function AdPerformanceTable({
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={a.image_url} alt="" className="w-full h-full object-cover" />
                         ) : (
-                          <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                          <FallbackThumb creativeType={a.creative_type} />
                         )}
                       </a>
                     ) : (
@@ -1084,7 +1102,7 @@ function AdPerformanceTable({
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={a.image_url} alt="" className="w-full h-full object-cover" />
                         ) : (
-                          <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                          <FallbackThumb creativeType={a.creative_type} />
                         )}
                       </div>
                     )}
