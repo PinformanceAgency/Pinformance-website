@@ -65,6 +65,7 @@ export default function PaidAdsCreativesPage() {
   const [loading, setLoading] = useState(true);
   const [adsConnected, setAdsConnected] = useState(false);
   const [connectionReason, setConnectionReason] = useState<string | undefined>();
+  const [connectionError, setConnectionError] = useState<string | undefined>();
   const [currency, setCurrency] = useState("USD");
   const [adAccountName, setAdAccountName] = useState<string | undefined>();
 
@@ -81,13 +82,15 @@ export default function PaidAdsCreativesPage() {
         setAds(json.ads || []);
         setAdsConnected(!!json.ads_connected);
         setConnectionReason(json.reason);
+        setConnectionError(json.error);
         if (json.currency) setCurrency(json.currency);
         if (json.ad_account_name) setAdAccountName(json.ad_account_name);
-      } catch {
+      } catch (e) {
         if (!cancelled) {
           setAds([]);
           setAdsConnected(false);
           setConnectionReason("fetch_failed");
+          setConnectionError(e instanceof Error ? e.message : "Unknown");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -163,7 +166,11 @@ export default function PaidAdsCreativesPage() {
       {hasAdsData && <KpiRow totals={totals} currency={currency} count={adsWithSpend.length} />}
 
       {!hasAdsData && !loading && (
-        <ConnectionBanner adsConnected={adsConnected} reason={connectionReason} />
+        <ConnectionBanner
+          adsConnected={adsConnected}
+          reason={connectionReason}
+          errorDetail={connectionError}
+        />
       )}
 
       {/* Top performing ads */}
@@ -314,9 +321,11 @@ function SortToggle({
 function ConnectionBanner({
   adsConnected,
   reason,
+  errorDetail,
 }: {
   adsConnected: boolean;
   reason?: string;
+  errorDetail?: string;
 }) {
   let title = "Ads reporting not connected yet";
   let body: React.ReactNode = (
@@ -370,9 +379,19 @@ function ConnectionBanner({
   return (
     <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
       <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-      <div className="flex-1">
+      <div className="flex-1 min-w-0">
         <div className="font-medium text-foreground">{title}</div>
         <p className="text-muted-foreground mt-1 leading-relaxed">{body}</p>
+        {errorDetail && (
+          <details className="mt-2 text-xs">
+            <summary className="text-muted-foreground cursor-pointer hover:text-foreground">
+              Pinterest error detail
+            </summary>
+            <pre className="mt-2 p-2 bg-muted rounded text-[11px] overflow-x-auto whitespace-pre-wrap break-words">
+              {errorDetail}
+            </pre>
+          </details>
+        )}
       </div>
     </div>
   );
