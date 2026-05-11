@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
-import { PinterestClient, extractPinImageUrl } from "@/lib/pinterest/client";
+import { PinterestClient, extractPinImageUrl, fetchPinOgImage } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
@@ -295,6 +295,7 @@ export async function GET(request: NextRequest) {
     let imageFetchFailures = 0;
 
     const adAccountIdForPins = adAccount.id;
+    let ogFallbackUsed = 0;
     async function fetchPinImageWithRetry(pinId: string, attempt = 0): Promise<void> {
       try {
         const pin = await client.getPin(pinId, adAccountIdForPins);
@@ -303,7 +304,15 @@ export async function GET(request: NextRequest) {
           imageByPin.set(pinId, url);
           return;
         }
-        // pin returned but no image in any expected shape — no point retrying
+        // API returned the pin but had no image in any expected shape — fall
+        // back to scraping the public pin page's og:image (works for video
+        // ads where the API hides the cover frame).
+        const og = await fetchPinOgImage(pinId);
+        if (og) {
+          imageByPin.set(pinId, og);
+          ogFallbackUsed++;
+          return;
+        }
         imageFetchFailures++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "";
@@ -311,6 +320,13 @@ export async function GET(request: NextRequest) {
         if (attempt < 2 && isRateLimitOr5xx) {
           await new Promise((res) => setTimeout(res, 400 * (attempt + 1)));
           return fetchPinImageWithRetry(pinId, attempt + 1);
+        }
+        // After API retries are exhausted, try the og:image fallback once.
+        const og = await fetchPinOgImage(pinId);
+        if (og) {
+          imageByPin.set(pinId, og);
+          ogFallbackUsed++;
+          return;
         }
         imageFetchFailures++;
       }
@@ -349,6 +365,7 @@ export async function GET(request: NextRequest) {
         ads_with_analytics: byAdId.size,
         image_lookups_attempted: pinIdsToFetch.length,
         image_lookups_failed: imageFetchFailures,
+        image_og_fallback_used: ogFallbackUsed,
       },
     });
   } catch (err) {

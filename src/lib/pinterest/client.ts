@@ -19,13 +19,20 @@ export interface PinterestPinResponse {
   media?: {
     media_type?: string;
     images?: Record<string, PinterestImage>;
-    videos?: Record<string, { url?: string; thumbnail?: string }>;
+    videos?: Record<string, { url?: string; thumbnail?: string; cover_image_url?: string }>;
     items?: Array<{
       // Carousel/multi-image slot
       images?: Record<string, PinterestImage>;
       title?: string;
       description?: string;
     }>;
+    cover_image_url?: string;
+  };
+  media_source?: {
+    source_type?: string;
+    url?: string;
+    cover_image_url?: string;
+    media_id?: string;
   };
   carousel_data?: {
     carousel_slots?: Array<{
@@ -37,6 +44,7 @@ export interface PinterestPinResponse {
   story_pin_data?: {
     pages?: Array<{
       image?: PinterestImage | { images?: Record<string, PinterestImage> };
+      cover_image_url?: string;
     }>;
   };
   thumbnail?: string | { url?: string };
@@ -61,20 +69,36 @@ export function extractPinImageUrl(pin: PinterestPinResponse | null | undefined)
   const std = pickFromImageMap(pin.media?.images);
   if (std) return std;
 
-  // 2. Carousel — try items array on media.
+  // 2. Video pin — explicit cover_image_url on media OR on a video variant.
+  if (pin.media?.cover_image_url) return pin.media.cover_image_url;
+  if (pin.media?.videos) {
+    for (const v of Object.values(pin.media.videos)) {
+      if (v?.cover_image_url) return v.cover_image_url;
+      if (v?.thumbnail) return v.thumbnail;
+    }
+  }
+
+  // 3. media_source.cover_image_url (videos uploaded via Ads Manager).
+  if (pin.media_source?.cover_image_url) return pin.media_source.cover_image_url;
+  if (pin.media_source?.url && pin.media_source.source_type === "image_url") {
+    return pin.media_source.url;
+  }
+
+  // 4. Carousel — items array on media.
   for (const item of pin.media?.items || []) {
     const u = pickFromImageMap(item.images);
     if (u) return u;
   }
 
-  // 3. Carousel — alternative shape under carousel_data.carousel_slots.
+  // 5. Carousel — alternative shape under carousel_data.carousel_slots.
   for (const slot of pin.carousel_data?.carousel_slots || []) {
     const u = pickFromImageMap(slot.images);
     if (u) return u;
   }
 
-  // 4. Idea / story pin — first page's image.
+  // 6. Idea / story pin — first page's image / cover.
   for (const page of pin.story_pin_data?.pages || []) {
+    if (page.cover_image_url) return page.cover_image_url;
     if (!page?.image) continue;
     if (typeof (page.image as PinterestImage).url === "string") {
       return (page.image as PinterestImage).url;
@@ -83,18 +107,37 @@ export function extractPinImageUrl(pin: PinterestPinResponse | null | undefined)
     if (nested) return nested;
   }
 
-  // 5. Video pin — try video thumbnail URLs.
-  if (pin.media?.videos) {
-    for (const v of Object.values(pin.media.videos)) {
-      if (v?.thumbnail) return v.thumbnail;
-    }
-  }
-
-  // 6. Top-level thumbnail (rare).
+  // 7. Top-level thumbnail (rare).
   if (typeof pin.thumbnail === "string") return pin.thumbnail;
   if (pin.thumbnail && typeof pin.thumbnail === "object" && pin.thumbnail.url) return pin.thumbnail.url;
 
   return null;
+}
+
+/**
+ * Fallback when the API doesn't surface a usable image: scrape Pinterest's
+ * public pin page for its og:image meta tag. Works for any public pin (and
+ * promoted pins are public). Returns null on failure — safe to call as a
+ * last resort.
+ */
+export async function fetchPinOgImage(pinId: string): Promise<string | null> {
+  const url = `https://www.pinterest.com/pin/${pinId}/`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; PinformanceBot/1.0; +https://pinformance.com)",
+        Accept: "text/html",
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const match = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
+    return match?.[1] || null;
+  } catch {
+    return null;
+  }
 }
 
 const PINTEREST_API_PROD = "https://api.pinterest.com/v5";

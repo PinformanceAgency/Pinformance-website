@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
-import { PinterestClient } from "@/lib/pinterest/client";
+import { PinterestClient, extractPinImageUrl, fetchPinOgImage } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 import { generateWeeklyReport } from "@/lib/reports/weekly-report";
@@ -13,6 +13,7 @@ interface AdRow {
   ad_id: string;
   ad_name: string;
   pin_id: string | null;
+  image_url: string | null;
   spend: number | null;
   revenue: number | null;
   purchases: number | null;
@@ -192,6 +193,7 @@ export async function POST(request: NextRequest) {
         ad_id: a.id,
         ad_name: a.name || `Ad ${a.id.slice(-6)}`,
         pin_id: a.pin_id || null,
+        image_url: null as string | null,
         spend,
         revenue,
         purchases,
@@ -214,6 +216,36 @@ export async function POST(request: NextRequest) {
       recentAds = rows.filter((r) => r.created_at && r.created_at >= cutoff);
     }
     recentAds = sortByKpi(recentAds, body.recent_kpi).slice(0, body.recent_n);
+
+    // Resolve creative thumbnails for ads that will appear in the report.
+    const selectedAds = Array.from(
+      new Map(
+        [...topAds, ...recentAds]
+          .filter((a) => a.pin_id)
+          .map((a) => [a.ad_id, a] as const)
+      ).values()
+    );
+    const imageByAdId = new Map<string, string>();
+    const adAccountIdForPins = adAccount.id;
+    await Promise.all(
+      selectedAds.map(async (ad) => {
+        if (!ad.pin_id) return;
+        try {
+          const pin = await client.getPin(ad.pin_id, adAccountIdForPins);
+          const url = extractPinImageUrl(pin);
+          if (url) {
+            imageByAdId.set(ad.ad_id, url);
+            return;
+          }
+        } catch {
+          // continue to og fallback
+        }
+        const og = await fetchPinOgImage(ad.pin_id);
+        if (og) imageByAdId.set(ad.ad_id, og);
+      })
+    );
+    for (const a of topAds) a.image_url = imageByAdId.get(a.ad_id) || null;
+    for (const a of recentAds) a.image_url = imageByAdId.get(a.ad_id) || null;
 
     const buffer = await generateWeeklyReport({
       client_name: org.name || "",
