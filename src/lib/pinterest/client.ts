@@ -5,6 +5,98 @@ import type {
   PinterestUserAccount,
 } from "./types";
 
+export interface PinterestImage {
+  url: string;
+  width?: number;
+  height?: number;
+}
+
+export interface PinterestPinResponse {
+  id: string;
+  title?: string;
+  description?: string;
+  link?: string;
+  media?: {
+    media_type?: string;
+    images?: Record<string, PinterestImage>;
+    videos?: Record<string, { url?: string; thumbnail?: string }>;
+    items?: Array<{
+      // Carousel/multi-image slot
+      images?: Record<string, PinterestImage>;
+      title?: string;
+      description?: string;
+    }>;
+  };
+  carousel_data?: {
+    carousel_slots?: Array<{
+      images?: Record<string, PinterestImage>;
+      title?: string;
+      description?: string;
+    }>;
+  };
+  story_pin_data?: {
+    pages?: Array<{
+      image?: PinterestImage | { images?: Record<string, PinterestImage> };
+    }>;
+  };
+  thumbnail?: string | { url?: string };
+}
+
+/** Best-effort image URL extraction across Pinterest pin types. */
+export function extractPinImageUrl(pin: PinterestPinResponse | null | undefined): string | null {
+  if (!pin) return null;
+
+  function pickFromImageMap(imgs?: Record<string, PinterestImage>): string | null {
+    if (!imgs) return null;
+    const preferred = ["600x", "1200x", "400x300", "236x", "150x150", "original"];
+    for (const key of preferred) {
+      const found = imgs[key]?.url;
+      if (found) return found;
+    }
+    const first = Object.values(imgs)[0];
+    return first?.url || null;
+  }
+
+  // 1. Standard pin (incl. video pins where this is the cover frame).
+  const std = pickFromImageMap(pin.media?.images);
+  if (std) return std;
+
+  // 2. Carousel — try items array on media.
+  for (const item of pin.media?.items || []) {
+    const u = pickFromImageMap(item.images);
+    if (u) return u;
+  }
+
+  // 3. Carousel — alternative shape under carousel_data.carousel_slots.
+  for (const slot of pin.carousel_data?.carousel_slots || []) {
+    const u = pickFromImageMap(slot.images);
+    if (u) return u;
+  }
+
+  // 4. Idea / story pin — first page's image.
+  for (const page of pin.story_pin_data?.pages || []) {
+    if (!page?.image) continue;
+    if (typeof (page.image as PinterestImage).url === "string") {
+      return (page.image as PinterestImage).url;
+    }
+    const nested = pickFromImageMap((page.image as { images?: Record<string, PinterestImage> }).images);
+    if (nested) return nested;
+  }
+
+  // 5. Video pin — try video thumbnail URLs.
+  if (pin.media?.videos) {
+    for (const v of Object.values(pin.media.videos)) {
+      if (v?.thumbnail) return v.thumbnail;
+    }
+  }
+
+  // 6. Top-level thumbnail (rare).
+  if (typeof pin.thumbnail === "string") return pin.thumbnail;
+  if (pin.thumbnail && typeof pin.thumbnail === "object" && pin.thumbnail.url) return pin.thumbnail.url;
+
+  return null;
+}
+
 const PINTEREST_API_PROD = "https://api.pinterest.com/v5";
 const PINTEREST_API_SANDBOX = "https://api-sandbox.pinterest.com/v5";
 
@@ -194,16 +286,7 @@ export class PinterestClient {
     const qs = adAccountId
       ? `?ad_account_id=${encodeURIComponent(adAccountId)}&pin_metrics=false`
       : "";
-    return this.request<{
-      id: string;
-      title?: string;
-      description?: string;
-      link?: string;
-      media?: {
-        media_type?: string;
-        images?: Record<string, { url: string; width: number; height: number }>;
-      };
-    }>(`/pins/${pinId}${qs}`);
+    return this.request<PinterestPinResponse>(`/pins/${pinId}${qs}`);
   }
 
   async getTopPins(

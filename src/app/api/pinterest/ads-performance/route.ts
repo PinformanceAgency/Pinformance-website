@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
-import { PinterestClient } from "@/lib/pinterest/client";
+import { PinterestClient, extractPinImageUrl } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
@@ -27,7 +27,7 @@ interface AdRow {
   cpa: number | null;
 }
 
-const MAX_ADS_TO_FETCH = 500;
+const MAX_ADS_TO_FETCH = 3000;
 const MAX_PIN_DETAILS = 120;
 const IMAGE_BATCH_SIZE = 15;
 
@@ -166,9 +166,10 @@ export async function GET(request: NextRequest) {
       // If account-level fails for some reason, fall back to ad-level summed.
     }
 
-    // 1. List ads (paginate up to MAX_ADS_TO_FETCH). Request all statuses so
-    //    we don't silently exclude paused/archived/draft ads that had spend
-    //    in the period — Campaign Manager shows them too.
+    // 1. List ads (paginate up to MAX_ADS_TO_FETCH). We deliberately omit
+    //    entity_statuses so Pinterest returns its full default set — passing
+    //    an explicit filter (esp. unknown values like DRAFT) can cause some
+    //    statuses to be silently excluded.
     const adList: Array<{
       id: string;
       name?: string;
@@ -179,16 +180,19 @@ export async function GET(request: NextRequest) {
       created_time?: number;
     }> = [];
     let bookmark: string | undefined;
+    let pages = 0;
     do {
       const page = await client.getAds(adAccount.id, {
         bookmark,
-        pageSize: 100,
-        entityStatuses: ["ACTIVE", "PAUSED", "ARCHIVED", "DRAFT"],
+        pageSize: 250,
       });
       adList.push(...(page.items || []));
       bookmark = page.bookmark;
+      pages++;
       if (adList.length >= MAX_ADS_TO_FETCH) break;
     } while (bookmark);
+    const totalAdsFetched = adList.length;
+    const pagesFetched = pages;
 
     if (adList.length === 0) {
       return NextResponse.json({
@@ -285,24 +289,18 @@ export async function GET(request: NextRequest) {
     const pinIdsToFetch = Array.from(interestingPinIds).slice(0, MAX_PIN_DETAILS);
 
     const imageByPin = new Map<string, string>();
+    let imageFetchFailures = 0;
     for (let i = 0; i < pinIdsToFetch.length; i += IMAGE_BATCH_SIZE) {
       const batch = pinIdsToFetch.slice(i, i + IMAGE_BATCH_SIZE);
       await Promise.all(
         batch.map(async (pinId) => {
           try {
             const pin = await client.getPin(pinId, adAccount.id);
-            const imgs = pin.media?.images || {};
-            const url =
-              imgs["600x"]?.url ||
-              imgs["1200x"]?.url ||
-              imgs["400x300"]?.url ||
-              imgs["236x"]?.url ||
-              imgs["150x150"]?.url ||
-              Object.values(imgs)[0]?.url ||
-              "";
+            const url = extractPinImageUrl(pin);
             if (url) imageByPin.set(pinId, url);
+            else imageFetchFailures++;
           } catch {
-            // pin lookup failed — skip silently
+            imageFetchFailures++;
           }
         })
       );
@@ -311,6 +309,7 @@ export async function GET(request: NextRequest) {
       if (r.pin_id) r.image_url = imageByPin.get(r.pin_id) || null;
     }
 
+    const adsWithSpendCount = rows.filter((r) => r.spend != null && r.spend > 0).length;
     return NextResponse.json({
       ads: rows,
       account_totals: accountTotals,
@@ -324,6 +323,14 @@ export async function GET(request: NextRequest) {
       click_window_days: clickWindow,
       view_window_days: viewWindow,
       conversion_report_time: conversionReportTime,
+      diagnostics: {
+        total_ads_fetched: totalAdsFetched,
+        pages_fetched: pagesFetched,
+        ads_with_spend: adsWithSpendCount,
+        ads_with_analytics: byAdId.size,
+        image_lookups_attempted: pinIdsToFetch.length,
+        image_lookups_failed: imageFetchFailures,
+      },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";

@@ -116,6 +116,15 @@ interface AdAccountChoice {
   currency?: string;
 }
 
+interface Diagnostics {
+  total_ads_fetched?: number;
+  pages_fetched?: number;
+  ads_with_spend?: number;
+  ads_with_analytics?: number;
+  image_lookups_attempted?: number;
+  image_lookups_failed?: number;
+}
+
 interface ApiResponse {
   ads: AdRow[];
   account_totals?: AccountTotals | null;
@@ -128,6 +137,7 @@ interface ApiResponse {
   error?: string;
   start_date?: string;
   end_date?: string;
+  diagnostics?: Diagnostics;
 }
 
 const fmtCurrency = (n: number, currency: string) =>
@@ -160,6 +170,7 @@ export default function PaidAdsCreativesPage() {
   const [availableAdAccounts, setAvailableAdAccounts] = useState<AdAccountChoice[]>([]);
   const [savingAdAccount, setSavingAdAccount] = useState(false);
   const [accountTotals, setAccountTotals] = useState<AccountTotals | null>(null);
+  const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [conversionWindow, setConversionWindow] = useState<ConversionWindow>("30/1");
 
   // Restore persisted conversion window on mount.
@@ -215,6 +226,7 @@ export default function PaidAdsCreativesPage() {
         if (cancelled) return;
         setAds(json.ads || []);
         setAccountTotals(json.account_totals ?? null);
+        setDiagnostics(json.diagnostics ?? null);
         setAdsConnected(!!json.ads_connected);
         setConnectionReason(json.reason);
         setConnectionError(json.error);
@@ -376,6 +388,20 @@ export default function PaidAdsCreativesPage() {
         </span>
         <span>·</span>
         <span>Date of conversion event</span>
+        {diagnostics?.total_ads_fetched != null && (
+          <>
+            <span>·</span>
+            <span>
+              <strong className="text-foreground">{diagnostics.total_ads_fetched}</strong> ads fetched
+              {diagnostics.ads_with_spend != null && (
+                <>
+                  {" "}
+                  (<strong className="text-foreground">{diagnostics.ads_with_spend}</strong> with spend)
+                </>
+              )}
+            </span>
+          </>
+        )}
         {lastRefreshed && (
           <>
             <span>·</span>
