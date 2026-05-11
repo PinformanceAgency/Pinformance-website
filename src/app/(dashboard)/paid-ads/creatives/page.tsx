@@ -13,6 +13,9 @@ import {
   Check,
   ChevronDown,
   RefreshCw,
+  FileText,
+  X,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -138,6 +141,7 @@ export default function PaidAdsCreativesPage() {
   const [recentSince, setRecentSince] = useState<string>(() => presetToRange(14).start);
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const [ads, setAds] = useState<AdRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [adsConnected, setAdsConnected] = useState(false);
@@ -294,8 +298,28 @@ export default function PaidAdsCreativesPage() {
             <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
             Refresh
           </button>
+          <button
+            onClick={() => setReportOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Create report
+          </button>
         </div>
       </div>
+
+      {reportOpen && (
+        <CreateReportModal
+          defaults={{
+            dateRange,
+            conversionWindow,
+            topKpi,
+            recentKpi,
+            recentSince,
+          }}
+          onClose={() => setReportOpen(false)}
+        />
+      )}
 
       {/* Query trace — exact params we sent to Pinterest, for comparison
           against Campaign Manager. */}
@@ -538,6 +562,256 @@ function LimitToggle({
   );
 }
 
+function CreateReportModal({
+  defaults,
+  onClose,
+}: {
+  defaults: {
+    dateRange: DateRange;
+    conversionWindow: ConversionWindow;
+    topKpi: KpiKey;
+    recentKpi: KpiKey;
+    recentSince: string;
+  };
+  onClose: () => void;
+}) {
+  const [dateRange, setDateRange] = useState<DateRange>(defaults.dateRange);
+  const [conversionWindow, setConversionWindow] = useState<ConversionWindow>(
+    defaults.conversionWindow
+  );
+  const [topN, setTopN] = useState<number>(5);
+  const [topKpi, setTopKpi] = useState<KpiKey>(defaults.topKpi);
+  const [recentN, setRecentN] = useState<number>(5);
+  const [recentKpi, setRecentKpi] = useState<KpiKey>(defaults.recentKpi);
+  const [recentSince, setRecentSince] = useState<string>(defaults.recentSince);
+  const [manualNotes, setManualNotes] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !generating) onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, generating]);
+
+  async function generate() {
+    setError(null);
+    setGenerating(true);
+    try {
+      const cw = CONVERSION_WINDOWS.find((w) => w.key === conversionWindow)!;
+      const res = await fetch("/api/pinterest/ads-performance/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start_date: dateRange.start,
+          end_date: dateRange.end,
+          click_window: cw.click,
+          view_window: cw.view,
+          top_n: topN,
+          top_kpi: topKpi,
+          recent_n: recentN,
+          recent_kpi: recentKpi,
+          recent_since: recentSince,
+          manual_notes: manualNotes,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] || "Pinterest-Report.docx";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={() => !generating && onClose()}
+    >
+      <div
+        className="bg-card border border-border rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+              <FileText className="w-4 h-4 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">Create weekly report</h2>
+              <p className="text-xs text-muted-foreground">
+                Generate a .docx report with Pinterest Ads data.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={generating}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-muted text-muted-foreground disabled:opacity-50"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Date range + conversion settings */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-xs font-medium text-foreground w-full mb-1">Period</div>
+            <DateRangePicker value={dateRange} onChange={setDateRange} align="left" />
+            <ConversionSettings
+              value={conversionWindow}
+              onChange={setConversionWindow}
+            />
+          </div>
+
+          {/* Top performing ads */}
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
+              <div className="text-sm font-medium">Top performing ads</div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <NumberPicker label="Count" value={topN} options={[3, 5, 10, 15, 20]} onChange={setTopN} />
+              <KpiSelect label="Rank by" value={topKpi} onChange={setTopKpi} />
+            </div>
+          </div>
+
+          {/* Recently launched ads */}
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Rocket className="w-3.5 h-3.5 text-muted-foreground" />
+              <div className="text-sm font-medium">Recently launched ads</div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <NumberPicker label="Count" value={recentN} options={[3, 5, 10, 15, 20]} onChange={setRecentN} />
+              <KpiSelect label="Rank by" value={recentKpi} onChange={setRecentKpi} />
+            </div>
+            <div className="mt-3">
+              <div className="text-[11px] text-muted-foreground mb-1.5">Launched since</div>
+              <SinceDatePicker value={recentSince} onChange={setRecentSince} align="left" />
+            </div>
+          </div>
+
+          {/* Manual notes */}
+          <div className="border-t border-border pt-4">
+            <div className="text-sm font-medium mb-2">Notes (added to the end of the report)</div>
+            <textarea
+              value={manualNotes}
+              onChange={(e) => setManualNotes(e.target.value)}
+              placeholder="Anything Pinterest doesn't capture — context, observations, next-week plans, learnings from creative tests, etc."
+              rows={5}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-700 dark:text-red-400">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 p-5 border-t border-border">
+          <button
+            onClick={onClose}
+            disabled={generating}
+            className="px-3 py-1.5 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={generate}
+            disabled={generating}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {generating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {generating ? "Generating…" : "Generate report"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NumberPicker({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  options: number[];
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <div className="text-[11px] text-muted-foreground mb-1.5">{label}</div>
+      <div className="inline-flex bg-muted rounded-lg p-1">
+        {options.map((o) => (
+          <button
+            key={o}
+            onClick={() => onChange(o)}
+            className={cn(
+              "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
+              value === o
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KpiSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: KpiKey;
+  onChange: (v: KpiKey) => void;
+}) {
+  return (
+    <div>
+      <div className="text-[11px] text-muted-foreground mb-1.5">{label}</div>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as KpiKey)}
+        className="w-full px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card text-foreground hover:bg-muted transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
+      >
+        {KPI_OPTIONS.map((o) => (
+          <option key={o.key} value={o.key}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function KpiPicker({
   value,
   onChange,
@@ -718,14 +992,31 @@ function AdPerformanceTable({
               <tr key={a.ad_id} className="border-t border-border hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-lg bg-muted flex-shrink-0 overflow-hidden flex items-center justify-center">
-                      {a.image_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={a.image_url} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <ImageIcon className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </div>
+                    {a.pin_id ? (
+                      <a
+                        href={`https://www.pinterest.com/pin/${a.pin_id}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open pin on Pinterest"
+                        className="w-10 h-10 rounded-lg bg-muted flex-shrink-0 overflow-hidden flex items-center justify-center hover:ring-2 hover:ring-primary/50 transition-all"
+                      >
+                        {a.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={a.image_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </a>
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-muted flex-shrink-0 overflow-hidden flex items-center justify-center">
+                        {a.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={a.image_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <div className="font-medium truncate" title={a.ad_name}>
                         {a.ad_name}
