@@ -27,7 +27,8 @@ interface AdRow {
 }
 
 const MAX_ADS_TO_FETCH = 500;
-const MAX_PIN_DETAILS = 50;
+const MAX_PIN_DETAILS = 120;
+const IMAGE_BATCH_SIZE = 15;
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -186,29 +187,55 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // 4. Enrich top-spending ads with pin image (cap to MAX_PIN_DETAILS).
-    const topForImages = [...rows]
-      .filter((r) => r.pin_id && r.spend != null && r.spend > 0)
-      .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))
-      .slice(0, MAX_PIN_DETAILS);
+    // 4. Build the union of "interesting" ads across KPIs so we fetch images
+    //    for whatever the user might end up sorting by, not just spend.
+    const interestingPinIds = new Set<string>();
+    function addTop(by: (r: AdRow) => number, n: number, ascending = false) {
+      const sorted = [...rows].sort((a, b) =>
+        ascending ? by(a) - by(b) : by(b) - by(a)
+      );
+      for (const r of sorted.slice(0, n)) {
+        if (r.pin_id) interestingPinIds.add(r.pin_id);
+      }
+    }
+    addTop((r) => r.spend ?? -Infinity, 60);
+    addTop((r) => r.roas ?? -Infinity, 40);
+    addTop((r) => r.revenue ?? -Infinity, 40);
+    addTop((r) => r.purchases ?? -Infinity, 30);
+    addTop((r) => -(r.cpa ?? Number.POSITIVE_INFINITY), 30); // low-CPA first
+    // Recently launched (by created_at desc).
+    const byRecent = [...rows]
+      .filter((r) => r.created_at)
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
+      .slice(0, 30);
+    for (const r of byRecent) if (r.pin_id) interestingPinIds.add(r.pin_id);
+
+    // Cap total unique pins fetched.
+    const pinIdsToFetch = Array.from(interestingPinIds).slice(0, MAX_PIN_DETAILS);
 
     const imageByPin = new Map<string, string>();
-    await Promise.all(
-      topForImages.map(async (r) => {
-        if (!r.pin_id) return;
-        try {
-          const pin = await client.getPin(r.pin_id);
-          const url =
-            pin.media?.images?.["600x"]?.url ||
-            pin.media?.images?.["400x300"]?.url ||
-            pin.media?.images?.["150x150"]?.url ||
-            "";
-          if (url) imageByPin.set(r.pin_id, url);
-        } catch {
-          // pin lookup failed — skip
-        }
-      })
-    );
+    for (let i = 0; i < pinIdsToFetch.length; i += IMAGE_BATCH_SIZE) {
+      const batch = pinIdsToFetch.slice(i, i + IMAGE_BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (pinId) => {
+          try {
+            const pin = await client.getPin(pinId, adAccount.id);
+            const imgs = pin.media?.images || {};
+            const url =
+              imgs["600x"]?.url ||
+              imgs["1200x"]?.url ||
+              imgs["400x300"]?.url ||
+              imgs["236x"]?.url ||
+              imgs["150x150"]?.url ||
+              Object.values(imgs)[0]?.url ||
+              "";
+            if (url) imageByPin.set(pinId, url);
+          } catch {
+            // pin lookup failed — skip silently
+          }
+        })
+      );
+    }
     for (const r of rows) {
       if (r.pin_id) r.image_url = imageByPin.get(r.pin_id) || null;
     }

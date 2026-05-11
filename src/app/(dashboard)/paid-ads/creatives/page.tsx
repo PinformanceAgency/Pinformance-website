@@ -18,7 +18,7 @@ import { useOrg } from "@/hooks/use-org";
 
 type TimeFrame = "7" | "14" | "30";
 type RecentLimit = 5 | 10 | 15;
-type SortDir = "asc" | "desc";
+type KpiKey = "roas" | "cpa" | "revenue" | "spend" | "checkouts";
 type ConversionWindow =
   | "30/1"
   | "30/7"
@@ -37,6 +37,38 @@ const CONVERSION_WINDOWS: { key: ConversionWindow; click: number; view: number; 
 ];
 
 const CONVERSION_SETTINGS_KEY = "paid-ads:conversion-window";
+
+const KPI_OPTIONS: { key: KpiKey; label: string; direction: "asc" | "desc" }[] = [
+  { key: "roas", label: "ROAS (high → low)", direction: "desc" },
+  { key: "cpa", label: "CPA (low → high)", direction: "asc" },
+  { key: "revenue", label: "Revenue (high → low)", direction: "desc" },
+  { key: "spend", label: "Spend (high → low)", direction: "desc" },
+  { key: "checkouts", label: "Checkouts (high → low)", direction: "desc" },
+];
+
+function sortByKpi(rows: AdRow[], kpi: KpiKey): AdRow[] {
+  const option = KPI_OPTIONS.find((o) => o.key === kpi)!;
+  const getVal = (r: AdRow): number => {
+    switch (kpi) {
+      case "roas":
+        return r.roas ?? -Infinity;
+      case "cpa":
+        // null/0 CPA = no data → push to bottom (treat as +Infinity for asc).
+        return r.cpa != null && r.cpa > 0 ? r.cpa : Number.POSITIVE_INFINITY;
+      case "revenue":
+        return r.revenue ?? -Infinity;
+      case "spend":
+        return r.spend ?? -Infinity;
+      case "checkouts":
+        return r.purchases ?? -Infinity;
+    }
+  };
+  return [...rows].sort((a, b) => {
+    const av = getVal(a);
+    const bv = getVal(b);
+    return option.direction === "desc" ? bv - av : av - bv;
+  });
+}
 
 interface AdRow {
   ad_id: string;
@@ -81,7 +113,8 @@ export default function PaidAdsCreativesPage() {
   const { org } = useOrg();
   const [timeFrame, setTimeFrame] = useState<TimeFrame>("30");
   const [recentLimit, setRecentLimit] = useState<RecentLimit>(10);
-  const [recentSort, setRecentSort] = useState<SortDir>("desc");
+  const [topKpi, setTopKpi] = useState<KpiKey>("roas");
+  const [recentKpi, setRecentKpi] = useState<KpiKey>("spend");
   const [ads, setAds] = useState<AdRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [adsConnected, setAdsConnected] = useState(false);
@@ -154,24 +187,18 @@ export default function PaidAdsCreativesPage() {
   const hasAdsData = adsWithSpend.length > 0;
 
   const topPerformers = useMemo(() => {
-    return [...adsWithSpend]
-      .sort((a, b) => (b.roas ?? -1) - (a.roas ?? -1))
-      .slice(0, 10);
-  }, [adsWithSpend]);
+    return sortByKpi(adsWithSpend, topKpi).slice(0, 10);
+  }, [adsWithSpend, topKpi]);
 
+  // Recently launched: take the most recently created ads (within timeframe),
+  // then rank that subset by the selected KPI.
   const recent = useMemo(() => {
-    const sortable = ads.filter((a) => a.created_at || a.spend != null);
-    return [...sortable]
-      .sort((a, b) => {
-        // Most recent first, then break ties by spend in chosen direction.
-        const ad = (a.created_at || "0").localeCompare(b.created_at || "0");
-        if (ad !== 0) return -ad;
-        const av = a.spend ?? 0;
-        const bv = b.spend ?? 0;
-        return recentSort === "desc" ? bv - av : av - bv;
-      })
+    const newestFirst = [...ads]
+      .filter((a) => a.created_at)
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
       .slice(0, recentLimit);
-  }, [ads, recentLimit, recentSort]);
+    return sortByKpi(newestFirst, recentKpi);
+  }, [ads, recentLimit, recentKpi]);
 
   // Aggregate row for headline KPIs.
   const totals = useMemo(() => {
@@ -225,10 +252,15 @@ export default function PaidAdsCreativesPage() {
 
       {/* Top performing ads */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Top performing ads</h2>
-          <span className="text-xs text-muted-foreground">sorted by ROAS (high → low)</span>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">Top performing ads</h2>
+            <span className="text-xs text-muted-foreground">
+              {KPI_OPTIONS.find((o) => o.key === topKpi)!.label}
+            </span>
+          </div>
+          <KpiPicker value={topKpi} onChange={setTopKpi} />
         </div>
         <AdPerformanceTable ads={topPerformers} loading={loading} currency={currency} />
       </section>
@@ -239,11 +271,13 @@ export default function PaidAdsCreativesPage() {
           <div className="flex items-center gap-2">
             <Rocket className="w-4 h-4 text-muted-foreground" />
             <h2 className="text-lg font-semibold">Recently launched</h2>
-            <span className="text-xs text-muted-foreground">newest ads, with spend ranking</span>
+            <span className="text-xs text-muted-foreground">
+              {KPI_OPTIONS.find((o) => o.key === recentKpi)!.label}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <LimitToggle value={recentLimit} onChange={setRecentLimit} />
-            <SortToggle value={recentSort} onChange={setRecentSort} />
+            <KpiPicker value={recentKpi} onChange={setRecentKpi} />
           </div>
         </div>
         <AdPerformanceTable ads={recent} loading={loading} currency={currency} />
@@ -457,21 +491,66 @@ function LimitToggle({
   );
 }
 
-function SortToggle({
+function KpiPicker({
   value,
   onChange,
 }: {
-  value: SortDir;
-  onChange: (v: SortDir) => void;
+  value: KpiKey;
+  onChange: (v: KpiKey) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const current = KPI_OPTIONS.find((o) => o.key === value)!;
   return (
-    <button
-      onClick={() => onChange(value === "desc" ? "asc" : "desc")}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card text-foreground hover:bg-muted transition-colors"
-    >
-      <ArrowUpDown className="w-3.5 h-3.5" />
-      Spend {value === "desc" ? "high → low" : "low → high"}
-    </button>
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card text-foreground hover:bg-muted transition-colors"
+      >
+        <ArrowUpDown className="w-3.5 h-3.5" />
+        Sort: {current.label}
+        <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-[240px] rounded-xl border border-border bg-card shadow-xl z-30 p-1">
+          {KPI_OPTIONS.map((o) => (
+            <button
+              key={o.key}
+              onClick={() => {
+                onChange(o.key);
+                setOpen(false);
+              }}
+              className={cn(
+                "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors text-left",
+                value === o.key
+                  ? "bg-primary/10 text-foreground"
+                  : "hover:bg-muted text-foreground"
+              )}
+            >
+              <span>{o.label}</span>
+              {value === o.key && <Check className="w-4 h-4 text-primary" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

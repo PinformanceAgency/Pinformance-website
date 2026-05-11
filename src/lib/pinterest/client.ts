@@ -190,14 +190,20 @@ export class PinterestClient {
     }>(`/user_account/analytics?${params}`);
   }
 
-  async getPin(pinId: string) {
+  async getPin(pinId: string, adAccountId?: string) {
+    const qs = adAccountId
+      ? `?ad_account_id=${encodeURIComponent(adAccountId)}&pin_metrics=false`
+      : "";
     return this.request<{
       id: string;
-      title: string;
-      description: string;
-      link: string;
-      media?: { images?: Record<string, { url: string; width: number; height: number }> };
-    }>(`/pins/${pinId}`);
+      title?: string;
+      description?: string;
+      link?: string;
+      media?: {
+        media_type?: string;
+        images?: Record<string, { url: string; width: number; height: number }>;
+      };
+    }>(`/pins/${pinId}${qs}`);
   }
 
   async getTopPins(
