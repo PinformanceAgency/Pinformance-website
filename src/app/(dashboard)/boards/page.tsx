@@ -9,9 +9,20 @@ import {
   X,
   Upload,
   Image,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Board } from "@/lib/types";
+
+interface SyncSummary {
+  added: number;
+  updated: number;
+  linked: number;
+  deleted: number;
+  pinterest_count: number;
+  local_count_before: number;
+}
 
 export default function BoardsPage() {
   const { org, loading } = useOrg();
@@ -20,6 +31,10 @@ export default function BoardsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newBoardName, setNewBoardName] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!org) return;
@@ -36,6 +51,15 @@ export default function BoardsPage() {
 
     const boardList = (data as Board[]) || [];
     setBoards(boardList);
+
+    // Read last sync timestamp from org settings.
+    const { data: orgRow } = await supabase
+      .from("organizations")
+      .select("settings")
+      .eq("id", org!.id)
+      .single();
+    const settings = (orgRow?.settings as Record<string, unknown>) || {};
+    setLastSyncedAt((settings.boards_last_synced_at as string) || null);
 
     if (boardList.length > 0) {
       const { data: pins } = await supabase
@@ -83,26 +107,81 @@ export default function BoardsPage() {
     loadBoards();
   }
 
+  async function handleSync() {
+    setSyncing(true);
+    setSyncError(null);
+    setLastSyncSummary(null);
+    try {
+      const res = await fetch("/api/pinterest/boards/sync", { method: "POST" });
+      const json = (await res.json()) as { ok?: boolean; summary?: SyncSummary; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+      if (json.summary) setLastSyncSummary(json.summary);
+      await loadBoards();
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (loading) {
     return <div className="h-96 bg-muted animate-pulse rounded-xl" />;
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Boards</h1>
           <p className="text-muted-foreground mt-1">
             Manage your Pinterest boards
           </p>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            {lastSyncedAt ? (
+              <>Last synced from Pinterest: <strong className="text-foreground">{new Date(lastSyncedAt).toLocaleString()}</strong> · auto-syncs daily</>
+            ) : (
+              <>Never synced from Pinterest — click Sync to import.</>
+            )}
+          </div>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90"
-        >
-          <Plus className="w-4 h-4" /> Create Board
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="border border-border bg-card text-foreground px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-muted disabled:opacity-50"
+          >
+            {syncing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            Sync from Pinterest
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90"
+          >
+            <Plus className="w-4 h-4" /> Create Board
+          </button>
+        </div>
       </div>
+
+      {lastSyncSummary && (
+        <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-xs text-green-700">
+          Synced <strong>{lastSyncSummary.pinterest_count}</strong> Pinterest boards.{" "}
+          Added <strong>{lastSyncSummary.added}</strong>, linked{" "}
+          <strong>{lastSyncSummary.linked}</strong>, updated{" "}
+          <strong>{lastSyncSummary.updated}</strong>, removed{" "}
+          <strong>{lastSyncSummary.deleted}</strong>.
+        </div>
+      )}
+      {syncError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-700">
+          Sync failed: {syncError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {boards.map((board) => (

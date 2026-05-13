@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
 import { runContentPipeline } from "@/lib/ai/pipelines/content-pipeline";
+import { syncBoardsForOrg } from "@/app/api/pinterest/boards/sync/route";
 
 /**
  * MASTER DAILY CRON - Single endpoint that handles everything.
@@ -78,6 +79,24 @@ async function handleDaily(request: NextRequest) {
     if (org.pinterest_token_expires_at && new Date(org.pinterest_token_expires_at) < now) {
       log(org.id, orgName, "token_check", "error", `Token expired at ${org.pinterest_token_expires_at}`);
       continue;
+    }
+
+    // ─── 1b. SYNC BOARDS (once per ~24h) ───
+    try {
+      const lastSync = settings.boards_last_synced_at as string | undefined;
+      const stale = !lastSync || Date.now() - new Date(lastSync).getTime() > 23 * 60 * 60 * 1000;
+      if (stale) {
+        const s = await syncBoardsForOrg(org.id);
+        log(
+          org.id,
+          orgName,
+          "board_sync",
+          "success",
+          `Synced ${s.pinterest_count} Pinterest boards (added ${s.added}, linked ${s.linked}, updated ${s.updated}, deleted ${s.deleted})`
+        );
+      }
+    } catch (e) {
+      log(org.id, orgName, "board_sync", "error", e instanceof Error ? e.message : String(e));
     }
 
     // ─── 2. POST APPROVED PINS ───
