@@ -36,6 +36,12 @@ interface UploadedCreative {
   error?: string;
 }
 
+interface ActiveBoard {
+  id: string;
+  name: string;
+  pinterest_board_id: string | null;
+}
+
 export default function CreativesPage() {
   const { org, loading } = useOrg();
   const [creatives, setCreatives] = useState<UploadedCreative[]>([]);
@@ -47,6 +53,9 @@ export default function CreativesPage() {
   const [logoUrl, setLogoUrl] = useState("");
   const [rotation, setRotation] = useState({ full_overlay: 3, logo_only: 1, clean: 1 });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeBoards, setActiveBoards] = useState<ActiveBoard[]>([]);
+  // Per-creative override: image_url → board_id chosen by the user.
+  const [boardOverrides, setBoardOverrides] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!org) return;
@@ -61,7 +70,27 @@ export default function CreativesPage() {
         });
       }
     });
+
+    // Load active Pinterest-synced boards for the override dropdown.
+    loadActiveBoards();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [org]);
+
+  async function loadActiveBoards() {
+    if (!org) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("boards")
+      .select("id, name, pinterest_board_id")
+      .eq("org_id", org.id)
+      .eq("status", "active")
+      .order("name");
+    setActiveBoards(((data as ActiveBoard[]) || []));
+  }
+
+  function setBoardOverride(creativeUrl: string, boardId: string) {
+    setBoardOverrides((prev) => ({ ...prev, [creativeUrl]: boardId }));
+  }
 
   /**
    * Extract the first frame of a video as a JPEG blob using canvas.
@@ -287,21 +316,21 @@ export default function CreativesPage() {
       const isVideo = creative.media_type === "video";
       const finalImageUrl = creative.overlay_url || creative.image_url;
 
-      // Create ONE pin in the best matching board
-      const bestBoard = a.boards?.[0] || { id: a.board_id!, name: a.board_name };
-
-      // Route swimwear/bikini creatives to the swimwear collection, else use brand default
-      const boardName = (bestBoard.name || "").toLowerCase();
-      const isSwimwear = boardName.includes("bikini") || boardName.includes("swimwear");
-      const linkUrl = isSwimwear ? "https://getfitcherries.com/nl/collections/swimwear" : defaultLinkUrl;
+      // Resolve the chosen board: explicit user override > AI's first
+      // suggestion > AI's primary board_id.
+      const overrideId = boardOverrides[creative.image_url];
+      const aiPrimary = a.boards?.[0] || { id: a.board_id, name: a.board_name };
+      const chosenBoard = overrideId
+        ? activeBoards.find((b) => b.id === overrideId) || aiPrimary
+        : aiPrimary;
 
       const { error } = await supabase.from("pins").insert({
         org_id: org.id,
-        board_id: bestBoard.id,
+        board_id: chosenBoard.id,
         title: a.title,
         description: a.description,
         alt_text: a.alt_text,
-        link_url: linkUrl,
+        link_url: defaultLinkUrl,
         keywords: a.keywords,
         pin_type: isVideo ? "video" : "static",
         image_url: isVideo ? null : finalImageUrl,
@@ -538,17 +567,61 @@ export default function CreativesPage() {
                             {creative.analysis.keywords.join(", ")}
                           </p>
                         </div>
-                        <div className="flex-shrink-0">
+                        <div className="flex-shrink-0 min-w-[200px]">
                           <label className="text-xs font-medium text-muted-foreground">
-                            Boards ({creative.analysis.boards?.length || 1})
+                            Board
                           </label>
-                          <div className="flex flex-wrap gap-1 mt-0.5">
-                            {(creative.analysis.boards?.length ? creative.analysis.boards : [{ id: creative.analysis.board_id, name: creative.analysis.board_name }]).map((b, i) => (
-                              <span key={i} className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded">
-                                {b.name.substring(0, 25)}
-                              </span>
-                            ))}
-                          </div>
+                          {(() => {
+                            const aiPrimary =
+                              creative.analysis.boards?.[0] ||
+                              { id: creative.analysis.board_id, name: creative.analysis.board_name };
+                            const overrideId = boardOverrides[creative.image_url];
+                            const currentValue = overrideId || aiPrimary.id || "";
+                            const isOverridden = !!overrideId && overrideId !== aiPrimary.id;
+                            return (
+                              <>
+                                <select
+                                  value={currentValue}
+                                  onChange={(e) => setBoardOverride(creative.image_url, e.target.value)}
+                                  disabled={creative.status === "queued"}
+                                  className="mt-0.5 w-full px-2 py-1 bg-background border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                >
+                                  {/* Always include the AI primary, even if it doesn't exist
+                                      in active boards (so the user sees what AI picked). */}
+                                  {aiPrimary.id &&
+                                    !activeBoards.some((b) => b.id === aiPrimary.id) && (
+                                      <option value={aiPrimary.id}>
+                                        {aiPrimary.name} (AI suggestion)
+                                      </option>
+                                    )}
+                                  {activeBoards.length === 0 && (
+                                    <option value="">— no synced boards —</option>
+                                  )}
+                                  {activeBoards.map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                      {b.name}
+                                      {b.id === aiPrimary.id ? " (AI pick)" : ""}
+                                      {!b.pinterest_board_id ? " ⚠ not on Pinterest" : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                                <div className="text-[10px] text-muted-foreground mt-0.5">
+                                  {isOverridden
+                                    ? "Overridden manually"
+                                    : "Auto-selected by AI"}
+                                  {creative.analysis.boards && creative.analysis.boards.length > 1 && (
+                                    <>
+                                      {" · "}AI also matched:{" "}
+                                      {creative.analysis.boards
+                                        .slice(1)
+                                        .map((b) => b.name)
+                                        .join(", ")}
+                                    </>
+                                  )}
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     </>
