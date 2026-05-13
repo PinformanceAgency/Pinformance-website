@@ -89,17 +89,31 @@ export async function POST(request: NextRequest) {
   const brandName = org?.name || "Brand";
   const brandVoice = brand?.brand_voice || "";
 
-  // Brand-specific USP/positioning lives on the brand profile (raw_data) so
-  // it's per-org. Falls back to nothing — never hardcode per-client copy.
+  // Brand-specific context lives on the brand profile (raw_data). Pull
+  // whatever's available so Claude has accurate per-brand context.
   const brandRaw = (brand?.raw_data as Record<string, unknown> | null) || {};
-  const brandUsp =
-    typeof brandRaw.usp === "string" ? brandRaw.usp :
-    typeof brandRaw.positioning === "string" ? brandRaw.positioning :
-    typeof brandRaw.brand_usp === "string" ? brandRaw.brand_usp :
-    "";
+  const pickString = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = brandRaw[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    return "";
+  };
+  const brandUsp = pickString("usp", "positioning", "brand_usp");
+  const brandDescription = pickString("description", "about", "summary");
+  const brandIndustry = pickString("industry", "category");
+  const brandStyle = pickString("brand_style", "style", "aesthetic");
 
   const boardList = boards.map((b) => `"${b.name}" (${b.category || "general"}, keywords: ${(b.keywords || []).slice(0, 3).join(", ")})`).join("\n");
   const keywordList = keywords.map((k) => k.keyword).join(", ");
+
+  const brandContextBlock = [
+    brandIndustry && `- Industry / category: ${brandIndustry}`,
+    brandDescription && `- About the brand: ${brandDescription}`,
+    brandStyle && `- Visual style / aesthetic: ${brandStyle}`,
+    brandVoice && `- Brand voice: ${brandVoice}`,
+    brandUsp && `- USP / positioning: ${brandUsp}`,
+  ].filter(Boolean).join("\n");
 
   // For videos: transcribe first, then use transcript for SEO
   let transcript = "";
@@ -157,9 +171,8 @@ CRITICAL RULES:
 - Description: max 500 chars but keep concise and meaningful. Brand name "${brandName}" in first sentence. Include 1-2 relevant keywords naturally. Written as natural helpful sentences — not keyword lists. Include a soft CTA where appropriate.
 - Keywords: mix of broad and specific, include seasonal terms where relevant.
 - Suggested boards: pick ALL boards that match this content (usually 2-4 boards)
-${brandVoice ? `- Brand voice: ${brandVoice}` : ""}
 - No hashtags anywhere
-${brandUsp ? `\nBRAND USP / POSITIONING (weave in naturally where relevant):\n${brandUsp}\n` : ""}
+${brandContextBlock ? `\nBRAND CONTEXT (use to inform tone, terminology, audience — weave naturally, don't force-fit):\n${brandContextBlock}\n` : ""}
 
 STRICT ACCURACY RULES:
 - Describe ONLY what you can actually see. Never invent product features, materials, or attributes that aren't clearly visible.
@@ -258,8 +271,7 @@ Describe the actual visible styles, colors, and mood of the shot.`;
 
     // Final fallback: filename-based (no thumbnail available)
     userPrompt = `Generate Pinterest SEO for a video by ${brandName}.
-${brandUsp ? `Brand USP: ${brandUsp}` : ""}
-${brandVoice ? `Brand voice: ${brandVoice}` : ""}
+${brandContextBlock ? `Brand context:\n${brandContextBlock}\n` : ""}
 Do NOT use numbers, "Group", or "collection" from the filename "${file_name}".
 Generate SEO consistent with this brand's typical content.`;
 
