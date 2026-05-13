@@ -35,6 +35,7 @@ interface RequestBody {
   recent_kpi: KpiKey;
   recent_since: string;
   manual_notes: string;
+  report_name?: string;
 }
 
 function num(v: unknown): number | null {
@@ -265,8 +266,25 @@ export async function POST(request: NextRequest) {
       manual_notes: body.manual_notes || "",
     });
 
+    // Use the user-supplied report name when provided; sanitize for use as a
+    // filename. Falls back to the original auto-generated name.
     const safeClient = (org.name || "client").replace(/[^a-z0-9-]+/gi, "-");
-    const filename = `Pinterest-Report-${safeClient}-${body.start_date}-to-${body.end_date}.docx`;
+    const requested = (body.report_name || "").trim();
+    let filename: string;
+    if (requested) {
+      // Strip filesystem-hostile characters; keep spaces, letters, digits,
+      // common punctuation. Cap length.
+      const sanitized = requested
+        .replace(/[\\/:*?"<>|\r\n\t]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 120);
+      filename = sanitized
+        ? `${sanitized}.docx`
+        : `Pinterest-Report-${safeClient}-${body.start_date}-to-${body.end_date}.docx`;
+    } else {
+      filename = `Pinterest-Report-${safeClient}-${body.start_date}-to-${body.end_date}.docx`;
+    }
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

@@ -673,6 +673,19 @@ function CreateReportModal({
   const [manualNotes, setManualNotes] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Default filename — user can override. Stays in sync with date range
+  // until the user manually edits it.
+  const [reportName, setReportName] = useState<string>(
+    `Pinterest Weekly Report — ${defaults.dateRange.start} to ${defaults.dateRange.end}`
+  );
+  const [reportNameTouched, setReportNameTouched] = useState(false);
+
+  useEffect(() => {
+    if (reportNameTouched) return;
+    setReportName(
+      `Pinterest Weekly Report — ${dateRange.start} to ${dateRange.end}`
+    );
+  }, [dateRange.start, dateRange.end, reportNameTouched]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -701,6 +714,7 @@ function CreateReportModal({
           recent_kpi: recentKpi,
           recent_since: recentSince,
           manual_notes: manualNotes,
+          report_name: reportName.trim(),
         }),
       });
       if (!res.ok) {
@@ -758,8 +772,30 @@ function CreateReportModal({
         </div>
 
         <div className="p-5 space-y-5">
+          {/* Report name */}
+          <div>
+            <div className="text-xs font-medium text-foreground mb-1.5">
+              Report name
+            </div>
+            <input
+              type="text"
+              value={reportName}
+              onChange={(e) => {
+                setReportName(e.target.value);
+                setReportNameTouched(true);
+              }}
+              placeholder="Pinterest Weekly Report"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <div className="text-[11px] text-muted-foreground mt-1">
+              Used as the downloaded file name (.docx extension added
+              automatically). Auto-updates with the date range until you edit
+              it manually.
+            </div>
+          </div>
+
           {/* Date range + conversion settings */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap border-t border-border pt-4">
             <div className="text-xs font-medium text-foreground w-full mb-1">Period</div>
             <DateRangePicker value={dateRange} onChange={setDateRange} align="left" />
             <ConversionSettings
