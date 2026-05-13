@@ -560,69 +560,67 @@ export default function CreativesPage() {
                           className="w-full mt-0.5 px-2 py-1.5 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
                         />
                       </div>
-                      <div className="flex gap-3">
-                        <div className="flex-1">
-                          <label className="text-xs font-medium text-muted-foreground">Keywords</label>
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                            {creative.analysis.keywords.join(", ")}
-                          </p>
-                        </div>
-                        <div className="flex-shrink-0 min-w-[200px]">
-                          <label className="text-xs font-medium text-muted-foreground">
-                            Board
-                          </label>
-                          {(() => {
-                            const aiPrimary =
-                              creative.analysis.boards?.[0] ||
-                              { id: creative.analysis.board_id, name: creative.analysis.board_name };
-                            const overrideId = boardOverrides[creative.image_url];
-                            const currentValue = overrideId || aiPrimary.id || "";
-                            const isOverridden = !!overrideId && overrideId !== aiPrimary.id;
-                            return (
-                              <>
-                                <select
-                                  value={currentValue}
-                                  onChange={(e) => setBoardOverride(creative.image_url, e.target.value)}
-                                  disabled={creative.status === "queued"}
-                                  className="mt-0.5 w-full px-2 py-1 bg-background border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
-                                >
-                                  {/* Always include the AI primary, even if it doesn't exist
-                                      in active boards (so the user sees what AI picked). */}
-                                  {aiPrimary.id &&
-                                    !activeBoards.some((b) => b.id === aiPrimary.id) && (
-                                      <option value={aiPrimary.id}>
-                                        {aiPrimary.name} (AI suggestion)
-                                      </option>
-                                    )}
-                                  {activeBoards.length === 0 && (
-                                    <option value="">— no synced boards —</option>
-                                  )}
-                                  {activeBoards.map((b) => (
-                                    <option key={b.id} value={b.id}>
-                                      {b.name}
-                                      {b.id === aiPrimary.id ? " (AI pick)" : ""}
-                                      {!b.pinterest_board_id ? " ⚠ not on Pinterest" : ""}
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground">Keywords</label>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {creative.analysis.keywords.join(", ")}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground">
+                          Board <span className="text-primary">(pick the Pinterest board this pin will go to)</span>
+                        </label>
+                        {(() => {
+                          const aiPrimary =
+                            creative.analysis.boards?.[0] ||
+                            { id: creative.analysis.board_id, name: creative.analysis.board_name };
+                          const overrideId = boardOverrides[creative.image_url];
+                          const currentValue = overrideId || aiPrimary.id || "";
+                          const isOverridden = !!overrideId && overrideId !== aiPrimary.id;
+                          return (
+                            <>
+                              <select
+                                value={currentValue}
+                                onChange={(e) => setBoardOverride(creative.image_url, e.target.value)}
+                                disabled={creative.status === "queued"}
+                                className="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                              >
+                                {/* Always include the AI primary, even if it
+                                    doesn't exist in active boards. */}
+                                {aiPrimary.id &&
+                                  !activeBoards.some((b) => b.id === aiPrimary.id) && (
+                                    <option value={aiPrimary.id}>
+                                      {aiPrimary.name} (AI suggestion · not synced)
                                     </option>
-                                  ))}
-                                </select>
-                                <div className="text-[10px] text-muted-foreground mt-0.5">
-                                  {isOverridden
-                                    ? "Overridden manually"
-                                    : "Auto-selected by AI"}
-                                  {creative.analysis.boards && creative.analysis.boards.length > 1 && (
-                                    <>
-                                      {" · "}AI also matched:{" "}
-                                      {creative.analysis.boards
-                                        .slice(1)
-                                        .map((b) => b.name)
-                                        .join(", ")}
-                                    </>
                                   )}
-                                </div>
-                              </>
-                            );
-                          })()}
-                        </div>
+                                {activeBoards.length === 0 && (
+                                  <option value="">— no synced boards (run Sync from Pinterest on Boards page) —</option>
+                                )}
+                                {activeBoards.map((b) => (
+                                  <option key={b.id} value={b.id}>
+                                    {b.name}
+                                    {b.id === aiPrimary.id ? " (AI pick)" : ""}
+                                    {!b.pinterest_board_id ? " ⚠ not on Pinterest" : ""}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="text-[11px] text-muted-foreground mt-1">
+                                {isOverridden
+                                  ? "Overridden manually — this is the board the pin will be saved to."
+                                  : "Auto-selected by AI. Change above to pick a different board."}
+                                {creative.analysis.boards && creative.analysis.boards.length > 1 && (
+                                  <>
+                                    {" · "}AI also matched:{" "}
+                                    {creative.analysis.boards
+                                      .slice(1)
+                                      .map((b) => b.name)
+                                      .join(", ")}
+                                  </>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     </>
                   )}
