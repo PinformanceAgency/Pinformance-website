@@ -56,6 +56,8 @@ export default function CreativesPage() {
   const [activeBoards, setActiveBoards] = useState<ActiveBoard[]>([]);
   // Per-creative override: image_url → board_id chosen by the user.
   const [boardOverrides, setBoardOverrides] = useState<Record<string, string>>({});
+  // Per-creative override: image_url → destination link URL.
+  const [linkOverrides, setLinkOverrides] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!org) return;
@@ -90,6 +92,10 @@ export default function CreativesPage() {
 
   function setBoardOverride(creativeUrl: string, boardId: string) {
     setBoardOverrides((prev) => ({ ...prev, [creativeUrl]: boardId }));
+  }
+
+  function setLinkOverride(creativeUrl: string, link: string) {
+    setLinkOverrides((prev) => ({ ...prev, [creativeUrl]: link }));
   }
 
   /**
@@ -324,13 +330,17 @@ export default function CreativesPage() {
         ? activeBoards.find((b) => b.id === overrideId) || aiPrimary
         : aiPrimary;
 
+      // Resolve link URL: per-creative override > brand default.
+      const linkUrlOverride = linkOverrides[creative.image_url];
+      const finalLinkUrl = (linkUrlOverride && linkUrlOverride.trim()) || defaultLinkUrl;
+
       const { error } = await supabase.from("pins").insert({
         org_id: org.id,
         board_id: chosenBoard.id,
         title: a.title,
         description: a.description,
         alt_text: a.alt_text,
-        link_url: defaultLinkUrl,
+        link_url: finalLinkUrl,
         keywords: a.keywords,
         pin_type: isVideo ? "video" : "static",
         image_url: isVideo ? null : finalImageUrl,
@@ -621,6 +631,27 @@ export default function CreativesPage() {
                             </>
                           );
                         })()}
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground">
+                          Destination URL <span className="text-primary">(where the pin links to when clicked)</span>
+                        </label>
+                        <input
+                          type="url"
+                          value={linkOverrides[creative.image_url] ?? defaultLinkUrl}
+                          onChange={(e) => setLinkOverride(creative.image_url, e.target.value)}
+                          disabled={creative.status === "queued"}
+                          placeholder={defaultLinkUrl || "https://example.com/product"}
+                          className="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        />
+                        <div className="text-[11px] text-muted-foreground mt-1">
+                          {linkOverrides[creative.image_url] !== undefined &&
+                          linkOverrides[creative.image_url] !== defaultLinkUrl
+                            ? "Custom URL for this pin."
+                            : defaultLinkUrl
+                              ? "Using brand default. Change above to point this pin somewhere else."
+                              : "No brand default URL set in Settings — enter one here, or pins will save without a link."}
+                        </div>
                       </div>
                     </>
                   )}
