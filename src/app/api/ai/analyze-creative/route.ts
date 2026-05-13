@@ -88,6 +88,16 @@ export async function POST(request: NextRequest) {
 
   const brandName = org?.name || "Brand";
   const brandVoice = brand?.brand_voice || "";
+
+  // Brand-specific USP/positioning lives on the brand profile (raw_data) so
+  // it's per-org. Falls back to nothing — never hardcode per-client copy.
+  const brandRaw = (brand?.raw_data as Record<string, unknown> | null) || {};
+  const brandUsp =
+    typeof brandRaw.usp === "string" ? brandRaw.usp :
+    typeof brandRaw.positioning === "string" ? brandRaw.positioning :
+    typeof brandRaw.brand_usp === "string" ? brandRaw.brand_usp :
+    "";
+
   const boardList = boards.map((b) => `"${b.name}" (${b.category || "general"}, keywords: ${(b.keywords || []).slice(0, 3).join(", ")})`).join("\n");
   const keywordList = keywords.map((k) => k.keyword).join(", ");
 
@@ -149,27 +159,30 @@ CRITICAL RULES:
 - Suggested boards: pick ALL boards that match this content (usually 2-4 boards)
 ${brandVoice ? `- Brand voice: ${brandVoice}` : ""}
 - No hashtags anywhere
-
-BRAND USP (always weave in naturally):
-- Fit Cherries bras are designed for small bust women and create a beautiful, flattering silhouette
-- The key selling point: bras that make your bust look fuller and more shapely — a perfect fit that enhances your natural figure
-- Use phrases like: "flattering fit", "enhances your silhouette", "fuller look", "perfect shape", "confidence-boosting fit"
+${brandUsp ? `\nBRAND USP / POSITIONING (weave in naturally where relevant):\n${brandUsp}\n` : ""}
 
 STRICT ACCURACY RULES:
-- NEVER guess specific technical bra features (wireless, push-up, padded, seamless) unless visually obvious
+- Describe ONLY what you can actually see. Never invent product features, materials, or attributes that aren't clearly visible.
 - NEVER use "before and after", "transformation", or "comparison" unless two side-by-side images are shown
 - NEVER use "tutorial" or "how to" unless there are actual instructional steps
-- NEVER use "collection" or "Group" followed by numbers
-- Describe the visible color, style (lace, solid, strappy), and setting
-- A single person wearing a product = PRODUCT SHOWCASE
-- Keywords must match what is visually confirmed PLUS the brand USP terms above
+- NEVER use "collection" or "Group" followed by numbers (e.g., from filenames)
+- Describe visible colors, styles, setting, mood
+- A single person/object shown straight = PRODUCT SHOWCASE
+- Keywords must match what is visually confirmed in the image
+
+OUTPUT FORMAT — IMPORTANT:
+Respond with ONLY a JSON object (no preamble, no markdown fences, no commentary).
+Even if the image doesn't perfectly match the brand or you're uncertain, you MUST still
+return a valid JSON object describing what you see honestly. If you genuinely cannot
+describe the image, return a JSON object with conservative generic descriptions of the
+visible subject matter — do NOT refuse with prose.
 
 Available boards:
 ${boardList}
 
 Brand keywords (use ONLY if relevant to this content): ${keywordList}
 
-Output JSON:
+JSON shape:
 {
   "title": string,
   "description": string,
@@ -218,15 +231,14 @@ If it's a review or comparison, reflect that in the SEO.`;
 Brand: ${brandName}
 
 Look at this image carefully. Describe EXACTLY what you see:
-- What specific products are shown? (color, style, type)
-- What are the people wearing?
-- What is the setting/background?
-- How many people are visible?
+- What specific products or subjects are shown? (color, style, type)
+- What is in the foreground? Setting/background?
+- How many people/items are visible?
 
 Generate Pinterest SEO that accurately describes THIS specific visual content.
 Do NOT use the words "collection", "Group", or numbers from filenames.
 Do NOT say "before and after" or "transformation" unless you see two side-by-side comparison images.
-Describe the actual bra/lingerie styles, colors, and the mood of the shot.`;
+Describe the actual visible styles, colors, and mood of the shot.`;
 
       try {
         const result = await generateJSONWithImage<AnalysisOutput>(systemPrompt, userPrompt, accessibleThumbUrl, undefined, apiKey);
@@ -245,10 +257,11 @@ Describe the actual bra/lingerie styles, colors, and the mood of the shot.`;
     }
 
     // Final fallback: filename-based (no thumbnail available)
-    userPrompt = `Generate Pinterest SEO for a video by ${brandName} (lingerie/bra brand for small bust women).
-The video likely shows lingerie/bra products being modeled.
+    userPrompt = `Generate Pinterest SEO for a video by ${brandName}.
+${brandUsp ? `Brand USP: ${brandUsp}` : ""}
+${brandVoice ? `Brand voice: ${brandVoice}` : ""}
 Do NOT use numbers, "Group", or "collection" from the filename "${file_name}".
-Generate SEO about the type of lingerie content this brand creates.`;
+Generate SEO consistent with this brand's typical content.`;
 
   } else {
     // Image — will be analyzed visually by Claude

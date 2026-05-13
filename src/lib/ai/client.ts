@@ -14,6 +14,32 @@ export function getAnthropicClient(apiKey?: string): Anthropic {
   return client;
 }
 
+function extractJsonFromText<T>(text: string): T {
+  // Try multiple patterns in order of preference.
+  const patterns: RegExp[] = [
+    /```json\s*([\s\S]*?)\s*```/,
+    /```\s*([\s\S]*?)\s*```/,
+    /(\{[\s\S]*\})/, // greedy: first `{` to last `}` in the response
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m?.[1]) {
+      try {
+        return JSON.parse(m[1]) as T;
+      } catch {
+        // try next pattern
+      }
+    }
+  }
+  // Include a short excerpt of what Claude actually said — makes debugging
+  // refusals / wrong-format responses far easier than a blanket "Failed to
+  // extract JSON from AI response".
+  const excerpt = (text || "").trim().slice(0, 300) || "(empty response)";
+  throw new Error(
+    `Failed to extract JSON from AI response. Claude said: "${excerpt}${text.length > 300 ? "…" : ""}"`
+  );
+}
+
 export async function generateJSON<T>(
   systemPrompt: string,
   userPrompt: string,
@@ -30,13 +56,7 @@ export async function generateJSON<T>(
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : "";
-
-  // Extract JSON from response (handles ```json blocks)
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-  if (!jsonMatch?.[1]) {
-    throw new Error("Failed to extract JSON from AI response");
-  }
-  return JSON.parse(jsonMatch[1]) as T;
+  return extractJsonFromText<T>(text);
 }
 
 /**
@@ -72,10 +92,5 @@ export async function generateJSONWithImage<T>(
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : "";
-
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-  if (!jsonMatch?.[1]) {
-    throw new Error("Failed to extract JSON from AI response");
-  }
-  return JSON.parse(jsonMatch[1]) as T;
+  return extractJsonFromText<T>(text);
 }
