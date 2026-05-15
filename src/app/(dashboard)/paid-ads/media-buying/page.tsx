@@ -422,6 +422,45 @@ export default function MediaBuyingPage() {
                 </tr>
               </thead>
               <tbody>
+                {(() => {
+                  // Totals computed across the visible rows (skipping the
+                  // "no link" bucket would be misleading, so we include it).
+                  const totals = landingPages.reduce(
+                    (acc, lp) => {
+                      acc.ads += lp.ad_count;
+                      acc.spend += lp.spend;
+                      acc.conv += lp.conversions;
+                      acc.rev += lp.revenue;
+                      return acc;
+                    },
+                    { ads: 0, spend: 0, conv: 0, rev: 0 }
+                  );
+                  const totalRoas = totals.spend > 0 ? totals.rev / totals.spend : 0;
+                  const totalCpa = totals.conv > 0 ? totals.spend / totals.conv : null;
+                  return (
+                    <tr className="bg-muted/30 border-t-2 border-border font-medium">
+                      <td className="px-3 py-2.5 text-xs uppercase tracking-wider text-muted-foreground">
+                        Total ({landingPages.length} page{landingPages.length === 1 ? "" : "s"})
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{totals.ads}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {fmtCurrency(totals.spend, currency)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {fmtNum(totals.conv)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {fmtCurrency(totals.rev, currency)}
+                      </td>
+                      <td className={cn("px-3 py-2.5 text-right tabular-nums", roasColor(totalRoas))}>
+                        {fmtRoas(totalRoas)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {fmtCurrency(totalCpa, currency)}
+                      </td>
+                    </tr>
+                  );
+                })()}
                 {landingPages.map((lp) => {
                   const hostMatch = lp.url.match(/^([^/]+)(\/.*)?$/);
                   const host = hostMatch?.[1] || lp.url;
