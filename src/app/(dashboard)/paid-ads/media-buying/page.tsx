@@ -11,6 +11,7 @@ import {
   TrendingDown,
   Minus,
   ExternalLink,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   LineChart,
@@ -143,6 +144,7 @@ export default function MediaBuyingPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [chartMetrics, setChartMetrics] = useState<KpiKey[]>(["spend", "roas"]);
   const [chartMode, setChartMode] = useState<"absolute" | "indexed">("indexed");
+  const [lpSort, setLpSort] = useState<"spend" | "revenue" | "roas" | "cpa" | "conversions" | "ads">("spend");
 
   // Restore persisted conversion window.
   useEffect(() => {
@@ -201,7 +203,46 @@ export default function MediaBuyingPage() {
   const current = data?.current_totals;
   const previous = data?.previous_totals;
   const daily = data?.daily || [];
-  const landingPages = data?.landing_pages || [];
+  const rawLandingPages = data?.landing_pages || [];
+
+  // Sort landing pages by selected KPI. CPA = ascending (lower is better);
+  // all others = descending. Rows with no data on the chosen KPI are
+  // pushed to the bottom.
+  const landingPages = useMemo(() => {
+    const sorted = [...rawLandingPages];
+    const getVal = (lp: LandingPageRow): number => {
+      switch (lpSort) {
+        case "spend":
+          return lp.spend;
+        case "revenue":
+          return lp.revenue;
+        case "roas":
+          return lp.spend > 0 ? lp.roas : -Infinity;
+        case "cpa":
+          return lp.cpa != null && lp.cpa > 0 ? lp.cpa : Number.POSITIVE_INFINITY;
+        case "conversions":
+          return lp.conversions;
+        case "ads":
+          return lp.ad_count;
+      }
+    };
+    const ascending = lpSort === "cpa";
+    sorted.sort((a, b) => {
+      const av = getVal(a);
+      const bv = getVal(b);
+      return ascending ? av - bv : bv - av;
+    });
+    return sorted;
+  }, [rawLandingPages, lpSort]);
+
+  const LP_SORT_OPTIONS: { key: typeof lpSort; label: string }[] = [
+    { key: "spend", label: "Spend (high → low)" },
+    { key: "revenue", label: "Revenue (high → low)" },
+    { key: "roas", label: "ROAS (high → low)" },
+    { key: "cpa", label: "CPA (low → high)" },
+    { key: "conversions", label: "Conversions (high → low)" },
+    { key: "ads", label: "Ads count (high → low)" },
+  ];
 
   // Indexed view: each metric is renormalized to 100 on the first day that
   // has a non-zero value, then shown as % change. Makes metrics with wildly
@@ -480,11 +521,28 @@ export default function MediaBuyingPage() {
 
       {/* Landing Page Performance */}
       <section className="bg-card border border-border rounded-2xl p-5">
-        <div className="mb-4">
-          <h2 className="text-base font-semibold">Landing Page Performance</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            All landing pages your ads point to in this period, aggregated.
-          </p>
+        <div className="mb-4 flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-base font-semibold">Landing Page Performance</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              All landing pages your ads point to in this period, aggregated.
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-1.5">
+            <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Sort:</span>
+            <select
+              value={lpSort}
+              onChange={(e) => setLpSort(e.target.value as typeof lpSort)}
+              className="px-2.5 py-1 text-xs font-medium rounded-lg border border-border bg-card text-foreground hover:bg-muted transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              {LP_SORT_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         {loading && landingPages.length === 0 ? (
           <div className="h-32 bg-muted/30 animate-pulse rounded-xl" />
