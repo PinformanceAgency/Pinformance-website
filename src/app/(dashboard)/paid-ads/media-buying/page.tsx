@@ -384,41 +384,33 @@ export default function MediaBuyingPage() {
                   tick={{ fontSize: 11, fill: "#6b7280" }}
                   stroke="#d1d5db"
                 />
-                {/* Each metric has its own auto-scaled Y axis so its line
-                    uses the full chart height regardless of magnitude. The
-                    first selected metric's axis is visible on the left as a
-                    reference; the rest are hidden. Exact values per line are
-                    in the tooltip. */}
-                {(["spend", "revenue", "roas", "cpa", "conversions"] as KpiKey[]).map((m) => {
-                  const visible = chartMetrics.length > 0 && m === chartMetrics[0];
-                  const isRatio = m === "roas";
-                  return (
-                    <YAxis
-                      key={m}
-                      yAxisId={m}
-                      orientation="left"
-                      hide={!visible}
-                      domain={["auto", "auto"]}
-                      tick={{ fontSize: 11, fill: "#6b7280" }}
-                      stroke="#d1d5db"
-                      tickFormatter={(v) => {
-                        const n = Number(v);
-                        if (isRatio) return `${n.toFixed(2)}x`;
-                        if (m === "conversions")
-                          return new Intl.NumberFormat("en-US", {
-                            notation: "compact",
-                            maximumFractionDigits: 1,
-                          }).format(n);
-                        return new Intl.NumberFormat("en-US", {
-                          style: "currency",
-                          currency,
-                          notation: "compact",
-                          maximumFractionDigits: 1,
-                        }).format(n);
-                      }}
-                    />
-                  );
-                })}
+                {/* Spend + Revenue share the visible left currency axis so
+                    they're directly comparable. ROAS uses the visible right
+                    ratio axis. CPA and Conversions get their own hidden auto-
+                    scaled axes so their fluctuations are visible regardless
+                    of their absolute scale relative to spend. */}
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  stroke="#d1d5db"
+                  tickFormatter={(v) =>
+                    new Intl.NumberFormat("en-US", {
+                      style: "currency",
+                      currency,
+                      notation: "compact",
+                      maximumFractionDigits: 1,
+                    }).format(Number(v))
+                  }
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  stroke="#d1d5db"
+                  tickFormatter={(v) => `${Number(v).toFixed(2)}x`}
+                />
+                <YAxis yAxisId="cpa" hide domain={["auto", "auto"]} />
+                <YAxis yAxisId="conversions" hide domain={["auto", "auto"]} />
                 <Tooltip
                   formatter={(value, name, item) => {
                     const n = typeof value === "number" ? value : Number(value) || 0;
@@ -440,12 +432,21 @@ export default function MediaBuyingPage() {
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {chartMetrics.map((m) => {
                   const opt = KPI_OPTIONS.find((o) => o.key === m)!;
+                  // Spend & Revenue → shared left currency axis
+                  // ROAS → right ratio axis
+                  // CPA / Conversions → own hidden auto-scaled axis
+                  const yAxisId =
+                    m === "spend" || m === "revenue"
+                      ? "left"
+                      : m === "roas"
+                        ? "right"
+                        : m; // "cpa" or "conversions"
                   return (
                     <Line
                       key={m}
                       type="monotone"
                       dataKey={m}
-                      yAxisId={m}
+                      yAxisId={yAxisId}
                       name={opt.label}
                       stroke={KPI_COLORS[m]}
                       strokeWidth={2}
@@ -461,12 +462,10 @@ export default function MediaBuyingPage() {
         </div>
         {chartMetrics.length > 0 && (
           <div className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-            Each line is auto-scaled to its own range so trends are visible
-            regardless of absolute magnitude. The visible Y axis shows{" "}
-            <strong className="text-foreground">
-              {KPI_OPTIONS.find((o) => o.key === chartMetrics[0])?.label}
-            </strong>
-            ; hover the chart to read exact values for every series.
+            <strong className="text-foreground">Left axis:</strong> Spend, Revenue (shared currency scale) ·{" "}
+            <strong className="text-foreground">Right axis:</strong> ROAS ·{" "}
+            <strong className="text-foreground">CPA &amp; Conversions</strong> are auto-scaled to their own range so fluctuations are visible.
+            Hover the chart for exact values.
           </div>
         )}
       </section>
