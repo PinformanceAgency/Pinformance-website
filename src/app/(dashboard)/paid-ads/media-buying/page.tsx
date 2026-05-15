@@ -143,7 +143,6 @@ export default function MediaBuyingPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [chartMetrics, setChartMetrics] = useState<KpiKey[]>(["spend", "roas"]);
-  const [chartMode, setChartMode] = useState<"absolute" | "indexed">("indexed");
   const [lpSort, setLpSort] = useState<"spend" | "revenue" | "roas" | "cpa" | "conversions" | "ads">("spend");
 
   // Restore persisted conversion window.
@@ -244,39 +243,7 @@ export default function MediaBuyingPage() {
     { key: "ads", label: "Ads count (high → low)" },
   ];
 
-  // Indexed view: each metric is renormalized to 100 on the first day that
-  // has a non-zero value, then shown as % change. Makes metrics with wildly
-  // different absolute scales (e.g. Spend €700 vs CPA €40) directly
-  // comparable on a single axis.
-  const indexedDaily = useMemo(() => {
-    if (daily.length === 0) return daily;
-    const firstValues: Partial<Record<KpiKey, number>> = {};
-    for (const row of daily) {
-      for (const k of ["spend", "revenue", "roas", "cpa", "conversions"] as KpiKey[]) {
-        if (firstValues[k] == null) {
-          const v = row[k];
-          if (typeof v === "number" && v !== 0 && isFinite(v)) firstValues[k] = v;
-        }
-      }
-    }
-    return daily.map((row) => {
-      const out: Record<string, number | string | null> = { date: row.date };
-      for (const k of ["spend", "revenue", "roas", "cpa", "conversions"] as KpiKey[]) {
-        const base = firstValues[k];
-        const v = row[k];
-        if (typeof v !== "number" || base == null || base === 0) {
-          out[k] = null;
-        } else {
-          out[k] = (v / base) * 100;
-        }
-      }
-      return out;
-    });
-  }, [daily]);
-
-  const chartData = (
-    chartMode === "indexed" ? indexedDaily : daily
-  ) as Array<Record<string, number | string | null>>;
+  const chartData = daily as unknown as Array<Record<string, number | string | null>>;
 
   // Color thresholds for landing-page table — driven by data so we only
   // highlight true standouts (top quartile / bottom quartile).
@@ -367,28 +334,10 @@ export default function MediaBuyingPage() {
           <div>
             <h2 className="text-base font-semibold">Performance Trend</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {chartMode === "indexed"
-                ? "% change from period start — directly comparable across metrics regardless of scale."
-                : "Daily absolute values. Large-scale metrics on the left axis, small-scale on the right."}
+              Daily metrics over time. Each line is auto-scaled to its own range so fluctuations are visible regardless of magnitude.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="inline-flex bg-muted rounded-lg p-1">
-              {(["indexed", "absolute"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setChartMode(m)}
-                  className={cn(
-                    "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                    chartMode === m
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {m === "indexed" ? "Indexed (% change)" : "Absolute"}
-                </button>
-              ))}
-            </div>
             <div className="flex items-center gap-1 flex-wrap">
               {KPI_OPTIONS.map((o) => {
                 const active = chartMetrics.includes(o.key);
@@ -435,61 +384,46 @@ export default function MediaBuyingPage() {
                   tick={{ fontSize: 11, fill: "#6b7280" }}
                   stroke="#d1d5db"
                 />
-                {chartMode === "indexed" ? (
-                  <YAxis
-                    yAxisId="left"
-                    tick={{ fontSize: 11, fill: "#6b7280" }}
-                    stroke="#d1d5db"
-                    tickFormatter={(v) => `${Math.round(Number(v))}`}
-                    domain={["auto", "auto"]}
-                  />
-                ) : (
-                  // Absolute mode: each metric gets its own auto-scaled Y axis
-                  // so its line uses the full chart height regardless of how
-                  // large/small the other metrics are. The first selected
-                  // metric's axis is visible on the left as a reference; the
-                  // rest are hidden. Exact values per line are in the tooltip.
-                  (["spend", "revenue", "roas", "cpa", "conversions"] as KpiKey[]).map((m) => {
-                    const visible =
-                      chartMetrics.length > 0 && m === chartMetrics[0];
-                    const isRatio = m === "roas";
-                    return (
-                      <YAxis
-                        key={m}
-                        yAxisId={m}
-                        orientation="left"
-                        hide={!visible}
-                        domain={["auto", "auto"]}
-                        tick={{ fontSize: 11, fill: "#6b7280" }}
-                        stroke="#d1d5db"
-                        tickFormatter={(v) => {
-                          const n = Number(v);
-                          if (isRatio) return `${n.toFixed(2)}x`;
-                          if (m === "conversions") return new Intl.NumberFormat("en-US", {
-                            notation: "compact",
-                            maximumFractionDigits: 1,
-                          }).format(n);
+                {/* Each metric has its own auto-scaled Y axis so its line
+                    uses the full chart height regardless of magnitude. The
+                    first selected metric's axis is visible on the left as a
+                    reference; the rest are hidden. Exact values per line are
+                    in the tooltip. */}
+                {(["spend", "revenue", "roas", "cpa", "conversions"] as KpiKey[]).map((m) => {
+                  const visible = chartMetrics.length > 0 && m === chartMetrics[0];
+                  const isRatio = m === "roas";
+                  return (
+                    <YAxis
+                      key={m}
+                      yAxisId={m}
+                      orientation="left"
+                      hide={!visible}
+                      domain={["auto", "auto"]}
+                      tick={{ fontSize: 11, fill: "#6b7280" }}
+                      stroke="#d1d5db"
+                      tickFormatter={(v) => {
+                        const n = Number(v);
+                        if (isRatio) return `${n.toFixed(2)}x`;
+                        if (m === "conversions")
                           return new Intl.NumberFormat("en-US", {
-                            style: "currency",
-                            currency,
                             notation: "compact",
                             maximumFractionDigits: 1,
                           }).format(n);
-                        }}
-                      />
-                    );
-                  })
-                )}
+                        return new Intl.NumberFormat("en-US", {
+                          style: "currency",
+                          currency,
+                          notation: "compact",
+                          maximumFractionDigits: 1,
+                        }).format(n);
+                      }}
+                    />
+                  );
+                })}
                 <Tooltip
                   formatter={(value, name) => {
                     const n = typeof value === "number" ? value : Number(value) || 0;
                     const key = String(name) as KpiKey;
                     const label = KPI_OPTIONS.find((o) => o.key === key)?.label || String(name);
-                    if (chartMode === "indexed") {
-                      const pct = n - 100;
-                      const sign = pct > 0 ? "+" : "";
-                      return [`${sign}${pct.toFixed(1)}%`, label];
-                    }
                     if (key === "roas") return [fmtRoas(n), label];
                     if (key === "conversions") return [fmtNum(n), label];
                     return [fmtCurrency(n, currency), label];
@@ -500,15 +434,12 @@ export default function MediaBuyingPage() {
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {chartMetrics.map((m) => {
                   const opt = KPI_OPTIONS.find((o) => o.key === m)!;
-                  // Indexed: one shared axis. Absolute: per-metric axis so
-                  // every line uses the full chart height.
-                  const yAxisId = chartMode === "indexed" ? "left" : m;
                   return (
                     <Line
                       key={m}
                       type="monotone"
                       dataKey={m}
-                      yAxisId={yAxisId}
+                      yAxisId={m}
                       name={opt.label}
                       stroke={KPI_COLORS[m]}
                       strokeWidth={2}
@@ -522,7 +453,7 @@ export default function MediaBuyingPage() {
             </ResponsiveContainer>
           )}
         </div>
-        {chartMode === "absolute" && chartMetrics.length > 0 && (
+        {chartMetrics.length > 0 && (
           <div className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
             Each line is auto-scaled to its own range so trends are visible
             regardless of absolute magnitude. The visible Y axis shows{" "}
