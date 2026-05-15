@@ -420,12 +420,18 @@ export default function MediaBuyingPage() {
                   );
                 })}
                 <Tooltip
-                  formatter={(value, name) => {
+                  formatter={(value, name, item) => {
                     const n = typeof value === "number" ? value : Number(value) || 0;
-                    const key = String(name) as KpiKey;
-                    const label = KPI_OPTIONS.find((o) => o.key === key)?.label || String(name);
-                    if (key === "roas") return [fmtRoas(n), label];
-                    if (key === "conversions") return [fmtNum(n), label];
+                    // Recharts passes the Line's `name` (display label) as the
+                    // second arg; the underlying dataKey is on the item. Use
+                    // the dataKey to dispatch correctly to fmtNum vs fmtRoas
+                    // vs fmtCurrency.
+                    const dk = String(
+                      (item as { dataKey?: string } | undefined)?.dataKey || ""
+                    ).toLowerCase() as KpiKey;
+                    const label = String(name);
+                    if (dk === "roas") return [fmtRoas(n), label];
+                    if (dk === "conversions") return [fmtNum(n), label];
                     return [fmtCurrency(n, currency), label];
                   }}
                   labelFormatter={(label) => fmtDate(String(label))}
