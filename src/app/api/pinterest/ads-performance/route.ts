@@ -137,11 +137,11 @@ export async function GET(request: NextRequest) {
       cpa: number | null;
     } | null = null;
     try {
-      const accountRows = await client.getAdAccountAnalytics(adAccount.id, startDate, endDate, {
+      const accountRows = (await client.getAdAccountAnalytics(adAccount.id, startDate, endDate, {
         clickWindowDays: clickWindow,
         viewWindowDays: viewWindow,
         conversionReportTime,
-      });
+      })) as Array<Record<string, number | string>>;
       const t = accountRows?.[0] || {};
       const aSpend = num(t["SPEND_IN_DOLLAR"]);
       const aPurchases = num(t["TOTAL_CHECKOUT"]);

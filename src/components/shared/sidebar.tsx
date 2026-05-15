@@ -42,6 +42,7 @@ const organicNav = [
 
 const paidAdsNav = [
   { href: "/paid-ads/creatives", label: "Creatives", icon: Sparkles },
+  { href: "/paid-ads/media-buying", label: "Media Buying", icon: BarChart3 },
 ];
 
 const adminSharedNav = [
