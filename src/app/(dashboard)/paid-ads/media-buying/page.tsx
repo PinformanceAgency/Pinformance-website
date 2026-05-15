@@ -79,12 +79,14 @@ interface ApiResponse {
   error?: string;
 }
 
-const KPI_OPTIONS: { key: KpiKey; label: string; axis: "currency" | "ratio" | "count" }[] = [
-  { key: "spend", label: "Spend", axis: "currency" },
-  { key: "revenue", label: "Revenue", axis: "currency" },
-  { key: "roas", label: "ROAS", axis: "ratio" },
-  { key: "cpa", label: "CPA", axis: "currency" },
-  { key: "conversions", label: "Conversions", axis: "count" },
+// "big" = totals scale (Spend/Revenue often in thousands) → left axis.
+// "small" = per-event values (CPA, conversions, ROAS) → right axis.
+const KPI_OPTIONS: { key: KpiKey; label: string; scale: "big" | "small" }[] = [
+  { key: "spend", label: "Spend", scale: "big" },
+  { key: "revenue", label: "Revenue", scale: "big" },
+  { key: "roas", label: "ROAS", scale: "small" },
+  { key: "cpa", label: "CPA", scale: "small" },
+  { key: "conversions", label: "Conversions", scale: "small" },
 ];
 
 const KPI_COLORS: Record<KpiKey, string> = {
@@ -140,6 +142,7 @@ export default function MediaBuyingPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [chartMetrics, setChartMetrics] = useState<KpiKey[]>(["spend", "roas"]);
+  const [chartMode, setChartMode] = useState<"absolute" | "indexed">("indexed");
 
   // Restore persisted conversion window.
   useEffect(() => {
@@ -199,6 +202,40 @@ export default function MediaBuyingPage() {
   const previous = data?.previous_totals;
   const daily = data?.daily || [];
   const landingPages = data?.landing_pages || [];
+
+  // Indexed view: each metric is renormalized to 100 on the first day that
+  // has a non-zero value, then shown as % change. Makes metrics with wildly
+  // different absolute scales (e.g. Spend €700 vs CPA €40) directly
+  // comparable on a single axis.
+  const indexedDaily = useMemo(() => {
+    if (daily.length === 0) return daily;
+    const firstValues: Partial<Record<KpiKey, number>> = {};
+    for (const row of daily) {
+      for (const k of ["spend", "revenue", "roas", "cpa", "conversions"] as KpiKey[]) {
+        if (firstValues[k] == null) {
+          const v = row[k];
+          if (typeof v === "number" && v !== 0 && isFinite(v)) firstValues[k] = v;
+        }
+      }
+    }
+    return daily.map((row) => {
+      const out: Record<string, number | string | null> = { date: row.date };
+      for (const k of ["spend", "revenue", "roas", "cpa", "conversions"] as KpiKey[]) {
+        const base = firstValues[k];
+        const v = row[k];
+        if (typeof v !== "number" || base == null || base === 0) {
+          out[k] = null;
+        } else {
+          out[k] = (v / base) * 100;
+        }
+      }
+      return out;
+    });
+  }, [daily]);
+
+  const chartData = (
+    chartMode === "indexed" ? indexedDaily : daily
+  ) as Array<Record<string, number | string | null>>;
 
   // Color thresholds for landing-page table — driven by data so we only
   // highlight true standouts (top quartile / bottom quartile).
@@ -289,82 +326,122 @@ export default function MediaBuyingPage() {
           <div>
             <h2 className="text-base font-semibold">Performance Trend</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Daily metrics over time. Toggle KPIs to add / remove series.
+              {chartMode === "indexed"
+                ? "% change from period start — directly comparable across metrics regardless of scale."
+                : "Daily absolute values. Large-scale metrics on the left axis, small-scale on the right."}
             </p>
           </div>
-          <div className="flex items-center gap-1 flex-wrap">
-            {KPI_OPTIONS.map((o) => {
-              const active = chartMetrics.includes(o.key);
-              return (
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex bg-muted rounded-lg p-1">
+              {(["indexed", "absolute"] as const).map((m) => (
                 <button
-                  key={o.key}
-                  onClick={() => {
-                    setChartMetrics((prev) =>
-                      prev.includes(o.key)
-                        ? prev.filter((k) => k !== o.key)
-                        : [...prev, o.key]
-                    );
-                  }}
+                  key={m}
+                  onClick={() => setChartMode(m)}
                   className={cn(
-                    "px-2.5 py-1 text-xs font-medium rounded-md transition-colors inline-flex items-center gap-1.5 border",
-                    active
-                      ? "bg-card text-foreground border-border"
-                      : "bg-muted/40 text-muted-foreground border-transparent hover:bg-muted"
+                    "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
+                    chartMode === m
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ background: active ? KPI_COLORS[o.key] : "#9ca3af" }}
-                  />
-                  {o.label}
+                  {m === "indexed" ? "Indexed (% change)" : "Absolute"}
                 </button>
-              );
-            })}
+              ))}
+            </div>
+            <div className="flex items-center gap-1 flex-wrap">
+              {KPI_OPTIONS.map((o) => {
+                const active = chartMetrics.includes(o.key);
+                return (
+                  <button
+                    key={o.key}
+                    onClick={() => {
+                      setChartMetrics((prev) =>
+                        prev.includes(o.key)
+                          ? prev.filter((k) => k !== o.key)
+                          : [...prev, o.key]
+                      );
+                    }}
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-medium rounded-md transition-colors inline-flex items-center gap-1.5 border",
+                      active
+                        ? "bg-card text-foreground border-border"
+                        : "bg-muted/40 text-muted-foreground border-transparent hover:bg-muted"
+                    )}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: active ? KPI_COLORS[o.key] : "#9ca3af" }}
+                    />
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
         <div className="w-full h-72">
-          {daily.length === 0 ? (
+          {chartData.length === 0 ? (
             <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
               {loading ? "Loading..." : "No daily data for this period."}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={daily} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+              <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis
                   dataKey="date"
-                  tickFormatter={fmtDate}
+                  tickFormatter={(v) => fmtDate(String(v))}
                   tick={{ fontSize: 11, fill: "#6b7280" }}
                   stroke="#d1d5db"
                 />
-                <YAxis
-                  yAxisId="left"
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  stroke="#d1d5db"
-                  tickFormatter={(v) =>
-                    new Intl.NumberFormat("en-US", {
-                      notation: "compact",
-                      maximumFractionDigits: 1,
-                    }).format(v)
-                  }
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  stroke="#d1d5db"
-                  tickFormatter={(v) => `${v.toFixed(1)}x`}
-                />
+                {chartMode === "indexed" ? (
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    stroke="#d1d5db"
+                    tickFormatter={(v) => `${Math.round(Number(v))}`}
+                    domain={["auto", "auto"]}
+                  />
+                ) : (
+                  <>
+                    <YAxis
+                      yAxisId="left"
+                      tick={{ fontSize: 11, fill: "#6b7280" }}
+                      stroke="#d1d5db"
+                      tickFormatter={(v) =>
+                        new Intl.NumberFormat("en-US", {
+                          notation: "compact",
+                          maximumFractionDigits: 1,
+                        }).format(Number(v))
+                      }
+                    />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tick={{ fontSize: 11, fill: "#6b7280" }}
+                      stroke="#d1d5db"
+                      tickFormatter={(v) =>
+                        new Intl.NumberFormat("en-US", {
+                          notation: "compact",
+                          maximumFractionDigits: 1,
+                        }).format(Number(v))
+                      }
+                    />
+                  </>
+                )}
                 <Tooltip
                   formatter={(value, name) => {
                     const n = typeof value === "number" ? value : Number(value) || 0;
                     const key = String(name) as KpiKey;
-                    if (key === "roas") return [fmtRoas(n), "ROAS"];
-                    if (key === "conversions") return [fmtNum(n), "Conversions"];
-                    return [
-                      fmtCurrency(n, currency),
-                      KPI_OPTIONS.find((o) => o.key === key)?.label || String(name),
-                    ];
+                    const label = KPI_OPTIONS.find((o) => o.key === key)?.label || String(name);
+                    if (chartMode === "indexed") {
+                      const pct = n - 100;
+                      const sign = pct > 0 ? "+" : "";
+                      return [`${sign}${pct.toFixed(1)}%`, label];
+                    }
+                    if (key === "roas") return [fmtRoas(n), label];
+                    if (key === "conversions") return [fmtNum(n), label];
+                    return [fmtCurrency(n, currency), label];
                   }}
                   labelFormatter={(label) => fmtDate(String(label))}
                   contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
@@ -372,7 +449,8 @@ export default function MediaBuyingPage() {
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {chartMetrics.map((m) => {
                   const opt = KPI_OPTIONS.find((o) => o.key === m)!;
-                  const yAxisId = opt.axis === "ratio" ? "right" : "left";
+                  const yAxisId =
+                    chartMode === "indexed" ? "left" : opt.scale === "small" ? "right" : "left";
                   return (
                     <Line
                       key={m}
@@ -384,6 +462,7 @@ export default function MediaBuyingPage() {
                       strokeWidth={2}
                       dot={false}
                       activeDot={{ r: 4 }}
+                      connectNulls
                     />
                   );
                 })}
@@ -391,6 +470,12 @@ export default function MediaBuyingPage() {
             </ResponsiveContainer>
           )}
         </div>
+        {chartMode === "absolute" && (
+          <div className="text-[11px] text-muted-foreground mt-2 flex items-center gap-4 flex-wrap">
+            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-400 mr-1.5" /><strong>Left axis:</strong> Spend, Revenue (big-scale)</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-400 mr-1.5" /><strong>Right axis:</strong> ROAS, CPA, Conversions (small-scale)</span>
+          </div>
+        )}
       </section>
 
       {/* Landing Page Performance */}
