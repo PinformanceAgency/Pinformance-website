@@ -444,31 +444,41 @@ export default function MediaBuyingPage() {
                     domain={["auto", "auto"]}
                   />
                 ) : (
-                  <>
-                    <YAxis
-                      yAxisId="left"
-                      tick={{ fontSize: 11, fill: "#6b7280" }}
-                      stroke="#d1d5db"
-                      tickFormatter={(v) =>
-                        new Intl.NumberFormat("en-US", {
-                          notation: "compact",
-                          maximumFractionDigits: 1,
-                        }).format(Number(v))
-                      }
-                    />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
-                      tick={{ fontSize: 11, fill: "#6b7280" }}
-                      stroke="#d1d5db"
-                      tickFormatter={(v) =>
-                        new Intl.NumberFormat("en-US", {
-                          notation: "compact",
-                          maximumFractionDigits: 1,
-                        }).format(Number(v))
-                      }
-                    />
-                  </>
+                  // Absolute mode: each metric gets its own auto-scaled Y axis
+                  // so its line uses the full chart height regardless of how
+                  // large/small the other metrics are. The first selected
+                  // metric's axis is visible on the left as a reference; the
+                  // rest are hidden. Exact values per line are in the tooltip.
+                  (["spend", "revenue", "roas", "cpa", "conversions"] as KpiKey[]).map((m) => {
+                    const visible =
+                      chartMetrics.length > 0 && m === chartMetrics[0];
+                    const isRatio = m === "roas";
+                    return (
+                      <YAxis
+                        key={m}
+                        yAxisId={m}
+                        orientation="left"
+                        hide={!visible}
+                        domain={["auto", "auto"]}
+                        tick={{ fontSize: 11, fill: "#6b7280" }}
+                        stroke="#d1d5db"
+                        tickFormatter={(v) => {
+                          const n = Number(v);
+                          if (isRatio) return `${n.toFixed(2)}x`;
+                          if (m === "conversions") return new Intl.NumberFormat("en-US", {
+                            notation: "compact",
+                            maximumFractionDigits: 1,
+                          }).format(n);
+                          return new Intl.NumberFormat("en-US", {
+                            style: "currency",
+                            currency,
+                            notation: "compact",
+                            maximumFractionDigits: 1,
+                          }).format(n);
+                        }}
+                      />
+                    );
+                  })
                 )}
                 <Tooltip
                   formatter={(value, name) => {
@@ -490,8 +500,9 @@ export default function MediaBuyingPage() {
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {chartMetrics.map((m) => {
                   const opt = KPI_OPTIONS.find((o) => o.key === m)!;
-                  const yAxisId =
-                    chartMode === "indexed" ? "left" : opt.scale === "small" ? "right" : "left";
+                  // Indexed: one shared axis. Absolute: per-metric axis so
+                  // every line uses the full chart height.
+                  const yAxisId = chartMode === "indexed" ? "left" : m;
                   return (
                     <Line
                       key={m}
@@ -511,10 +522,14 @@ export default function MediaBuyingPage() {
             </ResponsiveContainer>
           )}
         </div>
-        {chartMode === "absolute" && (
-          <div className="text-[11px] text-muted-foreground mt-2 flex items-center gap-4 flex-wrap">
-            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-400 mr-1.5" /><strong>Left axis:</strong> Spend, Revenue (big-scale)</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-400 mr-1.5" /><strong>Right axis:</strong> ROAS, CPA, Conversions (small-scale)</span>
+        {chartMode === "absolute" && chartMetrics.length > 0 && (
+          <div className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+            Each line is auto-scaled to its own range so trends are visible
+            regardless of absolute magnitude. The visible Y axis shows{" "}
+            <strong className="text-foreground">
+              {KPI_OPTIONS.find((o) => o.key === chartMetrics[0])?.label}
+            </strong>
+            ; hover the chart to read exact values for every series.
           </div>
         )}
       </section>
