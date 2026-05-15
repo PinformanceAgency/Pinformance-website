@@ -245,6 +245,27 @@ export default function MediaBuyingPage() {
 
   const chartData = daily as unknown as Array<Record<string, number | string | null>>;
 
+  // Pad the hidden axes' domains so CPA/Conversions don't hug the bottom of
+  // the chart when their values stay in a tight range. ~35% breathing room
+  // below the minimum (clamped at 0), ~20% above the maximum.
+  function paddedDomain(values: Array<number | null | undefined>): [number, number] | ["auto", "auto"] {
+    const nums = values.filter((v): v is number => typeof v === "number" && isFinite(v) && v > 0);
+    if (nums.length === 0) return ["auto", "auto"];
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    if (min === max) {
+      const pad = Math.abs(min) * 0.25 || 1;
+      return [Math.max(0, min - pad), max + pad];
+    }
+    const range = max - min;
+    return [Math.max(0, min - range * 0.35), max + range * 0.2];
+  }
+  const cpaDomain = useMemo(() => paddedDomain(daily.map((d) => d.cpa)), [daily]);
+  const conversionsDomain = useMemo(
+    () => paddedDomain(daily.map((d) => d.conversions)),
+    [daily]
+  );
+
   // Color thresholds for landing-page table — driven by data so we only
   // highlight true standouts (top quartile / bottom quartile).
   const landingThresholds = useMemo(() => {
@@ -409,8 +430,8 @@ export default function MediaBuyingPage() {
                   stroke="#d1d5db"
                   tickFormatter={(v) => `${Number(v).toFixed(2)}x`}
                 />
-                <YAxis yAxisId="cpa" hide domain={["auto", "auto"]} />
-                <YAxis yAxisId="conversions" hide domain={["auto", "auto"]} />
+                <YAxis yAxisId="cpa" hide domain={cpaDomain} />
+                <YAxis yAxisId="conversions" hide domain={conversionsDomain} />
                 <Tooltip
                   formatter={(value, name, item) => {
                     const n = typeof value === "number" ? value : Number(value) || 0;
