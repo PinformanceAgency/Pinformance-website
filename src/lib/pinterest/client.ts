@@ -464,6 +464,7 @@ export class PinterestClient {
     endDate: string,
     opts: {
       columns?: string[];
+      granularity?: "TOTAL" | "DAY" | "HOUR" | "WEEK" | "MONTH";
       clickWindowDays?: 1 | 7 | 14 | 30 | 60;
       viewWindowDays?: 1 | 7 | 14 | 30 | 60;
       conversionReportTime?: "TIME_OF_AD_ACTION" | "TIME_OF_CONVERSION";
@@ -486,7 +487,7 @@ export class PinterestClient {
       start_date: startDate,
       end_date: endDate,
       columns: columns.join(","),
-      granularity: "TOTAL",
+      granularity: opts.granularity ?? "TOTAL",
       conversion_report_time: opts.conversionReportTime ?? "TIME_OF_CONVERSION",
       click_window_days: String(opts.clickWindowDays ?? 30),
       view_window_days: String(opts.viewWindowDays ?? 1),
@@ -607,6 +608,7 @@ export class PinterestClient {
     endDate: string,
     opts: {
       columns?: string[];
+      granularity?: "TOTAL" | "DAY" | "HOUR" | "WEEK" | "MONTH";
       clickWindowDays?: 1 | 7 | 14 | 30 | 60;
       viewWindowDays?: 1 | 7 | 14 | 30 | 60;
       conversionReportTime?: "TIME_OF_AD_ACTION" | "TIME_OF_CONVERSION";
@@ -629,7 +631,7 @@ export class PinterestClient {
       start_date: startDate,
       end_date: endDate,
       columns: columns.join(","),
-      granularity: "TOTAL",
+      granularity: opts.granularity ?? "TOTAL",
       conversion_report_time: opts.conversionReportTime ?? "TIME_OF_CONVERSION",
       click_window_days: String(opts.clickWindowDays ?? 30),
       view_window_days: String(opts.viewWindowDays ?? 1),

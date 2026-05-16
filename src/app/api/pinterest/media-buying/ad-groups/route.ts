@@ -1,14 +1,10 @@
 /**
- * Campaign-level breakdown for the Media Online → Campaign Level tab.
+ * Ad-group-level breakdown for the Media Online → Ad Group Level tab.
  *
- * Returns one row per campaign with:
- *  - Pinterest metrics (spend, revenue, conversions, roas, cpa, ctr, cpm,
- *    impressions, clicks)
- *  - Parsed naming-convention dimensions (country, catalog, performance+,
- *    funnel, strategy, strategyCategory, objective, unknown tokens)
- *
- * The UI slices/filters/groups client-side so tab interactions don't trigger
- * new Pinterest API calls — only date-range / conversion-window changes do.
+ * Returns one row per ad group with daily metrics + parsed naming-convention
+ * dimensions (gender, age, audience, funnel, category, unknown tokens).
+ * The UI groups client-side by each dimension so dimension toggles don't
+ * trigger new Pinterest API calls.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -18,8 +14,8 @@ import { PinterestClient } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 import {
-  parseCampaignName,
-  type CampaignParsed,
+  parseAdGroupName,
+  type AdGroupParsed,
 } from "@/lib/pinterest/naming-conventions";
 
 interface DailyRow {
@@ -31,12 +27,11 @@ interface DailyRow {
   clicks: number;
 }
 
-interface CampaignRow {
+interface AdGroupRow {
   id: string;
   name: string;
   status: string | null;
-  parsed: CampaignParsed;
-  // Metrics (currency in account currency unless noted)
+  parsed: AdGroupParsed;
   spend: number;
   revenue: number;
   conversions: number;
@@ -44,8 +39,8 @@ interface CampaignRow {
   clicks: number;
   roas: number;
   cpa: number | null;
-  ctr: number; // percent
-  cpm: number; // currency
+  ctr: number;
+  cpm: number;
   daily: DailyRow[];
 }
 
@@ -131,23 +126,21 @@ export async function POST(request: NextRequest) {
       conversionReportTime: "TIME_OF_CONVERSION" as const,
     };
 
-    // 1) Pull all campaigns (paginate).
-    const campaigns: Array<{ id: string; name?: string; status?: string }> = [];
+    // 1) Pull all ad groups (paginate).
+    const adGroups: Array<{ id: string; name?: string; status?: string }> = [];
     let bookmark: string | undefined;
     do {
-      const page = await client.getCampaigns(adAccount.id, { bookmark, pageSize: 250 });
-      campaigns.push(...(page.items || []));
+      const page = await client.getAdGroups(adAccount.id, { bookmark, pageSize: 250 });
+      adGroups.push(...(page.items || []));
       bookmark = page.bookmark;
-      if (campaigns.length >= 3000) break;
+      if (adGroups.length >= 5000) break;
     } while (bookmark);
 
-    // 2) Batch-fetch daily analytics for all campaigns (100/call). Daily
-    //    granularity gives us both per-day series (for line charts) AND
-    //    totals (by summing) — saves a second roundtrip vs fetching TOTAL.
-    const dailyByCampaign = new Map<string, DailyRow[]>();
-    for (let i = 0; i < campaigns.length; i += 100) {
-      const batch = campaigns.slice(i, i + 100).map((c) => c.id);
-      const rows = await client.getCampaignAnalytics(
+    // 2) Batch-fetch daily analytics (100/call).
+    const dailyByAdGroup = new Map<string, DailyRow[]>();
+    for (let i = 0; i < adGroups.length; i += 100) {
+      const batch = adGroups.slice(i, i + 100).map((c) => c.id);
+      const rows = await client.getAdGroupAnalytics(
         adAccount.id,
         batch,
         body.start_date,
@@ -155,8 +148,8 @@ export async function POST(request: NextRequest) {
         { ...opts, granularity: "DAY" }
       );
       for (const r of rows || []) {
-        const cid = String(r["CAMPAIGN_ID"] ?? "");
-        if (!cid) continue;
+        const gid = String(r["AD_GROUP_ID"] ?? "");
+        if (!gid) continue;
         const date = String(r["DATE"] ?? r["date"] ?? "");
         if (!date) continue;
         const dailyRow: DailyRow = {
@@ -167,17 +160,18 @@ export async function POST(request: NextRequest) {
           impressions: num(r["IMPRESSION_1"]),
           clicks: num(r["CLICKTHROUGH_1"]),
         };
-        const arr = dailyByCampaign.get(cid) || [];
+        const arr = dailyByAdGroup.get(gid) || [];
         arr.push(dailyRow);
-        dailyByCampaign.set(cid, arr);
+        dailyByAdGroup.set(gid, arr);
       }
     }
 
-    // 3) Combine: campaign metadata + daily series + parsed naming. Totals
-    //    are derived by summing the daily rows so they always match the
-    //    line chart that the UI renders.
-    const rows: CampaignRow[] = campaigns.map((c) => {
-      const dailyUnsorted = dailyByCampaign.get(c.id) || [];
+    // 3) Combine metadata + daily series + parsed naming. Filter out ad
+    //    groups with zero spend in the period — they'd clutter the
+    //    breakdown without contributing to any dimension's signal.
+    const rows: AdGroupRow[] = [];
+    for (const g of adGroups) {
+      const dailyUnsorted = dailyByAdGroup.get(g.id) || [];
       const daily = [...dailyUnsorted].sort((a, b) => a.date.localeCompare(b.date));
       let spend = 0,
         revenue = 0,
@@ -191,17 +185,18 @@ export async function POST(request: NextRequest) {
         impressions += d.impressions;
         clicks += d.clicks;
       }
+      if (spend === 0) continue;
       const roas = spend > 0 ? revenue / spend : 0;
       const cpa = conversions > 0 && spend > 0 ? spend / conversions : null;
       const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
       const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
 
-      const name = c.name || "(unnamed)";
-      return {
-        id: c.id,
+      const name = g.name || "(unnamed)";
+      rows.push({
+        id: g.id,
         name,
-        status: c.status ?? null,
-        parsed: parseCampaignName(name),
+        status: g.status ?? null,
+        parsed: parseAdGroupName(name),
         spend,
         revenue,
         conversions,
@@ -212,8 +207,8 @@ export async function POST(request: NextRequest) {
         ctr,
         cpm,
         daily,
-      };
-    });
+      });
+    }
 
     return NextResponse.json({
       ok: true,

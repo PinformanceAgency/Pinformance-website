@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, LayoutGrid, Image as ImageIcon } from "lucide-react";
+import { BarChart3, LayoutGrid, Users, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SUB_TABS = [
   { href: "/paid-ads/media-buying", label: "Overview", icon: BarChart3 },
   { href: "/paid-ads/media-buying/campaigns", label: "Campaign Level", icon: LayoutGrid },
+  { href: "/paid-ads/media-buying/ad-groups", label: "Ad Group Level", icon: Users },
   { href: "/paid-ads/media-buying/ads", label: "Ad Level", icon: ImageIcon },
 ];
 

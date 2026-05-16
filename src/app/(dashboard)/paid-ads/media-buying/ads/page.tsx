@@ -1,32 +1,87 @@
 "use client";
 
-import { Image as ImageIcon, Loader2 } from "lucide-react";
+import { Image as ImageIcon } from "lucide-react";
+import { BreakdownView } from "@/components/media-buying/breakdown-view";
+import type { Dimension, LegendItem } from "@/lib/media-buying/types";
+
+function titleCase(v: string): string {
+  return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+}
+
+const DIMENSIONS: Dimension[] = [
+  {
+    key: "format",
+    title: "Per Format",
+    description:
+      "Creative format — VIDEO, STATIC, CAROUSEL, COLLECTION. Parsed from each ad name.",
+    order: ["VIDEO", "STATIC", "CAROUSEL", "COLLECTION"],
+    label: titleCase,
+    hint: (v) => v,
+  },
+  {
+    key: "contentType",
+    title: "Organic-style vs Ad-style",
+    description:
+      "ORGANIC = creative shot in organic style. AD = ad-first creative (production-ready ad).",
+    order: ["AD", "ORGANIC"],
+    label: (v) => (v === "AD" ? "Ad-style" : "Organic-style"),
+    hint: (v) => v,
+  },
+  {
+    key: "creatorType",
+    title: "Per Creator Type",
+    description:
+      "Who created the asset — UGC, Shoot, Graphic, Founder, Influencer, or Brand.",
+    order: ["UGC", "SHOOT", "GRAPHIC", "FOUNDER", "INFLUENCER", "BRAND"],
+    label: titleCase,
+    hint: (v) => v,
+  },
+  {
+    key: "category",
+    title: "Per Category",
+    description:
+      "Product category parsed from the ad name (e.g. Swim, PushUpBra, Shapewear).",
+    label: (v) => v,
+  },
+  {
+    key: "offer",
+    title: "Per Offer",
+    description:
+      "Offer / promo carried by the creative — BAU (default), 2FOR1, 20OFF, BOGO, Bundle, …",
+    label: (v) => v,
+  },
+  {
+    key: "lpType",
+    title: "Per Landing Page Type",
+    description:
+      "Destination type — product page, collection page, or generic landing page.",
+    order: ["PRODUCT", "COLLECTION", "PAGE"],
+    label: titleCase,
+    hint: (v) => `/${v.toLowerCase()}`,
+  },
+];
+
+const LEGEND: LegendItem[] = [
+  { abbr: "VIDEO / STATIC / CAROUSEL / COLLECTION", desc: "Creative format." },
+  { abbr: "ORGANIC / AD", desc: "Organic-style vs ad-first creative." },
+  { abbr: "UGC", desc: "User-generated content — creator-shot, native-feeling asset." },
+  { abbr: "Shoot", desc: "Studio / set shoot — produced brand visuals." },
+  { abbr: "Graphic", desc: "Designed graphic — typography, layouts, motion graphics." },
+  { abbr: "Founder / Influencer / Brand", desc: "Who fronts or owns the creative." },
+  { abbr: "BAU / 2FOR1 / 20OFF / BOGO / Bundle", desc: "Offer tag — BAU = business-as-usual (no promo)." },
+  { abbr: "/product /collection /page", desc: "Landing-page type." },
+];
 
 export default function AdLevelPage() {
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <ImageIcon className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Ad Level</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Slice your spend by parsed ad naming-convention dimensions (Format, Creator type,
-              Offer, Landing-page type, Launch date).
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-card border border-border rounded-2xl p-10 flex items-center justify-center text-sm text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          Ad-level breakdown is under construction — slicers and per-creative performance table
-          land in a follow-up.
-        </div>
-      </div>
-    </div>
+    <BreakdownView
+      title="Ad Level"
+      description="Aggregated performance per ad-naming dimension. Ads with no spend in the period are filtered out."
+      icon={ImageIcon}
+      endpoint="/api/pinterest/media-buying/ads"
+      dimensions={DIMENSIONS}
+      legend={LEGEND}
+      entityLabel="ad"
+    />
   );
 }
