@@ -25,6 +25,17 @@ const SORT_OPTIONS: { key: SortKey; label: string; direction: "asc" | "desc" }[]
   { key: "created", label: "Most recent first", direction: "desc" },
 ];
 
+// `null` means "show all rows" (used for "All" option in the page size
+// selector). 10 is the default landing size — the user can opt into more.
+type PageSize = 10 | 25 | 50 | 100 | null;
+const PAGE_SIZE_OPTIONS: { value: PageSize; label: string }[] = [
+  { value: 10, label: "10" },
+  { value: 25, label: "25" },
+  { value: 50, label: "50" },
+  { value: 100, label: "100" },
+  { value: null, label: "All" },
+];
+
 const fmtCurrency = (n: number | null, currency: string): string => {
   if (n == null || !isFinite(n)) return "—";
   return new Intl.NumberFormat("en-US", {
@@ -90,6 +101,7 @@ export function AdPerformanceTable({
 }: AdPerformanceTableProps) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("spend");
+  const [pageSize, setPageSize] = useState<PageSize>(10);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -141,6 +153,13 @@ export function AdPerformanceTable({
     return { spend, revenue, conversions, roas, cpa };
   }, [filtered]);
 
+  // Page-size limited view. Default 10 — users opt into 25/50/100/All for
+  // wider browsing without paying the render cost upfront on huge accounts.
+  const visible = useMemo(() => {
+    if (pageSize === null) return sorted;
+    return sorted.slice(0, pageSize);
+  }, [sorted, pageSize]);
+
   return (
     <section className="bg-card border border-border rounded-2xl p-5">
       <div className="mb-4 flex items-start justify-between gap-3 flex-wrap">
@@ -189,6 +208,24 @@ export function AdPerformanceTable({
               ))}
             </select>
           </div>
+          <div className="inline-flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Show:</span>
+            <select
+              value={pageSize === null ? "all" : String(pageSize)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "all") setPageSize(null);
+                else setPageSize(Number(v) as PageSize);
+              }}
+              className="px-2.5 py-1 text-xs font-medium rounded-lg border border-border bg-card text-foreground hover:bg-muted"
+            >
+              {PAGE_SIZE_OPTIONS.map((o) => (
+                <option key={String(o.value)} value={o.value === null ? "all" : String(o.value)}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -232,7 +269,7 @@ export function AdPerformanceTable({
                   {fmtCurrency(totals.cpa, currency)}
                 </td>
               </tr>
-              {sorted.map((a) => {
+              {visible.map((a) => {
                 const isVideo = (a.creative_type || "").toUpperCase().includes("VIDEO");
                 const pinUrl = a.pin_id ? `https://www.pinterest.com/pin/${a.pin_id}/` : null;
                 const thumb = (
@@ -334,6 +371,12 @@ export function AdPerformanceTable({
               })}
             </tbody>
           </table>
+          {visible.length < sorted.length && (
+            <div className="px-3 py-3 text-xs text-muted-foreground text-center border-t border-border bg-muted/10">
+              Showing {visible.length} of {sorted.length} ads — change{" "}
+              <span className="font-medium text-foreground">Show</span> above to see more.
+            </div>
+          )}
         </div>
       )}
     </section>

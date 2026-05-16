@@ -96,9 +96,17 @@ interface BreakdownViewProps {
   /** Singular noun for the entities listed (e.g. "campaign", "ad group", "ad"). */
   entityLabel: string;
   /**
-   * Optional render-prop for level-specific content rendered below the
-   * dimension breakdowns (and above the legend). Receives the fetched items
-   * so the page can add its own table / panel without re-fetching.
+   * Optional render-prop for level-specific content rendered ABOVE the
+   * dimension breakdowns (just under the page header / hygiene banner).
+   */
+  renderTop?: (props: {
+    items: EntityRow[];
+    currency: string;
+    loading: boolean;
+  }) => ReactNode;
+  /**
+   * Optional render-prop for level-specific content rendered BELOW the
+   * dimension breakdowns (and above the legend).
    */
   renderFooter?: (props: {
     items: EntityRow[];
@@ -115,6 +123,7 @@ export function BreakdownView({
   dimensions,
   legend,
   entityLabel,
+  renderTop,
   renderFooter,
 }: BreakdownViewProps) {
   const { org } = useOrg();
@@ -286,6 +295,11 @@ export function BreakdownView({
           )}
         </div>
       )}
+
+      {/* Level-specific top slot (e.g. per-ad table on the Ad Level page,
+          shown above the dimension breakdowns so it's the first thing the
+          user lands on). */}
+      {renderTop && renderTop({ items, currency, loading })}
 
       {/* View toggle */}
       <div className="flex items-center justify-between gap-3 flex-wrap">

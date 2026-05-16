@@ -83,7 +83,7 @@ export default function AdLevelPage() {
       dimensions={DIMENSIONS}
       legend={LEGEND}
       entityLabel="ad"
-      renderFooter={({ items, currency, loading }) => (
+      renderTop={({ items, currency, loading }) => (
         <AdPerformanceTable
           ads={items}
           currency={currency}
