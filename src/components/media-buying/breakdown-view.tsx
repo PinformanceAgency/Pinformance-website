@@ -47,7 +47,6 @@ import type {
   LegendItem,
 } from "@/lib/media-buying/types";
 import {
-  aggregate,
   breakdownForDimension,
   buildTimeSeries,
   type DimensionRow,
@@ -185,8 +184,6 @@ export function BreakdownView({
   const currency = data?.currency || "USD";
   const items = useMemo(() => data?.items || [], [data?.items]);
 
-  const totals = useMemo(() => aggregate(items), [items]);
-
   const offenders = useMemo(
     () => items.filter((c) => c.parsed.unknown.length > 0),
     [items]
@@ -242,24 +239,6 @@ export function BreakdownView({
           {error}
         </div>
       )}
-
-      {/* Account-wide totals */}
-      <section className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <KpiCard
-          label="Spend"
-          value={fmtCurrency(totals.spend, currency)}
-          sub={`${items.length} ${items.length === 1 ? entityLabel : pluralEntity}`}
-        />
-        <KpiCard label="Revenue" value={fmtCurrency(totals.revenue, currency)} sub="" />
-        <KpiCard label="Conversions" value={fmtNum(totals.conversions)} sub="" />
-        <KpiCard
-          label="ROAS"
-          value={fmtRoas(totals.roas)}
-          sub=""
-          valueClass={roasColor(totals.roas, totals.spend)}
-        />
-        <KpiCard label="CPA" value={fmtCurrency(totals.cpa, currency)} sub="" />
-      </section>
 
       {/* Naming-hygiene banner */}
       {offenders.length > 0 && (
@@ -598,26 +577,6 @@ function DimensionSection({
         </div>
       )}
     </section>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  sub,
-  valueClass,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  valueClass?: string;
-}) {
-  return (
-    <div className="bg-card border border-border rounded-2xl p-4">
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={cn("text-2xl font-semibold mt-1 tabular-nums", valueClass)}>{value}</div>
-      {sub && <div className="text-[11px] text-muted-foreground mt-1">{sub}</div>}
-    </div>
   );
 }
 
