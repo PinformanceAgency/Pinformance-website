@@ -40,6 +40,7 @@ import {
   type ConversionWindow,
 } from "@/components/shared/conversion-settings";
 import type {
+  AccountTotals,
   BreakdownApiResponse,
   ChartMetric,
   Dimension,
@@ -103,6 +104,7 @@ interface BreakdownViewProps {
     items: EntityRow[];
     currency: string;
     loading: boolean;
+    accountTotals: AccountTotals | null;
   }) => ReactNode;
   /**
    * Optional render-prop for level-specific content rendered BELOW the
@@ -112,6 +114,7 @@ interface BreakdownViewProps {
     items: EntityRow[];
     currency: string;
     loading: boolean;
+    accountTotals: AccountTotals | null;
   }) => ReactNode;
 }
 
@@ -192,6 +195,7 @@ export function BreakdownView({
 
   const currency = data?.currency || "USD";
   const items = useMemo(() => data?.items || [], [data?.items]);
+  const accountTotals = data?.account_totals ?? null;
 
   const offenders = useMemo(
     () => items.filter((c) => c.parsed.unknown.length > 0),
@@ -299,7 +303,7 @@ export function BreakdownView({
       {/* Level-specific top slot (e.g. per-ad table on the Ad Level page,
           shown above the dimension breakdowns so it's the first thing the
           user lands on). */}
-      {renderTop && renderTop({ items, currency, loading })}
+      {renderTop && renderTop({ items, currency, loading, accountTotals })}
 
       {/* View toggle */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -376,7 +380,7 @@ export function BreakdownView({
       )}
 
       {/* Level-specific footer (e.g. per-ad table on the Ad Level page). */}
-      {renderFooter && renderFooter({ items, currency, loading })}
+      {renderFooter && renderFooter({ items, currency, loading, accountTotals })}
 
       {/* Legend */}
       <section className="bg-card border border-border rounded-2xl">

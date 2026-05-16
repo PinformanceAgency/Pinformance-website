@@ -65,10 +65,28 @@ export interface LegendItem {
   desc: string;
 }
 
+/**
+ * Pinterest's authoritative account-wide totals for the period (same shape
+ * as Campaign Manager's headline numbers). Sometimes higher than the sum
+ * of per-entity rows because Pinterest attributes part of conversions /
+ * revenue at campaign or ad-group level rather than down to a specific ad.
+ */
+export interface AccountTotals {
+  spend: number;
+  revenue: number;
+  conversions: number;
+  impressions: number;
+  clicks: number;
+  roas: number;
+  cpa: number | null;
+}
+
 export interface BreakdownApiResponse {
   ok?: boolean;
   ad_account_name?: string;
   currency?: string;
   items?: EntityRow[];
+  /** Pinterest account-level totals — only the ads route populates this. */
+  account_totals?: AccountTotals;
   error?: string;
 }

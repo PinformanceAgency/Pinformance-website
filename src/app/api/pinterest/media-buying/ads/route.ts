@@ -137,6 +137,37 @@ export async function POST(request: NextRequest) {
       conversionReportTime: "TIME_OF_CONVERSION" as const,
     };
 
+    // 0) Pinterest's authoritative account-level totals for the period.
+    //    These match what Campaign Manager (and our Overview tab) show.
+    //    They can be higher than the sum of per-ad rows because Pinterest
+    //    sometimes attributes conversions / revenue at campaign or
+    //    ad-group level instead of all the way down to an ad.
+    const accountResp = (await client.getAdAccountAnalytics(
+      adAccount.id,
+      body.start_date,
+      body.end_date,
+      opts
+    )) as Array<Record<string, number | string>>;
+    const accountRow = accountResp?.[0] || {};
+    const acctSpend = num(accountRow["SPEND_IN_DOLLAR"]);
+    const acctRevenue =
+      num(accountRow["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
+    const acctConv = num(accountRow["TOTAL_CHECKOUT"]);
+    const acctImpr = num(accountRow["IMPRESSION_1"]);
+    const acctClicks = num(accountRow["CLICKTHROUGH_1"]);
+    let acctRoas = num(accountRow["CHECKOUT_ROAS"]);
+    if (!acctRoas && acctSpend > 0) acctRoas = acctRevenue / acctSpend;
+    const acctCpa = acctConv > 0 && acctSpend > 0 ? acctSpend / acctConv : null;
+    const account_totals = {
+      spend: acctSpend,
+      revenue: acctRevenue,
+      conversions: acctConv,
+      impressions: acctImpr,
+      clicks: acctClicks,
+      roas: acctRoas,
+      cpa: acctCpa,
+    };
+
     // 1) Pull all ads (paginate). Capped at 5000 to avoid runaway responses
     //    on huge accounts. Keep the full ad object (pin_id, creative_type,
     //    created_time) — the UI needs them to render thumbnails + launch
@@ -308,6 +339,7 @@ export async function POST(request: NextRequest) {
       click_window_days: clickWindow,
       view_window_days: viewWindow,
       items: rows,
+      account_totals,
     });
   } catch (e) {
     return NextResponse.json(

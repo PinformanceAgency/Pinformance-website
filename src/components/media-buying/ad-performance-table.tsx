@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { EntityRow } from "@/lib/media-buying/types";
+import type { AccountTotals, EntityRow } from "@/lib/media-buying/types";
 
 type SortKey = "spend" | "revenue" | "conversions" | "roas" | "cpa" | "created";
 
@@ -86,6 +86,10 @@ interface AdPerformanceTableProps {
   ads: EntityRow[];
   currency: string;
   loading: boolean;
+  /** Pinterest account-level totals — used for the headline Total row so
+   *  numbers match what Campaign Manager (and the Overview tab) report.
+   *  When null, the table falls back to summing the visible ads. */
+  accountTotals?: AccountTotals | null;
   /** Optional title above the table. */
   title?: string;
   /** Optional description below the title. */
@@ -96,6 +100,7 @@ export function AdPerformanceTable({
   ads,
   currency,
   loading,
+  accountTotals,
   title = "All ads",
   description = "Per-ad performance for the period. Search by ad name (or any naming-convention token) and sort by any KPI.",
 }: AdPerformanceTableProps) {
@@ -258,26 +263,84 @@ export function AdPerformanceTable({
               </tr>
             </thead>
             <tbody>
-              <tr className="bg-muted/30 border-t-2 border-border font-medium">
-                <td className="px-3 py-2.5 text-xs uppercase tracking-wider text-muted-foreground">
-                  Total ({filtered.length} ad{filtered.length === 1 ? "" : "s"})
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtCurrency(totals.spend, currency)}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtCurrency(totals.revenue, currency)}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtNum(totals.conversions)}
-                </td>
-                <td className={cn("px-3 py-2.5 text-right tabular-nums", roasClass(totals.roas, totals.spend))}>
-                  {fmtRoas(totals.roas)}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtCurrency(totals.cpa, currency)}
-                </td>
-              </tr>
+              {/* Account total — Pinterest's authoritative numbers for the
+                  period, matches Campaign Manager + Overview tab. Always
+                  shown, regardless of search filter. */}
+              {accountTotals && (
+                <tr className="bg-muted/40 border-t-2 border-border font-medium">
+                  <td className="px-3 py-2.5">
+                    <div className="text-xs uppercase tracking-wider text-foreground">
+                      Account total
+                    </div>
+                    <div className="text-[11px] text-muted-foreground font-normal normal-case mt-0.5">
+                      Pinterest account-wide (matches Overview).
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {fmtCurrency(accountTotals.spend, currency)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {fmtCurrency(accountTotals.revenue, currency)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {fmtNum(accountTotals.conversions)}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-3 py-2.5 text-right tabular-nums",
+                      roasClass(accountTotals.roas, accountTotals.spend)
+                    )}
+                  >
+                    {fmtRoas(accountTotals.roas)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {fmtCurrency(accountTotals.cpa, currency)}
+                  </td>
+                </tr>
+              )}
+              {/* Sum of currently visible (filtered) ads — only shown when
+                  the user is actively filtering OR when no account total
+                  is available. Differs from account total because Pinterest
+                  attributes part of conversions at campaign / ad-group
+                  level rather than down to a specific ad. */}
+              {(query.trim().length > 0 || !accountTotals) && (
+                <tr
+                  className={cn(
+                    "font-medium",
+                    accountTotals
+                      ? "bg-muted/15 border-t border-border text-muted-foreground"
+                      : "bg-muted/30 border-t-2 border-border"
+                  )}
+                >
+                  <td className="px-3 py-2.5">
+                    <div className="text-xs uppercase tracking-wider">
+                      {accountTotals
+                        ? `Σ ${filtered.length} of ${ads.length} ads (your filter)`
+                        : `Total (${filtered.length} ad${filtered.length === 1 ? "" : "s"})`}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {fmtCurrency(totals.spend, currency)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {fmtCurrency(totals.revenue, currency)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {fmtNum(totals.conversions)}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-3 py-2.5 text-right tabular-nums",
+                      roasClass(totals.roas, totals.spend)
+                    )}
+                  >
+                    {fmtRoas(totals.roas)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {fmtCurrency(totals.cpa, currency)}
+                  </td>
+                </tr>
+              )}
               {visible.map((a) => {
                 const isVideo = (a.creative_type || "").toUpperCase().includes("VIDEO");
                 const pinUrl = a.pin_id ? `https://www.pinterest.com/pin/${a.pin_id}/` : null;

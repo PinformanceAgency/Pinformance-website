@@ -83,11 +83,12 @@ export default function AdLevelPage() {
       dimensions={DIMENSIONS}
       legend={LEGEND}
       entityLabel="ad"
-      renderTop={({ items, currency, loading }) => (
+      renderTop={({ items, currency, loading, accountTotals }) => (
         <AdPerformanceTable
           ads={items}
           currency={currency}
           loading={loading}
+          accountTotals={accountTotals}
           title="All ads in the selected period"
           description='Each row is one ad. Click a thumbnail or name to open the pin on Pinterest. Search supports comma-separated tokens with AND logic — e.g. "video, UGC" returns only ads whose name contains both "video" AND "UGC".'
         />
