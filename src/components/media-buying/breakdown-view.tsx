@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { useOrg } from "@/hooks/use-org";
 import { cn } from "@/lib/utils";
 import {
@@ -90,6 +96,16 @@ interface BreakdownViewProps {
   legend: LegendItem[];
   /** Singular noun for the entities listed (e.g. "campaign", "ad group", "ad"). */
   entityLabel: string;
+  /**
+   * Optional render-prop for level-specific content rendered below the
+   * dimension breakdowns (and above the legend). Receives the fetched items
+   * so the page can add its own table / panel without re-fetching.
+   */
+  renderFooter?: (props: {
+    items: EntityRow[];
+    currency: string;
+    loading: boolean;
+  }) => ReactNode;
 }
 
 export function BreakdownView({
@@ -100,6 +116,7 @@ export function BreakdownView({
   dimensions,
   legend,
   entityLabel,
+  renderFooter,
 }: BreakdownViewProps) {
   const { org } = useOrg();
   const [dateRange, setDateRange] = useState<DateRange>(() => presetToRange(7));
@@ -364,6 +381,9 @@ export function BreakdownView({
           />
         ))
       )}
+
+      {/* Level-specific footer (e.g. per-ad table on the Ad Level page). */}
+      {renderFooter && renderFooter({ items, currency, loading })}
 
       {/* Legend */}
       <section className="bg-card border border-border rounded-2xl">

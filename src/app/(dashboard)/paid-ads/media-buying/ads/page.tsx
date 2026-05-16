@@ -2,6 +2,7 @@
 
 import { Image as ImageIcon } from "lucide-react";
 import { BreakdownView } from "@/components/media-buying/breakdown-view";
+import { AdPerformanceTable } from "@/components/media-buying/ad-performance-table";
 import type { Dimension, LegendItem } from "@/lib/media-buying/types";
 
 function titleCase(v: string): string {
@@ -82,6 +83,15 @@ export default function AdLevelPage() {
       dimensions={DIMENSIONS}
       legend={LEGEND}
       entityLabel="ad"
+      renderFooter={({ items, currency, loading }) => (
+        <AdPerformanceTable
+          ads={items}
+          currency={currency}
+          loading={loading}
+          title="All ads in the selected period"
+          description="Each row is one ad. Click a thumbnail or name to open the pin on Pinterest. Use the search bar to find specific naming-convention tokens (e.g. UGC, BOGO, /collection)."
+        />
+      )}
     />
   );
 }

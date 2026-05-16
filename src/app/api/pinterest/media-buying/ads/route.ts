@@ -10,7 +10,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
-import { PinterestClient } from "@/lib/pinterest/client";
+import {
+  PinterestClient,
+  extractPinImageUrl,
+  fetchPinOgImage,
+} from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 import { parseAdName, type AdParsed } from "@/lib/pinterest/naming-conventions";
@@ -29,6 +33,10 @@ interface AdRow {
   name: string;
   status: string | null;
   parsed: AdParsed;
+  pin_id: string | null;
+  creative_type: string | null;
+  created_time: number | null;
+  image_url: string | null;
   spend: number;
   revenue: number;
   conversions: number;
@@ -40,6 +48,12 @@ interface AdRow {
   cpm: number;
   daily: DailyRow[];
 }
+
+// Cap image lookups so a wide ad account doesn't take minutes to load. Top
+// performers + recently launched ads are prioritized; the rest fall back to
+// the format icon in the UI.
+const MAX_PIN_DETAILS = 150;
+const IMAGE_BATCH_SIZE = 15;
 
 function num(v: unknown): number {
   if (v == null || v === "") return 0;
@@ -124,8 +138,17 @@ export async function POST(request: NextRequest) {
     };
 
     // 1) Pull all ads (paginate). Capped at 5000 to avoid runaway responses
-    //    on huge accounts.
-    const ads: Array<{ id: string; name?: string; status?: string }> = [];
+    //    on huge accounts. Keep the full ad object (pin_id, creative_type,
+    //    created_time) — the UI needs them to render thumbnails + launch
+    //    dates on the per-ad table.
+    const ads: Array<{
+      id: string;
+      name?: string;
+      status?: string;
+      pin_id?: string;
+      creative_type?: string;
+      created_time?: number;
+    }> = [];
     let bookmark: string | undefined;
     do {
       const page = await client.getAds(adAccount.id, { bookmark, pageSize: 250 });
@@ -197,6 +220,10 @@ export async function POST(request: NextRequest) {
         name,
         status: a.status ?? null,
         parsed: parseAdName(name),
+        pin_id: a.pin_id ?? null,
+        creative_type: a.creative_type ?? null,
+        created_time: a.created_time ?? null,
+        image_url: null,
         spend,
         revenue,
         conversions,
@@ -208,6 +235,67 @@ export async function POST(request: NextRequest) {
         cpm,
         daily,
       });
+    }
+
+    // 4) Resolve pin thumbnails for the most "interesting" rows so the
+    //    per-ad table can render visuals. Cap at MAX_PIN_DETAILS to keep
+    //    page load times bounded — top spenders / top ROAS / top revenue /
+    //    top conversions / recently launched all get prioritized.
+    const interestingPinIds = new Set<string>();
+    function addTop(by: (r: AdRow) => number, n: number, ascending = false) {
+      const sorted = [...rows].sort((a, b) =>
+        ascending ? by(a) - by(b) : by(b) - by(a)
+      );
+      for (const r of sorted.slice(0, n)) {
+        if (r.pin_id) interestingPinIds.add(r.pin_id);
+      }
+    }
+    addTop((r) => r.spend, 60);
+    addTop((r) => r.roas, 40);
+    addTop((r) => r.revenue, 40);
+    addTop((r) => r.conversions, 30);
+    addTop((r) => -(r.cpa ?? Number.POSITIVE_INFINITY), 30); // low-CPA first
+    // Recently launched (by created_time desc).
+    const byRecent = [...rows]
+      .filter((r) => r.created_time != null)
+      .sort((a, b) => (b.created_time ?? 0) - (a.created_time ?? 0))
+      .slice(0, 30);
+    for (const r of byRecent) if (r.pin_id) interestingPinIds.add(r.pin_id);
+
+    const pinIdsToFetch = Array.from(interestingPinIds).slice(0, MAX_PIN_DETAILS);
+    const imageByPin = new Map<string, string>();
+    const adAccountIdForPins = adAccount.id;
+
+    async function fetchPinImageWithRetry(pinId: string, attempt = 0): Promise<void> {
+      try {
+        const pin = await client.getPin(pinId, adAccountIdForPins);
+        const url = extractPinImageUrl(pin);
+        if (url) {
+          imageByPin.set(pinId, url);
+          return;
+        }
+        const og = await fetchPinOgImage(pinId);
+        if (og) imageByPin.set(pinId, og);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        const isRateLimitOr5xx = /\b(429|5\d\d)\b/.test(msg);
+        if (attempt < 2 && isRateLimitOr5xx) {
+          await new Promise((res) => setTimeout(res, 400 * (attempt + 1)));
+          return fetchPinImageWithRetry(pinId, attempt + 1);
+        }
+        const og = await fetchPinOgImage(pinId);
+        if (og) imageByPin.set(pinId, og);
+      }
+    }
+    for (let i = 0; i < pinIdsToFetch.length; i += IMAGE_BATCH_SIZE) {
+      const batch = pinIdsToFetch.slice(i, i + IMAGE_BATCH_SIZE);
+      await Promise.all(batch.map((pinId) => fetchPinImageWithRetry(pinId)));
+      if (i + IMAGE_BATCH_SIZE < pinIdsToFetch.length) {
+        await new Promise((res) => setTimeout(res, 120));
+      }
+    }
+    for (const r of rows) {
+      if (r.pin_id) r.image_url = imageByPin.get(r.pin_id) || null;
     }
 
     return NextResponse.json({

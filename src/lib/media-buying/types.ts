@@ -32,6 +32,13 @@ export interface EntityRow {
   ctr: number;
   cpm: number;
   daily: DailyRow[];
+  // Optional per-creative metadata. Ad-level rows populate these so the UI
+  // can render thumbnails + clickable Pinterest links; campaign / ad-group
+  // levels leave them undefined.
+  pin_id?: string | null;
+  creative_type?: string | null;
+  created_time?: number | null;
+  image_url?: string | null;
 }
 
 export type ChartMetric = "spend" | "revenue" | "roas" | "cpa";
