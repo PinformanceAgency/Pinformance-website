@@ -104,9 +104,18 @@ export function AdPerformanceTable({
   const [pageSize, setPageSize] = useState<PageSize>(10);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return ads;
-    return ads.filter((a) => a.name.toLowerCase().includes(q));
+    // Comma-separated tokens, all must match (AND). So "video, UGC" only
+    // returns ads whose name contains BOTH "video" AND "UGC". Empty tokens
+    // (from a trailing comma or double comma) are skipped.
+    const tokens = query
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t.length > 0);
+    if (tokens.length === 0) return ads;
+    return ads.filter((a) => {
+      const name = a.name.toLowerCase();
+      return tokens.every((t) => name.includes(t));
+    });
   }, [ads, query]);
 
   const sorted = useMemo(() => {
@@ -180,7 +189,7 @@ export function AdPerformanceTable({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search ad name…"
+              placeholder="Search ad name (comma = AND)"
               className="pl-8 pr-7 py-1.5 text-xs rounded-lg border border-border bg-card text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/40 w-56"
             />
             {query && (

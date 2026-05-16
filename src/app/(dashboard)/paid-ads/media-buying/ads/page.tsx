@@ -89,7 +89,7 @@ export default function AdLevelPage() {
           currency={currency}
           loading={loading}
           title="All ads in the selected period"
-          description="Each row is one ad. Click a thumbnail or name to open the pin on Pinterest. Use the search bar to find specific naming-convention tokens (e.g. UGC, BOGO, /collection)."
+          description='Each row is one ad. Click a thumbnail or name to open the pin on Pinterest. Search supports comma-separated tokens with AND logic — e.g. "video, UGC" returns only ads whose name contains both "video" AND "UGC".'
         />
       )}
     />
