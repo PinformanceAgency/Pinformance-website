@@ -312,7 +312,7 @@ export default function MediaBuyingPage() {
             <BarChart3 className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Paid Ads — Media Buying</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Account Overview</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {data?.ad_account_name
                 ? `Account-level performance, trends and landing-page breakdown for ${data.ad_account_name}.`

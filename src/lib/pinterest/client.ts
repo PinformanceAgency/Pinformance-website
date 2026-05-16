@@ -497,6 +497,145 @@ export class PinterestClient {
     return this.request(`/ad_accounts/${adAccountId}/ads/analytics?${params}`);
   }
 
+  /**
+   * List campaigns in an ad account. Paginate via bookmark.
+   */
+  async getCampaigns(
+    adAccountId: string,
+    opts: { bookmark?: string; pageSize?: number; entityStatuses?: string[] } = {}
+  ): Promise<{
+    items: Array<{
+      id: string;
+      name?: string;
+      status?: string;
+      objective_type?: string;
+      created_time?: number;
+      ad_account_id?: string;
+    }>;
+    bookmark?: string;
+  }> {
+    const params = new URLSearchParams({
+      page_size: String(opts.pageSize ?? 100),
+    });
+    if (opts.bookmark) params.set("bookmark", opts.bookmark);
+    if (opts.entityStatuses?.length) {
+      params.set("entity_statuses", opts.entityStatuses.join(","));
+    }
+    return this.request(`/ad_accounts/${adAccountId}/campaigns?${params}`);
+  }
+
+  /**
+   * Campaign-level paid analytics. Max 100 campaign_ids per call.
+   * Pinterest returns one entry per campaign with the requested columns +
+   * CAMPAIGN_ID. Conversion numbers here include attribution that can't be
+   * attributed down to a specific ad, so summing ad-level analytics will
+   * sometimes under-count vs this.
+   */
+  async getCampaignAnalytics(
+    adAccountId: string,
+    campaignIds: string[],
+    startDate: string,
+    endDate: string,
+    opts: {
+      columns?: string[];
+      clickWindowDays?: 1 | 7 | 14 | 30 | 60;
+      viewWindowDays?: 1 | 7 | 14 | 30 | 60;
+      conversionReportTime?: "TIME_OF_AD_ACTION" | "TIME_OF_CONVERSION";
+    } = {}
+  ): Promise<Array<Record<string, number | string>>> {
+    if (campaignIds.length === 0) return [];
+    const columns = opts.columns ?? [
+      "SPEND_IN_DOLLAR",
+      "IMPRESSION_1",
+      "CLICKTHROUGH_1",
+      "CTR",
+      "CPM_IN_DOLLAR",
+      "ECPC_IN_DOLLAR",
+      "TOTAL_CHECKOUT",
+      "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+      "CHECKOUT_ROAS",
+    ];
+    const params = new URLSearchParams({
+      campaign_ids: campaignIds.slice(0, 100).join(","),
+      start_date: startDate,
+      end_date: endDate,
+      columns: columns.join(","),
+      granularity: "TOTAL",
+      conversion_report_time: opts.conversionReportTime ?? "TIME_OF_CONVERSION",
+      click_window_days: String(opts.clickWindowDays ?? 30),
+      view_window_days: String(opts.viewWindowDays ?? 1),
+    });
+    return this.request(`/ad_accounts/${adAccountId}/campaigns/analytics?${params}`);
+  }
+
+  /**
+   * List ad groups in an ad account. Paginate via bookmark.
+   */
+  async getAdGroups(
+    adAccountId: string,
+    opts: { bookmark?: string; pageSize?: number; entityStatuses?: string[] } = {}
+  ): Promise<{
+    items: Array<{
+      id: string;
+      name?: string;
+      campaign_id?: string;
+      status?: string;
+      created_time?: number;
+    }>;
+    bookmark?: string;
+  }> {
+    const params = new URLSearchParams({
+      page_size: String(opts.pageSize ?? 100),
+    });
+    if (opts.bookmark) params.set("bookmark", opts.bookmark);
+    if (opts.entityStatuses?.length) {
+      params.set("entity_statuses", opts.entityStatuses.join(","));
+    }
+    return this.request(`/ad_accounts/${adAccountId}/ad_groups?${params}`);
+  }
+
+  /**
+   * Ad-group-level paid analytics. Max 100 ad_group_ids per call.
+   * Pinterest returns one entry per ad group with the requested columns +
+   * AD_GROUP_ID.
+   */
+  async getAdGroupAnalytics(
+    adAccountId: string,
+    adGroupIds: string[],
+    startDate: string,
+    endDate: string,
+    opts: {
+      columns?: string[];
+      clickWindowDays?: 1 | 7 | 14 | 30 | 60;
+      viewWindowDays?: 1 | 7 | 14 | 30 | 60;
+      conversionReportTime?: "TIME_OF_AD_ACTION" | "TIME_OF_CONVERSION";
+    } = {}
+  ): Promise<Array<Record<string, number | string>>> {
+    if (adGroupIds.length === 0) return [];
+    const columns = opts.columns ?? [
+      "SPEND_IN_DOLLAR",
+      "IMPRESSION_1",
+      "CLICKTHROUGH_1",
+      "CTR",
+      "CPM_IN_DOLLAR",
+      "ECPC_IN_DOLLAR",
+      "TOTAL_CHECKOUT",
+      "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+      "CHECKOUT_ROAS",
+    ];
+    const params = new URLSearchParams({
+      ad_group_ids: adGroupIds.slice(0, 100).join(","),
+      start_date: startDate,
+      end_date: endDate,
+      columns: columns.join(","),
+      granularity: "TOTAL",
+      conversion_report_time: opts.conversionReportTime ?? "TIME_OF_CONVERSION",
+      click_window_days: String(opts.clickWindowDays ?? 30),
+      view_window_days: String(opts.viewWindowDays ?? 1),
+    });
+    return this.request(`/ad_accounts/${adAccountId}/ad_groups/analytics?${params}`);
+  }
+
   static async exchangeCode(
     code: string,
     redirectUri: string,
