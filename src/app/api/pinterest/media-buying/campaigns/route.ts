@@ -22,6 +22,15 @@ import {
   type CampaignParsed,
 } from "@/lib/pinterest/naming-conventions";
 
+interface DailyRow {
+  date: string;
+  spend: number;
+  revenue: number;
+  conversions: number;
+  impressions: number;
+  clicks: number;
+}
+
 interface CampaignRow {
   id: string;
   name: string;
@@ -37,6 +46,7 @@ interface CampaignRow {
   cpa: number | null;
   ctr: number; // percent
   cpm: number; // currency
+  daily: DailyRow[];
 }
 
 function num(v: unknown): number {
@@ -131,8 +141,10 @@ export async function POST(request: NextRequest) {
       if (campaigns.length >= 3000) break;
     } while (bookmark);
 
-    // 2) Batch-fetch analytics for all campaigns (100/call).
-    const analyticsByCampaign = new Map<string, Record<string, number | string>>();
+    // 2) Batch-fetch daily analytics for all campaigns (100/call). Daily
+    //    granularity gives us both per-day series (for line charts) AND
+    //    totals (by summing) — saves a second roundtrip vs fetching TOTAL.
+    const dailyByCampaign = new Map<string, DailyRow[]>();
     for (let i = 0; i < campaigns.length; i += 100) {
       const batch = campaigns.slice(i, i + 100).map((c) => c.id);
       const rows = await client.getCampaignAnalytics(
@@ -140,29 +152,49 @@ export async function POST(request: NextRequest) {
         batch,
         body.start_date,
         body.end_date,
-        opts
+        { ...opts, granularity: "DAY" }
       );
       for (const r of rows || []) {
         const cid = String(r["CAMPAIGN_ID"] ?? "");
-        if (cid) analyticsByCampaign.set(cid, r);
+        if (!cid) continue;
+        const date = String(r["DATE"] ?? r["date"] ?? "");
+        if (!date) continue;
+        const dailyRow: DailyRow = {
+          date,
+          spend: num(r["SPEND_IN_DOLLAR"]),
+          revenue: num(r["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000,
+          conversions: num(r["TOTAL_CHECKOUT"]),
+          impressions: num(r["IMPRESSION_1"]),
+          clicks: num(r["CLICKTHROUGH_1"]),
+        };
+        const arr = dailyByCampaign.get(cid) || [];
+        arr.push(dailyRow);
+        dailyByCampaign.set(cid, arr);
       }
     }
 
-    // 3) Combine: campaign metadata + analytics + parsed naming.
+    // 3) Combine: campaign metadata + daily series + parsed naming. Totals
+    //    are derived by summing the daily rows so they always match the
+    //    line chart that the UI renders.
     const rows: CampaignRow[] = campaigns.map((c) => {
-      const m = analyticsByCampaign.get(c.id) || {};
-      const spend = num(m["SPEND_IN_DOLLAR"]);
-      const revenue = num(m["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
-      const conversions = num(m["TOTAL_CHECKOUT"]);
-      const impressions = num(m["IMPRESSION_1"]);
-      const clicks = num(m["CLICKTHROUGH_1"]);
-      let roas = num(m["CHECKOUT_ROAS"]);
-      if (!roas && spend > 0) roas = revenue / spend;
+      const dailyUnsorted = dailyByCampaign.get(c.id) || [];
+      const daily = [...dailyUnsorted].sort((a, b) => a.date.localeCompare(b.date));
+      let spend = 0,
+        revenue = 0,
+        conversions = 0,
+        impressions = 0,
+        clicks = 0;
+      for (const d of daily) {
+        spend += d.spend;
+        revenue += d.revenue;
+        conversions += d.conversions;
+        impressions += d.impressions;
+        clicks += d.clicks;
+      }
+      const roas = spend > 0 ? revenue / spend : 0;
       const cpa = conversions > 0 && spend > 0 ? spend / conversions : null;
-      const ctrFromApi = num(m["CTR"]);
-      const ctr = ctrFromApi > 0 ? ctrFromApi : impressions > 0 ? (clicks / impressions) * 100 : 0;
-      const cpmFromApi = num(m["CPM_IN_DOLLAR"]);
-      const cpm = cpmFromApi > 0 ? cpmFromApi : impressions > 0 ? (spend / impressions) * 1000 : 0;
+      const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+      const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
 
       const name = c.name || "(unnamed)";
       return {
@@ -179,6 +211,7 @@ export async function POST(request: NextRequest) {
         cpa,
         ctr,
         cpm,
+        daily,
       };
     });
 

@@ -14,14 +14,14 @@ import {
   Info,
 } from "lucide-react";
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
+  Legend,
 } from "recharts";
 import {
   DateRangePicker,
@@ -35,6 +35,15 @@ import {
   type ConversionWindow,
 } from "@/components/shared/conversion-settings";
 import type { CampaignParsed } from "@/lib/pinterest/naming-conventions";
+
+interface DailyRow {
+  date: string;
+  spend: number;
+  revenue: number;
+  conversions: number;
+  impressions: number;
+  clicks: number;
+}
 
 interface CampaignRow {
   id: string;
@@ -50,6 +59,7 @@ interface CampaignRow {
   cpa: number | null;
   ctr: number;
   cpm: number;
+  daily: DailyRow[];
 }
 
 interface ApiResponse {
@@ -167,6 +177,89 @@ const COHORT_COLORS = [
 function getDim(row: CampaignRow, key: DimensionKey): string | null {
   const v = row.parsed[key];
   return v == null ? null : String(v);
+}
+
+const fmtDate = (iso: string) =>
+  new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+
+type ChartMetric = "spend" | "revenue" | "roas" | "cpa";
+
+interface TimeSeriesPoint {
+  date: string;
+  // Each dimension value becomes a numeric key on the point, with a `_${v}_spend` etc. shadow
+  // for tooltips. We only use the metric key here for plotting.
+  [key: string]: number | string | null;
+}
+
+/**
+ * Build a daily time-series dataset for one dimension. Each output row is a
+ * date with one numeric field per dimension value, holding the chosen metric
+ * value for that (date × value) pair. ROAS / CPA are derived from summed
+ * spend, revenue, conversions so they're meaningful at the day level.
+ */
+function buildTimeSeries(
+  campaigns: CampaignRow[],
+  dimKey: DimensionKey,
+  metric: ChartMetric
+): { values: string[]; data: TimeSeriesPoint[] } {
+  // Collect all (date, value) pairs.
+  const valueSet = new Set<string>();
+  const byDateValue = new Map<string, Map<string, { spend: number; revenue: number; conversions: number }>>();
+
+  for (const c of campaigns) {
+    const v = getDim(c, dimKey);
+    if (!v) continue;
+    valueSet.add(v);
+    for (const d of c.daily) {
+      let byVal = byDateValue.get(d.date);
+      if (!byVal) {
+        byVal = new Map();
+        byDateValue.set(d.date, byVal);
+      }
+      const cur = byVal.get(v) || { spend: 0, revenue: 0, conversions: 0 };
+      cur.spend += d.spend;
+      cur.revenue += d.revenue;
+      cur.conversions += d.conversions;
+      byVal.set(v, cur);
+    }
+  }
+
+  const values = Array.from(valueSet);
+  const dates = Array.from(byDateValue.keys()).sort();
+
+  const data: TimeSeriesPoint[] = dates.map((date) => {
+    const point: TimeSeriesPoint = { date };
+    const byVal = byDateValue.get(date)!;
+    for (const v of values) {
+      const m = byVal.get(v);
+      if (!m) {
+        point[v] = null;
+        continue;
+      }
+      let val: number | null;
+      switch (metric) {
+        case "spend":
+          val = m.spend;
+          break;
+        case "revenue":
+          val = m.revenue;
+          break;
+        case "roas":
+          val = m.spend > 0 ? m.revenue / m.spend : null;
+          break;
+        case "cpa":
+          val = m.conversions > 0 && m.spend > 0 ? m.spend / m.conversions : null;
+          break;
+      }
+      point[v] = val;
+    }
+    return point;
+  });
+  return { values, data };
 }
 
 // Aggregate metrics across rows.
@@ -491,6 +584,7 @@ export default function CampaignLevelPage() {
             key={dim.key}
             dim={dim}
             rows={rows}
+            campaigns={allCampaigns}
             currency={currency}
             viewMode={viewMode}
             chartMetric={chartMetric}
@@ -537,17 +631,42 @@ export default function CampaignLevelPage() {
 function DimensionSection({
   dim,
   rows,
+  campaigns,
   currency,
   viewMode,
   chartMetric,
 }: {
   dim: Dimension;
   rows: DimensionRow[];
+  campaigns: CampaignRow[];
   currency: string;
   viewMode: "numbers" | "chart";
-  chartMetric: "spend" | "revenue" | "roas" | "cpa";
+  chartMetric: ChartMetric;
 }) {
   const totalSpend = rows.reduce((s, r) => s + r.spend, 0);
+
+  // Build daily time-series for the line chart. Order the line keys to match
+  // the dim's preferred order (so colors line up with the Numbers table).
+  const series = useMemo(() => {
+    if (viewMode !== "chart") return { values: [], data: [] };
+    const { values, data } = buildTimeSeries(campaigns, dim.key, chartMetric);
+    let orderedValues = values;
+    if (dim.order) {
+      const idx = new Map(dim.order.map((v, i) => [v, i]));
+      orderedValues = [...values].sort(
+        (a, b) => (idx.get(a) ?? 999) - (idx.get(b) ?? 999)
+      );
+    } else {
+      // Sort by total spend desc so dominant cohorts use the first colors.
+      const spendByValue = new Map<string, number>();
+      for (const r of rows) spendByValue.set(r.value, r.spend);
+      orderedValues = [...values].sort(
+        (a, b) => (spendByValue.get(b) ?? 0) - (spendByValue.get(a) ?? 0)
+      );
+    }
+    return { values: orderedValues, data };
+  }, [viewMode, campaigns, dim, chartMetric, rows]);
+
   return (
     <section className="bg-card border border-border rounded-2xl p-5">
       <div className="mb-3">
@@ -559,49 +678,70 @@ function DimensionSection({
           No campaigns matched this dimension.
         </div>
       ) : viewMode === "chart" ? (
-        <div className="w-full h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={rows} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} stroke="#d1d5db" />
-              <YAxis
-                tick={{ fontSize: 11, fill: "#6b7280" }}
-                stroke="#d1d5db"
-                tickFormatter={(v) => {
-                  const n = Number(v);
-                  if (chartMetric === "roas") return `${n.toFixed(1)}x`;
-                  return new Intl.NumberFormat("en-US", {
-                    style: "currency",
-                    currency,
-                    notation: "compact",
-                    maximumFractionDigits: 1,
-                  }).format(n);
-                }}
-              />
-              <Tooltip
-                formatter={(value) => {
-                  const n = Number(value) || 0;
-                  if (chartMetric === "roas") return [fmtRoas(n), "ROAS"];
-                  if (chartMetric === "cpa") return [fmtCurrency(n, currency), "CPA"];
-                  return [
-                    fmtCurrency(n, currency),
-                    chartMetric === "spend" ? "Spend" : "Revenue",
-                  ];
-                }}
-                contentStyle={{
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  fontSize: 12,
-                }}
-              />
-              <Bar dataKey={chartMetric} radius={[4, 4, 0, 0]}>
-                {rows.map((_, i) => (
-                  <Cell key={i} fill={COHORT_COLORS[i % COHORT_COLORS.length]} />
+        series.data.length === 0 ? (
+          <div className="text-sm text-muted-foreground py-6 text-center">
+            No daily data for this dimension in the selected range.
+          </div>
+        ) : (
+          <div className="w-full h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={series.data} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(v) => fmtDate(String(v))}
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  stroke="#d1d5db"
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  stroke="#d1d5db"
+                  tickFormatter={(v) => {
+                    const n = Number(v);
+                    if (chartMetric === "roas") return `${n.toFixed(1)}x`;
+                    return new Intl.NumberFormat("en-US", {
+                      style: "currency",
+                      currency,
+                      notation: "compact",
+                      maximumFractionDigits: 1,
+                    }).format(n);
+                  }}
+                />
+                <Tooltip
+                  labelFormatter={(label) => fmtDate(String(label))}
+                  formatter={(value, name) => {
+                    const n = typeof value === "number" ? value : Number(value) || 0;
+                    const display = dim.label(String(name));
+                    if (chartMetric === "roas") return [fmtRoas(n), display];
+                    if (chartMetric === "cpa") return [fmtCurrency(n, currency), display];
+                    return [fmtCurrency(n, currency), display];
+                  }}
+                  contentStyle={{
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    fontSize: 12,
+                  }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: 11 }}
+                  formatter={(value) => dim.label(String(value))}
+                />
+                {series.values.map((v, i) => (
+                  <Line
+                    key={v}
+                    type="monotone"
+                    dataKey={v}
+                    stroke={COHORT_COLORS[i % COHORT_COLORS.length]}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    connectNulls
+                  />
                 ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
