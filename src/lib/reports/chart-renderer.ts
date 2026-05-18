@@ -193,18 +193,38 @@ function buildSvg(input: ChartInput): string {
   );
 }
 
-/** Rasterize the chart SVG to a PNG Buffer. Returns null when there's no
- *  meaningful data (every series is empty or all-null). */
-export function renderLineChartPng(input: ChartInput): Buffer | null {
+export interface ChartRenderResult {
+  /** Set when rendering succeeded. */
+  buffer?: Buffer;
+  /** Set when rendering failed or had no data. The message is intended
+   *  for end users to see inside the doc — not a stack trace. */
+  error?: string;
+}
+
+/**
+ * Rasterize the chart SVG to a PNG Buffer. Never throws — failures (no
+ * data, resvg crash) are returned as `error` so the report can render a
+ * visible note in place of the chart instead of silently omitting it.
+ */
+export function renderLineChartPng(input: ChartInput): ChartRenderResult {
   const hasAny = input.series.some((s) =>
     s.values.some((v) => v != null && isFinite(v))
   );
-  if (!hasAny || input.dates.length === 0) return null;
-  const svg = buildSvg(input);
-  const resvg = new Resvg(svg, {
-    background: "#FFFFFF",
-    fitTo: { mode: "width", value: input.widthPx ?? 1300 },
-  });
-  const png = resvg.render();
-  return Buffer.from(png.asPng());
+  if (!hasAny || input.dates.length === 0) {
+    return { error: "No daily data available for this dimension." };
+  }
+  try {
+    const svg = buildSvg(input);
+    const resvg = new Resvg(svg, {
+      background: "#FFFFFF",
+      fitTo: { mode: "width", value: input.widthPx ?? 1300 },
+    });
+    const png = resvg.render();
+    return { buffer: Buffer.from(png.asPng()) };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      error: `Chart could not be rendered server-side: ${msg.slice(0, 200)}`,
+    };
+  }
 }

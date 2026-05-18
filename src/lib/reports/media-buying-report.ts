@@ -15,7 +15,6 @@ import {
   dataTable,
   kpiStrip,
   chapterHeading,
-  chapterRule,
   sectionHeading,
   tocField,
   inlineImage,
@@ -176,16 +175,21 @@ class ChartCollector {
   private images: PendingChartImage[] = [];
   private nextSeq = 1;
 
-  /** Render the chart, store the PNG, and return the rId + filename so
-   *  callers can emit an inlineImage() referencing it. Returns null when
-   *  the chart has no usable data. */
-  add(chart: ChartInput, namePrefix: string): { rId: string } | null {
-    const png = renderLineChartPng(chart);
-    if (!png) return null;
+  /** Render the chart, store the PNG, and return the rId. When rendering
+   *  fails or there's no data, returns an error string instead. Callers
+   *  surface the error inside the doc so failures are visible, not silent. */
+  add(
+    chart: ChartInput,
+    namePrefix: string
+  ): { rId: string } | { error: string } {
+    const result = renderLineChartPng(chart);
+    if (result.error || !result.buffer) {
+      return { error: result.error || "Unknown chart-render failure." };
+    }
     const seq = this.nextSeq++;
     const rId = `rIdChart${seq}`;
     const filename = `${namePrefix}-${seq}.png`;
-    this.images.push({ rId, filename, buffer: png });
+    this.images.push({ rId, filename, buffer: result.buffer });
     return { rId };
   }
 
@@ -207,7 +211,6 @@ function renderAccountOverview(
 ): string {
   const parts: string[] = [];
   parts.push(chapterHeading("Account Overview"));
-  parts.push(chapterRule());
   parts.push(
     muted(
       "Account-level performance and landing-page breakdown across the selected period."
@@ -327,19 +330,30 @@ function renderDimensionSection(
     parts.push(dataTable(cols, rows));
   }
 
-  if (showChart && dim.chart) {
-    const result = charts.add(dim.chart, "chart");
-    if (result) {
-      // 6.5" wide × 2.75" tall — fits A4 page width with margins.
-      parts.push(inlineImage(result.rId, `${dim.title} — daily trend`, 6.5, 2.75));
-    } else {
+  if (showChart) {
+    if (!dim.chart) {
       parts.push(
-        p("No daily data available for this dimension in the selected range.", {
-          italic: true,
-          color: "9CA3AF",
-          sizeHalfPt: 18,
-        })
+        p(
+          "[Chart] No daily series data was available for this dimension when the report was generated.",
+          { italic: true, color: "B45309", sizeHalfPt: 18 }
+        )
       );
+    } else {
+      const result = charts.add(dim.chart, "chart");
+      if ("rId" in result) {
+        // 6.5" wide × 2.75" tall — fits A4 page width with margins.
+        parts.push(
+          inlineImage(result.rId, `${dim.title} — daily trend`, 6.5, 2.75)
+        );
+      } else {
+        parts.push(
+          p(`[Chart] ${result.error}`, {
+            italic: true,
+            color: "B45309",
+            sizeHalfPt: 18,
+          })
+        );
+      }
     }
   }
 
@@ -348,7 +362,7 @@ function renderDimensionSection(
 }
 
 function renderLevelHeading(levelTitle: string, description: string): string {
-  return chapterHeading(levelTitle) + chapterRule() + muted(description);
+  return chapterHeading(levelTitle) + muted(description);
 }
 
 function renderAdTopTable(
@@ -383,7 +397,6 @@ function renderAdTopTable(
 function renderNotes(text: string): string {
   const parts: string[] = [];
   parts.push(chapterHeading("Recommendation for Clients"));
-  parts.push(chapterRule());
   const trimmed = (text || "").trim();
   if (!trimmed) {
     parts.push(

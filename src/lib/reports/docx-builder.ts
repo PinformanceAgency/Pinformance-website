@@ -76,18 +76,33 @@ export function styledP(
 }
 
 /** Word "Heading 1" — picked up by the TOC field for chapter entries.
- *  Adds a page break before so each chapter starts on a new page. */
+ *  Adds a page break before so each chapter starts on a new page.
+ *  Overrides the template's red color to dark slate so the doc reads
+ *  like the dashboard (which uses dark headings, not branded red). */
 export function chapterHeading(text: string, addPageBreak: boolean = true): string {
   const pageBreak = addPageBreak
     ? `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`
     : "";
-  return pageBreak + styledP(text, "Heading1");
+  return (
+    pageBreak +
+    styledP(text, "Heading1", {
+      color: "111827",
+      sizeHalfPt: 44, // 22pt — chapter scale
+      spaceBefore: 0,
+      spaceAfter: 80,
+    })
+  );
 }
 
 /** Word "Heading 2" — used for sub-sections within a chapter. Shows up in
- *  the TOC under its parent Heading 1. */
+ *  the TOC under its parent Heading 1. Dashboard-style dark color, smaller. */
 export function sectionHeading(text: string): string {
-  return styledP(text, "Heading2");
+  return styledP(text, "Heading2", {
+    color: "111827",
+    sizeHalfPt: 32, // 16pt
+    spaceBefore: 240,
+    spaceAfter: 60,
+  });
 }
 
 /**
@@ -289,16 +304,19 @@ interface TableProps {
 export function tbl({ widthsDxa, rows }: TableProps): string {
   const grid = widthsDxa.map((w) => `<w:gridCol w:w="${w}"/>`).join("");
   const totalWidth = widthsDxa.reduce((s, w) => s + w, 0);
+  // Dashboard-style: no outer or vertical borders; subtle horizontal
+  // dividers between rows only. Header bottom border is added per-cell
+  // by dataTable() for a thicker visual line.
   const tblPr =
     `<w:tblPr>` +
     `<w:tblW w:w="${totalWidth}" w:type="dxa"/>` +
     `<w:tblBorders>` +
-    `<w:top w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>` +
-    `<w:left w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>` +
-    `<w:bottom w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>` +
-    `<w:right w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>` +
-    `<w:insideH w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>` +
-    `<w:insideV w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>` +
+    `<w:top w:val="nil"/>` +
+    `<w:left w:val="nil"/>` +
+    `<w:bottom w:val="nil"/>` +
+    `<w:right w:val="nil"/>` +
+    `<w:insideH w:val="single" w:sz="4" w:space="0" w:color="F3F4F6"/>` +
+    `<w:insideV w:val="nil"/>` +
     `</w:tblBorders>` +
     `<w:tblLayout w:type="fixed"/>` +
     `</w:tblPr>`;
@@ -335,27 +353,27 @@ export function dataTable(
 ): string {
   const widthsDxa = computeWidths(columns, totalWidthDxa);
 
+  // Dashboard-style header: no background shading, just bold uppercase
+  // muted text with a single subtle bottom-border separator.
   const headerCells = columns.map((col, i) =>
     tc(col.header.toUpperCase(), widthsDxa[i], {
       bold: true,
-      shading: "F3F4F6",
       color: "6B7280",
-      sizeHalfPt: 16, // 8pt — smaller, tracking-y feel
+      sizeHalfPt: 16,
       align: col.align ?? (i === 0 ? "left" : "right"),
-      paddingTwips: 120,
+      paddingTwips: 100,
       borders: {
-        bottom: { sz: 8, color: "D1D5DB" },
+        bottom: { sz: 6, color: "E5E7EB" },
       },
     })
   );
 
   const body = rows.map((row, rIdx) => {
     const isTotal = !!row.isTotal;
-    const shading = isTotal
-      ? "F3F4F6"
-      : rIdx % 2 === 1
-        ? "FAFAFA"
-        : undefined;
+    // No alternating row shading — dashboard shows clean white rows with
+    // only thin horizontal dividers. Totals row keeps a faint background.
+    const shading = isTotal ? "F9FAFB" : undefined;
+    void rIdx; // formerly used for zebra striping
     const cells = row.cells.map((cell, i) => {
       const col = columns[i];
       const align = col.align ?? (i === 0 ? "left" : "right");
@@ -381,9 +399,9 @@ export function dataTable(
         color,
         shading,
         sizeHalfPt: 20,
-        paddingTwips: 110,
+        paddingTwips: 100,
         borders: isTotal
-          ? { top: { sz: 12, color: "9CA3AF" } }
+          ? { top: { sz: 8, color: "D1D5DB" } }
           : undefined,
       });
     });
