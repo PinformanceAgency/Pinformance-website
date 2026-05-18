@@ -1048,8 +1048,8 @@ function FirstPurchasePanel({
         </div>
       </section>
 
-      {/* 5. Setup — natural next-step (dropship skips the setup fee) */}
-      {!isDropship && <SetupFeeSection />}
+      {/* 5. Setup — natural next-step */}
+      <SetupFeeSection variant={isDropship ? "dropship" : "brand"} />
     </div>
   );
 }
@@ -1592,7 +1592,7 @@ function TierBox({
   );
 }
 
-function SetupFeeSection() {
+function SetupFeeSection({ variant = "brand" }: { variant?: "brand" | "dropship" }) {
   const items = [
     {
       title: "Organic + profile setup",
@@ -1619,51 +1619,66 @@ function SetupFeeSection() {
       body: "Notion, DataAds, Tagbox, Triple Whale, Atria. Looms and workflows to understand your internal processes.",
     },
   ];
+
+  const isDropship = variant === "dropship";
+  const fee = isDropship ? 500 : STARTUP_FEE;
+
   return (
     <section>
       <div className="mb-6">
         <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
           Setup
         </h3>
-        <p className="mt-1 text-sm text-[#6b7280]">
-          What we do before your first month runs.
-        </p>
+        {!isDropship && (
+          <p className="mt-1 text-sm text-[#6b7280]">
+            What we do before your first month runs.
+          </p>
+        )}
       </div>
       <div className="overflow-hidden rounded-2xl border border-[#e2e4ea] bg-white shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
-        {/* TOP: fee badge, centred */}
-        <div className="border-b border-[#e2e4ea] bg-[#fafbfc] px-8 py-8 text-center sm:px-10">
+        {/* Fee badge, centred */}
+        <div
+          className={
+            "bg-[#fafbfc] text-center " +
+            (isDropship
+              ? "px-8 py-7 sm:px-10"
+              : "border-b border-[#e2e4ea] px-8 py-8 sm:px-10")
+          }
+        >
           <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
             One-time setup
           </div>
           <div className="mt-3 text-3xl font-bold tabular-nums text-[#0a0a0a] sm:text-4xl">
-            € {STARTUP_FEE.toLocaleString("en-US")}
+            € {fee.toLocaleString("en-US")}
           </div>
           <div className="mt-2 text-[11px] font-medium uppercase tracking-[0.2em] text-[#9ca3af]">
             Billed once
           </div>
         </div>
 
-        {/* BOTTOM: deliverables grid, 2 cols on md, 4 cols on xl */}
-        <div className="px-8 py-8 sm:px-10">
-          <div className="mb-6 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
-            What&apos;s covered
-          </div>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {items.map((it, i) => (
-              <div key={i} className="flex gap-3">
-                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#E30613]" />
-                <div>
-                  <div className="text-sm font-semibold text-[#0a0a0a]">
-                    {it.title}
+        {/* Deliverables grid — brand only */}
+        {!isDropship && (
+          <div className="px-8 py-8 sm:px-10">
+            <div className="mb-6 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
+              What&apos;s covered
+            </div>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {items.map((it, i) => (
+                <div key={i} className="flex gap-3">
+                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#E30613]" />
+                  <div>
+                    <div className="text-sm font-semibold text-[#0a0a0a]">
+                      {it.title}
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-[#6b7280]">
+                      {it.body}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs leading-relaxed text-[#6b7280]">
-                    {it.body}
-                  </p>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </section>
   );
