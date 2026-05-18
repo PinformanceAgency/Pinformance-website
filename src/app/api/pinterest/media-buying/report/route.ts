@@ -253,11 +253,95 @@ function deltaPct(curr: number, prev: number): number | null {
 
 // ---- Aggregation over a parsed-entity list ----
 
+interface DailyMetric {
+  date: string;
+  spend: number;
+  revenue: number;
+  conversions: number;
+}
+
 interface EntityForReport<P> {
   parsed: P;
   spend: number;
   revenue: number;
   conversions: number;
+  /** Daily breakdown — populated only when the report needs a chart for any
+   *  dimension of this level. */
+  daily?: DailyMetric[];
+}
+
+/**
+ * Build a ChartInput for the line chart: one series per dimension value,
+ * one Y value per day (ROAS = revenue/spend computed per day). Returns
+ * null when no daily data is available.
+ */
+function buildChartInputForDimension<P extends object>(
+  entities: EntityForReport<P>[],
+  meta: DimensionMeta,
+  currency: string
+): import("@/lib/reports/chart-renderer").ChartInput | null {
+  // Group daily metrics by (date, value).
+  const valueSet = new Set<string>();
+  const byDateValue = new Map<
+    string,
+    Map<string, { spend: number; revenue: number; conversions: number }>
+  >();
+  let any = false;
+  for (const e of entities) {
+    if (!e.daily || e.daily.length === 0) continue;
+    const raw = (e.parsed as unknown as Record<string, unknown>)[meta.key];
+    if (raw == null) continue;
+    const v = String(raw);
+    valueSet.add(v);
+    for (const d of e.daily) {
+      let byVal = byDateValue.get(d.date);
+      if (!byVal) {
+        byVal = new Map();
+        byDateValue.set(d.date, byVal);
+      }
+      const cur = byVal.get(v) || { spend: 0, revenue: 0, conversions: 0 };
+      cur.spend += d.spend;
+      cur.revenue += d.revenue;
+      cur.conversions += d.conversions;
+      byVal.set(v, cur);
+      any = true;
+    }
+  }
+  if (!any || valueSet.size === 0) return null;
+  // Preserve label order if the dim has one.
+  let values = Array.from(valueSet);
+  if (meta.order) {
+    const idx = new Map(meta.order.map((v, i) => [v, i]));
+    values = values.sort(
+      (a, b) => (idx.get(a) ?? 999) - (idx.get(b) ?? 999)
+    );
+  } else {
+    // Sort by total spend descending so dominant cohorts use the first colors.
+    const totalSpend = new Map<string, number>();
+    for (const byVal of byDateValue.values()) {
+      for (const [v, m] of byVal.entries()) {
+        totalSpend.set(v, (totalSpend.get(v) ?? 0) + m.spend);
+      }
+    }
+    values = values.sort(
+      (a, b) => (totalSpend.get(b) ?? 0) - (totalSpend.get(a) ?? 0)
+    );
+  }
+  const dates = Array.from(byDateValue.keys()).sort();
+  const series = values.map((v) => ({
+    name: meta.label(v),
+    values: dates.map((d) => {
+      const m = byDateValue.get(d)!.get(v);
+      if (!m || m.spend <= 0) return null;
+      return m.revenue / m.spend;
+    }),
+  }));
+  return {
+    dates,
+    series,
+    yAxisFormat: "ratio" as const,
+    currency,
+  };
 }
 
 function aggregateByDimension<P extends object>(
@@ -564,6 +648,9 @@ export async function POST(request: NextRequest) {
       body.sections.campaignLevel.dimensions.length > 0
     ) {
       const reqDims = body.sections.campaignLevel.dimensions;
+      const anyChartRequested = reqDims.some(
+        (d) => d.viewMode === "chart" || d.viewMode === "both"
+      );
       const campaigns: Array<{ id: string; name?: string }> = [];
       let bookmark: string | undefined;
       do {
@@ -576,7 +663,13 @@ export async function POST(request: NextRequest) {
         if (campaigns.length >= 3000) break;
       } while (bookmark);
 
-      const analyticsByCampaign = new Map<string, Record<string, number | string>>();
+      // When a chart is requested, fetch daily granularity so the line
+      // chart has per-day points. Totals are derived by summing daily.
+      const dailyByCampaign = new Map<string, DailyMetric[]>();
+      const totalsByCampaign = new Map<
+        string,
+        { spend: number; revenue: number; conversions: number }
+      >();
       for (let i = 0; i < campaigns.length; i += 100) {
         const batch = campaigns.slice(i, i + 100).map((c) => c.id);
         const rows = await client.getCampaignAnalytics(
@@ -584,23 +677,47 @@ export async function POST(request: NextRequest) {
           batch,
           body.start_date,
           body.end_date,
-          opts
+          anyChartRequested ? { ...opts, granularity: "DAY" } : opts
         );
         for (const r of rows || []) {
           const cid = String(r["CAMPAIGN_ID"] ?? "");
-          if (cid) analyticsByCampaign.set(cid, r);
+          if (!cid) continue;
+          const spend = num(r["SPEND_IN_DOLLAR"]);
+          const revenue = num(r["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
+          const conversions = num(r["TOTAL_CHECKOUT"]);
+          if (anyChartRequested) {
+            const date = String(r["DATE"] ?? r["date"] ?? "");
+            if (date) {
+              const arr = dailyByCampaign.get(cid) || [];
+              arr.push({ date, spend, revenue, conversions });
+              dailyByCampaign.set(cid, arr);
+            }
+            const cur = totalsByCampaign.get(cid) || {
+              spend: 0,
+              revenue: 0,
+              conversions: 0,
+            };
+            cur.spend += spend;
+            cur.revenue += revenue;
+            cur.conversions += conversions;
+            totalsByCampaign.set(cid, cur);
+          } else {
+            totalsByCampaign.set(cid, { spend, revenue, conversions });
+          }
         }
       }
       const entities: Array<EntityForReport<CampaignParsed>> = campaigns.map((c) => {
-        const m = analyticsByCampaign.get(c.id) || {};
-        const spend = num(m["SPEND_IN_DOLLAR"]);
-        const revenue = num(m["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
-        const conversions = num(m["TOTAL_CHECKOUT"]);
+        const t = totalsByCampaign.get(c.id) || {
+          spend: 0,
+          revenue: 0,
+          conversions: 0,
+        };
         return {
           parsed: parseCampaignName(c.name || ""),
-          spend,
-          revenue,
-          conversions,
+          spend: t.spend,
+          revenue: t.revenue,
+          conversions: t.conversions,
+          daily: anyChartRequested ? dailyByCampaign.get(c.id) || [] : undefined,
         };
       });
       const dimensions: ReportDimensionSection[] = [];
@@ -609,6 +726,7 @@ export async function POST(request: NextRequest) {
         if (!meta) continue;
         const rows = aggregateByDimension(entities, meta);
         if (rows.length === 0) continue;
+        const needChart = req.viewMode === "chart" || req.viewMode === "both";
         dimensions.push({
           title: meta.title,
           description: meta.description,
@@ -616,6 +734,9 @@ export async function POST(request: NextRequest) {
           rows,
           valueColumnLabel: "Value",
           countColumnLabel: "Campaigns",
+          chart: needChart
+            ? buildChartInputForDimension(entities, meta, currency) || undefined
+            : undefined,
         });
       }
       if (dimensions.length > 0) reportInput.campaignLevel = { dimensions };
@@ -638,7 +759,14 @@ export async function POST(request: NextRequest) {
         bookmark = page.bookmark;
         if (adGroups.length >= 5000) break;
       } while (bookmark);
-      const analyticsByAdGroup = new Map<string, Record<string, number | string>>();
+      const anyChartRequested = reqDims.some(
+        (d) => d.viewMode === "chart" || d.viewMode === "both"
+      );
+      const dailyByGroup = new Map<string, DailyMetric[]>();
+      const totalsByGroup = new Map<
+        string,
+        { spend: number; revenue: number; conversions: number }
+      >();
       for (let i = 0; i < adGroups.length; i += 100) {
         const batch = adGroups.slice(i, i + 100).map((g) => g.id);
         const rows = await client.getAdGroupAnalytics(
@@ -646,25 +774,45 @@ export async function POST(request: NextRequest) {
           batch,
           body.start_date,
           body.end_date,
-          opts
+          anyChartRequested ? { ...opts, granularity: "DAY" } : opts
         );
         for (const r of rows || []) {
           const gid = String(r["AD_GROUP_ID"] ?? "");
-          if (gid) analyticsByAdGroup.set(gid, r);
+          if (!gid) continue;
+          const spend = num(r["SPEND_IN_DOLLAR"]);
+          const revenue = num(r["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
+          const conversions = num(r["TOTAL_CHECKOUT"]);
+          if (anyChartRequested) {
+            const date = String(r["DATE"] ?? r["date"] ?? "");
+            if (date) {
+              const arr = dailyByGroup.get(gid) || [];
+              arr.push({ date, spend, revenue, conversions });
+              dailyByGroup.set(gid, arr);
+            }
+            const cur = totalsByGroup.get(gid) || {
+              spend: 0,
+              revenue: 0,
+              conversions: 0,
+            };
+            cur.spend += spend;
+            cur.revenue += revenue;
+            cur.conversions += conversions;
+            totalsByGroup.set(gid, cur);
+          } else {
+            totalsByGroup.set(gid, { spend, revenue, conversions });
+          }
         }
       }
       const entities: Array<EntityForReport<AdGroupParsed>> = [];
       for (const g of adGroups) {
-        const m = analyticsByAdGroup.get(g.id) || {};
-        const spend = num(m["SPEND_IN_DOLLAR"]);
-        if (spend === 0) continue;
-        const revenue = num(m["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
-        const conversions = num(m["TOTAL_CHECKOUT"]);
+        const t = totalsByGroup.get(g.id);
+        if (!t || t.spend === 0) continue;
         entities.push({
           parsed: parseAdGroupName(g.name || ""),
-          spend,
-          revenue,
-          conversions,
+          spend: t.spend,
+          revenue: t.revenue,
+          conversions: t.conversions,
+          daily: anyChartRequested ? dailyByGroup.get(g.id) || [] : undefined,
         });
       }
       const dimensions: ReportDimensionSection[] = [];
@@ -673,6 +821,7 @@ export async function POST(request: NextRequest) {
         if (!meta) continue;
         const rows = aggregateByDimension(entities, meta);
         if (rows.length === 0) continue;
+        const needChart = req.viewMode === "chart" || req.viewMode === "both";
         dimensions.push({
           title: meta.title,
           description: meta.description,
@@ -680,6 +829,9 @@ export async function POST(request: NextRequest) {
           rows,
           valueColumnLabel: "Value",
           countColumnLabel: "Ad groups",
+          chart: needChart
+            ? buildChartInputForDimension(entities, meta, currency) || undefined
+            : undefined,
         });
       }
       if (dimensions.length > 0) reportInput.adGroupLevel = { dimensions };
@@ -704,7 +856,14 @@ export async function POST(request: NextRequest) {
         bookmark = page.bookmark;
         if (ads.length >= 5000) break;
       } while (bookmark);
-      const analyticsByAd = new Map<string, Record<string, number | string>>();
+      const anyChartRequested = reqDims.some(
+        (d) => d.viewMode === "chart" || d.viewMode === "both"
+      );
+      const dailyByAd = new Map<string, DailyMetric[]>();
+      const totalsByAd = new Map<
+        string,
+        { spend: number; revenue: number; conversions: number }
+      >();
       for (let i = 0; i < ads.length; i += 100) {
         const batch = ads.slice(i, i + 100).map((a) => a.id);
         const rows = await client.getAdAnalytics(
@@ -712,11 +871,33 @@ export async function POST(request: NextRequest) {
           batch,
           body.start_date,
           body.end_date,
-          opts
+          anyChartRequested ? { ...opts, granularity: "DAY" } : opts
         );
         for (const r of rows || []) {
           const aid = String(r["AD_ID"] ?? "");
-          if (aid) analyticsByAd.set(aid, r);
+          if (!aid) continue;
+          const spend = num(r["SPEND_IN_DOLLAR"]);
+          const revenue = num(r["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
+          const conversions = num(r["TOTAL_CHECKOUT"]);
+          if (anyChartRequested) {
+            const date = String(r["DATE"] ?? r["date"] ?? "");
+            if (date) {
+              const arr = dailyByAd.get(aid) || [];
+              arr.push({ date, spend, revenue, conversions });
+              dailyByAd.set(aid, arr);
+            }
+            const cur = totalsByAd.get(aid) || {
+              spend: 0,
+              revenue: 0,
+              conversions: 0,
+            };
+            cur.spend += spend;
+            cur.revenue += revenue;
+            cur.conversions += conversions;
+            totalsByAd.set(aid, cur);
+          } else {
+            totalsByAd.set(aid, { spend, revenue, conversions });
+          }
         }
       }
       interface AdEntity extends EntityForReport<AdParsed> {
@@ -729,22 +910,20 @@ export async function POST(request: NextRequest) {
       }
       const entities: AdEntity[] = [];
       for (const a of ads) {
-        const m = analyticsByAd.get(a.id) || {};
-        const spend = num(m["SPEND_IN_DOLLAR"]);
-        if (spend === 0) continue;
-        const revenue = num(m["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
-        const conversions = num(m["TOTAL_CHECKOUT"]);
-        const roas = spend > 0 ? revenue / spend : 0;
-        const cpa = conversions > 0 ? spend / conversions : null;
+        const t = totalsByAd.get(a.id);
+        if (!t || t.spend === 0) continue;
+        const roas = t.spend > 0 ? t.revenue / t.spend : 0;
+        const cpa = t.conversions > 0 ? t.spend / t.conversions : null;
         entities.push({
           id: a.id,
           name: a.name || "(unnamed)",
           pin_id: a.pin_id ?? null,
           created_time: a.created_time ?? null,
           parsed: parseAdName(a.name || ""),
-          spend,
-          revenue,
-          conversions,
+          spend: t.spend,
+          revenue: t.revenue,
+          conversions: t.conversions,
+          daily: anyChartRequested ? dailyByAd.get(a.id) || [] : undefined,
           roas,
           cpa,
         });
@@ -755,6 +934,7 @@ export async function POST(request: NextRequest) {
         if (!meta) continue;
         const rows = aggregateByDimension(entities, meta);
         if (rows.length === 0) continue;
+        const needChart = req.viewMode === "chart" || req.viewMode === "both";
         dimensions.push({
           title: meta.title,
           description: meta.description,
@@ -762,6 +942,9 @@ export async function POST(request: NextRequest) {
           rows,
           valueColumnLabel: "Value",
           countColumnLabel: "Ads",
+          chart: needChart
+            ? buildChartInputForDimension(entities, meta, currency) || undefined
+            : undefined,
         });
       }
       const adLevel: NonNullable<ReportInput["adLevel"]> = { dimensions };

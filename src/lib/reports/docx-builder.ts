@@ -90,6 +90,30 @@ export function sectionHeading(text: string): string {
   return styledP(text, "Heading2");
 }
 
+/**
+ * A horizontal rule (thin red Pinformance accent line) — placed under
+ * chapter headings for emphasis.
+ */
+export function chapterRule(): string {
+  return (
+    `<w:p><w:pPr>` +
+    `<w:spacing w:before="0" w:after="200"/>` +
+    `<w:pBdr><w:bottom w:val="single" w:sz="18" w:space="1" w:color="ED1C24"/></w:pBdr>` +
+    `</w:pPr></w:p>`
+  );
+}
+
+/** A subtle full-width grey divider — used between major sections in
+ *  chapters where a page break would be too aggressive. */
+export function thinDivider(): string {
+  return (
+    `<w:p><w:pPr>` +
+    `<w:spacing w:before="120" w:after="120"/>` +
+    `<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="E5E7EB"/></w:pBdr>` +
+    `</w:pPr></w:p>`
+  );
+}
+
 /** Word TOC field. Word auto-populates page numbers on first open ("Update
  *  fields?" prompt). The pre-rendered text is what readers see before the
  *  field is updated. */
@@ -174,11 +198,23 @@ export interface TableCellOpts {
   /** Hex shading color (no leading #) — e.g. "F3F4F6" for muted header. */
   shading?: string;
   bold?: boolean;
+  italic?: boolean;
   /** Text color hex. */
   color?: string;
+  /** Font size in half-points (sz). Default 20 = 10pt. */
+  sizeHalfPt?: number;
   align?: "left" | "center" | "right";
-  /** Twentieths of a point. Default body cell padding ≈ 80. */
+  /** Vertical alignment: top / center / bottom. */
+  vAlign?: "top" | "center" | "bottom";
+  /** Override top/bottom padding in twips. */
   paddingTwips?: number;
+  /** Per-side borders override. Color hex, no leading #. */
+  borders?: {
+    top?: { sz: number; color: string };
+    bottom?: { sz: number; color: string };
+    left?: { sz: number; color: string };
+    right?: { sz: number; color: string };
+  };
 }
 
 /** Single cell ("td"). Width is given in DXA twips (1/20 of a pt). */
@@ -190,18 +226,47 @@ export function tc(
   const shading = opts.shading
     ? `<w:shd w:val="clear" w:color="auto" w:fill="${opts.shading}"/>`
     : "";
+  const vAlign = opts.vAlign
+    ? `<w:vAlign w:val="${opts.vAlign}"/>`
+    : `<w:vAlign w:val="center"/>`;
+  const borders = opts.borders
+    ? `<w:tcBorders>${
+        opts.borders.top
+          ? `<w:top w:val="single" w:sz="${opts.borders.top.sz}" w:space="0" w:color="${opts.borders.top.color}"/>`
+          : ""
+      }${
+        opts.borders.bottom
+          ? `<w:bottom w:val="single" w:sz="${opts.borders.bottom.sz}" w:space="0" w:color="${opts.borders.bottom.color}"/>`
+          : ""
+      }${
+        opts.borders.left
+          ? `<w:left w:val="single" w:sz="${opts.borders.left.sz}" w:space="0" w:color="${opts.borders.left.color}"/>`
+          : ""
+      }${
+        opts.borders.right
+          ? `<w:right w:val="single" w:sz="${opts.borders.right.sz}" w:space="0" w:color="${opts.borders.right.color}"/>`
+          : ""
+      }</w:tcBorders>`
+    : "";
+  const padding = opts.paddingTwips ?? 80;
+  const margins = `<w:tcMar><w:top w:w="${padding}" w:type="dxa"/><w:bottom w:w="${padding}" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>`;
   const tcPr =
     `<w:tcPr>` +
     `<w:tcW w:w="${widthDxa}" w:type="dxa"/>` +
     shading +
+    borders +
+    margins +
+    vAlign +
     `</w:tcPr>`;
   const pPr: string[] = [];
   if (opts.align) pPr.push(`<w:jc w:val="${opts.align}"/>`);
-  pPr.push(`<w:spacing w:before="40" w:after="40"/>`);
+  pPr.push(`<w:spacing w:before="20" w:after="20"/>`);
   const rPr: string[] = [];
   if (opts.bold) rPr.push("<w:b/>");
+  if (opts.italic) rPr.push("<w:i/>");
   if (opts.color) rPr.push(`<w:color w:val="${opts.color}"/>`);
-  rPr.push(`<w:sz w:val="20"/><w:szCs w:val="20"/>`);
+  const size = opts.sizeHalfPt ?? 20;
+  rPr.push(`<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>`);
   const rPrXml = rPr.length ? `<w:rPr>${rPr.join("")}</w:rPr>` : "";
   return (
     `<w:tc>${tcPr}<w:p><w:pPr>${pPr.join("")}</w:pPr>` +
@@ -240,66 +305,201 @@ export function tbl({ widthsDxa, rows }: TableProps): string {
   return `<w:tbl>${tblPr}<w:tblGrid>${grid}</w:tblGrid>${rows.join("")}</w:tbl>`;
 }
 
+export interface DataTableColumn {
+  header: string;
+  /** Optional fixed width in DXA. When omitted, columns share the remainder
+   *  evenly (or first col gets 30% if `firstColumnEmphasis` is true). */
+  widthDxa?: number;
+  align?: "left" | "right" | "center";
+  /** When true, value cells get ROAS-style coloring based on a numeric
+   *  parsed from the cell text (≥3x = green, <1.5x = amber). */
+  colorAsRoas?: boolean;
+}
+
+export interface DataTableRow {
+  cells: string[];
+  /** Mark this row as the totals row — bold + thicker top border + muted bg. */
+  isTotal?: boolean;
+}
+
 /**
- * Convenience: build a header-row + data-row table from headers + 2D string
- * grid. The first column is left-aligned, the rest right-aligned. The
- * header row has a muted shading.
+ * Convenience: dashboard-style data table. Header row has shaded muted
+ * background + bold uppercase text; data rows alternate between white
+ * and #FAFAFA; totals row is bold with a thicker top border.
  */
 export function dataTable(
-  headers: string[],
-  rows: string[][],
+  columns: DataTableColumn[],
+  rows: DataTableRow[],
   /** Total content width in DXA — A4 minus margins ≈ 9000. */
   totalWidthDxa: number = 9000
 ): string {
-  const colCount = headers.length;
-  // Give the first column 30% of the width; the rest split the remaining 70%.
-  const firstCol = Math.floor(totalWidthDxa * 0.3);
-  const restCol = Math.floor((totalWidthDxa - firstCol) / (colCount - 1));
-  const widthsDxa = [firstCol, ...new Array(colCount - 1).fill(restCol)];
+  const widthsDxa = computeWidths(columns, totalWidthDxa);
 
-  const headerCells = headers.map((h, i) =>
-    tc(h, widthsDxa[i], {
+  const headerCells = columns.map((col, i) =>
+    tc(col.header.toUpperCase(), widthsDxa[i], {
       bold: true,
       shading: "F3F4F6",
       color: "6B7280",
-      align: i === 0 ? "left" : "right",
-      paddingTwips: 80,
+      sizeHalfPt: 16, // 8pt — smaller, tracking-y feel
+      align: col.align ?? (i === 0 ? "left" : "right"),
+      paddingTwips: 120,
+      borders: {
+        bottom: { sz: 8, color: "D1D5DB" },
+      },
     })
   );
-  const body = rows.map((row) =>
-    tr(
-      row.map((cell, i) =>
-        tc(cell, widthsDxa[i], {
-          align: i === 0 ? "left" : "right",
-        })
-      )
-    )
-  );
+
+  const body = rows.map((row, rIdx) => {
+    const isTotal = !!row.isTotal;
+    const shading = isTotal
+      ? "F3F4F6"
+      : rIdx % 2 === 1
+        ? "FAFAFA"
+        : undefined;
+    const cells = row.cells.map((cell, i) => {
+      const col = columns[i];
+      const align = col.align ?? (i === 0 ? "left" : "right");
+      // ROAS color logic: cells like "3.02x" or "1.34x".
+      let color: string | undefined;
+      let bold = isTotal;
+      if (col.colorAsRoas) {
+        const m = cell.match(/^(\d+(?:\.\d+)?)x$/);
+        if (m) {
+          const n = parseFloat(m[1]);
+          if (n >= 3) {
+            color = "16A34A";
+            bold = true;
+          } else if (n < 1.5 && n > 0) {
+            color = "B45309";
+            bold = true;
+          }
+        }
+      }
+      return tc(cell, widthsDxa[i], {
+        align,
+        bold,
+        color,
+        shading,
+        sizeHalfPt: 20,
+        paddingTwips: 110,
+        borders: isTotal
+          ? { top: { sz: 12, color: "9CA3AF" } }
+          : undefined,
+      });
+    });
+    return tr(cells);
+  });
+
   return tbl({ widthsDxa, rows: [tr(headerCells), ...body] });
 }
 
-/** A 5-column KPI strip: label / value / label / value / label / value / ... */
+function computeWidths(columns: DataTableColumn[], total: number): number[] {
+  const fixed: Array<[number, number]> = []; // [index, width]
+  let remaining = total;
+  let flexCount = 0;
+  for (let i = 0; i < columns.length; i++) {
+    if (columns[i].widthDxa != null) {
+      remaining -= columns[i].widthDxa!;
+      fixed.push([i, columns[i].widthDxa!]);
+    } else {
+      flexCount++;
+    }
+  }
+  const flexWidth = flexCount > 0 ? Math.floor(remaining / flexCount) : 0;
+  const out: number[] = new Array(columns.length);
+  for (const [i, w] of fixed) out[i] = w;
+  for (let i = 0; i < columns.length; i++) {
+    if (out[i] == null) out[i] = flexWidth;
+  }
+  return out;
+}
+
+/**
+ * Big-number KPI cards laid out as a single horizontal table. Each cell is
+ * its own "card" with a small uppercase label on top and a large bold
+ * value below. Optional secondary "vs prev." text appears under the value.
+ */
 export function kpiStrip(
-  pairs: Array<{ label: string; value: string }>,
+  cards: Array<{
+    label: string;
+    value: string;
+    /** Optional secondary line (e.g. "▲ +12.5% vs prev."). Hex color via `subColor`. */
+    sub?: string;
+    subColor?: string;
+    /** Color the value (e.g. ROAS green). */
+    valueColor?: string;
+  }>,
   totalWidthDxa: number = 9000
 ): string {
-  const colCount = pairs.length;
+  const colCount = cards.length;
   const w = Math.floor(totalWidthDxa / colCount);
   const widths = new Array(colCount).fill(w);
+
+  // Each card is two stacked cells: top = label (small grey), bottom = value
+  // (big bold). We use a 2-row table to align them visually.
   const labelRow = tr(
-    pairs.map((p) =>
-      tc(p.label.toUpperCase(), w, {
-        bold: true,
+    cards.map((c) =>
+      tc(c.label.toUpperCase(), w, {
         color: "6B7280",
-        align: "left",
+        sizeHalfPt: 16,
+        bold: true,
         shading: "F9FAFB",
+        align: "left",
+        paddingTwips: 160,
+        borders: {
+          top: { sz: 4, color: "E5E7EB" },
+          left: { sz: 4, color: "E5E7EB" },
+          right: { sz: 4, color: "E5E7EB" },
+        },
       })
     )
   );
   const valueRow = tr(
-    pairs.map((p) => tc(p.value, w, { bold: true, align: "left" }))
+    cards.map((c) =>
+      // Build a single cell containing two paragraphs (value + sub) so the
+      // sub text stays bound to its card visually.
+      buildKpiValueCell(c, w)
+    )
   );
   return tbl({ widthsDxa: widths, rows: [labelRow, valueRow] });
+}
+
+function buildKpiValueCell(
+  card: {
+    label: string;
+    value: string;
+    sub?: string;
+    subColor?: string;
+    valueColor?: string;
+  },
+  widthDxa: number
+): string {
+  const tcPr =
+    `<w:tcPr>` +
+    `<w:tcW w:w="${widthDxa}" w:type="dxa"/>` +
+    `<w:tcBorders>` +
+    `<w:bottom w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>` +
+    `<w:left w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>` +
+    `<w:right w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>` +
+    `</w:tcBorders>` +
+    `<w:tcMar><w:top w:w="120" w:type="dxa"/><w:bottom w:w="160" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>` +
+    `<w:vAlign w:val="top"/>` +
+    `</w:tcPr>`;
+  const valueRPr =
+    `<w:rPr><w:b/><w:sz w:val="40"/><w:szCs w:val="40"/>` +
+    (card.valueColor ? `<w:color w:val="${card.valueColor}"/>` : "") +
+    `</w:rPr>`;
+  const valuePara =
+    `<w:p><w:pPr><w:spacing w:before="0" w:after="40"/></w:pPr>` +
+    `<w:r>${valueRPr}<w:t xml:space="preserve">${xmlEscape(card.value)}</w:t></w:r>` +
+    `</w:p>`;
+  const subPara = card.sub
+    ? `<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr>` +
+      `<w:r><w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/>` +
+      (card.subColor ? `<w:color w:val="${card.subColor}"/>` : `<w:color w:val="6B7280"/>`) +
+      `</w:rPr><w:t xml:space="preserve">${xmlEscape(card.sub)}</w:t></w:r></w:p>`
+    : "";
+  return `<w:tc>${tcPr}${valuePara}${subPara}</w:tc>`;
 }
 
 /**
@@ -339,21 +539,34 @@ function buildDocumentXml(
   );
 }
 
+export interface EmbeddedImage {
+  /** Relationship ID (e.g. "rIdChart1"). Referenced from `inlineImage()`. */
+  rId: string;
+  /** Filename inside word/media/ (e.g. "chart1.png"). */
+  filename: string;
+  ext: "png" | "jpg" | "jpeg";
+  /** Image bytes. */
+  buffer: Buffer;
+}
+
 /**
  * Build a Word document from an existing .docx template file: load the
- * template, replace `word/document.xml` with our generated content, and
- * return the zip as a Buffer. All other parts (styles.xml, theme, fonts,
- * header1.xml, footer1.xml, embedded logo) come from the template, so the
- * resulting doc inherits the Pinformance branding for free.
+ * template, replace `word/document.xml` with our generated content, inject
+ * any embedded images (chart PNGs etc.) into word/media + the rels file,
+ * and return the zip as a Buffer.
  *
- * The template's word/_rels/document.xml.rels is preserved — so any
- * `<w:headerReference r:id="rId8"/>` etc. in our body resolves to the
- * template's header1.xml.
+ * All template parts (styles.xml, theme, fonts, header1.xml, footer1.xml,
+ * embedded logo) are preserved so the resulting doc inherits the
+ * Pinformance branding for free.
  */
 export async function buildDocxFromTemplate(
   templateRelativePath: string,
   bodyContent: string,
-  opts: { headerRelId?: string; footerRelId?: string } = {}
+  opts: {
+    headerRelId?: string;
+    footerRelId?: string;
+    images?: EmbeddedImage[];
+  } = {}
 ): Promise<Buffer> {
   const templatePath = path.join(process.cwd(), templateRelativePath);
   const file = await readFile(templatePath);
@@ -362,7 +575,99 @@ export async function buildDocxFromTemplate(
   const documentXml = buildDocumentXml(bodyContent, opts);
   zip.file("word/document.xml", documentXml);
 
+  if (opts.images && opts.images.length > 0) {
+    injectImages(zip, opts.images);
+  }
+
   return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+function injectImages(zip: PizZip, images: EmbeddedImage[]): void {
+  // 1. Add image files to word/media/.
+  for (const img of images) {
+    zip.file(`word/media/${img.filename}`, img.buffer);
+  }
+  // 2. Append image relationships to word/_rels/document.xml.rels.
+  const relsPath = "word/_rels/document.xml.rels";
+  const relsFile = zip.file(relsPath);
+  if (relsFile) {
+    let relsXml = relsFile.asText();
+    const imageRels = images
+      .map(
+        (img) =>
+          `<Relationship Id="${img.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${img.filename}"/>`
+      )
+      .join("");
+    relsXml = relsXml.replace("</Relationships>", `${imageRels}</Relationships>`);
+    zip.file(relsPath, relsXml);
+  }
+  // 3. Ensure PNG / JPG content types are declared.
+  const ctPath = "[Content_Types].xml";
+  const ctFile = zip.file(ctPath);
+  if (ctFile) {
+    let ctXml = ctFile.asText();
+    let inject = "";
+    if (
+      images.some((i) => i.ext === "png") &&
+      !/Extension="png"/i.test(ctXml)
+    ) {
+      inject += `<Default Extension="png" ContentType="image/png"/>`;
+    }
+    if (
+      images.some((i) => i.ext === "jpg" || i.ext === "jpeg") &&
+      !/Extension="jp[e]?g"/i.test(ctXml)
+    ) {
+      inject += `<Default Extension="jpg" ContentType="image/jpeg"/>`;
+    }
+    if (inject) {
+      ctXml = ctXml.replace("</Types>", `${inject}</Types>`);
+      zip.file(ctPath, ctXml);
+    }
+  }
+}
+
+/**
+ * Build an inline image paragraph: an embedded drawing that references the
+ * image relationship `rId`. Sized in inches; 1 inch ≈ 914400 EMU.
+ */
+export function inlineImage(
+  rId: string,
+  altText: string,
+  widthInches: number,
+  heightInches: number
+): string {
+  const cx = Math.round(widthInches * 914400);
+  const cy = Math.round(heightInches * 914400);
+  const numericId = rId.replace(/\D/g, "") || "1";
+  const drawing =
+    `<w:drawing>` +
+    `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">` +
+    `<wp:extent cx="${cx}" cy="${cy}"/>` +
+    `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
+    `<wp:docPr id="${numericId}" name="${xmlEscape(altText)}" descr="${xmlEscape(altText)}"/>` +
+    `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
+    `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+    `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:nvPicPr>` +
+    `<pic:cNvPr id="${numericId}" name="${xmlEscape(altText)}"/>` +
+    `<pic:cNvPicPr/>` +
+    `</pic:nvPicPr>` +
+    `<pic:blipFill>` +
+    `<a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${rId}"/>` +
+    `<a:srcRect/>` +
+    `<a:stretch><a:fillRect/></a:stretch>` +
+    `</pic:blipFill>` +
+    `<pic:spPr>` +
+    `<a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
+    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>` +
+    `</pic:spPr>` +
+    `</pic:pic>` +
+    `</a:graphicData>` +
+    `</a:graphic>` +
+    `</wp:inline>` +
+    `</w:drawing>`;
+  return `<w:p><w:pPr><w:spacing w:before="160" w:after="160"/><w:jc w:val="center"/></w:pPr><w:r>${drawing}</w:r></w:p>`;
 }
 
 /**

@@ -3,10 +3,8 @@
  * structured config that the modal builds — section toggles, per-dimension
  * toggles, view mode, and a free-form "Recommendation for Clients" section.
  *
- * Chart-in-document rendering is deferred to a follow-up: server-side chart
- * → image requires an SVG rasterizer (sharp / resvg) and Vercel deployment
- * tweaks. For now, dimensions configured with view: "chart" or "both" are
- * rendered as the Numbers table with a small note that charts are coming.
+ * Charts are rendered server-side as PNGs (chart-renderer.ts → SVG → resvg)
+ * and embedded inline so the doc matches the dashboard's line-chart look.
  */
 import {
   title,
@@ -17,10 +15,16 @@ import {
   dataTable,
   kpiStrip,
   chapterHeading,
+  chapterRule,
   sectionHeading,
   tocField,
+  inlineImage,
   buildDocxFromTemplate,
+  type DataTableColumn,
+  type DataTableRow,
+  type EmbeddedImage,
 } from "./docx-builder";
+import { renderLineChartPng, type ChartInput } from "./chart-renderer";
 
 /** Header / footer relationship IDs in media-buying-report-template.docx.
  *  Verified by inspecting the file's word/_rels/document.xml.rels — rId8 =
@@ -37,7 +41,6 @@ export interface ReportKpis {
   conversions: number;
   roas: number;
   cpa: number | null;
-  /** Previous-period deltas (percentage points). null = no comparison. */
   spend_delta_pct?: number | null;
   revenue_delta_pct?: number | null;
   conversions_delta_pct?: number | null;
@@ -73,10 +76,12 @@ export interface ReportDimensionSection {
   description?: string;
   viewMode: ViewMode;
   rows: ReportDimensionRow[];
-  /** Label for the first column header — defaults to "Value". */
   valueColumnLabel?: string;
-  /** Label for the second column header — defaults to "Items". */
   countColumnLabel?: string;
+  /** Optional daily time-series data for chart rendering. When the section
+   *  is requested with viewMode chart or both AND chart data is present, a
+   *  line chart PNG is rendered below (or in place of) the numbers table. */
+  chart?: ChartInput;
 }
 
 export interface ReportAdTableRow {
@@ -96,28 +101,15 @@ export interface ReportInput {
   currency: string;
   notes: string;
 
-  /** Account Overview section — included if present. */
   overview?: {
     kpis?: ReportKpis;
     landingPages?: ReportLandingPage[];
   };
-
-  campaignLevel?: {
-    dimensions: ReportDimensionSection[];
-  };
-
-  adGroupLevel?: {
-    dimensions: ReportDimensionSection[];
-  };
-
+  campaignLevel?: { dimensions: ReportDimensionSection[] };
+  adGroupLevel?: { dimensions: ReportDimensionSection[] };
   adLevel?: {
     dimensions: ReportDimensionSection[];
-    /** If present, the report includes the top-N ad table. */
-    topAds?: {
-      title: string;
-      description: string;
-      ads: ReportAdTableRow[];
-    };
+    topAds?: { title: string; description: string; ads: ReportAdTableRow[] };
   };
 }
 
@@ -144,12 +136,16 @@ function fmtNum(n: number | null): string {
   return new Intl.NumberFormat("en-US").format(Math.round(n));
 }
 
-function fmtPctDelta(pct: number | null | undefined, inverse: boolean = false): string {
-  if (pct == null || !isFinite(pct)) return "";
+function fmtPctDelta(
+  pct: number | null | undefined,
+  inverse: boolean = false
+): { text: string; color: string } | null {
+  if (pct == null || !isFinite(pct)) return null;
   const sign = pct >= 0 ? "+" : "";
   const good = inverse ? pct < 0 : pct > 0;
   const symbol = good ? "▲" : "▼";
-  return `${symbol} ${sign}${pct.toFixed(1)}% vs prev.`;
+  const color = good ? "16A34A" : "B91C1C";
+  return { text: `${symbol} ${sign}${pct.toFixed(1)}% vs prev.`, color };
 }
 
 function fmtLaunchDate(unixSec: number | null): string {
@@ -161,6 +157,48 @@ function fmtLaunchDate(unixSec: number | null): string {
   });
 }
 
+function roasValueColor(roas: number, spend: number): string | undefined {
+  if (spend <= 0) return undefined;
+  if (roas >= 3) return "16A34A";
+  if (roas < 1.5) return "B45309";
+  return undefined;
+}
+
+// ---- Chart embedding state (collected during render, injected at the end) ----
+
+interface PendingChartImage {
+  rId: string;
+  filename: string;
+  buffer: Buffer;
+}
+
+class ChartCollector {
+  private images: PendingChartImage[] = [];
+  private nextSeq = 1;
+
+  /** Render the chart, store the PNG, and return the rId + filename so
+   *  callers can emit an inlineImage() referencing it. Returns null when
+   *  the chart has no usable data. */
+  add(chart: ChartInput, namePrefix: string): { rId: string } | null {
+    const png = renderLineChartPng(chart);
+    if (!png) return null;
+    const seq = this.nextSeq++;
+    const rId = `rIdChart${seq}`;
+    const filename = `${namePrefix}-${seq}.png`;
+    this.images.push({ rId, filename, buffer: png });
+    return { rId };
+  }
+
+  toEmbeddedImages(): EmbeddedImage[] {
+    return this.images.map((i) => ({
+      rId: i.rId,
+      filename: i.filename,
+      ext: "png",
+      buffer: i.buffer,
+    }));
+  }
+}
+
 // ---- Section builders ----
 
 function renderAccountOverview(
@@ -169,6 +207,7 @@ function renderAccountOverview(
 ): string {
   const parts: string[] = [];
   parts.push(chapterHeading("Account Overview"));
+  parts.push(chapterRule());
   parts.push(
     muted(
       "Account-level performance and landing-page breakdown across the selected period."
@@ -178,51 +217,73 @@ function renderAccountOverview(
   if (overview.kpis) {
     const k = overview.kpis;
     parts.push(sectionHeading("Headline KPIs"));
+    const spendDelta = fmtPctDelta(k.spend_delta_pct);
+    const revenueDelta = fmtPctDelta(k.revenue_delta_pct);
+    const convDelta = fmtPctDelta(k.conversions_delta_pct);
+    const roasDelta = fmtPctDelta(k.roas_delta_pct);
+    const cpaDelta = fmtPctDelta(k.cpa_delta_pct, true);
     parts.push(
       kpiStrip([
         {
           label: "Total Spend",
-          value: `${fmtCurrency(k.spend, currency)}${k.spend_delta_pct != null ? `\n${fmtPctDelta(k.spend_delta_pct)}` : ""}`,
+          value: fmtCurrency(k.spend, currency),
+          sub: spendDelta?.text,
+          subColor: spendDelta?.color,
         },
         {
           label: "Revenue",
-          value: `${fmtCurrency(k.revenue, currency)}${k.revenue_delta_pct != null ? `\n${fmtPctDelta(k.revenue_delta_pct)}` : ""}`,
+          value: fmtCurrency(k.revenue, currency),
+          sub: revenueDelta?.text,
+          subColor: revenueDelta?.color,
         },
         {
           label: "Conversions",
-          value: `${fmtNum(k.conversions)}${k.conversions_delta_pct != null ? `\n${fmtPctDelta(k.conversions_delta_pct)}` : ""}`,
+          value: fmtNum(k.conversions),
+          sub: convDelta?.text,
+          subColor: convDelta?.color,
         },
         {
           label: "ROAS",
-          value: `${fmtRoas(k.roas)}${k.roas_delta_pct != null ? `\n${fmtPctDelta(k.roas_delta_pct)}` : ""}`,
+          value: fmtRoas(k.roas),
+          sub: roasDelta?.text,
+          subColor: roasDelta?.color,
+          valueColor: roasValueColor(k.roas, k.spend),
         },
         {
           label: "CPA",
-          value: `${fmtCurrency(k.cpa, currency)}${k.cpa_delta_pct != null ? `\n${fmtPctDelta(k.cpa_delta_pct, true)}` : ""}`,
+          value: fmtCurrency(k.cpa, currency),
+          sub: cpaDelta?.text,
+          subColor: cpaDelta?.color,
         },
       ])
     );
-    parts.push(spacer(180));
+    parts.push(spacer(200));
   }
 
   if (overview.landingPages && overview.landingPages.length > 0) {
     parts.push(sectionHeading("Landing Page Performance"));
     parts.push(muted("All landing pages your ads point to in this period, aggregated."));
-    const rows = overview.landingPages.map((lp) => [
-      lp.url,
-      String(lp.ad_count),
-      fmtCurrency(lp.spend, currency),
-      fmtCurrency(lp.revenue, currency),
-      fmtNum(lp.conversions),
-      fmtRoas(lp.roas),
-      fmtCurrency(lp.cpa, currency),
-    ]);
-    parts.push(
-      dataTable(
-        ["Landing page", "Ads", "Spend", "Revenue", "Conv.", "ROAS", "CPA"],
-        rows
-      )
-    );
+    const rows: DataTableRow[] = overview.landingPages.map((lp) => ({
+      cells: [
+        lp.url,
+        String(lp.ad_count),
+        fmtCurrency(lp.spend, currency),
+        fmtCurrency(lp.revenue, currency),
+        fmtNum(lp.conversions),
+        fmtRoas(lp.roas),
+        fmtCurrency(lp.cpa, currency),
+      ],
+    }));
+    const cols: DataTableColumn[] = [
+      { header: "Landing page", widthDxa: 3600, align: "left" },
+      { header: "Ads", align: "right" },
+      { header: "Spend", align: "right" },
+      { header: "Revenue", align: "right" },
+      { header: "Conv.", align: "right" },
+      { header: "ROAS", align: "right", colorAsRoas: true },
+      { header: "CPA", align: "right" },
+    ];
+    parts.push(dataTable(cols, rows));
   }
 
   return parts.join("");
@@ -230,53 +291,64 @@ function renderAccountOverview(
 
 function renderDimensionSection(
   dim: ReportDimensionSection,
-  currency: string
+  currency: string,
+  charts: ChartCollector
 ): string {
   const parts: string[] = [];
   parts.push(sectionHeading(dim.title));
-  if (dim.description) {
-    parts.push(muted(dim.description));
+  if (dim.description) parts.push(muted(dim.description));
+
+  const showNumbers = dim.viewMode === "numbers" || dim.viewMode === "both";
+  const showChart = dim.viewMode === "chart" || dim.viewMode === "both";
+
+  if (showNumbers) {
+    const cols: DataTableColumn[] = [
+      { header: dim.valueColumnLabel || "Value", align: "left", widthDxa: 2400 },
+      { header: dim.countColumnLabel || "Items", align: "right" },
+      { header: "Spend", align: "right" },
+      { header: "Revenue", align: "right" },
+      { header: "Conv.", align: "right" },
+      { header: "ROAS", align: "right", colorAsRoas: true },
+      { header: "CPA", align: "right" },
+    ];
+    const rows: DataTableRow[] = dim.rows.map((r) => ({
+      cells: [
+        r.hint && r.hint !== r.label && r.hint !== "—"
+          ? `${r.label} (${r.hint})`
+          : r.label,
+        String(r.count),
+        fmtCurrency(r.spend, currency),
+        fmtCurrency(r.revenue, currency),
+        fmtNum(r.conversions),
+        fmtRoas(r.roas),
+        fmtCurrency(r.cpa, currency),
+      ],
+    }));
+    parts.push(dataTable(cols, rows));
   }
 
-  const headers = [
-    dim.valueColumnLabel || "Value",
-    dim.countColumnLabel || "Items",
-    "Spend",
-    "Revenue",
-    "Conv.",
-    "ROAS",
-    "CPA",
-  ];
-  const rows = dim.rows.map((r) => [
-    r.hint && r.hint !== r.label && r.hint !== "—"
-      ? `${r.label} (${r.hint})`
-      : r.label,
-    String(r.count),
-    fmtCurrency(r.spend, currency),
-    fmtCurrency(r.revenue, currency),
-    fmtNum(r.conversions),
-    fmtRoas(r.roas),
-    fmtCurrency(r.cpa, currency),
-  ]);
-  parts.push(dataTable(headers, rows));
-
-  // Chart placeholder when chart was requested. We don't actually render a
-  // chart image yet — see file header comment.
-  if (dim.viewMode === "chart" || dim.viewMode === "both") {
-    parts.push(
-      p(
-        "Chart visualization will be rendered in a future release. The numbers above show the same data — bar lengths in the live dashboard map to the Spend / ROAS / CPA columns here.",
-        { italic: true, sizeHalfPt: 18, color: "9CA3AF", spaceBefore: 120 }
-      )
-    );
+  if (showChart && dim.chart) {
+    const result = charts.add(dim.chart, "chart");
+    if (result) {
+      // 6.5" wide × 2.75" tall — fits A4 page width with margins.
+      parts.push(inlineImage(result.rId, `${dim.title} — daily trend`, 6.5, 2.75));
+    } else {
+      parts.push(
+        p("No daily data available for this dimension in the selected range.", {
+          italic: true,
+          color: "9CA3AF",
+          sizeHalfPt: 18,
+        })
+      );
+    }
   }
-  parts.push(spacer(120));
 
+  parts.push(spacer(180));
   return parts.join("");
 }
 
 function renderLevelHeading(levelTitle: string, description: string): string {
-  return chapterHeading(levelTitle) + muted(description);
+  return chapterHeading(levelTitle) + chapterRule() + muted(description);
 }
 
 function renderAdTopTable(
@@ -286,27 +358,32 @@ function renderAdTopTable(
   const parts: string[] = [];
   parts.push(sectionHeading(topAds.title));
   parts.push(muted(topAds.description));
-  const rows = topAds.ads.map((a) => [
-    `${a.name}${a.created_time ? `\nLaunched ${fmtLaunchDate(a.created_time)}` : ""}`,
-    fmtCurrency(a.spend, currency),
-    fmtCurrency(a.revenue, currency),
-    fmtNum(a.conversions),
-    fmtRoas(a.roas),
-    fmtCurrency(a.cpa, currency),
-  ]);
-  parts.push(
-    dataTable(
-      ["Ad", "Spend", "Revenue", "Conv.", "ROAS", "CPA"],
-      rows,
-      9000
-    )
-  );
+  const cols: DataTableColumn[] = [
+    { header: "Ad", widthDxa: 3600, align: "left" },
+    { header: "Spend", align: "right" },
+    { header: "Revenue", align: "right" },
+    { header: "Conv.", align: "right" },
+    { header: "ROAS", align: "right", colorAsRoas: true },
+    { header: "CPA", align: "right" },
+  ];
+  const rows: DataTableRow[] = topAds.ads.map((a) => ({
+    cells: [
+      `${a.name}${a.created_time ? `\nLaunched ${fmtLaunchDate(a.created_time)}` : ""}`,
+      fmtCurrency(a.spend, currency),
+      fmtCurrency(a.revenue, currency),
+      fmtNum(a.conversions),
+      fmtRoas(a.roas),
+      fmtCurrency(a.cpa, currency),
+    ],
+  }));
+  parts.push(dataTable(cols, rows));
   return parts.join("");
 }
 
 function renderNotes(text: string): string {
   const parts: string[] = [];
   parts.push(chapterHeading("Recommendation for Clients"));
+  parts.push(chapterRule());
   const trimmed = (text || "").trim();
   if (!trimmed) {
     parts.push(
@@ -330,17 +407,12 @@ export async function generateMediaBuyingReport(
   input: ReportInput
 ): Promise<Buffer> {
   const parts: string[] = [];
+  const charts = new ChartCollector();
 
-  // Cover: title + subtitle. The TOC field follows immediately so readers
-  // get a chapter-level index before the body content.
   parts.push(title("Media Buying Report"));
   parts.push(subtitle(`${input.client_name} — ${input.date_range_label}`));
   parts.push(spacer(240));
   parts.push(tocField());
-
-  // Each chapter starts with chapterHeading() which inserts a page break,
-  // so the doc flows: Cover/TOC → Account Overview → Campaign Level →
-  // Ad Group Level → Ad Level → Recommendation for Clients.
 
   if (input.overview) {
     parts.push(renderAccountOverview(input.overview, input.currency));
@@ -354,7 +426,7 @@ export async function generateMediaBuyingReport(
       )
     );
     for (const dim of input.campaignLevel.dimensions) {
-      parts.push(renderDimensionSection(dim, input.currency));
+      parts.push(renderDimensionSection(dim, input.currency, charts));
     }
   }
 
@@ -366,11 +438,14 @@ export async function generateMediaBuyingReport(
       )
     );
     for (const dim of input.adGroupLevel.dimensions) {
-      parts.push(renderDimensionSection(dim, input.currency));
+      parts.push(renderDimensionSection(dim, input.currency, charts));
     }
   }
 
-  if (input.adLevel && (input.adLevel.dimensions.length > 0 || input.adLevel.topAds)) {
+  if (
+    input.adLevel &&
+    (input.adLevel.dimensions.length > 0 || input.adLevel.topAds)
+  ) {
     parts.push(
       renderLevelHeading(
         "Ad Level",
@@ -381,7 +456,7 @@ export async function generateMediaBuyingReport(
       parts.push(renderAdTopTable(input.adLevel.topAds, input.currency));
     }
     for (const dim of input.adLevel.dimensions) {
-      parts.push(renderDimensionSection(dim, input.currency));
+      parts.push(renderDimensionSection(dim, input.currency, charts));
     }
   }
 
@@ -390,5 +465,6 @@ export async function generateMediaBuyingReport(
   return buildDocxFromTemplate(TEMPLATE_PATH, parts.join(""), {
     headerRelId: TEMPLATE_HEADER_REL_ID,
     footerRelId: TEMPLATE_FOOTER_REL_ID,
+    images: charts.toEmbeddedImages(),
   });
 }
