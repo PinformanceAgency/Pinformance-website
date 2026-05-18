@@ -337,6 +337,8 @@ function buildChartInputForDimension<P extends object>(
     }),
   }));
   return {
+    title: `${meta.title} — Daily ROAS`,
+    yAxisLabel: "ROAS (revenue / spend)",
     dates,
     series,
     yAxisFormat: "ratio" as const,

@@ -16,12 +16,13 @@ import {
   kpiStrip,
   chapterHeading,
   sectionHeading,
-  tocField,
+  tableOfContents,
   inlineImage,
   buildDocxFromTemplate,
   type DataTableColumn,
   type DataTableRow,
   type EmbeddedImage,
+  type TocEntry,
 } from "./docx-builder";
 import { renderLineChartPng, type ChartInput } from "./chart-renderer";
 
@@ -265,24 +266,34 @@ function renderAccountOverview(
 
   if (overview.landingPages && overview.landingPages.length > 0) {
     parts.push(sectionHeading("Landing Page Performance"));
-    parts.push(muted("All landing pages your ads point to in this period, aggregated."));
+    parts.push(
+      muted("All landing pages your ads point to in this period, aggregated.")
+    );
+    // Column order matches the dashboard: Landing page · Ads · Spend ·
+    // Conv. · Revenue · ROAS · CPA. Bullet on the landing-page column so
+    // each URL gets its own cohort indicator just like the per-dim tables.
     const rows: DataTableRow[] = overview.landingPages.map((lp) => ({
       cells: [
         lp.url,
         String(lp.ad_count),
         fmtCurrency(lp.spend, currency),
-        fmtCurrency(lp.revenue, currency),
         fmtNum(lp.conversions),
+        fmtCurrency(lp.revenue, currency),
         fmtRoas(lp.roas),
         fmtCurrency(lp.cpa, currency),
       ],
     }));
     const cols: DataTableColumn[] = [
-      { header: "Landing page", widthDxa: 3600, align: "left" },
+      {
+        header: "Landing page",
+        widthDxa: 3800,
+        align: "left",
+        coloredBullet: true,
+      },
       { header: "Ads", align: "right" },
       { header: "Spend", align: "right" },
-      { header: "Revenue", align: "right" },
       { header: "Conv.", align: "right" },
+      { header: "Revenue", align: "right" },
       { header: "ROAS", align: "right", colorAsRoas: true },
       { header: "CPA", align: "right" },
     ];
@@ -305,17 +316,20 @@ function renderDimensionSection(
   const showChart = dim.viewMode === "chart" || dim.viewMode === "both";
 
   if (showNumbers) {
+    // Column order matches the dashboard: Value · Count · Spend · Conv. ·
+    // Revenue · ROAS · CPA. First column narrower so 7 columns fit
+    // without "Revenue" / "Campaigns" wrapping mid-word.
     const cols: DataTableColumn[] = [
       {
         header: dim.valueColumnLabel || "Value",
         align: "left",
-        widthDxa: 2400,
+        widthDxa: 2000,
         coloredBullet: true,
       },
       { header: dim.countColumnLabel || "Items", align: "right" },
       { header: "Spend", align: "right" },
-      { header: "Revenue", align: "right" },
       { header: "Conv.", align: "right" },
+      { header: "Revenue", align: "right" },
       { header: "ROAS", align: "right", colorAsRoas: true },
       { header: "CPA", align: "right" },
     ];
@@ -326,8 +340,8 @@ function renderDimensionSection(
           : r.label,
         String(r.count),
         fmtCurrency(r.spend, currency),
-        fmtCurrency(r.revenue, currency),
         fmtNum(r.conversions),
+        fmtCurrency(r.revenue, currency),
         fmtRoas(r.roas),
         fmtCurrency(r.cpa, currency),
       ],
@@ -430,7 +444,52 @@ export async function generateMediaBuyingReport(
   parts.push(title("Media Buying Report"));
   parts.push(subtitle(`${input.client_name} — ${input.date_range_label}`));
   parts.push(spacer(240));
-  parts.push(tocField());
+
+  // Build TOC entries dynamically from what the user actually selected.
+  const tocEntries: TocEntry[] = [];
+  if (input.overview) {
+    tocEntries.push({
+      title: "Account Overview",
+      description:
+        "Headline KPIs (Spend, Revenue, Conversions, ROAS, CPA) for the period, plus a landing-page breakdown showing where ad clicks land.",
+    });
+  }
+  if (input.campaignLevel && input.campaignLevel.dimensions.length > 0) {
+    tocEntries.push({
+      title: "Campaign Level",
+      description: `Aggregated performance per campaign-naming dimension — ${input.campaignLevel.dimensions
+        .map((d) => d.title)
+        .join(", ")}.`,
+    });
+  }
+  if (input.adGroupLevel && input.adGroupLevel.dimensions.length > 0) {
+    tocEntries.push({
+      title: "Ad Group Level",
+      description: `Per ad-group-naming dimension — ${input.adGroupLevel.dimensions
+        .map((d) => d.title)
+        .join(", ")}.`,
+    });
+  }
+  if (
+    input.adLevel &&
+    (input.adLevel.dimensions.length > 0 || input.adLevel.topAds)
+  ) {
+    const adParts: string[] = [];
+    if (input.adLevel.topAds) adParts.push("Top ads ranking");
+    if (input.adLevel.dimensions.length > 0) {
+      adParts.push(input.adLevel.dimensions.map((d) => d.title).join(", "));
+    }
+    tocEntries.push({
+      title: "Ad Level",
+      description: `Per ad-naming dimension — ${adParts.join(" · ")}.`,
+    });
+  }
+  tocEntries.push({
+    title: "Recommendation for Clients",
+    description:
+      "Free-form gameplan, observations, and next-step suggestions for the client.",
+  });
+  parts.push(tableOfContents(tocEntries));
 
   if (input.overview) {
     parts.push(renderAccountOverview(input.overview, input.currency));

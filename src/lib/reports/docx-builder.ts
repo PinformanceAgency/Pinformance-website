@@ -77,8 +77,8 @@ export function styledP(
 
 /** Word "Heading 1" — picked up by the TOC field for chapter entries.
  *  Adds a page break before so each chapter starts on a new page.
- *  Overrides the template's red color to dark slate so the doc reads
- *  like the dashboard (which uses dark headings, not branded red). */
+ *  Uses the Pinformance brand red so the doc carries the same accent
+ *  as the template header / footer wordmark. */
 export function chapterHeading(text: string, addPageBreak: boolean = true): string {
   const pageBreak = addPageBreak
     ? `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`
@@ -86,23 +86,55 @@ export function chapterHeading(text: string, addPageBreak: boolean = true): stri
   return (
     pageBreak +
     styledP(text, "Heading1", {
-      color: "111827",
-      sizeHalfPt: 44, // 22pt — chapter scale
+      color: "ED1C24", // Pinformance brand red
+      sizeHalfPt: 44, // 22pt
       spaceBefore: 0,
       spaceAfter: 80,
     })
   );
 }
 
-/** Word "Heading 2" — used for sub-sections within a chapter. Shows up in
- *  the TOC under its parent Heading 1. Dashboard-style dark color, smaller. */
+/** Word "Heading 2" — sub-sections within a chapter (Per Country etc.).
+ *  Dark slate, no red so they feel like dashboard sub-headers and keep
+ *  the brand red exclusive to chapter titles. `keepNext` + `keepLines`
+ *  keep the heading bound to the content that follows so it never
+ *  ends up alone at the bottom of a page. */
 export function sectionHeading(text: string): string {
-  return styledP(text, "Heading2", {
+  return styledPWithKeep(text, "Heading2", {
     color: "111827",
-    sizeHalfPt: 32, // 16pt
+    sizeHalfPt: 30, // 15pt
     spaceBefore: 240,
     spaceAfter: 60,
   });
+}
+
+/** Same as styledP but with keepNext + keepLines so the paragraph stays
+ *  glued to what comes after. Used for sub-section headings. */
+function styledPWithKeep(text: string, styleId: string, extra: ParaOpts = {}): string {
+  const pPr: string[] = [
+    `<w:pStyle w:val="${styleId}"/>`,
+    `<w:keepNext/>`,
+    `<w:keepLines/>`,
+  ];
+  if (extra.align) pPr.push(`<w:jc w:val="${extra.align}"/>`);
+  if (extra.spaceBefore != null || extra.spaceAfter != null) {
+    pPr.push(
+      `<w:spacing w:before="${extra.spaceBefore ?? 0}" w:after="${extra.spaceAfter ?? 0}"/>`
+    );
+  }
+  const rPr: string[] = [];
+  if (extra.bold) rPr.push("<w:b/>");
+  if (extra.sizeHalfPt != null) {
+    rPr.push(`<w:sz w:val="${extra.sizeHalfPt}"/>`);
+    rPr.push(`<w:szCs w:val="${extra.sizeHalfPt}"/>`);
+  }
+  if (extra.color) rPr.push(`<w:color w:val="${extra.color}"/>`);
+  const rPrXml = rPr.length ? `<w:rPr>${rPr.join("")}</w:rPr>` : "";
+  return (
+    `<w:p><w:pPr>${pPr.join("")}</w:pPr>` +
+    `<w:r>${rPrXml}<w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>` +
+    `</w:p>`
+  );
 }
 
 /**
@@ -129,21 +161,81 @@ export function thinDivider(): string {
   );
 }
 
-/** Word TOC field. Word auto-populates page numbers on first open ("Update
- *  fields?" prompt). The pre-rendered text is what readers see before the
- *  field is updated. */
-export function tocField(): string {
-  return (
-    `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t xml:space="preserve">Table of Contents</w:t></w:r></w:p>` +
+export interface TocEntry {
+  title: string;
+  description: string;
+}
+
+/**
+ * Professional Table of Contents page. Renders a "Table of Contents"
+ * heading + a short intro paragraph + a clean two-column list of chapter
+ * titles with descriptions, then a Word TOC field at the bottom that
+ * Word auto-populates with real page numbers on first open.
+ *
+ * The hand-rendered list works even when readers skip the "Update fields"
+ * prompt, so they always see the chapter outline.
+ */
+export function tableOfContents(entries: TocEntry[]): string {
+  const heading = styledP("Table of Contents", "Heading1", {
+    color: "ED1C24",
+    sizeHalfPt: 44,
+    spaceBefore: 0,
+    spaceAfter: 120,
+  });
+  const intro = p(
+    "This report is split into chapters. Each chapter starts on its own page; sub-sections inside a chapter break down performance per naming dimension (per country, per format, etc.). Open in Word and choose 'Update fields' on first open to populate the page numbers below.",
+    { sizeHalfPt: 20, color: "6B7280", spaceAfter: 240 }
+  );
+
+  // Hand-rendered outline — readable even before page numbers populate.
+  const outlineRows = entries
+    .map((e, i) => {
+      const numCell = tc(`${i + 1}.`, 600, {
+        bold: true,
+        color: "ED1C24",
+        sizeHalfPt: 22,
+        align: "left",
+        vAlign: "top",
+        paddingTwips: 80,
+      });
+      const titleCell = tc(e.title, 2800, {
+        bold: true,
+        sizeHalfPt: 22,
+        color: "111827",
+        align: "left",
+        vAlign: "top",
+        paddingTwips: 80,
+      });
+      const descCell = tc(e.description, 5800, {
+        sizeHalfPt: 20,
+        color: "374151",
+        align: "left",
+        vAlign: "top",
+        paddingTwips: 80,
+      });
+      return tr([numCell, titleCell, descCell]);
+    })
+    .join("");
+  const outlineTable = tbl({ widthsDxa: [600, 2800, 5800], rows: [outlineRows] });
+
+  // Word TOC field with real page numbers — appears after the outline.
+  const tocFieldHeading = styledP("Pages", "Heading2", {
+    color: "111827",
+    sizeHalfPt: 28,
+    spaceBefore: 360,
+    spaceAfter: 80,
+  });
+  const tocField =
     `<w:p>` +
     `<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>` +
     `<w:r><w:instrText xml:space="preserve"> TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r>` +
     `<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
-    `<w:r><w:rPr><w:i/><w:color w:val="9CA3AF"/></w:rPr>` +
-    `<w:t xml:space="preserve">Right-click here and choose "Update field" to populate page numbers, or update fields when prompted on first open.</w:t></w:r>` +
+    `<w:r><w:rPr><w:i/><w:color w:val="9CA3AF"/><w:sz w:val="20"/></w:rPr>` +
+    `<w:t xml:space="preserve">Page numbers populate automatically when you open in Word and click "Update fields". On other readers, navigate via the outline above.</w:t></w:r>` +
     `<w:r><w:fldChar w:fldCharType="end"/></w:r>` +
-    `</w:p>`
-  );
+    `</w:p>`;
+
+  return heading + intro + outlineTable + tocFieldHeading + tocField;
 }
 
 function makeParagraph(text: string, opts: ParaOpts, isLast: boolean): string {
@@ -194,9 +286,20 @@ export function h2(text: string): string {
   return p(text, { bold: true, sizeHalfPt: 28, spaceBefore: 240, spaceAfter: 80 });
 }
 
-/** Description text (10pt muted). */
+/** Description text (10pt muted). Always uses keepNext + keepLines so the
+ *  description stays bound to the table/chart that follows it — Word won't
+ *  drop the description on the bottom of one page with its content on the
+ *  next. */
 export function muted(text: string): string {
-  return p(text, { sizeHalfPt: 20, color: "6B7280", spaceAfter: 120 });
+  return (
+    `<w:p><w:pPr>` +
+    `<w:keepNext/><w:keepLines/>` +
+    `<w:spacing w:before="0" w:after="120"/>` +
+    `</w:pPr>` +
+    `<w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/><w:color w:val="6B7280"/></w:rPr>` +
+    `<w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>` +
+    `</w:p>`
+  );
 }
 
 /** Page break. */
@@ -264,7 +367,9 @@ export function tc(
       }</w:tcBorders>`
     : "";
   const padding = opts.paddingTwips ?? 80;
-  const margins = `<w:tcMar><w:top w:w="${padding}" w:type="dxa"/><w:bottom w:w="${padding}" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>`;
+  // Tight horizontal padding so column headers like "Revenue" / "Campaigns"
+  // fit without wrapping mid-word in 7-column data tables.
+  const margins = `<w:tcMar><w:top w:w="${padding}" w:type="dxa"/><w:bottom w:w="${padding}" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tcMar>`;
   const tcPr =
     `<w:tcPr>` +
     `<w:tcW w:w="${widthDxa}" w:type="dxa"/>` +
@@ -290,9 +395,10 @@ export function tc(
   );
 }
 
-/** Single table row from already-rendered cells. */
+/** Single table row from already-rendered cells. `cantSplit` keeps the
+ *  row contained on a single page so a row never breaks across pages. */
 export function tr(cells: string[]): string {
-  return `<w:tr>${cells.join("")}</w:tr>`;
+  return `<w:tr><w:trPr><w:cantSplit/></w:trPr>${cells.join("")}</w:tr>`;
 }
 
 interface TableProps {
@@ -438,7 +544,9 @@ export function dataTable(
     return tr(cells);
   });
 
-  return tbl({ widthsDxa, rows: [tr(headerCells), ...body] });
+  // Header row repeats automatically on each page if the table runs long.
+  const headerRow = `<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>${headerCells.join("")}</w:tr>`;
+  return tbl({ widthsDxa, rows: [headerRow, ...body] });
 }
 
 /** Cell with a leading colored bullet "●" followed by the text. Used in the
@@ -454,7 +562,7 @@ function tcWithBullet(
     : "";
   const vAlign = `<w:vAlign w:val="${opts.vAlign ?? "center"}"/>`;
   const padding = opts.paddingTwips ?? 80;
-  const margins = `<w:tcMar><w:top w:w="${padding}" w:type="dxa"/><w:bottom w:w="${padding}" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>`;
+  const margins = `<w:tcMar><w:top w:w="${padding}" w:type="dxa"/><w:bottom w:w="${padding}" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tcMar>`;
   const tcPr =
     `<w:tcPr><w:tcW w:w="${widthDxa}" w:type="dxa"/>${shading}${margins}${vAlign}</w:tcPr>`;
 
