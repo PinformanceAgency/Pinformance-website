@@ -1603,8 +1603,8 @@ function SetupFeeSection() {
       body: "Ads Manager configured, full-funnel campaign structure.",
     },
     {
-      title: "Connecting to our internal AI systems",
-      body: "Your ad account plugged into our internal AI dashboard.",
+      title: "Connecting to our internal AI app",
+      body: "Your ad account plugged into our internal AI app.",
     },
     {
       title: "Brand research",
@@ -1648,7 +1648,7 @@ function SetupFeeSection() {
           <div className="mb-6 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#9ca3af]">
             What&apos;s covered
           </div>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {items.map((it, i) => (
               <div key={i} className="flex gap-3">
                 <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#E30613]" />
