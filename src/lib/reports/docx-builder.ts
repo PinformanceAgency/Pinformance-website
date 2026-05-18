@@ -332,6 +332,11 @@ export interface DataTableColumn {
   /** When true, value cells get ROAS-style coloring based on a numeric
    *  parsed from the cell text (≥3x = green, <1.5x = amber). */
   colorAsRoas?: boolean;
+  /** When true (typically on the first / "value" column), each row's text
+   *  is prefixed with a small colored bullet "●" — matches the dashboard's
+   *  cohort-indicator dots. The bullet color cycles through COHORT_COLORS
+   *  in row order. */
+  coloredBullet?: boolean;
 }
 
 export interface DataTableRow {
@@ -339,6 +344,12 @@ export interface DataTableRow {
   /** Mark this row as the totals row — bold + thicker top border + muted bg. */
   isTotal?: boolean;
 }
+
+const COHORT_COLORS = [
+  "2563EB", "16A34A", "E25822", "7C3AED",
+  "0EA5E9", "DB2777", "CA8A04", "0F766E",
+  "9333EA", "DC2626",
+];
 
 /**
  * Convenience: dashboard-style data table. Header row has shaded muted
@@ -393,6 +404,25 @@ export function dataTable(
           }
         }
       }
+      // First column with coloredBullet flag: render two runs in one cell
+      // so we get a colored "●" before the value text. The bullet color
+      // cycles through COHORT_COLORS in row order — matching the
+      // dashboard's cohort indicator dots.
+      if (col.coloredBullet && !isTotal) {
+        return tcWithBullet(
+          cell,
+          widthsDxa[i],
+          COHORT_COLORS[rIdx % COHORT_COLORS.length],
+          {
+            align,
+            shading,
+            sizeHalfPt: 20,
+            paddingTwips: 100,
+            color,
+            bold,
+          }
+        );
+      }
       return tc(cell, widthsDxa[i], {
         align,
         bold,
@@ -409,6 +439,45 @@ export function dataTable(
   });
 
   return tbl({ widthsDxa, rows: [tr(headerCells), ...body] });
+}
+
+/** Cell with a leading colored bullet "●" followed by the text. Used in the
+ *  first column of dimension tables to mirror the dashboard's cohort dots. */
+function tcWithBullet(
+  text: string,
+  widthDxa: number,
+  bulletColor: string,
+  opts: TableCellOpts
+): string {
+  const shading = opts.shading
+    ? `<w:shd w:val="clear" w:color="auto" w:fill="${opts.shading}"/>`
+    : "";
+  const vAlign = `<w:vAlign w:val="${opts.vAlign ?? "center"}"/>`;
+  const padding = opts.paddingTwips ?? 80;
+  const margins = `<w:tcMar><w:top w:w="${padding}" w:type="dxa"/><w:bottom w:w="${padding}" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>`;
+  const tcPr =
+    `<w:tcPr><w:tcW w:w="${widthDxa}" w:type="dxa"/>${shading}${margins}${vAlign}</w:tcPr>`;
+
+  const pPr =
+    `<w:pPr><w:jc w:val="${opts.align ?? "left"}"/><w:spacing w:before="20" w:after="20"/></w:pPr>`;
+
+  const size = opts.sizeHalfPt ?? 20;
+  const valueRPr: string[] = [];
+  if (opts.bold) valueRPr.push("<w:b/>");
+  if (opts.color) valueRPr.push(`<w:color w:val="${opts.color}"/>`);
+  valueRPr.push(`<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>`);
+  const valueRPrXml = `<w:rPr>${valueRPr.join("")}</w:rPr>`;
+
+  const bulletRPr =
+    `<w:rPr><w:color w:val="${bulletColor}"/><w:sz w:val="${size + 4}"/><w:szCs w:val="${size + 4}"/></w:rPr>`;
+
+  return (
+    `<w:tc>${tcPr}` +
+    `<w:p>${pPr}` +
+    `<w:r>${bulletRPr}<w:t xml:space="preserve">● </w:t></w:r>` +
+    `<w:r>${valueRPrXml}<w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>` +
+    `</w:p></w:tc>`
+  );
 }
 
 function computeWidths(columns: DataTableColumn[], total: number): number[] {

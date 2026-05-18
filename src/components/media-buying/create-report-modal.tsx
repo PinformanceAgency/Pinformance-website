@@ -145,7 +145,11 @@ export function CreateReportModal({ defaults, onClose }: CreateReportModalProps)
     { enabled: boolean; viewMode: ViewMode }
   > {
     const out: Record<string, { enabled: boolean; viewMode: ViewMode }> = {};
-    for (const d of dims) out[d.key] = { enabled: true, viewMode: "numbers" };
+    // Default to "both" so users get numbers + chart without thinking. Per
+    // earlier user feedback the N / C / N+C toggle was easy to miss, so we
+    // ship charts on by default and let users opt back to Numbers if they
+    // want a leaner doc.
+    for (const d of dims) out[d.key] = { enabled: true, viewMode: "both" };
     return out;
   }
 
@@ -458,11 +462,11 @@ export function CreateReportModal({ defaults, onClose }: CreateReportModalProps)
           </div>
 
           {/* Chart-in-doc heads-up */}
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-800">
-            <strong>Note:</strong> Per-dimension Chart / Both views currently render the same
-            data as the Numbers table — server-side chart-image rendering is coming in a
-            follow-up. Your view-mode preference is saved with the report and will switch on
-            when chart rendering ships.
+          <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-sky-900">
+            <strong>Charts:</strong> Every dimension defaults to{" "}
+            <strong>Both</strong> — a Numbers table plus a daily line chart
+            below it. Click <strong>Numbers</strong> or <strong>Chart</strong> on
+            any row to opt out of the other.
           </div>
 
           {error && (
@@ -619,22 +623,22 @@ function DimensionGroup({
                   active={s?.viewMode === "numbers"}
                   onClick={() => setMode(o.key, "numbers")}
                   icon={<Hash className="w-3 h-3" />}
-                  label="N"
-                  title="Numbers only"
+                  label="Numbers"
+                  title="Render this dimension as a table only"
                 />
                 <ViewModeButton
                   active={s?.viewMode === "chart"}
                   onClick={() => setMode(o.key, "chart")}
                   icon={<BarChart2 className="w-3 h-3" />}
-                  label="C"
-                  title="Chart only"
+                  label="Chart"
+                  title="Render this dimension as a line chart only"
                 />
                 <ViewModeButton
                   active={s?.viewMode === "both"}
                   onClick={() => setMode(o.key, "both")}
                   icon={null}
-                  label="N+C"
-                  title="Numbers + Chart"
+                  label="Both"
+                  title="Render both the table and the line chart"
                 />
               </div>
             </div>

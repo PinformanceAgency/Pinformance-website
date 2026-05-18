@@ -306,7 +306,12 @@ function renderDimensionSection(
 
   if (showNumbers) {
     const cols: DataTableColumn[] = [
-      { header: dim.valueColumnLabel || "Value", align: "left", widthDxa: 2400 },
+      {
+        header: dim.valueColumnLabel || "Value",
+        align: "left",
+        widthDxa: 2400,
+        coloredBullet: true,
+      },
       { header: dim.countColumnLabel || "Items", align: "right" },
       { header: "Spend", align: "right" },
       { header: "Revenue", align: "right" },
