@@ -1603,8 +1603,8 @@ function SetupFeeSection() {
       body: "Ads Manager configured, full-funnel campaign structure.",
     },
     {
-      title: "Connecting to our internal AI app",
-      body: "Your ad account plugged into our internal AI app.",
+      title: "Kick-off call",
+      body: "Pre-launch alignment — we share our suggestions and shape the plan together.",
     },
     {
       title: "Brand research",
