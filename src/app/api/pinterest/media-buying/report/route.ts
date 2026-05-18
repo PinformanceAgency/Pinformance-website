@@ -797,7 +797,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const docBuffer = generateMediaBuyingReport(reportInput);
+    const docBuffer = await generateMediaBuyingReport(reportInput);
 
     const baseName =
       (body.report_name || "").trim() ||

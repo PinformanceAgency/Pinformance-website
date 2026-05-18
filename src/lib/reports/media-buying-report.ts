@@ -11,15 +11,23 @@
 import {
   title,
   subtitle,
-  h1,
-  h2,
   muted,
   spacer,
   p,
   dataTable,
   kpiStrip,
-  buildDocxBuffer,
+  chapterHeading,
+  sectionHeading,
+  tocField,
+  buildDocxFromTemplate,
 } from "./docx-builder";
+
+/** Header / footer relationship IDs in media-buying-report-template.docx.
+ *  Verified by inspecting the file's word/_rels/document.xml.rels — rId8 =
+ *  header1.xml, rId9 = footer1.xml. */
+const TEMPLATE_HEADER_REL_ID = "rId8";
+const TEMPLATE_FOOTER_REL_ID = "rId9";
+const TEMPLATE_PATH = "src/templates/media-buying-report-template.docx";
 
 // ---- Data shapes ----
 
@@ -160,7 +168,7 @@ function renderAccountOverview(
   currency: string
 ): string {
   const parts: string[] = [];
-  parts.push(h1("Account Overview"));
+  parts.push(chapterHeading("Account Overview"));
   parts.push(
     muted(
       "Account-level performance and landing-page breakdown across the selected period."
@@ -169,6 +177,7 @@ function renderAccountOverview(
 
   if (overview.kpis) {
     const k = overview.kpis;
+    parts.push(sectionHeading("Headline KPIs"));
     parts.push(
       kpiStrip([
         {
@@ -197,7 +206,7 @@ function renderAccountOverview(
   }
 
   if (overview.landingPages && overview.landingPages.length > 0) {
-    parts.push(h2("Landing Page Performance"));
+    parts.push(sectionHeading("Landing Page Performance"));
     parts.push(muted("All landing pages your ads point to in this period, aggregated."));
     const rows = overview.landingPages.map((lp) => [
       lp.url,
@@ -224,7 +233,7 @@ function renderDimensionSection(
   currency: string
 ): string {
   const parts: string[] = [];
-  parts.push(h2(dim.title));
+  parts.push(sectionHeading(dim.title));
   if (dim.description) {
     parts.push(muted(dim.description));
   }
@@ -267,7 +276,7 @@ function renderDimensionSection(
 }
 
 function renderLevelHeading(levelTitle: string, description: string): string {
-  return h1(levelTitle) + muted(description);
+  return chapterHeading(levelTitle) + muted(description);
 }
 
 function renderAdTopTable(
@@ -275,7 +284,7 @@ function renderAdTopTable(
   currency: string
 ): string {
   const parts: string[] = [];
-  parts.push(h2(topAds.title));
+  parts.push(sectionHeading(topAds.title));
   parts.push(muted(topAds.description));
   const rows = topAds.ads.map((a) => [
     `${a.name}${a.created_time ? `\nLaunched ${fmtLaunchDate(a.created_time)}` : ""}`,
@@ -297,7 +306,7 @@ function renderAdTopTable(
 
 function renderNotes(text: string): string {
   const parts: string[] = [];
-  parts.push(h1("Recommendation for Clients"));
+  parts.push(chapterHeading("Recommendation for Clients"));
   const trimmed = (text || "").trim();
   if (!trimmed) {
     parts.push(
@@ -317,11 +326,21 @@ function renderNotes(text: string): string {
 
 // ---- Top-level ----
 
-export function generateMediaBuyingReport(input: ReportInput): Buffer {
+export async function generateMediaBuyingReport(
+  input: ReportInput
+): Promise<Buffer> {
   const parts: string[] = [];
 
+  // Cover: title + subtitle. The TOC field follows immediately so readers
+  // get a chapter-level index before the body content.
   parts.push(title("Media Buying Report"));
   parts.push(subtitle(`${input.client_name} — ${input.date_range_label}`));
+  parts.push(spacer(240));
+  parts.push(tocField());
+
+  // Each chapter starts with chapterHeading() which inserts a page break,
+  // so the doc flows: Cover/TOC → Account Overview → Campaign Level →
+  // Ad Group Level → Ad Level → Recommendation for Clients.
 
   if (input.overview) {
     parts.push(renderAccountOverview(input.overview, input.currency));
@@ -368,5 +387,8 @@ export function generateMediaBuyingReport(input: ReportInput): Buffer {
 
   parts.push(renderNotes(input.notes));
 
-  return buildDocxBuffer(parts.join(""));
+  return buildDocxFromTemplate(TEMPLATE_PATH, parts.join(""), {
+    headerRelId: TEMPLATE_HEADER_REL_ID,
+    footerRelId: TEMPLATE_FOOTER_REL_ID,
+  });
 }

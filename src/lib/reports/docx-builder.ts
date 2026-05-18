@@ -9,6 +9,8 @@
  * 8000-series greys, single 4px borders on tables.
  */
 import PizZip from "pizzip";
+import { readFile } from "fs/promises";
+import path from "path";
 
 export function xmlEscape(s: string): string {
   return s
@@ -40,6 +42,69 @@ export function p(text: string, opts: ParaOpts = {}): string {
   return lines
     .map((line, i) => makeParagraph(line, opts, i === lines.length - 1))
     .join("");
+}
+
+/** Build a paragraph that references a named Word style (Heading1, Title, etc.).
+ *  Used to lean on the template's pre-defined styles so the doc inherits its
+ *  fonts/colors/spacing. Word's TOC field also picks these up. */
+export function styledP(
+  text: string,
+  styleId: string,
+  extra: ParaOpts = {}
+): string {
+  const pPr: string[] = [`<w:pStyle w:val="${styleId}"/>`];
+  if (extra.align) pPr.push(`<w:jc w:val="${extra.align}"/>`);
+  if (extra.spaceBefore != null || extra.spaceAfter != null) {
+    pPr.push(
+      `<w:spacing w:before="${extra.spaceBefore ?? 0}" w:after="${extra.spaceAfter ?? 0}"/>`
+    );
+  }
+  const rPr: string[] = [];
+  if (extra.bold) rPr.push("<w:b/>");
+  if (extra.italic) rPr.push("<w:i/>");
+  if (extra.sizeHalfPt != null) {
+    rPr.push(`<w:sz w:val="${extra.sizeHalfPt}"/>`);
+    rPr.push(`<w:szCs w:val="${extra.sizeHalfPt}"/>`);
+  }
+  if (extra.color) rPr.push(`<w:color w:val="${extra.color}"/>`);
+  const rPrXml = rPr.length ? `<w:rPr>${rPr.join("")}</w:rPr>` : "";
+  return (
+    `<w:p><w:pPr>${pPr.join("")}</w:pPr>` +
+    `<w:r>${rPrXml}<w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>` +
+    `</w:p>`
+  );
+}
+
+/** Word "Heading 1" — picked up by the TOC field for chapter entries.
+ *  Adds a page break before so each chapter starts on a new page. */
+export function chapterHeading(text: string, addPageBreak: boolean = true): string {
+  const pageBreak = addPageBreak
+    ? `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`
+    : "";
+  return pageBreak + styledP(text, "Heading1");
+}
+
+/** Word "Heading 2" — used for sub-sections within a chapter. Shows up in
+ *  the TOC under its parent Heading 1. */
+export function sectionHeading(text: string): string {
+  return styledP(text, "Heading2");
+}
+
+/** Word TOC field. Word auto-populates page numbers on first open ("Update
+ *  fields?" prompt). The pre-rendered text is what readers see before the
+ *  field is updated. */
+export function tocField(): string {
+  return (
+    `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t xml:space="preserve">Table of Contents</w:t></w:r></w:p>` +
+    `<w:p>` +
+    `<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>` +
+    `<w:r><w:instrText xml:space="preserve"> TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r>` +
+    `<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+    `<w:r><w:rPr><w:i/><w:color w:val="9CA3AF"/></w:rPr>` +
+    `<w:t xml:space="preserve">Right-click here and choose "Update field" to populate page numbers, or update fields when prompted on first open.</w:t></w:r>` +
+    `<w:r><w:fldChar w:fldCharType="end"/></w:r>` +
+    `</w:p>`
+  );
 }
 
 function makeParagraph(text: string, opts: ParaOpts, isLast: boolean): string {
@@ -240,12 +305,28 @@ export function kpiStrip(
 /**
  * Build a complete <w:document> body wrapper from already-rendered children.
  * Includes the page settings (sectPr) at the end.
+ *
+ * When `headerRelId` / `footerRelId` are provided, the sectPr references
+ * them so the template's header (Pinformance logo + red accent) and footer
+ * (page numbers + brand wordmark) render on every page.
  */
-function buildDocumentXml(bodyContent: string): string {
+function buildDocumentXml(
+  bodyContent: string,
+  opts: { headerRelId?: string; footerRelId?: string } = {}
+): string {
+  const refs: string[] = [];
+  if (opts.headerRelId) {
+    refs.push(`<w:headerReference r:id="${opts.headerRelId}" w:type="default"/>`);
+  }
+  if (opts.footerRelId) {
+    refs.push(`<w:footerReference r:id="${opts.footerRelId}" w:type="default"/>`);
+  }
   const sectPr =
     `<w:sectPr>` +
-    `<w:pgSz w:w="12240" w:h="15840"/>` +
-    `<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>` +
+    refs.join("") +
+    `<w:pgSz w:w="11906" w:h="16838" w:orient="portrait"/>` +
+    `<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>` +
+    `<w:pgNumType w:start="1"/>` +
     `<w:cols w:space="720"/>` +
     `<w:docGrid w:linePitch="360"/>` +
     `</w:sectPr>`;
@@ -256,6 +337,32 @@ function buildDocumentXml(bodyContent: string): string {
     `<w:body>${bodyContent}${sectPr}</w:body>` +
     `</w:document>`
   );
+}
+
+/**
+ * Build a Word document from an existing .docx template file: load the
+ * template, replace `word/document.xml` with our generated content, and
+ * return the zip as a Buffer. All other parts (styles.xml, theme, fonts,
+ * header1.xml, footer1.xml, embedded logo) come from the template, so the
+ * resulting doc inherits the Pinformance branding for free.
+ *
+ * The template's word/_rels/document.xml.rels is preserved — so any
+ * `<w:headerReference r:id="rId8"/>` etc. in our body resolves to the
+ * template's header1.xml.
+ */
+export async function buildDocxFromTemplate(
+  templateRelativePath: string,
+  bodyContent: string,
+  opts: { headerRelId?: string; footerRelId?: string } = {}
+): Promise<Buffer> {
+  const templatePath = path.join(process.cwd(), templateRelativePath);
+  const file = await readFile(templatePath);
+  const zip = new PizZip(file);
+
+  const documentXml = buildDocumentXml(bodyContent, opts);
+  zip.file("word/document.xml", documentXml);
+
+  return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
 /**

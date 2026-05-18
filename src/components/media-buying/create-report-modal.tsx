@@ -111,6 +111,12 @@ export function CreateReportModal({ defaults, onClose }: CreateReportModalProps)
   const [overviewKpis, setOverviewKpis] = useState(true);
   const [overviewLandingPages, setOverviewLandingPages] = useState(true);
 
+  // Chapter-level toggles. When unchecked, the whole chapter is omitted
+  // from the doc — its per-dimension toggles are ignored.
+  const [includeCampaignChapter, setIncludeCampaignChapter] = useState(true);
+  const [includeAdGroupChapter, setIncludeAdGroupChapter] = useState(true);
+  const [includeAdChapter, setIncludeAdChapter] = useState(true);
+
   // Per-dimension state — keys mapped to { enabled, viewMode }
   const [campaignDims, setCampaignDims] = useState<
     Record<string, { enabled: boolean; viewMode: ViewMode }>
@@ -122,7 +128,9 @@ export function CreateReportModal({ defaults, onClose }: CreateReportModalProps)
     Record<string, { enabled: boolean; viewMode: ViewMode }>
   >(() => initDims(AD_DIMS));
 
-  // Top ads table on Ad Level
+  // Top ads table on Ad Level — explicit opt-in checkbox so it's clearly
+  // optional. Count + sort key only matter when the checkbox is checked.
+  const [includeTopAds, setIncludeTopAds] = useState(false);
   const [topAdsCount, setTopAdsCount] = useState<number>(10);
   const [topAdsSort, setTopAdsSort] = useState<"spend" | "roas" | "revenue" | "conversions">(
     "spend"
@@ -156,12 +164,33 @@ export function CreateReportModal({ defaults, onClose }: CreateReportModalProps)
 
   const hasAnythingChecked = useMemo(() => {
     if (overviewKpis || overviewLandingPages) return true;
-    if (Object.values(campaignDims).some((d) => d.enabled)) return true;
-    if (Object.values(adGroupDims).some((d) => d.enabled)) return true;
-    if (Object.values(adDims).some((d) => d.enabled)) return true;
-    if (topAdsCount > 0) return true;
+    if (
+      includeCampaignChapter &&
+      Object.values(campaignDims).some((d) => d.enabled)
+    )
+      return true;
+    if (
+      includeAdGroupChapter &&
+      Object.values(adGroupDims).some((d) => d.enabled)
+    )
+      return true;
+    if (
+      includeAdChapter &&
+      (Object.values(adDims).some((d) => d.enabled) || includeTopAds)
+    )
+      return true;
     return false;
-  }, [overviewKpis, overviewLandingPages, campaignDims, adGroupDims, adDims, topAdsCount]);
+  }, [
+    overviewKpis,
+    overviewLandingPages,
+    includeCampaignChapter,
+    campaignDims,
+    includeAdGroupChapter,
+    adGroupDims,
+    includeAdChapter,
+    adDims,
+    includeTopAds,
+  ]);
 
   async function generate() {
     setError(null);
@@ -182,17 +211,24 @@ export function CreateReportModal({ defaults, onClose }: CreateReportModalProps)
           landingPages: overviewLandingPages,
         };
       }
-      const campDims = enabledDims(campaignDims);
-      if (campDims.length > 0) sections.campaignLevel = { dimensions: campDims };
-      const agDims = enabledDims(adGroupDims);
-      if (agDims.length > 0) sections.adGroupLevel = { dimensions: agDims };
-      const adsDimsList = enabledDims(adDims);
-      if (adsDimsList.length > 0 || topAdsCount > 0) {
-        const adLevel: Record<string, unknown> = { dimensions: adsDimsList };
-        if (topAdsCount > 0) {
-          adLevel.topAds = { count: topAdsCount, sortKey: topAdsSort };
+      if (includeCampaignChapter) {
+        const campDims = enabledDims(campaignDims);
+        if (campDims.length > 0)
+          sections.campaignLevel = { dimensions: campDims };
+      }
+      if (includeAdGroupChapter) {
+        const agDims = enabledDims(adGroupDims);
+        if (agDims.length > 0) sections.adGroupLevel = { dimensions: agDims };
+      }
+      if (includeAdChapter) {
+        const adsDimsList = enabledDims(adDims);
+        if (adsDimsList.length > 0 || includeTopAds) {
+          const adLevel: Record<string, unknown> = { dimensions: adsDimsList };
+          if (includeTopAds && topAdsCount > 0) {
+            adLevel.topAds = { count: topAdsCount, sortKey: topAdsSort };
+          }
+          sections.adLevel = adLevel;
         }
-        sections.adLevel = adLevel;
       }
 
       const res = await fetch("/api/pinterest/media-buying/report", {
@@ -309,59 +345,91 @@ export function CreateReportModal({ defaults, onClose }: CreateReportModalProps)
             </div>
           </div>
 
-          {/* Campaign Level */}
+          {/* Campaign Level chapter */}
           <DimensionGroup
-            title="Campaign Level"
+            title="Chapter — Campaign Level"
+            includeChapter={includeCampaignChapter}
+            onToggleChapter={setIncludeCampaignChapter}
             options={CAMPAIGN_DIMS}
             state={campaignDims}
             setState={setCampaignDims}
           />
 
-          {/* Ad Group Level */}
+          {/* Ad Group Level chapter */}
           <DimensionGroup
-            title="Ad Group Level"
+            title="Chapter — Ad Group Level"
+            includeChapter={includeAdGroupChapter}
+            onToggleChapter={setIncludeAdGroupChapter}
             options={AD_GROUP_DIMS}
             state={adGroupDims}
             setState={setAdGroupDims}
           />
 
-          {/* Ad Level */}
+          {/* Ad Level chapter */}
           <DimensionGroup
-            title="Ad Level"
+            title="Chapter — Ad Level"
+            includeChapter={includeAdChapter}
+            onToggleChapter={setIncludeAdChapter}
             options={AD_DIMS}
             state={adDims}
             setState={setAdDims}
           />
 
-          {/* Top ads table */}
-          <div className="border-t border-border pt-4">
-            <div className="text-sm font-semibold mb-2">Top Ads table (Ad Level)</div>
-            <p className="text-xs text-muted-foreground mb-3">
-              Optional ranked-ads table at the start of the Ad Level section. Set count to 0
-              to omit.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
+          {/* Top ads table — opt-in, only valid when the Ad Level chapter
+              is included. */}
+          <div
+            className={cn(
+              "border-t border-border pt-4",
+              !includeAdChapter && "opacity-50 pointer-events-none"
+            )}
+          >
+            <label className="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-muted/30 transition-colors mb-3">
+              <input
+                type="checkbox"
+                checked={includeTopAds}
+                onChange={(e) => setIncludeTopAds(e.target.checked)}
+                disabled={!includeAdChapter}
+                className="mt-0.5 w-4 h-4 rounded border-border accent-primary cursor-pointer"
+              />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-foreground">
+                  Include Top Ads table in the Ad Level chapter
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  Optional ranked-ads table at the start of the Ad Level chapter — leave
+                  unchecked to omit it entirely.
+                </div>
+              </div>
+            </label>
+            <div
+              className={cn(
+                "grid grid-cols-2 gap-3",
+                !includeTopAds && "opacity-40 pointer-events-none"
+              )}
+            >
               <div>
                 <div className="text-[11px] text-muted-foreground mb-1.5">Count</div>
                 <select
                   value={topAdsCount}
                   onChange={(e) => setTopAdsCount(Number(e.target.value))}
+                  disabled={!includeTopAds}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
-                  {[0, 5, 10, 15, 20, 25, 50].map((n) => (
+                  {[5, 10, 15, 20, 25, 50].map((n) => (
                     <option key={n} value={n}>
-                      {n === 0 ? "Omit table" : `${n} ads`}
+                      {n} ads
                     </option>
                   ))}
                 </select>
               </div>
-              <div className={topAdsCount === 0 ? "opacity-40 pointer-events-none" : ""}>
+              <div>
                 <div className="text-[11px] text-muted-foreground mb-1.5">Rank by</div>
                 <select
                   value={topAdsSort}
                   onChange={(e) =>
                     setTopAdsSort(e.target.value as typeof topAdsSort)
                   }
+                  disabled={!includeTopAds}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
                   <option value="spend">Spend</option>
@@ -457,11 +525,15 @@ function CheckboxRow({
 
 function DimensionGroup({
   title,
+  includeChapter,
+  onToggleChapter,
   options,
   state,
   setState,
 }: {
   title: string;
+  includeChapter: boolean;
+  onToggleChapter: (b: boolean) => void;
   options: DimensionOption[];
   state: Record<string, { enabled: boolean; viewMode: ViewMode }>;
   setState: React.Dispatch<
@@ -492,16 +564,30 @@ function DimensionGroup({
   }
   return (
     <div className="border-t border-border pt-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-sm font-semibold">{title}</div>
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={includeChapter}
+            onChange={(e) => onToggleChapter(e.target.checked)}
+            className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+          />
+          <div className="text-sm font-semibold">{title}</div>
+        </label>
         <button
           onClick={toggleAll}
-          className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+          disabled={!includeChapter}
+          className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-40 disabled:no-underline"
         >
           {allOn ? "Uncheck all" : noneOn ? "Check all" : "Check all"}
         </button>
       </div>
-      <div className="space-y-1.5">
+      <div
+        className={cn(
+          "space-y-1.5",
+          !includeChapter && "opacity-40 pointer-events-none"
+        )}
+      >
         {options.map((o) => {
           const s = state[o.key];
           const enabled = !!s?.enabled;
