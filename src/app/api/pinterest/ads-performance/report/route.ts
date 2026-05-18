@@ -6,6 +6,7 @@ import { PinterestClient, extractPinImageUrl, fetchPinOgImage } from "@/lib/pint
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 import { generateWeeklyReport } from "@/lib/reports/weekly-report";
+import { contentDisposition } from "@/lib/reports/content-disposition";
 
 type KpiKey = "roas" | "cpa" | "revenue" | "spend" | "checkouts";
 
@@ -290,7 +291,7 @@ export async function POST(request: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": contentDisposition(filename),
       },
     });
   } catch (err) {

@@ -32,6 +32,7 @@ import {
   type ReportLandingPage,
   type ViewMode,
 } from "@/lib/reports/media-buying-report";
+import { contentDisposition } from "@/lib/reports/content-disposition";
 
 // ---- Dimension catalogs (kept in sync with the level pages) ----
 
@@ -809,7 +810,7 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="${filename.replace(/[^A-Za-z0-9 ._\-()]/g, "_")}"`,
+        "Content-Disposition": contentDisposition(filename),
       },
     });
   } catch (e) {
