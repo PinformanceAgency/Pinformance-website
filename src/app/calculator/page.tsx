@@ -1616,7 +1616,7 @@ function SetupFeeSection() {
     },
     {
       title: "Connecting our team to your internal workprocess and apps",
-      body: "Notion, DataAds, Tagbox, Triple Whale, Atria — whatever's in your stack.",
+      body: "Notion, DataAds, Tagbox, Triple Whale, Atria — whatever's in your stack. Looms and workflows built so our team plugs straight in.",
     },
   ];
   return (
