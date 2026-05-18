@@ -12,7 +12,9 @@ import {
   Minus,
   ExternalLink,
   ArrowUpDown,
+  FileText,
 } from "lucide-react";
+import { CreateReportModal } from "@/components/media-buying/create-report-modal";
 import {
   LineChart,
   Line,
@@ -142,6 +144,7 @@ export default function MediaBuyingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [reportOpen, setReportOpen] = useState(false);
   const [chartMetrics, setChartMetrics] = useState<KpiKey[]>(["spend", "roas"]);
   const [lpSort, setLpSort] = useState<"spend" | "revenue" | "roas" | "cpa" | "conversions" | "ads">("spend");
 
@@ -332,8 +335,22 @@ export default function MediaBuyingPage() {
             <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
             Refresh
           </button>
+          <button
+            onClick={() => setReportOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Create report
+          </button>
         </div>
       </div>
+
+      {reportOpen && (
+        <CreateReportModal
+          defaults={{ dateRange, conversionWindow }}
+          onClose={() => setReportOpen(false)}
+        />
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-700">
