@@ -1595,8 +1595,8 @@ function TierBox({
 function SetupFeeSection() {
   const items = [
     {
-      title: "Pinterest profile setup",
-      body: "Branded bio, keyword-led boards, SEO-tuned profile page.",
+      title: "Organic + profile setup",
+      body: "Branded bio, SEO-tuned profile, 20+ topic boards, daily Pin schedule, 90-day content calendar.",
     },
     {
       title: "Paid advertising setup",
@@ -1604,11 +1604,7 @@ function SetupFeeSection() {
     },
     {
       title: "Connecting to our internal AI systems",
-      body: "Your ad account plugged into our internal AI stack.",
-    },
-    {
-      title: "Organic setup",
-      body: "20+ topic boards, daily Pin schedule, 90-day content calendar.",
+      body: "Your ad account plugged into our internal AI dashboard.",
     },
     {
       title: "Brand research",
@@ -1619,12 +1615,8 @@ function SetupFeeSection() {
       body: "Creative guidance and format direction for what wins on Pinterest.",
     },
     {
-      title: "Understanding your internal workprocess and apps",
+      title: "Connecting our team to your internal workprocess and apps",
       body: "Notion, DataAds, Tagbox, Triple Whale, Atria — whatever's in your stack.",
-    },
-    {
-      title: "Dedicated organic dashboard",
-      body: "Live view of scheduled Pins, board growth, reach, impressions, and organic revenue.",
     },
   ];
   return (
