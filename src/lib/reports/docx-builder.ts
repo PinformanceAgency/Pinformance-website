@@ -756,11 +756,91 @@ export async function buildDocxFromTemplate(
   const documentXml = buildDocumentXml(bodyContent, opts);
   zip.file("word/document.xml", documentXml);
 
+  // The template's header1.xml / footer1.xml have a right-aligned tab stop
+  // at twip 9026 (portrait content width) and — even worse — no <w:tab/>
+  // element between the left and right runs, so "Page <N>Pinformance"
+  // renders without a separator. Replace them with versions sized for
+  // landscape and with a proper tab so the layout works.
+  zip.file("word/header1.xml", rebuildHeaderXml());
+  zip.file("word/footer1.xml", rebuildFooterXml());
+
   if (opts.images && opts.images.length > 0) {
     injectImages(zip, opts.images);
   }
 
   return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+/** Landscape-sized right tab stop = page-width(16838) - left-margin(1440)
+ *  - right-margin(1440) = 13958. Round down for safety. */
+const LANDSCAPE_RIGHT_TAB = 13900;
+
+/** Header for landscape A4 report: logo image on the left + bold title +
+ *  right-tabbed "Confidential" tag, with a red Pinformance brand border
+ *  below. References rId1 (image1.jpg) which already exists in
+ *  word/_rels/header1.xml.rels. */
+function rebuildHeaderXml(): string {
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ` +
+    `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ` +
+    `xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+    `xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" ` +
+    `xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<w:p>` +
+    `<w:pPr>` +
+    `<w:pBdr><w:bottom w:color="ED1C24" w:space="6" w:sz="6" w:val="single"/></w:pBdr>` +
+    `<w:tabs><w:tab w:val="right" w:pos="${LANDSCAPE_RIGHT_TAB}"/></w:tabs>` +
+    `<w:spacing w:after="80"/>` +
+    `</w:pPr>` +
+    // Logo (rId1 from header1.xml.rels = image1.jpg)
+    `<w:r>` +
+    `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
+    `<wp:extent cx="304800" cy="304800"/>` +
+    `<wp:docPr id="1" name="Logo"/>` +
+    `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="image1.jpg"/><pic:cNvPicPr/></pic:nvPicPr>` +
+    `<pic:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="304800" cy="304800"/></a:xfrm>` +
+    `<a:prstGeom prst="rect"/></pic:spPr>` +
+    `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>` +
+    `</w:r>` +
+    // Title
+    `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:color w:val="333333"/><w:sz w:val="18"/></w:rPr>` +
+    `<w:t xml:space="preserve">   Pinterest Performance Report</w:t></w:r>` +
+    // Right-aligned "Confidential"
+    `<w:r><w:tab/></w:r>` +
+    `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:i/><w:color w:val="666666"/><w:sz w:val="16"/></w:rPr>` +
+    `<w:t xml:space="preserve">Confidential</w:t></w:r>` +
+    `</w:p>` +
+    `</w:hdr>`
+  );
+}
+
+/** Footer for landscape A4 report: "Page <N>" on the left, right-tabbed
+ *  brand wordmark "Pinformance" in red, with a thin grey separator above. */
+function rebuildFooterXml(): string {
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+    `<w:p>` +
+    `<w:pPr>` +
+    `<w:pBdr><w:top w:color="DDDDDD" w:space="4" w:sz="4" w:val="single"/></w:pBdr>` +
+    `<w:tabs><w:tab w:val="right" w:pos="${LANDSCAPE_RIGHT_TAB}"/></w:tabs>` +
+    `</w:pPr>` +
+    `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:color w:val="666666"/><w:sz w:val="16"/></w:rPr>` +
+    `<w:t xml:space="preserve">Page </w:t></w:r>` +
+    `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:color w:val="666666"/><w:sz w:val="16"/></w:rPr>` +
+    `<w:fldChar w:fldCharType="begin"/>` +
+    `<w:instrText xml:space="preserve">PAGE</w:instrText>` +
+    `<w:fldChar w:fldCharType="end"/>` +
+    `</w:r>` +
+    `<w:r><w:tab/></w:r>` +
+    `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:color w:val="ED1C24"/><w:sz w:val="16"/></w:rPr>` +
+    `<w:t xml:space="preserve">Pinformance</w:t></w:r>` +
+    `</w:p>` +
+    `</w:ftr>`
+  );
 }
 
 function injectImages(zip: PizZip, images: EmbeddedImage[]): void {

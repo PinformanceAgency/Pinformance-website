@@ -89,9 +89,11 @@ function formatDateLabel(iso: string): string {
   });
 }
 
-/** Build SVG for a multi-line chart with a clean dashboard-style look. */
+/** Build SVG for a multi-line chart with a clean dashboard-style look.
+ *  Default 1900×600 — aspect ratio ≈ 3.17:1 matches the 9.5"×3" embed
+ *  dimensions used in the landscape report, so the chart isn't stretched. */
 function buildSvg(input: ChartInput): string {
-  const width = input.widthPx ?? 1300;
+  const width = input.widthPx ?? 1900;
   const height = input.heightPx ?? 600;
   const titleH = input.title ? 36 : 0;
   const legendH = 32;
@@ -231,7 +233,7 @@ export function renderLineChartPng(input: ChartInput): ChartRenderResult {
     const svg = buildSvg(input);
     const resvg = new Resvg(svg, {
       background: "#FFFFFF",
-      fitTo: { mode: "width", value: input.widthPx ?? 1300 },
+      fitTo: { mode: "width", value: input.widthPx ?? 1900 },
       font: {
         // Bundled Roboto — works identically on macOS dev + Linux Vercel.
         // Falls back to no system fonts so charts render consistently.
