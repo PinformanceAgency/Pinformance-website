@@ -360,7 +360,10 @@ function renderDimensionSection(
     } else {
       const result = charts.add(dim.chart, "chart");
       if ("rId" in result) {
-        // 6.5" wide × 2.75" tall — fits A4 page width with margins.
+        // Visual breathing room between the numbers table and the chart
+        // so they don't read as one cramped block.
+        parts.push(spacer(280));
+        // Landscape page: chart fills nearly full width at 9.5"×3".
         parts.push(
           inlineImage(result.rId, `${dim.title} — daily trend`, 9.5, 3)
         );
@@ -376,7 +379,8 @@ function renderDimensionSection(
     }
   }
 
-  parts.push(spacer(180));
+  // Wider gap between dimension sub-sections for a cleaner stacked look.
+  parts.push(spacer(360));
   return parts.join("");
 }
 
