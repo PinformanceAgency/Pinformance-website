@@ -205,6 +205,28 @@ export default function IntegrationsPage() {
   const pinterestExpired =
     org?.pinterest_token_expires_at &&
     new Date(org.pinterest_token_expires_at) < new Date();
+  // Pinterest's OAuth response tells us exactly which scopes the user
+  // granted vs. requested. When `ads:read` is missing the Media Buying
+  // dashboard fails with a 401 — surface this directly here so it's
+  // diagnosable without digging into network logs.
+  const pinterestScopes = (
+    (org as { pinterest_token_scopes?: string } | null)?.pinterest_token_scopes ||
+    ""
+  )
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const REQUIRED_PINTEREST_SCOPES = [
+    "boards:read",
+    "boards:write",
+    "pins:read",
+    "pins:write",
+    "user_accounts:read",
+    "ads:read",
+  ];
+  const missingPinterestScopes = pinterestConnected
+    ? REQUIRED_PINTEREST_SCOPES.filter((s) => !pinterestScopes.includes(s))
+    : [];
 
   async function connectPinterest() {
     setConnectingPinterest(true);
@@ -231,13 +253,17 @@ export default function IntegrationsPage() {
       icon: "📌",
       status: pinterestExpired
         ? "expired"
-        : pinterestConnected
-          ? "connected"
-          : "pending",
+        : pinterestConnected && missingPinterestScopes.length > 0
+          ? "expired"
+          : pinterestConnected
+            ? "connected"
+            : "pending",
       statusMessage: pinterestExpired
         ? "Token expired — reconnect to continue posting"
         : pinterestConnected
-          ? `Connected as @${org?.pinterest_user_id}`
+          ? missingPinterestScopes.length > 0
+            ? `Connected as @${org?.pinterest_user_id} — but the token is missing ${missingPinterestScopes.join(", ")}. Pinterest didn't grant ${missingPinterestScopes.includes("ads:read") ? "ads access" : "all requested permissions"} — see fix steps below.`
+            : `Connected as @${org?.pinterest_user_id} (all required scopes granted)`
           : "Waiting for Pinterest API access approval (1-2 days)",
       connectAction: connectPinterest,
       docsUrl: "https://developers.pinterest.com/docs/getting-started/set-up-app/",
@@ -384,6 +410,74 @@ export default function IntegrationsPage() {
                 )}
               </div>
             </div>
+
+            {/* Pinterest granted scopes — surface missing scopes so the
+                Media Buying 401 errors are diagnosable from one screen. */}
+            {integration.id === "pinterest" && pinterestConnected && (
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5" />
+                  Granted permissions (scopes)
+                </p>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {REQUIRED_PINTEREST_SCOPES.map((scope) => {
+                    const has = pinterestScopes.includes(scope);
+                    return (
+                      <span
+                        key={scope}
+                        className={
+                          has
+                            ? "px-2 py-0.5 text-[11px] rounded-md font-mono bg-green-500/10 text-green-700 border border-green-500/20"
+                            : "px-2 py-0.5 text-[11px] rounded-md font-mono bg-red-500/10 text-red-700 border border-red-500/30"
+                        }
+                      >
+                        {has ? "✓" : "✗"} {scope}
+                      </span>
+                    );
+                  })}
+                </div>
+                {missingPinterestScopes.length > 0 && (
+                  <div className="text-[12px] text-amber-900 bg-amber-500/5 border border-amber-500/30 rounded-md p-3 mt-2 space-y-2">
+                    <div className="font-semibold">
+                      Pinterest did not grant {missingPinterestScopes.join(", ")}.
+                    </div>
+                    <div>
+                      The OAuth flow requests these but Pinterest only returns scopes
+                      your developer app + connected account are actually approved
+                      for. The most common reasons:
+                    </div>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>
+                        The Pinterest account you connected is a{" "}
+                        <strong>Personal account</strong>. Switch to a{" "}
+                        <strong>Business account</strong> on pinterest.com → Settings →
+                        Account management → Convert to Business, then reconnect here.
+                      </li>
+                      <li>
+                        The Pinterest developer app linked to this organization
+                        doesn&apos;t have <code className="font-mono">ads:read</code> /
+                        ads scopes enabled in{" "}
+                        <a
+                          href="https://developers.pinterest.com/apps/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline"
+                        >
+                          developers.pinterest.com/apps
+                        </a>
+                        . Open the app → Scopes → toggle the missing ones on, then
+                        reconnect.
+                      </li>
+                      <li>
+                        The app is in <strong>Trial Access</strong>. Trial apps can
+                        only request a limited scope set. Request Standard Access in
+                        the developer dashboard (1–3 weeks Pinterest review).
+                      </li>
+                    </ol>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Per-org Pinterest credentials */}
             {integration.id === "pinterest" && (
