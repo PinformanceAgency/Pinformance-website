@@ -198,7 +198,7 @@ export function tableOfContents(entries: TocEntry[]): string {
         vAlign: "top",
         paddingTwips: 80,
       });
-      const titleCell = tc(e.title, 2800, {
+      const titleCell = tc(e.title, 3800, {
         bold: true,
         sizeHalfPt: 22,
         color: "111827",
@@ -206,7 +206,7 @@ export function tableOfContents(entries: TocEntry[]): string {
         vAlign: "top",
         paddingTwips: 80,
       });
-      const descCell = tc(e.description, 5800, {
+      const descCell = tc(e.description, 9000, {
         sizeHalfPt: 20,
         color: "374151",
         align: "left",
@@ -216,7 +216,7 @@ export function tableOfContents(entries: TocEntry[]): string {
       return tr([numCell, titleCell, descCell]);
     })
     .join("");
-  const outlineTable = tbl({ widthsDxa: [600, 2800, 5800], rows: [outlineRows] });
+  const outlineTable = tbl({ widthsDxa: [600, 3800, 9000], rows: [outlineRows] });
 
   return heading + intro + outlineTable;
 }
@@ -448,8 +448,8 @@ const COHORT_COLORS = [
 export function dataTable(
   columns: DataTableColumn[],
   rows: DataTableRow[],
-  /** Total content width in DXA — A4 minus margins ≈ 9000. */
-  totalWidthDxa: number = 9000
+  /** Total content width in DXA — landscape A4 minus margins ≈ 13800. */
+  totalWidthDxa: number = 13800
 ): string {
   const widthsDxa = computeWidths(columns, totalWidthDxa);
 
@@ -607,7 +607,7 @@ export function kpiStrip(
     /** Color the value (e.g. ROAS green). */
     valueColor?: string;
   }>,
-  totalWidthDxa: number = 9000
+  totalWidthDxa: number = 13800
 ): string {
   const colCount = cards.length;
   const w = Math.floor(totalWidthDxa / colCount);
@@ -699,11 +699,14 @@ function buildDocumentXml(
   if (opts.footerRelId) {
     refs.push(`<w:footerReference r:id="${opts.footerRelId}" w:type="default"/>`);
   }
+  // Landscape A4 — wide page so 7-column tables (Spend / Revenue / Conv. /
+  // ROAS / CPA / …) breathe without wrapping "Revenue" mid-word, and so
+  // embedded charts get more horizontal real estate.
   const sectPr =
     `<w:sectPr>` +
     refs.join("") +
-    `<w:pgSz w:w="11906" w:h="16838" w:orient="portrait"/>` +
-    `<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>` +
+    `<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>` +
+    `<w:pgMar w:top="1080" w:right="1440" w:bottom="1080" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>` +
     `<w:pgNumType w:start="1"/>` +
     `<w:cols w:space="720"/>` +
     `<w:docGrid w:linePitch="360"/>` +

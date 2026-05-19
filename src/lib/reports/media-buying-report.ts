@@ -286,7 +286,7 @@ function renderAccountOverview(
     const cols: DataTableColumn[] = [
       {
         header: "Landing page",
-        widthDxa: 3800,
+        widthDxa: 5400,
         align: "left",
         coloredBullet: true,
       },
@@ -323,7 +323,7 @@ function renderDimensionSection(
       {
         header: dim.valueColumnLabel || "Value",
         align: "left",
-        widthDxa: 2000,
+        widthDxa: 3000,
         coloredBullet: true,
       },
       { header: dim.countColumnLabel || "Items", align: "right" },
@@ -362,7 +362,7 @@ function renderDimensionSection(
       if ("rId" in result) {
         // 6.5" wide × 2.75" tall — fits A4 page width with margins.
         parts.push(
-          inlineImage(result.rId, `${dim.title} — daily trend`, 6.5, 2.75)
+          inlineImage(result.rId, `${dim.title} — daily trend`, 9.5, 3)
         );
       } else {
         parts.push(
