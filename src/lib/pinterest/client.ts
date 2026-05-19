@@ -704,13 +704,41 @@ export class PinterestClient {
     return res.json();
   }
 
+  /**
+   * Full set of scopes a Pinformance org needs to drive the dashboard +
+   * media-buying flow end-to-end:
+   *  - boards:read/write  → list and create boards
+   *  - pins:read/write    → list and post pins
+   *  - user_accounts:read → identify the connected Pinterest user
+   *  - ads:read/write     → read/edit campaigns, ad groups, ads,
+   *                          analytics (needed by Media Buying dashboard)
+   *  - catalogs:read      → read product feeds for catalog campaigns
+   *  - audiences:read     → read retargeting / actalike audiences
+   *
+   * Pinterest only returns the subset the dev app + connected account
+   * are actually approved for; the Integrations page surfaces which
+   * scopes were granted vs. missing so the user can fix on Pinterest's
+   * side without guessing.
+   */
+  static readonly REQUIRED_SCOPES = [
+    "boards:read",
+    "boards:write",
+    "pins:read",
+    "pins:write",
+    "user_accounts:read",
+    "ads:read",
+    "ads:write",
+    "catalogs:read",
+    "audiences:read",
+  ];
+
   static getAuthUrl(state: string, appId?: string): string {
     const effectiveAppId = appId || process.env.PINTEREST_APP_ID!;
     const params = new URLSearchParams({
       client_id: effectiveAppId,
       redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/callback/pinterest`,
       response_type: "code",
-      scope: "boards:read,boards:write,pins:read,pins:write,user_accounts:read,ads:read",
+      scope: PinterestClient.REQUIRED_SCOPES.join(","),
       state,
     });
     return `https://www.pinterest.com/oauth/?${params}`;

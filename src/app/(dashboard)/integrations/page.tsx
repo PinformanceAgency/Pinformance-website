@@ -216,6 +216,9 @@ export default function IntegrationsPage() {
     .split(/[,\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+  // Kept in sync with PinterestClient.REQUIRED_SCOPES on the server. Both
+  // sides need to agree so a "missing scope" chip on this page reflects
+  // exactly what the OAuth flow asked for.
   const REQUIRED_PINTEREST_SCOPES = [
     "boards:read",
     "boards:write",
@@ -223,6 +226,9 @@ export default function IntegrationsPage() {
     "pins:write",
     "user_accounts:read",
     "ads:read",
+    "ads:write",
+    "catalogs:read",
+    "audiences:read",
   ];
   const missingPinterestScopes = pinterestConnected
     ? REQUIRED_PINTEREST_SCOPES.filter((s) => !pinterestScopes.includes(s))
