@@ -183,7 +183,7 @@ export function tableOfContents(entries: TocEntry[]): string {
     spaceAfter: 120,
   });
   const intro = p(
-    "This report is split into chapters. Each chapter starts on its own page; sub-sections inside a chapter break down performance per naming dimension (per country, per format, etc.). Open in Word and choose 'Update fields' on first open to populate the page numbers below.",
+    "This report is split into chapters. Each chapter starts on its own page; sub-sections inside a chapter break down performance per naming dimension (per country, per format, etc.).",
     { sizeHalfPt: 20, color: "6B7280", spaceAfter: 240 }
   );
 
@@ -218,24 +218,7 @@ export function tableOfContents(entries: TocEntry[]): string {
     .join("");
   const outlineTable = tbl({ widthsDxa: [600, 2800, 5800], rows: [outlineRows] });
 
-  // Word TOC field with real page numbers — appears after the outline.
-  const tocFieldHeading = styledP("Pages", "Heading2", {
-    color: "111827",
-    sizeHalfPt: 28,
-    spaceBefore: 360,
-    spaceAfter: 80,
-  });
-  const tocField =
-    `<w:p>` +
-    `<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>` +
-    `<w:r><w:instrText xml:space="preserve"> TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r>` +
-    `<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
-    `<w:r><w:rPr><w:i/><w:color w:val="9CA3AF"/><w:sz w:val="20"/></w:rPr>` +
-    `<w:t xml:space="preserve">Page numbers populate automatically when you open in Word and click "Update fields". On other readers, navigate via the outline above.</w:t></w:r>` +
-    `<w:r><w:fldChar w:fldCharType="end"/></w:r>` +
-    `</w:p>`;
-
-  return heading + intro + outlineTable + tocFieldHeading + tocField;
+  return heading + intro + outlineTable;
 }
 
 function makeParagraph(text: string, opts: ParaOpts, isLast: boolean): string {
