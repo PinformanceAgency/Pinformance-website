@@ -99,17 +99,20 @@ export async function POST(request: NextRequest) {
       brandSummary,
     });
   } catch (err) {
+    // Surface the actual error to the admin — opaque "could not be reached"
+    // messages make it impossible to diagnose model/API/auth issues.
     const msg = err instanceof Error ? err.message : String(err);
+    console.error("[help-center] orchestrator error:", err);
     await admin.from("help_requests").insert({
       org_id: orgId,
       user_id: profile.id,
       prompt,
-      response: `Error contacting the AI service: ${msg}`,
+      response: `AI orchestrator error: ${msg}`,
       type: "error",
     });
     return NextResponse.json({
       type: "error",
-      message: "The AI service could not be reached. Please try again.",
+      message: `AI orchestrator error: ${msg}`,
     });
   }
 
