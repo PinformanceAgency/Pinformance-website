@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Zap,
   Key,
+  LifeBuoy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -53,6 +54,7 @@ const adminSharedNav = [
 const adminOnlyNav = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/clients", label: "All Clients", icon: Users },
+  { href: "/help-center", label: "Help Center", icon: LifeBuoy },
 ];
 
 export function Sidebar() {
