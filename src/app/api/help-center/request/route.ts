@@ -74,6 +74,23 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
+  // Audit log is best-effort. If the help_requests table doesn't exist
+  // yet (migration not run), we still want the Help Center to work — just
+  // log to console and continue.
+  async function logAudit(row: Record<string, unknown>) {
+    try {
+      const { error } = await admin.from("help_requests").insert(row);
+      if (error) {
+        // Most common reason: migration 015_create_help_requests.sql
+        // hasn't been run yet in the Supabase project. Doesn't block
+        // the Help Center — just logs to Vercel function logs.
+        console.warn("[help-center] audit log insert failed:", error.message);
+      }
+    } catch (e) {
+      console.warn("[help-center] audit log insert threw:", e);
+    }
+  }
+
   // Brand profile snapshot for context.
   const [{ data: org }, { data: brand }] = await Promise.all([
     admin.from("organizations").select("name").eq("id", orgId).single(),
@@ -103,7 +120,7 @@ export async function POST(request: NextRequest) {
     // messages make it impossible to diagnose model/API/auth issues.
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[help-center] orchestrator error:", err);
-    await admin.from("help_requests").insert({
+    await logAudit({
       org_id: orgId,
       user_id: profile.id,
       prompt,
@@ -117,7 +134,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (result.kind === "answer") {
-    await admin.from("help_requests").insert({
+    await logAudit({
       org_id: orgId,
       user_id: profile.id,
       prompt,
@@ -131,7 +148,7 @@ export async function POST(request: NextRequest) {
     const msg =
       "This change isn't available in the Help Center. It needs the developer — please reach out to them directly." +
       (result.reason ? `\n\nReason: ${result.reason}` : "");
-    await admin.from("help_requests").insert({
+    await logAudit({
       org_id: orgId,
       user_id: profile.id,
       prompt,
@@ -149,7 +166,7 @@ export async function POST(request: NextRequest) {
   const capability = getCapability(result.capability);
   if (!capability) {
     const msg = `Unknown capability "${result.capability}" returned by the AI. Logged for review.`;
-    await admin.from("help_requests").insert({
+    await logAudit({
       org_id: orgId,
       user_id: profile.id,
       prompt,
@@ -163,7 +180,7 @@ export async function POST(request: NextRequest) {
   const parsed = capability.schema.safeParse(result.params);
   if (!parsed.success) {
     const msg = `The AI returned invalid parameters for "${capability.name}". The change was not applied.\nValidation error: ${parsed.error.message}`;
-    await admin.from("help_requests").insert({
+    await logAudit({
       org_id: orgId,
       user_id: profile.id,
       prompt,
@@ -179,7 +196,7 @@ export async function POST(request: NextRequest) {
       { admin, orgId },
       parsed.data
     );
-    await admin.from("help_requests").insert({
+    await logAudit({
       org_id: orgId,
       user_id: profile.id,
       prompt,
@@ -198,7 +215,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     const msg = `Failed to apply "${capability.name}": ${err instanceof Error ? err.message : String(err)}`;
-    await admin.from("help_requests").insert({
+    await logAudit({
       org_id: orgId,
       user_id: profile.id,
       prompt,
