@@ -19,6 +19,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 import { orchestrate } from "@/lib/help-center/orchestrator";
 import { getCapability } from "@/lib/help-center/capabilities";
+import { decrypt } from "@/lib/encryption";
 
 interface RequestBody {
   prompt: string;
@@ -91,11 +92,27 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Brand profile snapshot for context.
+  // Brand profile snapshot for context + per-org Anthropic key.
   const [{ data: org }, { data: brand }] = await Promise.all([
-    admin.from("organizations").select("name").eq("id", orgId).single(),
+    admin
+      .from("organizations")
+      .select("name, anthropic_api_key_encrypted")
+      .eq("id", orgId)
+      .single(),
     admin.from("brand_profiles").select("*").eq("org_id", orgId).maybeSingle(),
   ]);
+
+  // Prefer the per-org Anthropic key when present; fall back to the global
+  // ANTHROPIC_API_KEY env var. This matches how the rest of the codebase
+  // (pipeline, analyze-creative, etc.) resolves the API key.
+  let anthropicApiKey: string | undefined;
+  if (org?.anthropic_api_key_encrypted) {
+    try {
+      anthropicApiKey = decrypt(org.anthropic_api_key_encrypted);
+    } catch (e) {
+      console.warn("[help-center] failed to decrypt per-org Anthropic key:", e);
+    }
+  }
   const brandSummary = brand
     ? [
         `brand_voice: ${brand.brand_voice || "(empty)"}`,
@@ -114,6 +131,7 @@ export async function POST(request: NextRequest) {
     result = await orchestrate(prompt, {
       orgName: org?.name || "(unknown)",
       brandSummary,
+      anthropicApiKey,
     });
   } catch (err) {
     // Surface the actual error to the admin — opaque "could not be reached"

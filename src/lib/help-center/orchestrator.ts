@@ -27,6 +27,9 @@ interface OrchestratorContext {
   orgName: string;
   /** Concise summary of the current brand profile so Claude has context. */
   brandSummary: string;
+  /** Optional per-org Anthropic API key (decrypted). Falls back to the
+   *  global ANTHROPIC_API_KEY env var when omitted. */
+  anthropicApiKey?: string;
 }
 
 const SYSTEM_PROMPT = `You are the Pinformance Help Center assistant.
@@ -90,7 +93,7 @@ export async function orchestrate(
   prompt: string,
   ctx: OrchestratorContext
 ): Promise<OrchestratorResult> {
-  const anthropic = getAnthropicClient();
+  const anthropic = getAnthropicClient(ctx.anthropicApiKey);
   const userMessage =
     `Active org: ${ctx.orgName}\n` +
     `Current brand profile (snapshot):\n${ctx.brandSummary}\n\n` +
