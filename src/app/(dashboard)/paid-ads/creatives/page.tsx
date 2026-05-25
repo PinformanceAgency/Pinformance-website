@@ -19,6 +19,7 @@ import {
   Video as VideoIcon,
   Images as ImagesIcon,
   BookOpen as StoryIcon,
+  Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -31,6 +32,19 @@ import {
 
 type RecentLimit = 5 | 10 | 15;
 type KpiKey = "roas" | "cpa" | "revenue" | "spend" | "checkouts";
+
+interface MinKpiFilters {
+  /** Minimum spend in account currency. null = no constraint. */
+  spend: number | null;
+  /** Minimum revenue. */
+  revenue: number | null;
+  /** Minimum checkouts (conversions count). */
+  checkouts: number | null;
+  /** Minimum ROAS (e.g. 1.5 = at least 1.5x). */
+  roas: number | null;
+  /** MAX CPA — ads with CPA above this are excluded. Lower is better. */
+  cpaMax: number | null;
+}
 type ConversionWindow =
   | "30/1"
   | "30/7"
@@ -190,6 +204,16 @@ export default function PaidAdsCreativesPage() {
   const [accountTotals, setAccountTotals] = useState<AccountTotals | null>(null);
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [conversionWindow, setConversionWindow] = useState<ConversionWindow>("30/1");
+  // Minimum KPI thresholds — used to filter out noisy small-spend outliers
+  // before ranking. null/undefined = no constraint. CPA is a MAX (lower
+  // is better); the other four are MINs.
+  const [minFilters, setMinFilters] = useState<MinKpiFilters>({
+    spend: null,
+    revenue: null,
+    checkouts: null,
+    roas: null,
+    cpaMax: null,
+  });
 
   // Restore persisted conversion window on mount.
   useEffect(() => {
@@ -275,9 +299,26 @@ export default function PaidAdsCreativesPage() {
   const adsWithSpend = useMemo(() => ads.filter((a) => a.spend != null && a.spend > 0), [ads]);
   const hasAdsData = adsWithSpend.length > 0;
 
+  // Apply the user-set minimum KPI thresholds. An empty / 0 / null
+  // threshold means "no constraint". CPA is a MAX (lower-is-better);
+  // the others are MINs.
+  const passesMinFilters = (a: AdRow): boolean => {
+    if (minFilters.spend != null && (a.spend ?? 0) < minFilters.spend) return false;
+    if (minFilters.revenue != null && (a.revenue ?? 0) < minFilters.revenue) return false;
+    if (minFilters.checkouts != null && (a.purchases ?? 0) < minFilters.checkouts) return false;
+    if (minFilters.roas != null && (a.roas ?? 0) < minFilters.roas) return false;
+    if (minFilters.cpaMax != null) {
+      // CPA: lower is better. Ads with no CPA (no conversions) are dropped
+      // when a max-CPA constraint is active, since they can't satisfy it.
+      if (a.cpa == null || a.cpa <= 0 || a.cpa > minFilters.cpaMax) return false;
+    }
+    return true;
+  };
+
   const topPerformers = useMemo(() => {
-    return sortByKpi(adsWithSpend, topKpi).slice(0, 10);
-  }, [adsWithSpend, topKpi]);
+    return sortByKpi(adsWithSpend.filter(passesMinFilters), topKpi).slice(0, 10);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adsWithSpend, topKpi, minFilters]);
 
   // Recently launched: ads created on or after the chosen "since" date,
   // then ranked by the selected KPI, then trimmed to the limit.
@@ -286,8 +327,9 @@ export default function PaidAdsCreativesPage() {
     const launchedSince = ads.filter(
       (a) => a.created_at && a.created_at >= sinceCutoff
     );
-    return sortByKpi(launchedSince, recentKpi).slice(0, recentLimit);
-  }, [ads, recentLimit, recentKpi, recentSince]);
+    return sortByKpi(launchedSince.filter(passesMinFilters), recentKpi).slice(0, recentLimit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ads, recentLimit, recentKpi, recentSince, minFilters]);
 
   // Headline KPI bar: prefer Pinterest's account-level totals (what
   // Campaign Manager shows), fall back to summed ad-level if missing.
@@ -437,6 +479,14 @@ export default function PaidAdsCreativesPage() {
           errorDetail={connectionError}
         />
       )}
+
+      {/* Min-KPI filters — apply to BOTH Top performers and Recently
+          launched so admins can hide noisy small-spend outliers. */}
+      <MinKpiFiltersControl
+        value={minFilters}
+        onChange={setMinFilters}
+        currency={currency}
+      />
 
       {/* Top performing ads */}
       <section className="space-y-3">
@@ -934,6 +984,126 @@ function KpiSelect({
         ))}
       </select>
     </div>
+  );
+}
+
+/**
+ * Inline row of 5 numeric inputs that lets the admin set minimum KPI
+ * thresholds (or max-CPA). Empty / 0 = no constraint. The active count
+ * shows in a pill so users can see at a glance whether filters are on.
+ */
+function MinKpiFiltersControl({
+  value,
+  onChange,
+  currency,
+}: {
+  value: MinKpiFilters;
+  onChange: (v: MinKpiFilters) => void;
+  currency: string;
+}) {
+  const activeCount =
+    (value.spend != null ? 1 : 0) +
+    (value.revenue != null ? 1 : 0) +
+    (value.checkouts != null ? 1 : 0) +
+    (value.roas != null ? 1 : 0) +
+    (value.cpaMax != null ? 1 : 0);
+  function patch(key: keyof MinKpiFilters, raw: string) {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      onChange({ ...value, [key]: null });
+      return;
+    }
+    const n = Number(trimmed);
+    if (!isFinite(n) || n < 0) return;
+    onChange({ ...value, [key]: n });
+  }
+  function clearAll() {
+    onChange({ spend: null, revenue: null, checkouts: null, roas: null, cpaMax: null });
+  }
+  const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
+  return (
+    <section className="bg-card border border-border rounded-xl p-3">
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <Filter className="w-3.5 h-3.5" />
+          Minimum filters
+          {activeCount > 0 && (
+            <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-primary text-primary-foreground">
+              {activeCount}
+            </span>
+          )}
+        </div>
+        <MinInput
+          label={`Min spend (${sym})`}
+          value={value.spend}
+          onChange={(v) => patch("spend", v)}
+          step="1"
+        />
+        <MinInput
+          label={`Min revenue (${sym})`}
+          value={value.revenue}
+          onChange={(v) => patch("revenue", v)}
+          step="1"
+        />
+        <MinInput
+          label="Min conv."
+          value={value.checkouts}
+          onChange={(v) => patch("checkouts", v)}
+          step="1"
+        />
+        <MinInput
+          label="Min ROAS"
+          value={value.roas}
+          onChange={(v) => patch("roas", v)}
+          step="0.1"
+          suffix="x"
+        />
+        <MinInput
+          label={`Max CPA (${sym})`}
+          value={value.cpaMax}
+          onChange={(v) => patch("cpaMax", v)}
+          step="1"
+        />
+        {activeCount > 0 && (
+          <button
+            onClick={clearAll}
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+          >
+            Clear all
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MinInput({
+  label,
+  value,
+  onChange,
+  step,
+  suffix,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (raw: string) => void;
+  step: string;
+  suffix?: string;
+}) {
+  return (
+    <label className="flex items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground whitespace-nowrap">{label}</span>
+      <input
+        type="number"
+        min="0"
+        step={step}
+        value={value == null ? "" : String(value)}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="—"
+        className="w-16 px-2 py-1 text-xs rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
+      />
+      {suffix && <span className="text-muted-foreground">{suffix}</span>}
+    </label>
   );
 }
 
