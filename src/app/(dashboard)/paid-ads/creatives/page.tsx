@@ -1045,17 +1045,60 @@ function ConnectionBanner({
       </>
     );
   } else if (reason === "fetch_failed") {
+    // Decode the Pinterest error code embedded in errorDetail so we can
+    // show a useful message instead of a single catch-all "missing
+    // ads:read" — which is misleading whenever Pinterest's actual reason
+    // is something else (revoked token, expired account access, etc.).
+    const codeMatch = errorDetail?.match(/"code"\s*:\s*(\d+)/);
+    const pinterestCode = codeMatch ? parseInt(codeMatch[1], 10) : null;
     title = "Could not load ads data";
-    body = (
-      <>
-        Pinterest returned an error. The token may not have the{" "}
-        <code className="px-1 rounded bg-muted text-xs">ads:read</code> scope — reconnect from{" "}
-        <Link href="/integrations" className="text-primary hover:underline">
-          Integrations
-        </Link>
-        .
-      </>
-    );
+    if (pinterestCode === 2) {
+      title = "Pinterest authentication failed";
+      body = (
+        <>
+          The access token for this org is no longer valid (Pinterest may have
+          revoked it, or the user changed their password / removed the app).
+          Go to{" "}
+          <Link href="/settings" className="text-primary hover:underline">
+            Settings → Disconnect Pinterest
+          </Link>{" "}
+          first, then reconnect from{" "}
+          <Link href="/integrations" className="text-primary hover:underline">
+            Integrations
+          </Link>
+          .
+        </>
+      );
+    } else if (pinterestCode === 3) {
+      title = "Pinterest app type not supported";
+      body = (
+        <>
+          Pinterest rejected the API request because the developer app for
+          this org is in Trial Access or has a consumer type mismatch.
+          Check{" "}
+          <a
+            href="https://developers.pinterest.com/apps/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            developers.pinterest.com/apps
+          </a>{" "}
+          and ensure the app has Standard Access for the required scopes.
+        </>
+      );
+    } else {
+      body = (
+        <>
+          Pinterest returned an error. Try reconnecting from{" "}
+          <Link href="/integrations" className="text-primary hover:underline">
+            Integrations
+          </Link>
+          . If the problem persists, expand the error detail below and
+          contact the developer.
+        </>
+      );
+    }
   }
 
   return (
