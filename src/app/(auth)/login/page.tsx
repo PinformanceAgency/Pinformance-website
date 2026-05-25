@@ -48,35 +48,20 @@ function LoginForm() {
     });
 
     if (authError) {
+      // Pinformance is invite-only — accounts are provisioned by an
+      // agency admin (script or admin UI). Don't auto-signUp here: it
+      // turns a 'wrong password' attempt into a misleading
+      // 'User already registered' error and confuses users into thinking
+      // their account doesn't exist.
       if (authError.message === "Invalid login credentials") {
-        // Try to sign up if login fails
-        const { error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
-          },
-        });
-        if (signUpError) {
-          setError(signUpError.message);
-          setLoading(false);
-          return;
-        }
-        // Auto sign in after signup
-        const { error: loginError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (loginError) {
-          setError("Account created! Check your email to confirm, then log in.");
-          setLoading(false);
-          return;
-        }
+        setError(
+          "Incorrect email or password. Use 'Use magic link instead' below if you forgot your password."
+        );
       } else {
         setError(authError.message);
-        setLoading(false);
-        return;
       }
+      setLoading(false);
+      return;
     }
 
     // Auto-create user profile if invite exists
