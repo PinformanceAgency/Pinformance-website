@@ -116,6 +116,71 @@ interface AdRow {
   cpc: number | null;
   roas: number | null;
   cpa: number | null;
+  /** When merged across campaigns: number of source ads collapsed into this row. */
+  _merged_count?: number;
+}
+
+/**
+ * Collapse rows that share the same Pinterest pin (same creative used in
+ * multiple campaigns / ad groups) into a single row whose metrics are the
+ * sum of the source rows. Derived metrics (ROAS, CPA, CTR, CPM, CPC) are
+ * recomputed from the sums so they reflect the merged totals rather than
+ * an average of averages. Ads without a pin_id can't be safely merged
+ * (no shared key) and are kept as-is.
+ *
+ * `created_at` is set to the LATEST of the merged set so that "Recently
+ * launched" still surfaces a pin when it was re-deployed in a new
+ * campaign, even if the original ad is months old.
+ */
+function dedupByPin(rows: AdRow[]): AdRow[] {
+  const groups = new Map<string, AdRow[]>();
+  for (const r of rows) {
+    const key = r.pin_id ? `pin:${r.pin_id}` : `ad:${r.ad_id}`;
+    const arr = groups.get(key);
+    if (arr) arr.push(r);
+    else groups.set(key, [r]);
+  }
+  const out: AdRow[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      out.push(group[0]);
+      continue;
+    }
+    const sums = group.reduce(
+      (acc, a) => {
+        acc.spend += a.spend ?? 0;
+        acc.revenue += a.revenue ?? 0;
+        acc.purchases += a.purchases ?? 0;
+        acc.impressions += a.impressions ?? 0;
+        acc.clicks += a.clicks ?? 0;
+        return acc;
+      },
+      { spend: 0, revenue: 0, purchases: 0, impressions: 0, clicks: 0 }
+    );
+    const latest = group.reduce<string | null>((acc, a) => {
+      if (!a.created_at) return acc;
+      if (!acc || a.created_at > acc) return a.created_at;
+      return acc;
+    }, null);
+    // Representative row = highest-spend instance (most relevant ad_id/name/image).
+    const rep = [...group].sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))[0];
+    out.push({
+      ...rep,
+      created_at: latest,
+      spend: sums.spend,
+      revenue: sums.revenue,
+      purchases: sums.purchases,
+      impressions: sums.impressions,
+      clicks: sums.clicks,
+      ctr: sums.impressions > 0 ? (sums.clicks / sums.impressions) * 100 : null,
+      cpm: sums.impressions > 0 ? (sums.spend / sums.impressions) * 1000 : null,
+      cpc: sums.clicks > 0 ? sums.spend / sums.clicks : null,
+      roas: sums.spend > 0 ? sums.revenue / sums.spend : null,
+      cpa: sums.purchases > 0 ? sums.spend / sums.purchases : null,
+      _merged_count: group.length,
+    });
+  }
+  return out;
 }
 
 function FallbackThumb({ creativeType }: { creativeType: string | null }) {
@@ -214,6 +279,10 @@ export default function PaidAdsCreativesPage() {
     roas: null,
     cpaMax: null,
   });
+  // When ON, ads sharing the same pin_id across campaigns are collapsed
+  // into a single row with summed metrics. Default OFF — show each
+  // campaign placement separately, since that's the raw Pinterest view.
+  const [mergeDupes, setMergeDupes] = useState(false);
 
   // Restore persisted conversion window on mount.
   useEffect(() => {
@@ -316,20 +385,25 @@ export default function PaidAdsCreativesPage() {
   };
 
   const topPerformers = useMemo(() => {
-    return sortByKpi(adsWithSpend.filter(passesMinFilters), topKpi).slice(0, 10);
+    const base = mergeDupes ? dedupByPin(adsWithSpend) : adsWithSpend;
+    return sortByKpi(base.filter(passesMinFilters), topKpi).slice(0, 10);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adsWithSpend, topKpi, minFilters]);
+  }, [adsWithSpend, topKpi, minFilters, mergeDupes]);
 
   // Recently launched: ads created on or after the chosen "since" date,
   // then ranked by the selected KPI, then trimmed to the limit.
+  // When merging is ON we dedup BEFORE the date filter so a pin gets
+  // included if ANY of its placements was launched in window — the
+  // merged created_at is the latest of the group (see dedupByPin).
   const recent = useMemo(() => {
     const sinceCutoff = recentSince + "T00:00:00Z";
-    const launchedSince = ads.filter(
+    const base = mergeDupes ? dedupByPin(ads) : ads;
+    const launchedSince = base.filter(
       (a) => a.created_at && a.created_at >= sinceCutoff
     );
     return sortByKpi(launchedSince.filter(passesMinFilters), recentKpi).slice(0, recentLimit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ads, recentLimit, recentKpi, recentSince, minFilters]);
+  }, [ads, recentLimit, recentKpi, recentSince, minFilters, mergeDupes]);
 
   // Headline KPI bar: prefer Pinterest's account-level totals (what
   // Campaign Manager shows), fall back to summed ad-level if missing.
@@ -488,6 +562,8 @@ export default function PaidAdsCreativesPage() {
         value={minFilters}
         onChange={setMinFilters}
         currency={currency}
+        mergeDupes={mergeDupes}
+        onMergeDupesChange={setMergeDupes}
       />
 
       {/* Top performing ads */}
@@ -1028,10 +1104,15 @@ function MinKpiFiltersControl({
   value,
   onChange,
   currency,
+  mergeDupes,
+  onMergeDupesChange,
 }: {
   value: MinKpiFilters;
   onChange: (v: MinKpiFilters) => void;
   currency: string;
+  /** Optional: when provided, renders a toggle for merging duplicate creatives across campaigns. */
+  mergeDupes?: boolean;
+  onMergeDupesChange?: (v: boolean) => void;
 }) {
   const activeCount =
     (value.spend != null ? 1 : 0) +
@@ -1103,6 +1184,33 @@ function MinKpiFiltersControl({
           >
             Clear all
           </button>
+        )}
+        {onMergeDupesChange && (
+          <>
+            <div className="h-5 w-px bg-border ml-auto" aria-hidden />
+            <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!mergeDupes}
+                onClick={() => onMergeDupesChange(!mergeDupes)}
+                className={cn(
+                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                  mergeDupes ? "bg-primary" : "bg-muted"
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                    mergeDupes ? "translate-x-[18px]" : "translate-x-0.5"
+                  )}
+                />
+              </button>
+              <span className="text-muted-foreground whitespace-nowrap">
+                Merge duplicate creatives
+              </span>
+            </label>
+          </>
         )}
       </div>
     </section>
@@ -1359,7 +1467,10 @@ function AdPerformanceTable({
           </thead>
           <tbody>
             {ads.map((a) => (
-              <tr key={a.ad_id} className="border-t border-border hover:bg-muted/30 transition-colors">
+              <tr
+                key={a._merged_count && a._merged_count > 1 && a.pin_id ? `pin:${a.pin_id}` : `ad:${a.ad_id}`}
+                className="border-t border-border hover:bg-muted/30 transition-colors"
+              >
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3 min-w-0">
                     {a.pin_id ? (
@@ -1391,18 +1502,25 @@ function AdPerformanceTable({
                       <div className="font-medium truncate" title={a.ad_name}>
                         {a.ad_name}
                       </div>
-                      <div className="text-[11px] text-muted-foreground">
-                        ID {a.ad_id}
+                      <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                        <span>ID {a.ad_id}</span>
                         {a.created_at && (
-                          <>
-                            {" · "}
-                            Launched{" "}
+                          <span>
+                            · Launched{" "}
                             {new Date(a.created_at).toLocaleDateString("en-US", {
                               month: "short",
                               day: "numeric",
                               year: "numeric",
                             })}
-                          </>
+                          </span>
+                        )}
+                        {a._merged_count && a._merged_count > 1 && (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-medium"
+                            title={`Same pin used in ${a._merged_count} ad placements — metrics are the sum across all of them`}
+                          >
+                            merged · {a._merged_count} ads
+                          </span>
                         )}
                       </div>
                     </div>
