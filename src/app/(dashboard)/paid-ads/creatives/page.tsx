@@ -430,7 +430,9 @@ export default function PaidAdsCreativesPage() {
             topKpi,
             recentKpi,
             recentSince,
+            minFilters,
           }}
+          currency={currency}
           onClose={() => setReportOpen(false)}
         />
       )}
@@ -700,6 +702,7 @@ function LimitToggle({
 
 function CreateReportModal({
   defaults,
+  currency,
   onClose,
 }: {
   defaults: {
@@ -708,7 +711,9 @@ function CreateReportModal({
     topKpi: KpiKey;
     recentKpi: KpiKey;
     recentSince: string;
+    minFilters: MinKpiFilters;
   };
+  currency: string;
   onClose: () => void;
 }) {
   const [dateRange, setDateRange] = useState<DateRange>(defaults.dateRange);
@@ -720,6 +725,11 @@ function CreateReportModal({
   const [recentN, setRecentN] = useState<number>(5);
   const [recentKpi, setRecentKpi] = useState<KpiKey>(defaults.recentKpi);
   const [recentSince, setRecentSince] = useState<string>(defaults.recentSince);
+  // Carry the dashboard's min-KPI filters over into the report so the
+  // ranked lists exclude the same noise the admin already filtered out.
+  // Editable here so the report can have different (usually stricter)
+  // thresholds than the dashboard if needed.
+  const [minFilters, setMinFilters] = useState<MinKpiFilters>(defaults.minFilters);
   const [manualNotes, setManualNotes] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -765,6 +775,12 @@ function CreateReportModal({
           recent_since: recentSince,
           manual_notes: manualNotes,
           report_name: reportName.trim(),
+          // Minimum-KPI thresholds (null = no constraint).
+          min_spend: minFilters.spend,
+          min_revenue: minFilters.revenue,
+          min_checkouts: minFilters.checkouts,
+          min_roas: minFilters.roas,
+          max_cpa: minFilters.cpaMax,
         }),
       });
       if (!res.ok) {
@@ -883,6 +899,22 @@ function CreateReportModal({
               <div className="text-[11px] text-muted-foreground mb-1.5">Launched since</div>
               <SinceDatePicker value={recentSince} onChange={setRecentSince} align="left" />
             </div>
+          </div>
+
+          {/* Minimum-KPI filters for the report's ranked lists */}
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Filter className="w-3.5 h-3.5 text-muted-foreground" />
+              <div className="text-sm font-medium">Minimum filters</div>
+              <span className="text-[11px] text-muted-foreground">
+                — applies to Top performers + Recently launched in the report
+              </span>
+            </div>
+            <MinKpiFiltersControl
+              value={minFilters}
+              onChange={setMinFilters}
+              currency={currency}
+            />
           </div>
 
           {/* Manual notes */}

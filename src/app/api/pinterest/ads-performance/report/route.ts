@@ -37,6 +37,27 @@ interface RequestBody {
   recent_since: string;
   manual_notes: string;
   report_name?: string;
+  // Minimum-KPI thresholds — drop ads below these before ranking.
+  // CPA is a MAX (lower is better); the others are MINs. null = no
+  // constraint.
+  min_spend?: number | null;
+  min_revenue?: number | null;
+  min_checkouts?: number | null;
+  min_roas?: number | null;
+  max_cpa?: number | null;
+}
+
+function passesMinFilters(r: AdRow, body: RequestBody): boolean {
+  if (body.min_spend != null && (r.spend ?? 0) < body.min_spend) return false;
+  if (body.min_revenue != null && (r.revenue ?? 0) < body.min_revenue)
+    return false;
+  if (body.min_checkouts != null && (r.purchases ?? 0) < body.min_checkouts)
+    return false;
+  if (body.min_roas != null && (r.roas ?? 0) < body.min_roas) return false;
+  if (body.max_cpa != null) {
+    if (r.cpa == null || r.cpa <= 0 || r.cpa > body.max_cpa) return false;
+  }
+  return true;
 }
 
 function num(v: unknown): number | null {
@@ -212,14 +233,20 @@ export async function POST(request: NextRequest) {
 
     // Top performers: rank ALL ads with spend by chosen KPI, take top N.
     const withSpend = rows.filter((r) => r.spend != null && r.spend > 0);
-    const topAds = sortByKpi(withSpend, body.top_kpi).slice(0, body.top_n);
+    // Apply the user-supplied min-KPI thresholds BEFORE ranking so the
+    // top-N list reflects only ads that clear the noise floor (e.g. min
+    // ROAS 1.5, min spend €50). Same filter is used for Recently launched.
+    const filtered = withSpend.filter((r) => passesMinFilters(r, body));
+    const topAds = sortByKpi(filtered, body.top_kpi).slice(0, body.top_n);
 
     // Recently launched: ads created on/after recent_since, rank by chosen KPI, take top N.
+    // Min-KPI thresholds applied here too so recent-but-noisy outliers are hidden.
     let recentAds: AdRow[] = rows;
     if (dateRe.test(body.recent_since)) {
       const cutoff = body.recent_since + "T00:00:00Z";
       recentAds = rows.filter((r) => r.created_at && r.created_at >= cutoff);
     }
+    recentAds = recentAds.filter((r) => passesMinFilters(r, body));
     recentAds = sortByKpi(recentAds, body.recent_kpi).slice(0, body.recent_n);
 
     // Resolve creative thumbnails for ads that will appear in the report.
