@@ -140,7 +140,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No ad account on Pinterest" }, { status: 400 });
     }
 
-    // Fetch all ads (paginated).
+    // Fetch all ads (paginated). Pinterest returns ads newest-first, so
+    // recent ads (often no spend yet) come back first. To find ads WITH
+    // spend on accounts that have 1000+ ads (like Nordheim's 3000+),
+    // we need a high cap — matches the dashboard's MAX_ADS_TO_FETCH=3000.
     const adList: Array<{
       id: string;
       name?: string;
@@ -151,12 +154,12 @@ export async function POST(request: NextRequest) {
     do {
       const page = await client.getAds(adAccount.id, {
         bookmark,
-        pageSize: 100,
+        pageSize: 250,
         entityStatuses: ["ACTIVE", "PAUSED", "ARCHIVED", "DRAFT"],
       });
       adList.push(...(page.items || []));
       bookmark = page.bookmark;
-      if (adList.length >= 500) break;
+      if (adList.length >= 3000) break;
     } while (bookmark);
 
     // Fetch analytics in batches.
