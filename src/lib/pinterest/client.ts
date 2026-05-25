@@ -143,6 +143,19 @@ export async function fetchPinOgImage(pinId: string): Promise<string | null> {
 const PINTEREST_API_PROD = "https://api.pinterest.com/v5";
 const PINTEREST_API_SANDBOX = "https://api-sandbox.pinterest.com/v5";
 
+/**
+ * Safety cap on how many ads / ad groups / campaigns we'll page through
+ * from Pinterest's API in a single request. Pinterest paginates these
+ * newest-first; the with-spend records on big accounts (Nordheim has
+ * 3000+ total ads with 683 with spend) can be spread out, so caps below
+ * this caused the Creative Weekly Report to silently return 0 ads.
+ *
+ * If a client ever exceeds 5000 ads with spend in a single date range,
+ * bump this in ONE place rather than chasing the constant across every
+ * Pinterest route.
+ */
+export const MAX_PINTEREST_FETCH = 5000;
+
 export class PinterestClient {
   private baseUrl: string;
 

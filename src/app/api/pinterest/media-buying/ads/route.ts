@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import {
   PinterestClient,
+  MAX_PINTEREST_FETCH,
   extractPinImageUrl,
   fetchPinOgImage,
 } from "@/lib/pinterest/client";
@@ -185,7 +186,7 @@ export async function POST(request: NextRequest) {
       const page = await client.getAds(adAccount.id, { bookmark, pageSize: 250 });
       ads.push(...(page.items || []));
       bookmark = page.bookmark;
-      if (ads.length >= 5000) break;
+      if (ads.length >= MAX_PINTEREST_FETCH) break;
     } while (bookmark);
 
     // 2) Batch-fetch daily analytics (100/call).

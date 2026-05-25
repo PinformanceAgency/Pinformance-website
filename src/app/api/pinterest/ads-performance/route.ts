@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
-import { PinterestClient, extractPinImageUrl, fetchPinOgImage } from "@/lib/pinterest/client";
+import { PinterestClient, MAX_PINTEREST_FETCH, extractPinImageUrl, fetchPinOgImage } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
@@ -28,7 +28,9 @@ interface AdRow {
   cpa: number | null;
 }
 
-const MAX_ADS_TO_FETCH = 3000;
+// Re-export under the old name for backwards compatibility within this
+// file; the shared cap is centralized in lib/pinterest/client.
+const MAX_ADS_TO_FETCH = MAX_PINTEREST_FETCH;
 const MAX_PIN_DETAILS = 120;
 const IMAGE_BATCH_SIZE = 15;
 

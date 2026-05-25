@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
-import { PinterestClient } from "@/lib/pinterest/client";
+import { PinterestClient, MAX_PINTEREST_FETCH } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
       const page = await client.getAds(adAccount.id, { bookmark, pageSize: 250 });
       adList.push(...(page.items || []));
       bookmark = page.bookmark;
-      if (adList.length >= 3000) break;
+      if (adList.length >= MAX_PINTEREST_FETCH) break;
     } while (bookmark);
 
     // 2) Get analytics for each ad (so we can attribute spend/conv/rev).

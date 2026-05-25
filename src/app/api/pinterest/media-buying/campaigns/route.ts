@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
-import { PinterestClient } from "@/lib/pinterest/client";
+import { PinterestClient, MAX_PINTEREST_FETCH } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 import {
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
       const page = await client.getCampaigns(adAccount.id, { bookmark, pageSize: 250 });
       campaigns.push(...(page.items || []));
       bookmark = page.bookmark;
-      if (campaigns.length >= 3000) break;
+      if (campaigns.length >= MAX_PINTEREST_FETCH) break;
     } while (bookmark);
 
     // 2) Batch-fetch daily analytics for all campaigns (100/call). Daily

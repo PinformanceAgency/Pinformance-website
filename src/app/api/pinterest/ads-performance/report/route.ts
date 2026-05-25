@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
-import { PinterestClient, extractPinImageUrl, fetchPinOgImage } from "@/lib/pinterest/client";
+import { PinterestClient, MAX_PINTEREST_FETCH, extractPinImageUrl, fetchPinOgImage } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 import { generateWeeklyReport } from "@/lib/reports/weekly-report";
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
       });
       adList.push(...(page.items || []));
       bookmark = page.bookmark;
-      if (adList.length >= 3000) break;
+      if (adList.length >= MAX_PINTEREST_FETCH) break;
     } while (bookmark);
 
     // Fetch analytics in batches.
