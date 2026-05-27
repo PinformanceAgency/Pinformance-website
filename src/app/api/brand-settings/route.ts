@@ -54,6 +54,10 @@ export async function GET() {
       active_styles: ["hero-bottom", "editorial-top", "minimal-bottom", "accent-center", "split-top", "bold-bottom", "elegant-top", "dark-bar"],
       text_rules: { prefix: "", suffix: "", max_length: 60, blocklist: [] },
     },
+    // Target word-count band for AI-generated pin titles. One of:
+    // really_small | small | medium | large | really_large. Defaults
+    // to medium so existing brands keep their current behavior.
+    title_length: typeof rd.title_length === "string" ? rd.title_length : "medium",
   });
 }
 
@@ -62,7 +66,26 @@ export async function POST(request: NextRequest) {
   if (!orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
-  const { brand_voice, custom_prompts, reference_images, custom_screenshots, clean_products, logo_url, overlay_config } = body;
+  const {
+    brand_voice,
+    custom_prompts,
+    reference_images,
+    custom_screenshots,
+    clean_products,
+    logo_url,
+    overlay_config,
+    title_length,
+  } = body;
+
+  // Whitelist the allowed title_length values so an out-of-range value
+  // can't poison the prompt downstream.
+  const ALLOWED_TITLE_LENGTHS = new Set([
+    "really_small",
+    "small",
+    "medium",
+    "large",
+    "really_large",
+  ]);
 
   const admin = createAdminClient();
 
@@ -82,6 +105,13 @@ export async function POST(request: NextRequest) {
   if (clean_products !== undefined) newData.clean_products = clean_products;
   if (logo_url !== undefined) newData.logo_url = logo_url;
   if (overlay_config !== undefined) newData.overlay_config = overlay_config;
+  if (
+    title_length !== undefined &&
+    typeof title_length === "string" &&
+    ALLOWED_TITLE_LENGTHS.has(title_length)
+  ) {
+    newData.title_length = title_length;
+  }
 
   const updatePayload: Record<string, unknown> = {
     raw_data: newData,

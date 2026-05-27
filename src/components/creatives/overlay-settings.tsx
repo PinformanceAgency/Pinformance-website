@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Save, Upload, Image as ImageIcon, RotateCcw } from "lucide-react";
+import { Save, Upload, Image as ImageIcon, RotateCcw, Type } from "lucide-react";
 
 const ALL_STYLES = [
   { id: "hero-bottom", label: "Hero Bottom", desc: "Large headline at bottom over dark gradient" },
@@ -27,11 +27,78 @@ const DEFAULT_CONFIG: OverlayConfig = {
   text_rules: { prefix: "", suffix: "", max_length: 60, blocklist: [] },
 };
 
+/**
+ * Title-length bands the creator can pick from. Each band carries the
+ * realistic word range Pinterest's 100-char title limit allows for that
+ * size, plus a sample so the choice is concrete. Used both to:
+ *   - render the picker + explainer section here
+ *   - instruct Claude in /api/ai/analyze-creative (kept in sync there)
+ */
+export type TitleLength =
+  | "really_small"
+  | "small"
+  | "medium"
+  | "large"
+  | "really_large";
+
+export const TITLE_LENGTH_BANDS: {
+  id: TitleLength;
+  label: string;
+  words: string;
+  chars: string;
+  tagline: string;
+  sample: string;
+}[] = [
+  {
+    id: "really_small",
+    label: "Really small",
+    words: "2–3 words",
+    chars: "~10–20 chars",
+    tagline: "Punchy hook. Best for bold visuals where the image carries the message.",
+    sample: "Cosy nights",
+  },
+  {
+    id: "small",
+    label: "Small",
+    words: "4–5 words",
+    chars: "~20–35 chars",
+    tagline: "Short headline. Reads fast in the Pinterest feed on mobile.",
+    sample: "Easy winter dinner ideas",
+  },
+  {
+    id: "medium",
+    label: "Medium",
+    words: "6–8 words",
+    chars: "~35–55 chars",
+    tagline: "Balanced default — keyword + clear value prop. Recommended for most brands.",
+    sample: "30-minute weeknight pasta the kids will love",
+  },
+  {
+    id: "large",
+    label: "Large",
+    words: "9–11 words",
+    chars: "~55–75 chars",
+    tagline: "Descriptive. Room for niche + benefit + audience cue.",
+    sample: "Cosy weeknight pasta recipes for busy families and tired weeknights",
+  },
+  {
+    id: "really_large",
+    label: "Really large",
+    words: "12–15 words",
+    chars: "~75–100 chars",
+    tagline: "Maxes out Pinterest's 100-char limit. SEO-heavy, multiple long-tail keywords.",
+    sample: "Easy 30-minute cosy weeknight pasta recipes for busy families with picky toddlers and teenagers",
+  },
+];
+
+const DEFAULT_TITLE_LENGTH: TitleLength = "medium";
+
 export function OverlaySettings({ orgName }: { orgName: string | undefined }) {
   const [logoUrl, setLogoUrl] = useState("");
   const [defaultLinkUrl, setDefaultLinkUrl] = useState("");
   const [brandVoice, setBrandVoice] = useState("");
   const [config, setConfig] = useState<OverlayConfig>(DEFAULT_CONFIG);
+  const [titleLength, setTitleLength] = useState<TitleLength>(DEFAULT_TITLE_LENGTH);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -51,6 +118,14 @@ export function OverlaySettings({ orgName }: { orgName: string | undefined }) {
             text_rules: d.overlay_config.text_rules || DEFAULT_CONFIG.text_rules,
           });
         }
+        // Validate the server value against the known set so a stale
+        // string can't break the UI selection state.
+        if (
+          typeof d.title_length === "string" &&
+          TITLE_LENGTH_BANDS.some((b) => b.id === d.title_length)
+        ) {
+          setTitleLength(d.title_length as TitleLength);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
@@ -65,6 +140,7 @@ export function OverlaySettings({ orgName }: { orgName: string | undefined }) {
           logo_url: logoUrl,
           overlay_config: config,
           brand_voice: brandVoice,
+          title_length: titleLength,
         }),
       });
       if (res.ok) setSavedAt(Date.now());
@@ -251,6 +327,94 @@ export function OverlaySettings({ orgName }: { orgName: string | undefined }) {
         </div>
         <div className="text-xs text-muted-foreground">
           Preview: <span className="font-mono px-2 py-0.5 bg-muted rounded">{config.text_rules.prefix}{"AI-generated headline"}{config.text_rules.suffix}</span>
+        </div>
+      </div>
+
+      {/* Title length — how many words AI puts in the pin title */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+        <div className="flex items-start gap-2">
+          <Type className="w-4 h-4 mt-0.5 text-muted-foreground" />
+          <div>
+            <h3 className="font-semibold text-sm">Pin title length</h3>
+            <p className="text-muted-foreground text-xs mt-0.5">
+              How many words AI puts in the title of every pin it creates for this brand.
+              Pinterest&apos;s hard limit is 100 characters — pick the band that matches the
+              creative style you&apos;re going for.
+            </p>
+          </div>
+        </div>
+
+        {/* The 5 picker tiles */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {TITLE_LENGTH_BANDS.map((b) => {
+            const active = titleLength === b.id;
+            return (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => setTitleLength(b.id)}
+                className={cn(
+                  "text-left rounded-lg border px-3 py-2.5 transition-colors",
+                  active
+                    ? "border-primary bg-primary/10 ring-1 ring-primary/40"
+                    : "border-border bg-card hover:bg-muted/50"
+                )}
+                aria-pressed={active}
+              >
+                <div
+                  className={cn(
+                    "text-xs font-semibold",
+                    active ? "text-primary" : "text-foreground"
+                  )}
+                >
+                  {b.label}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">{b.words}</div>
+                <div className="text-[10px] text-muted-foreground/80 mt-0.5">{b.chars}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* The 5-point breakdown — keeps the trade-off visible for whoever
+            is creating the pins so they understand what each band buys. */}
+        <div className="bg-muted/40 border border-border rounded-lg p-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+            What each band gives you
+          </p>
+          <ul className="space-y-2">
+            {TITLE_LENGTH_BANDS.map((b) => {
+              const active = titleLength === b.id;
+              return (
+                <li
+                  key={b.id}
+                  className={cn(
+                    "flex items-start gap-3 text-xs leading-relaxed",
+                    active ? "text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "shrink-0 inline-flex items-center justify-center min-w-[68px] px-2 py-0.5 rounded-md text-[10px] font-semibold",
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {b.words}
+                  </span>
+                  <div className="min-w-0">
+                    <div>
+                      <span className="font-semibold">{b.label}.</span> {b.tagline}
+                    </div>
+                    <div className="text-[11px] italic text-muted-foreground/90 mt-0.5">
+                      e.g. &ldquo;{b.sample}&rdquo;
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </div>
 

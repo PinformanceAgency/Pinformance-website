@@ -92,6 +92,38 @@ export async function POST(request: NextRequest) {
   // Brand-specific context lives on the brand profile (raw_data). Pull
   // whatever's available so Claude has accurate per-brand context.
   const brandRaw = (brand?.raw_data as Record<string, unknown> | null) || {};
+
+  // Resolve the brand's preferred title length. The picker lives in the
+  // creatives settings tab; default to "medium" when nothing is set or
+  // the saved value is unrecognized. Keep this table in sync with
+  // TITLE_LENGTH_BANDS in src/components/creatives/overlay-settings.tsx.
+  const TITLE_LENGTH_INSTRUCTIONS: Record<string, { range: string; guidance: string }> = {
+    really_small: {
+      range: "2–3 words (about 10–20 characters)",
+      guidance: "Punchy hook — image carries the meaning. No filler words.",
+    },
+    small: {
+      range: "4–5 words (about 20–35 characters)",
+      guidance: "Short headline that reads fast in the Pinterest feed on mobile.",
+    },
+    medium: {
+      range: "6–8 words (about 35–55 characters)",
+      guidance: "Balanced — primary keyword plus a clear value prop.",
+    },
+    large: {
+      range: "9–11 words (about 55–75 characters)",
+      guidance: "Descriptive — keyword + benefit + audience cue.",
+    },
+    really_large: {
+      range: "12–15 words (about 75–100 characters, must stay ≤100)",
+      guidance: "SEO-heavy — multiple long-tail keywords, still natural English.",
+    },
+  };
+  const titleLengthKey =
+    typeof brandRaw.title_length === "string" && brandRaw.title_length in TITLE_LENGTH_INSTRUCTIONS
+      ? (brandRaw.title_length as string)
+      : "medium";
+  const titleLengthRule = TITLE_LENGTH_INSTRUCTIONS[titleLengthKey];
   const pickString = (...keys: string[]): string => {
     for (const k of keys) {
       const v = brandRaw[k];
@@ -167,7 +199,7 @@ export async function POST(request: NextRequest) {
 
 CRITICAL RULES:
 - The SEO MUST be based on the ACTUAL CONTENT of the creative, not generic product keywords
-- Title: max 100 chars. Short, concise — one clear phrase. Must contain the primary keyword. Every word must earn its place — no filler.
+- Title: max 100 chars. TARGET LENGTH: ${titleLengthRule.range}. ${titleLengthRule.guidance} Must contain the primary keyword. Every word must earn its place — no filler.
 - Description: max 500 chars but keep concise and meaningful. Brand name "${brandName}" in first sentence. Include 1-2 relevant keywords naturally. Written as natural helpful sentences — not keyword lists. Include a soft CTA where appropriate.
 - Keywords: mix of broad and specific, include seasonal terms where relevant.
 - Suggested boards: pick ALL boards that match this content (usually 2-4 boards)
