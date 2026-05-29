@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
     variants: p.variants || [],
     collections: p.collections || [],
     status: p.status || "active",
+    product_url: (p.product_url as string) || null,
   }));
 
   const { data, error } = await supabase

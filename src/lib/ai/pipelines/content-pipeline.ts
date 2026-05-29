@@ -266,17 +266,27 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
 
     // Save pins and calendar entries
     for (const { slot, pinContent, imagePrompt } of results) {
-      // Build the correct product URL - prefer brand website over myshopify.com
-      let linkUrl = pinContent.link_url;
+      // Build the correct destination URL. Priority:
+      //   1. product_url stored explicitly on the product record — most accurate,
+      //      handles cases where the Shopify handle differs from the title slug
+      //      (e.g. "Foundation" → "/products/changing-foundation").
+      //   2. Derived from Shopify handle + brand website/domain.
+      //   3. AI-generated link_url (relative URLs resolved against brand website).
       const brandWebsite = brandProfile?.raw_data?.website || brandProfile?.raw_data?.landing_page;
-      if (slot.product.shopify_product_id) {
+      let linkUrl: string | null = null;
+      if (slot.product.product_url) {
+        linkUrl = slot.product.product_url;
+      } else if (slot.product.shopify_product_id) {
         const handle = slot.product.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
         const baseDomain = brandWebsite || (shopifyDomain ? `https://${shopifyDomain}` : null);
         if (baseDomain) {
           linkUrl = `${baseDomain.replace(/\/$/, "")}/products/${handle}`;
         }
-      } else if (linkUrl && !linkUrl.startsWith("http") && brandWebsite) {
-        linkUrl = `${brandWebsite.replace(/\/$/, "")}${linkUrl.startsWith("/") ? "" : "/"}${linkUrl}`;
+      } else {
+        linkUrl = pinContent.link_url ?? null;
+        if (linkUrl && !linkUrl.startsWith("http") && brandWebsite) {
+          linkUrl = `${brandWebsite.replace(/\/$/, "")}${linkUrl.startsWith("/") ? "" : "/"}${linkUrl}`;
+        }
       }
 
       // Use reference images if configured, otherwise fall back to first product image

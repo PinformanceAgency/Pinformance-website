@@ -99,6 +99,9 @@ export interface Product {
   variants: { title: string; price: string; sku: string; image_url: string | null }[];
   collections: string[];
   status: "active" | "draft" | "archived";
+  /** Explicit destination URL (e.g. https://maycosmetics.nl/products/changing-foundation).
+   *  Takes priority over any algorithmically derived URL in the content pipeline. */
+  product_url?: string | null;
   created_at: string;
   updated_at: string;
 }
