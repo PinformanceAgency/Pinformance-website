@@ -27,7 +27,6 @@ interface SyncSummary {
 export default function BoardsPage() {
   const { org, loading } = useOrg();
   const [boards, setBoards] = useState<Board[]>([]);
-  const [pinCounts, setPinCounts] = useState<Record<string, number>>({});
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newBoardName, setNewBoardName] = useState("");
@@ -60,23 +59,6 @@ export default function BoardsPage() {
       .single();
     const settings = (orgRow?.settings as Record<string, unknown>) || {};
     setLastSyncedAt((settings.boards_last_synced_at as string) || null);
-
-    if (boardList.length > 0) {
-      const { data: pins } = await supabase
-        .from("pins")
-        .select("board_id")
-        .eq("org_id", org!.id)
-        .in(
-          "board_id",
-          boardList.map((b) => b.id)
-        );
-
-      const counts: Record<string, number> = {};
-      (pins || []).forEach((p: { board_id: string }) => {
-        counts[p.board_id] = (counts[p.board_id] || 0) + 1;
-      });
-      setPinCounts(counts);
-    }
   }
 
   async function handleCreate() {
@@ -210,7 +192,7 @@ export default function BoardsPage() {
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Image className="w-3 h-3" />
-                {pinCounts[board.id] || 0} pins
+                {board.pin_count ?? 0} pins
               </span>
             </div>
 

@@ -114,6 +114,8 @@ export interface Board {
   privacy: "public" | "secret";
   status: BoardStatus;
   sort_order: number;
+  /** Pin count synced from Pinterest. null = not yet synced. */
+  pin_count?: number | null;
   created_at: string;
   updated_at: string;
 }

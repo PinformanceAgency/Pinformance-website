@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS boards (
   privacy text default 'public' check (privacy in ('public', 'secret')),
   status board_status default 'draft',
   sort_order int default 0,
+  pin_count integer default 0,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

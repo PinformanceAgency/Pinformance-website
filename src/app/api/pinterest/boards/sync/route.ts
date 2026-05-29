@@ -39,8 +39,15 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
     "trial";
   const client = new PinterestClient(token, isTrial);
 
-  // Fetch ALL Pinterest boards (paginate).
-  const pinterestBoards: Array<{ id: string; name: string; description?: string; privacy?: string }> = [];
+  // Fetch ALL Pinterest boards (paginate). Include pin_count so the UI
+  // can show accurate counts from Pinterest without needing local pin records.
+  const pinterestBoards: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    privacy?: string;
+    pin_count?: number;
+  }> = [];
   let bookmark: string | undefined;
   do {
     const url = bookmark
@@ -48,7 +55,13 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
       : `/boards?page_size=100`;
     const page = await (client as unknown as {
       request: (p: string) => Promise<{
-        items?: Array<{ id: string; name: string; description?: string; privacy?: string }>;
+        items?: Array<{
+          id: string;
+          name: string;
+          description?: string;
+          privacy?: string;
+          pin_count?: number;
+        }>;
         bookmark?: string;
       }>;
     }).request(url);
@@ -58,7 +71,7 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
 
   const { data: localBoards } = await admin
     .from("boards")
-    .select("id, name, pinterest_board_id, status")
+    .select("id, name, pinterest_board_id, status, pin_count")
     .eq("org_id", orgId);
 
   const local = (localBoards || []) as Array<{
@@ -66,6 +79,7 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
     name: string;
     pinterest_board_id: string | null;
     status: string;
+    pin_count: number | null;
   }>;
   const summary: SyncSummary = {
     added: 0,
@@ -93,13 +107,16 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
       // Already linked — update name + ensure active.
       matchedLocalIds.add(existing.id);
       const needsUpdate =
-        existing.name !== pb.name || existing.status !== "active";
+        existing.name !== pb.name ||
+        existing.status !== "active" ||
+        existing.pin_count !== (pb.pin_count ?? 0);
       if (needsUpdate) {
         await admin
           .from("boards")
           .update({
             name: pb.name,
             status: "active",
+            pin_count: pb.pin_count ?? 0,
             updated_at: new Date().toISOString(),
           })
           .eq("id", existing.id);
@@ -116,6 +133,7 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
         .update({
           pinterest_board_id: pb.id,
           status: "active",
+          pin_count: pb.pin_count ?? 0,
           updated_at: new Date().toISOString(),
         })
         .eq("id", namedMatch.id);
@@ -130,6 +148,7 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
       description: pb.description || null,
       privacy: pb.privacy === "SECRET" ? "secret" : "public",
       status: "active",
+      pin_count: pb.pin_count ?? 0,
     });
     summary.added++;
   }
