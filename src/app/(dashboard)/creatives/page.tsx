@@ -58,6 +58,8 @@ export default function CreativesPage() {
   const [boardOverrides, setBoardOverrides] = useState<Record<string, string>>({});
   // Per-creative override: image_url → destination link URL.
   const [linkOverrides, setLinkOverrides] = useState<Record<string, string>>({});
+  // Products with explicit destination URLs, used for auto-match + quick-pick.
+  const [productUrls, setProductUrls] = useState<{ id: string; title: string; product_url: string }[]>([]);
 
   useEffect(() => {
     if (!org) return;
@@ -73,10 +75,44 @@ export default function CreativesPage() {
       }
     });
 
+    // Load products that have an explicit destination URL, for auto-match
+    // and the quick-pick row on each creative card.
+    fetch("/api/products?status=active")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.products) {
+          setProductUrls(
+            (d.products as { id: string; title: string; product_url?: string | null }[])
+              .filter(p => p.product_url)
+              .map(p => ({ id: p.id, title: p.title, product_url: p.product_url! }))
+          );
+        }
+      });
+
     // Load active Pinterest-synced boards for the override dropdown.
     loadActiveBoards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [org]);
+
+  /**
+   * Find the best-matching product URL from the analyzed title.
+   * Picks the product whose title has the most words in common with the
+   * creative title (case-insensitive). Returns null when nothing matches.
+   */
+  function matchProductUrl(analysisTitle: string): string | null {
+    if (!productUrls.length) return null;
+    const lower = analysisTitle.toLowerCase();
+    let best: { url: string; score: number } | null = null;
+    for (const p of productUrls) {
+      // Score = number of product title words found in the analysis title.
+      const words = p.title.toLowerCase().split(/\s+/).filter(Boolean);
+      const score = words.filter(w => lower.includes(w)).length;
+      if (score > 0 && (!best || score > best.score)) {
+        best = { url: p.product_url, score };
+      }
+    }
+    return best?.url ?? null;
+  }
 
   async function loadActiveBoards() {
     if (!org) return;
@@ -207,6 +243,19 @@ export default function CreativesPage() {
         if (res.ok) {
           const data = await res.json();
           const analysis = data.analysis;
+
+          // Auto-fill the destination URL from the product that best matches
+          // the analyzed title, unless the user already set one manually.
+          if (analysis?.title) {
+            const matched = matchProductUrl(analysis.title);
+            if (matched) {
+              setLinkOverrides(prev => {
+                // Don't overwrite a URL the user already typed.
+                if (prev[publicUrl] !== undefined && prev[publicUrl] !== "") return prev;
+                return { ...prev, [publicUrl]: matched };
+              });
+            }
+          }
 
           // For statics: apply overlay based on per-brand rotation config (full / logo-only / clean)
           if (!isVideo && mediaType === "image" && analysis) {
@@ -644,6 +693,31 @@ export default function CreativesPage() {
                           placeholder={defaultLinkUrl || "https://example.com/product"}
                           className="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                         />
+                        {/* Product URL quick-pick chips */}
+                        {productUrls.length > 0 && creative.status !== "queued" && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {productUrls.map((p) => {
+                              const current = linkOverrides[creative.image_url] ?? defaultLinkUrl;
+                              const isActive = current === p.product_url;
+                              return (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => setLinkOverride(creative.image_url, p.product_url)}
+                                  className={cn(
+                                    "px-2 py-0.5 text-[11px] font-medium rounded-full border transition-colors",
+                                    isActive
+                                      ? "bg-primary text-primary-foreground border-primary"
+                                      : "bg-muted text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                                  )}
+                                  title={p.product_url}
+                                >
+                                  {p.title}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                         <div className="text-[11px] text-muted-foreground mt-1">
                           {linkOverrides[creative.image_url] !== undefined &&
                           linkOverrides[creative.image_url] !== defaultLinkUrl
