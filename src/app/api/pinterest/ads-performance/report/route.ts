@@ -45,6 +45,7 @@ interface RequestBody {
   min_checkouts?: number | null;
   min_roas?: number | null;
   max_cpa?: number | null;
+  deduplicate_by_pin?: boolean;
 }
 
 function passesMinFilters(r: AdRow, body: RequestBody): boolean {
@@ -94,6 +95,48 @@ function sortByKpi(rows: AdRow[], kpi: KpiKey): AdRow[] {
     const av = getVal(a);
     const bv = getVal(b);
     return dir === "desc" ? bv - av : av - bv;
+  });
+}
+
+/** Server-side counterpart to the client-side dedupByPin in the creatives page.
+ *  Groups rows by pin_id (or ad_id for ads with no pin), sums raw metrics,
+ *  recomputes derived KPIs, and keeps the highest-spend instance as the
+ *  representative row. */
+function dedupByPin(rows: AdRow[]): AdRow[] {
+  const groups = new Map<string, AdRow[]>();
+  for (const row of rows) {
+    const key = row.pin_id || `__noid__${row.ad_id}`;
+    const g = groups.get(key);
+    if (g) g.push(row);
+    else groups.set(key, [row]);
+  }
+  return Array.from(groups.values()).map((group) => {
+    if (group.length === 1) return group[0];
+    // Representative = highest spend instance (carries image_url, ad_name, etc.)
+    const rep = group.reduce((best, r) =>
+      (r.spend ?? 0) > (best.spend ?? 0) ? r : best
+    );
+    // Sum raw metrics across all instances
+    const sumOrNull = (key: keyof AdRow) => {
+      const total = group.reduce((s, r) => s + ((r[key] as number) ?? 0), 0);
+      return total > 0 ? total : null;
+    };
+    const spend = sumOrNull("spend");
+    const revenue = sumOrNull("revenue");
+    const purchases = sumOrNull("purchases");
+    const impressions = sumOrNull("impressions");
+    const clicks = sumOrNull("clicks");
+    // Recompute derived KPIs from summed values
+    const roas = spend && spend > 0 && revenue != null ? revenue / spend : null;
+    const cpa = purchases && purchases > 0 && spend != null ? spend / purchases : null;
+    // Latest created_at date in the group
+    const created_at =
+      group
+        .map((r) => r.created_at)
+        .filter(Boolean)
+        .sort()
+        .pop() ?? rep.created_at;
+    return { ...rep, spend, revenue, purchases, impressions, clicks, roas, cpa, created_at };
   });
 }
 
@@ -237,7 +280,8 @@ export async function POST(request: NextRequest) {
     // top-N list reflects only ads that clear the noise floor (e.g. min
     // ROAS 1.5, min spend €50). Same filter is used for Recently launched.
     const filtered = withSpend.filter((r) => passesMinFilters(r, body));
-    const topAds = sortByKpi(filtered, body.top_kpi).slice(0, body.top_n);
+    const dedupedFiltered = body.deduplicate_by_pin ? dedupByPin(filtered) : filtered;
+    const topAds = sortByKpi(dedupedFiltered, body.top_kpi).slice(0, body.top_n);
 
     // Recently launched: ads created on/after recent_since, rank by chosen KPI, take top N.
     // Min-KPI thresholds applied here too so recent-but-noisy outliers are hidden.
@@ -247,6 +291,7 @@ export async function POST(request: NextRequest) {
       recentAds = rows.filter((r) => r.created_at && r.created_at >= cutoff);
     }
     recentAds = recentAds.filter((r) => passesMinFilters(r, body));
+    if (body.deduplicate_by_pin) recentAds = dedupByPin(recentAds);
     recentAds = sortByKpi(recentAds, body.recent_kpi).slice(0, body.recent_n);
 
     // Resolve creative thumbnails for ads that will appear in the report.

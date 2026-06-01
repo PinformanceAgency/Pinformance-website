@@ -20,6 +20,7 @@ import {
   Images as ImagesIcon,
   BookOpen as StoryIcon,
   Filter,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -505,6 +506,7 @@ export default function PaidAdsCreativesPage() {
             recentKpi,
             recentSince,
             minFilters,
+            deduplicateByPin: mergeDupes,
           }}
           currency={currency}
           onClose={() => setReportOpen(false)}
@@ -788,6 +790,7 @@ function CreateReportModal({
     recentKpi: KpiKey;
     recentSince: string;
     minFilters: MinKpiFilters;
+    deduplicateByPin: boolean;
   };
   currency: string;
   onClose: () => void;
@@ -806,6 +809,8 @@ function CreateReportModal({
   // Editable here so the report can have different (usually stricter)
   // thresholds than the dashboard if needed.
   const [minFilters, setMinFilters] = useState<MinKpiFilters>(defaults.minFilters);
+  // Carry the dashboard's deduplicate toggle into the report.
+  const [deduplicateByPin, setDeduplicateByPin] = useState<boolean>(defaults.deduplicateByPin);
   const [manualNotes, setManualNotes] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -857,6 +862,8 @@ function CreateReportModal({
           min_checkouts: minFilters.checkouts,
           min_roas: minFilters.roas,
           max_cpa: minFilters.cpaMax,
+          // Deduplicate creatives that appear in multiple campaigns.
+          deduplicate_by_pin: deduplicateByPin,
         }),
       });
       if (!res.ok) {
@@ -977,7 +984,7 @@ function CreateReportModal({
             </div>
           </div>
 
-          {/* Minimum-KPI filters for the report's ranked lists */}
+          {/* Minimum-KPI filters + deduplication for the report's ranked lists */}
           <div className="border-t border-border pt-4">
             <div className="flex items-center gap-2 mb-2">
               <Filter className="w-3.5 h-3.5 text-muted-foreground" />
@@ -991,6 +998,34 @@ function CreateReportModal({
               onChange={setMinFilters}
               currency={currency}
             />
+            {/* Deduplication toggle — same creative used in multiple campaigns */}
+            <div className="flex items-center gap-2.5 mt-3 pt-3 border-t border-border/50">
+              <Layers className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+              <span className="text-xs text-muted-foreground">
+                Group same creative across campaigns
+              </span>
+              <button
+                role="switch"
+                aria-checked={deduplicateByPin}
+                onClick={() => setDeduplicateByPin((v) => !v)}
+                className={cn(
+                  "relative inline-flex h-4 w-8 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none",
+                  deduplicateByPin ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-3 w-3 rounded-full bg-white shadow transition-transform",
+                    deduplicateByPin ? "translate-x-4" : "translate-x-0.5"
+                  )}
+                />
+              </button>
+              {deduplicateByPin && (
+                <span className="text-xs text-primary font-medium">
+                  Aan — metrics worden opgeteld per creative
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Manual notes */}
