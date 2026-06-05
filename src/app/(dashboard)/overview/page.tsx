@@ -12,6 +12,7 @@ import {
   Image as ImageIcon,
   Info,
   ChevronDown,
+  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -129,10 +130,48 @@ export default function OverviewPage() {
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
   const [chartMetric, setChartMetric] = useState<ChartMetricKey>("impressions");
   const [chartDropdownOpen, setChartDropdownOpen] = useState(false);
+  // "missing_scope" → reconnect needed; "not_connected" → connect Pinterest.
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  // Bumped after an on-demand analytics sync so the Supabase read re-runs
+  // with the freshly-pulled rows.
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // The onboarding flow has been removed — every new user lands directly on
   // the overview. Keeping the route file in place is fine; nothing redirects
   // to it anymore.
+
+  // On load, pull fresh account-level organic analytics on-demand so the
+  // numbers are visible for every connected account without waiting for the
+  // nightly cron. Persists into `account_analytics`; we then re-read below.
+  useEffect(() => {
+    if (!org || !user) return;
+    let cancelled = false;
+
+    async function syncAnalytics() {
+      try {
+        const res = await fetch("/api/pinterest/analytics/sync", { method: "POST" });
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          reason?: string;
+        };
+        if (cancelled) return;
+        if (!json.ok && (json.reason === "missing_scope" || json.reason === "not_connected")) {
+          setSyncWarning(json.reason);
+        } else {
+          setSyncWarning(null);
+        }
+        // Re-read from Supabase to pick up any newly-upserted rows.
+        if (json.ok) setRefreshKey((k) => k + 1);
+      } catch {
+        // Network error — keep showing whatever's already cached.
+      }
+    }
+
+    syncAnalytics();
+    return () => {
+      cancelled = true;
+    };
+  }, [org, user]);
 
   useEffect(() => {
     if (!org || !user) return;
@@ -247,7 +286,7 @@ export default function OverviewPage() {
     }
 
     loadStats();
-  }, [org, user, router, period]);
+  }, [org, user, router, period, refreshKey]);
 
   if (loading) {
     return (
@@ -313,6 +352,36 @@ export default function OverviewPage() {
           Pinterest organic performance and conversion metrics
         </p>
       </div>
+
+      {/* Reconnect / connect prompt — shown when organic analytics can't be
+          pulled because the token is missing the user_accounts:read scope or
+          Pinterest isn't connected for this account. */}
+      {syncWarning && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div>
+            {syncWarning === "missing_scope" ? (
+              <>
+                <span className="font-medium">Organic analytics are unavailable for this account.</span>{" "}
+                The connected Pinterest account is missing the{" "}
+                <code className="text-xs">user_accounts:read</code> permission.{" "}
+                <Link href="/integrations" className="font-medium underline">
+                  Reconnect Pinterest
+                </Link>{" "}
+                to enable organic performance data.
+              </>
+            ) : (
+              <>
+                <span className="font-medium">Pinterest isn&apos;t connected for this account.</span>{" "}
+                <Link href="/integrations" className="font-medium underline">
+                  Connect Pinterest
+                </Link>{" "}
+                to see organic performance data.
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════ */}
       {/* OVERALL PERFORMANCE                       */}

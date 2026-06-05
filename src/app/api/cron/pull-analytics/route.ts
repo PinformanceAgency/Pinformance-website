@@ -24,7 +24,7 @@ async function handlePullAnalytics(request: NextRequest) {
 
   const { data: orgs } = await admin
     .from("organizations")
-    .select("id, pinterest_user_id, pinterest_access_token_encrypted, pinterest_token_expires_at, pinterest_session_encrypted, pinterest_session_expires_at")
+    .select("id, pinterest_user_id, pinterest_access_token_encrypted, pinterest_token_expires_at, pinterest_session_encrypted, pinterest_session_expires_at, settings")
     .not("pinterest_access_token_encrypted", "is", null);
 
   if (!orgs || orgs.length === 0) {
@@ -48,7 +48,10 @@ async function handlePullAnalytics(request: NextRequest) {
       }
 
       const token = decrypt(org.pinterest_access_token_encrypted);
-      const client = new PinterestClient(token);
+      // Trial-tier orgs must hit the sandbox API — match every other route.
+      const isTrial =
+        ((org.settings as Record<string, unknown>)?.pinterest_access_tier as string) === "trial";
+      const client = new PinterestClient(token, isTrial);
 
       // Fetch user account info (follower_count, monthly_views)
       try {
