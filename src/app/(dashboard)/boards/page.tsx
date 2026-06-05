@@ -34,6 +34,8 @@ export default function BoardsPage() {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!org) return;
@@ -81,12 +83,27 @@ export default function BoardsPage() {
   }
 
   async function handleCreateOnPinterest(boardId: string) {
-    await fetch("/api/pinterest/boards", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ board_id: boardId }),
-    });
-    loadBoards();
+    setPublishingId(boardId);
+    setPublishError(null);
+    try {
+      const res = await fetch("/api/pinterest/boards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ board_id: boardId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+      await loadBoards();
+    } catch (e) {
+      setPublishError(e instanceof Error ? e.message : "Failed to create on Pinterest");
+    } finally {
+      setPublishingId(null);
+    }
   }
 
   async function handleSync() {
@@ -164,6 +181,11 @@ export default function BoardsPage() {
           Sync failed: {syncError}
         </div>
       )}
+      {publishError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-700">
+          Could not create board on Pinterest: {publishError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {boards.map((board) => (
@@ -199,9 +221,18 @@ export default function BoardsPage() {
             {board.status === "draft" && (
               <button
                 onClick={() => handleCreateOnPinterest(board.id)}
-                className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 hover:bg-primary/90"
+                disabled={publishingId === board.id}
+                className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
               >
-                <Upload className="w-3 h-3" /> Create on Pinterest
+                {publishingId === board.id ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" /> Creating…
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-3 h-3" /> Create on Pinterest
+                  </>
+                )}
               </button>
             )}
           </div>
