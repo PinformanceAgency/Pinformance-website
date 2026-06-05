@@ -153,8 +153,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, board: updated, linked: status === "active" }, { status: 201 });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to create board on Pinterest";
+    const raw = err instanceof Error ? err.message : "";
+    let message = raw || "Failed to create board on Pinterest";
+    // Translate the most common Pinterest failures into actionable guidance so
+    // it works the same way across every connected account.
+    if (/error 401|error 403|\bscope\b|not authorized|authoriz/i.test(raw)) {
+      message =
+        "This Pinterest account is missing board-write permission. Reconnect Pinterest from the Integrations page so the 'boards:write' scope is granted, then try again.";
+    } else if (/error 429|rate limit/i.test(raw)) {
+      message = "Pinterest is rate-limiting requests. Wait a moment and try again.";
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -30,6 +30,7 @@ export default function BoardsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newBoardName, setNewBoardName] = useState("");
+  const [newBoardDescription, setNewBoardDescription] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
@@ -66,20 +67,41 @@ export default function BoardsPage() {
   async function handleCreate() {
     if (!org || !newBoardName.trim()) return;
     setCreating(true);
+    setPublishError(null);
 
     const supabase = createClient();
-    await supabase.from("boards").insert({
-      org_id: org.id,
-      name: newBoardName.trim(),
-      status: "draft",
-      privacy: "public",
-      sort_order: boards.length,
-    });
+    // 1) Save the board locally as a draft (with optional description).
+    const { data: draft, error: insertErr } = await supabase
+      .from("boards")
+      .insert({
+        org_id: org.id,
+        name: newBoardName.trim(),
+        description: newBoardDescription.trim() || null,
+        status: "draft",
+        privacy: "public",
+        sort_order: boards.length,
+      })
+      .select("id")
+      .single();
 
+    // Close the modal regardless — the board now exists. If the Pinterest
+    // push fails, it stays as a draft with a "Create on Pinterest" button.
     setNewBoardName("");
+    setNewBoardDescription("");
     setShowCreate(false);
     setCreating(false);
-    loadBoards();
+
+    if (insertErr || !draft) {
+      setPublishError(insertErr?.message || "Could not save board");
+      await loadBoards();
+      return;
+    }
+
+    // Show the draft card immediately (with its "Creating…" spinner), then
+    // push to Pinterest so creation is one step for every connected brand.
+    // Failures are surfaced but never lose the draft.
+    await loadBoards();
+    await handleCreateOnPinterest(draft.id);
   }
 
   async function handleCreateOnPinterest(boardId: string) {
@@ -272,6 +294,23 @@ export default function BoardsPage() {
                   className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Description <span className="font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={newBoardDescription}
+                  onChange={(e) => setNewBoardDescription(e.target.value)}
+                  placeholder="What is this board about? Shown on Pinterest and helps SEO."
+                  rows={3}
+                  className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                Created directly on your connected Pinterest account.
+              </p>
 
               <div className="flex gap-2 pt-2">
                 <button
