@@ -5,6 +5,44 @@ import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
+interface PinterestBoardLite {
+  id: string;
+  name: string;
+  pin_count?: number;
+}
+
+/**
+ * Find an existing Pinterest board by name (case-insensitive), paginating
+ * through all of the account's boards. Used to link instead of duplicate
+ * when Pinterest rejects a create for a name that already exists.
+ */
+async function findPinterestBoardByName(
+  client: PinterestClient,
+  name: string
+): Promise<PinterestBoardLite | null> {
+  const target = name.trim().toLowerCase();
+  let bookmark: string | undefined;
+  do {
+    const url = bookmark
+      ? `/boards?page_size=100&bookmark=${encodeURIComponent(bookmark)}`
+      : `/boards?page_size=100`;
+    const page = await (
+      client as unknown as {
+        request: (p: string) => Promise<{
+          items?: PinterestBoardLite[];
+          bookmark?: string;
+        }>;
+      }
+    ).request(url);
+    const match = (page.items || []).find(
+      (b) => b.name.trim().toLowerCase() === target
+    );
+    if (match) return match;
+    bookmark = page.bookmark;
+  } while (bookmark);
+  return null;
+}
+
 /**
  * POST /api/pinterest/boards
  * Pushes an existing local DRAFT board to Pinterest. The Boards page calls
@@ -70,17 +108,40 @@ export async function POST(request: NextRequest) {
       ((org.settings as Record<string, unknown>)?.pinterest_access_tier as string) === "trial";
     const client = new PinterestClient(token, isTrial);
 
-    const created = await client.createBoard({
-      name: board.name,
-      description: board.description || undefined,
-      privacy: board.privacy === "secret" ? "SECRET" : "PUBLIC",
-    });
+    let pinterestBoardId: string;
+    let pinCount = 0;
+    let status: "created" | "active" = "created";
+
+    try {
+      const created = await client.createBoard({
+        name: board.name,
+        description: board.description || undefined,
+        privacy: board.privacy === "secret" ? "SECRET" : "PUBLIC",
+      });
+      pinterestBoardId = created.id;
+    } catch (createErr) {
+      // Pinterest rejects duplicate board names (error code 58). If a board
+      // with this name already exists, link the existing one to this draft
+      // instead of failing — same behavior as the boards sync.
+      const msg = createErr instanceof Error ? createErr.message : "";
+      const isDuplicateName =
+        /"code"\s*:\s*58/.test(msg) ||
+        /already have a board with this name/i.test(msg);
+      if (!isDuplicateName) throw createErr;
+
+      const existing = await findPinterestBoardByName(client, board.name);
+      if (!existing) throw createErr;
+      pinterestBoardId = existing.id;
+      pinCount = existing.pin_count ?? 0;
+      status = "active"; // it's a real board already in use
+    }
 
     const { data: updated, error: updErr } = await admin
       .from("boards")
       .update({
-        pinterest_board_id: created.id,
-        status: "created",
+        pinterest_board_id: pinterestBoardId,
+        status,
+        pin_count: pinCount,
         updated_at: new Date().toISOString(),
       })
       .eq("id", board.id)
@@ -90,7 +151,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: updErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, board: updated }, { status: 201 });
+    return NextResponse.json({ ok: true, board: updated, linked: status === "active" }, { status: 201 });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to create board on Pinterest";
