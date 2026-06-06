@@ -32,6 +32,8 @@ export interface Organization {
   slug: string;
   logo_url: string | null;
   shopify_domain: string | null;
+  shopify_api_key: string | null;
+  shopify_api_secret_encrypted: string | null;
   pinterest_user_id: string | null;
   pinterest_token_expires_at: string | null;
   pinterest_app_id: string | null;

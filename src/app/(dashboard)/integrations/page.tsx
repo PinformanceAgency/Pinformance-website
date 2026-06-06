@@ -62,6 +62,13 @@ export default function IntegrationsPage() {
   const [savingShopify, setSavingShopify] = useState(false);
   const [showShopifyToken, setShowShopifyToken] = useState(false);
 
+  // Shopify per-org OAuth app credentials (set in-app, not in Vercel).
+  const [shopifyApiKey, setShopifyApiKey] = useState("");
+  const [shopifyApiSecret, setShopifyApiSecret] = useState("");
+  const [savingShopifyCreds, setSavingShopifyCreds] = useState(false);
+  const [shopifyCredsSaved, setShopifyCredsSaved] = useState(false);
+  const [showShopifySecret, setShowShopifySecret] = useState(false);
+
   // Load existing credentials when org data is available
   useEffect(() => {
     if (org?.pinterest_app_id) {
@@ -172,6 +179,117 @@ export default function IntegrationsPage() {
       setShopifyDomain(org.shopify_domain);
     }
   }, [org?.shopify_domain]);
+
+  // Reflect whether this org already has its own Shopify app credentials.
+  useEffect(() => {
+    if (org?.shopify_api_key) {
+      setShopifyApiKey(org.shopify_api_key);
+      setShopifyCredsSaved(true);
+    }
+  }, [org?.shopify_api_key]);
+
+  async function saveShopifyCredentials() {
+    if (!shopifyApiKey.trim() || !shopifyApiSecret.trim()) {
+      alert("Enter both the Shopify app API key and secret.");
+      return;
+    }
+    setSavingShopifyCreds(true);
+    try {
+      const res = await fetch("/api/shopify/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: shopifyApiKey.trim(),
+          api_secret: shopifyApiSecret.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to save credentials");
+        return;
+      }
+      setShopifyCredsSaved(true);
+      setShopifyApiSecret("");
+      setShowShopifySecret(false);
+    } catch {
+      alert("Failed to save credentials");
+    } finally {
+      setSavingShopifyCreds(false);
+    }
+  }
+
+  // The redirect URL the merchant must add to their Shopify app config.
+  const shopifyRedirectUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/shopify/callback`
+      : "/api/shopify/callback";
+
+  // Per-org Shopify app credentials fields (shared by the full + store-owner views).
+  function renderShopifyCredsFields() {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+          <Key className="w-3.5 h-3.5" />
+          Your Shopify app credentials (per store — stored encrypted, not in Vercel)
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              App API Key (Client ID){" "}
+              {shopifyCredsSaved && <span className="text-green-600">(saved)</span>}
+            </label>
+            <input
+              type="text"
+              value={shopifyApiKey}
+              onChange={(e) => setShopifyApiKey(e.target.value)}
+              placeholder="Shopify app Client ID"
+              className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">App API Secret (Client secret)</label>
+            <div className="relative">
+              <input
+                type={showShopifySecret ? "text" : "password"}
+                value={shopifyApiSecret}
+                onChange={(e) => setShopifyApiSecret(e.target.value)}
+                placeholder={shopifyCredsSaved ? "**** (enter new value to update)" : "Shopify app Client secret"}
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 pr-9"
+              />
+              <button
+                type="button"
+                onClick={() => setShowShopifySecret(!showShopifySecret)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showShopifySecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={saveShopifyCredentials}
+          disabled={savingShopifyCreds}
+          className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition flex items-center gap-1.5 disabled:opacity-50"
+        >
+          {savingShopifyCreds ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
+            </>
+          ) : (
+            <>
+              <ShieldCheck className="w-3.5 h-3.5" /> Save app credentials
+            </>
+          )}
+        </button>
+        <p className="text-[11px] text-muted-foreground/70">
+          Create a Shopify app (Shopify Partner Dashboard → Apps → Create app), enable
+          &ldquo;Use legacy install flow&rdquo;, set its <strong>Redirect URL</strong> to{" "}
+          <code className="bg-muted px-1 rounded">{shopifyRedirectUrl}</code>, then paste the
+          Client ID + secret here. After saving, click &ldquo;Connect with Shopify&rdquo; below.
+        </p>
+      </div>
+    );
+  }
 
   // Surface the result of the Shopify OAuth round-trip (?shopify=connected|error).
   useEffect(() => {
@@ -395,7 +513,9 @@ export default function IntegrationsPage() {
             </div>
           </div>
 
-          <div>
+          {renderShopifyCredsFields()}
+
+          <div className="border-t border-border/50 pt-4">
             <label className="text-xs text-muted-foreground mb-1 block">Store domain</label>
             <input
               type="text"
@@ -665,6 +785,7 @@ export default function IntegrationsPage() {
                   <Key className="w-3.5 h-3.5" />
                   Shopify Store Connection
                 </p>
+                <div className="mb-4">{renderShopifyCredsFields()}</div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs text-muted-foreground mb-1 block">Store Domain</label>

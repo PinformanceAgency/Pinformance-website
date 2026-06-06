@@ -6,10 +6,11 @@ import { encrypt, decrypt } from "@/lib/encryption";
 /**
  * GET /api/shopify/callback
  *
- * Shopify OAuth redirect target. Verifies the request HMAC, confirms the
- * encrypted state (org id + shop), exchanges the code for a permanent Admin API
- * access token, and stores it encrypted on the org. Redirects back to
- * /integrations with a status flag.
+ * Shopify OAuth redirect target. Decodes our signed state to learn the org,
+ * loads that org's Shopify app credentials (per-org, set in the app; falls
+ * back to env vars), verifies the request HMAC with the secret, exchanges the
+ * code for a permanent Admin API token, and stores it encrypted. Redirects
+ * back to /integrations with a status flag.
  */
 export async function GET(request: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
@@ -22,13 +23,40 @@ export async function GET(request: NextRequest) {
   const hmac = sp.get("hmac") || "";
   const state = sp.get("state") || "";
 
-  const apiKey = process.env.SHOPIFY_API_KEY;
-  const apiSecret = process.env.SHOPIFY_API_SECRET;
-  if (!apiKey || !apiSecret) return fail("not_configured");
   if (!shop || !code || !hmac || !state) return fail("missing_params");
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) return fail("bad_shop");
 
-  // 1) Verify HMAC: all params except `hmac`/`signature`, sorted, key=value joined by &.
+  // 1) Decode + verify state (binds this callback to the org that started it).
+  let orgId: string;
+  try {
+    const decoded = decrypt(Buffer.from(state, "base64url").toString("utf8"));
+    const [stateOrgId, stateShop] = decoded.split("|");
+    if (!stateOrgId || stateShop !== shop) return fail("bad_state");
+    orgId = stateOrgId;
+  } catch {
+    return fail("bad_state");
+  }
+
+  // 2) Resolve this org's Shopify app credentials (per-org first, then env).
+  const admin = createAdminClient();
+  const { data: org } = await admin
+    .from("organizations")
+    .select("shopify_api_key, shopify_api_secret_encrypted")
+    .eq("id", orgId)
+    .single();
+
+  const apiKey = (org?.shopify_api_key as string) || process.env.SHOPIFY_API_KEY;
+  let apiSecret: string | undefined = process.env.SHOPIFY_API_SECRET;
+  if (org?.shopify_api_secret_encrypted) {
+    try {
+      apiSecret = decrypt(org.shopify_api_secret_encrypted as string);
+    } catch {
+      return fail("bad_credentials");
+    }
+  }
+  if (!apiKey || !apiSecret) return fail("not_configured");
+
+  // 3) Verify HMAC: all params except hmac/signature, sorted, key=value joined by &.
   const message = Array.from(sp.entries())
     .filter(([k]) => k !== "hmac" && k !== "signature")
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -40,18 +68,7 @@ export async function GET(request: NextRequest) {
     crypto.timingSafeEqual(Buffer.from(digest, "utf8"), Buffer.from(hmac, "utf8"));
   if (!valid) return fail("bad_hmac");
 
-  // 2) Decode + verify state (binds this callback to the org that started it).
-  let orgId: string;
-  try {
-    const decoded = decrypt(Buffer.from(state, "base64url").toString("utf8"));
-    const [stateOrgId, stateShop] = decoded.split("|");
-    if (!stateOrgId || stateShop !== shop) return fail("bad_state");
-    orgId = stateOrgId;
-  } catch {
-    return fail("bad_state");
-  }
-
-  // 3) Exchange the code for a permanent Admin API access token.
+  // 4) Exchange the code for a permanent Admin API access token.
   let accessToken: string;
   try {
     const res = await fetch(`https://${shop}/admin/oauth/access_token`, {
@@ -67,8 +84,7 @@ export async function GET(request: NextRequest) {
     return fail("exchange_failed");
   }
 
-  // 4) Store the connection (encrypted) on the org.
-  const admin = createAdminClient();
+  // 5) Store the connection (encrypted) on the org.
   const { error } = await admin
     .from("organizations")
     .update({

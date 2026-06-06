@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { encrypt } from "@/lib/encryption";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
@@ -40,11 +41,23 @@ export async function GET(request: NextRequest) {
   const orgId = getOrgIdFromProfile(profile);
   if (!orgId) return NextResponse.json({ error: "No org" }, { status: 400 });
 
-  const apiKey = process.env.SHOPIFY_API_KEY;
+  // Prefer this org's own Shopify app credentials (set in the app); fall back
+  // to a global env var if present.
+  const admin = createAdminClient();
+  const { data: org } = await admin
+    .from("organizations")
+    .select("shopify_api_key")
+    .eq("id", orgId)
+    .single();
+
+  const apiKey = (org?.shopify_api_key as string) || process.env.SHOPIFY_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "Shopify OAuth is not configured (SHOPIFY_API_KEY missing)." },
-      { status: 500 }
+      {
+        error:
+          "Shopify isn't set up yet. Add your Shopify app's API key & secret in the Shopify card below first.",
+      },
+      { status: 400 }
     );
   }
 
