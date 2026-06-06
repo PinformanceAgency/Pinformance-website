@@ -30,7 +30,7 @@ interface SyncSummary {
 
 const LABEL_META: Record<BoardHealthLabel, { label: string; className: string }> = {
   top_performing: { label: "Top performing", className: "bg-green-100 text-green-700" },
-  content_refresh: { label: "Content refresh nodig", className: "bg-yellow-100 text-yellow-700" },
+  content_refresh: { label: "Content refresh needed", className: "bg-yellow-100 text-yellow-700" },
   underperforming: { label: "Underperforming", className: "bg-red-100 text-red-700" },
 };
 
@@ -398,7 +398,7 @@ export default function BoardsPage() {
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="flex items-center gap-2 font-medium">
             <AlertTriangle className="w-4 h-4" />
-            {inactiveBoards.length} board{inactiveBoards.length !== 1 ? "s" : ""} hebben de afgelopen {inactiveDays} dagen geen pins gehad
+            {inactiveBoards.length} board{inactiveBoards.length !== 1 ? "s" : ""} {inactiveBoards.length !== 1 ? "have" : "has"} had no new pins in the last {inactiveDays} days
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {inactiveBoards.map((h) => (
@@ -407,8 +407,8 @@ export default function BoardsPage() {
                 <span className="text-amber-700/70">
                   {" · "}
                   {h.days_since_last_pin === null
-                    ? "nog geen pins toegevoegd"
-                    : `${h.days_since_last_pin} dagen geleden`}
+                    ? "no pins added yet"
+                    : `${h.days_since_last_pin} days ago`}
                 </span>
               </span>
             ))}
@@ -430,7 +430,7 @@ export default function BoardsPage() {
               >
                 <option value="all">All labels</option>
                 <option value="top_performing">Top performing</option>
-                <option value="content_refresh">Content refresh nodig</option>
+                <option value="content_refresh">Content refresh needed</option>
                 <option value="underperforming">Underperforming</option>
               </select>
             </div>

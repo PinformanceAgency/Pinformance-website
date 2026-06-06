@@ -26,8 +26,8 @@ export default function ConversionSyncPage() {
       <div className="p-6 max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold">Conversion Sync</h1>
         <p className="text-muted-foreground mt-2">
-          Verbind eerst je Pinterest account op de{" "}
-          <a href="/integrations" className="text-primary hover:underline">Integrations</a> pagina.
+          First connect your Pinterest account on the{" "}
+          <a href="/integrations" className="text-primary hover:underline">Integrations</a> page.
         </p>
       </div>
     );
@@ -38,7 +38,7 @@ export default function ConversionSyncPage() {
       <div>
         <h1 className="text-2xl font-bold">Conversion Sync</h1>
         <p className="text-muted-foreground mt-1">
-          Haal organic conversion data op uit Pinterest naar je dashboard.
+          Pull organic conversion data from Pinterest into your dashboard.
         </p>
       </div>
 
@@ -62,14 +62,14 @@ export default function ConversionSyncPage() {
         <div className="flex items-start gap-3">
           <span className="w-7 h-7 rounded-full bg-primary text-white text-sm flex items-center justify-center flex-shrink-0">2</span>
           <div>
-            <p className="font-medium">Open de Console (rechtermuisklik → Inspecteren → Console tab)</p>
+            <p className="font-medium">Open the Console (right-click → Inspect → Console tab)</p>
           </div>
         </div>
 
         <div className="flex items-start gap-3">
           <span className="w-7 h-7 rounded-full bg-primary text-white text-sm flex items-center justify-center flex-shrink-0">3</span>
           <div className="flex-1">
-            <p className="font-medium mb-2">Plak dit script en druk Enter</p>
+            <p className="font-medium mb-2">Paste this script and press Enter</p>
             <div className="relative">
               <pre className="text-xs bg-muted p-3 rounded-lg overflow-x-auto max-h-24 font-mono">
                 {script}
@@ -81,12 +81,12 @@ export default function ConversionSyncPage() {
                 {copied ? (
                   <>
                     <CheckCircle2 className="w-3 h-3 text-green-500" />
-                    Gekopieerd
+                    Copied
                   </>
                 ) : (
                   <>
                     <Copy className="w-3 h-3" />
-                    Kopieer
+                    Copy
                   </>
                 )}
               </button>
@@ -96,7 +96,7 @@ export default function ConversionSyncPage() {
 
         <div className="pt-3 border-t border-border/50 text-xs text-muted-foreground">
           <p><strong>Account:</strong> {org?.name} (@{pinterestUserId})</p>
-          <p><strong>Data:</strong> Laatste 30 dagen &middot; 30-day click / 1-day view &middot; Organic only</p>
+          <p><strong>Data:</strong> Last 30 days &middot; 30-day click / 1-day view &middot; Organic only</p>
         </div>
       </div>
     </div>
