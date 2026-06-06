@@ -1,4 +1,8 @@
-export type UserRole = "agency_admin" | "client_admin" | "client_viewer";
+export type UserRole =
+  | "agency_admin"
+  | "client_admin"
+  | "client_viewer"
+  | "store_owner";
 
 export type PinType = "static" | "video" | "idea" | "carousel";
 

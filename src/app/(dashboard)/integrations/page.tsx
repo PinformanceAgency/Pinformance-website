@@ -30,8 +30,11 @@ interface Integration {
 }
 
 export default function IntegrationsPage() {
-  const { org } = useOrg();
+  const { org, user } = useOrg();
+  const isStoreOwner = user?.role === "store_owner";
   const [loading, setLoading] = useState(false);
+  const [shopifyConnecting, setShopifyConnecting] = useState(false);
+  const [banner, setBanner] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
   const [connectingPinterest, setConnectingPinterest] = useState(false);
   const [pinterestAppId, setPinterestAppId] = useState("");
   const [pinterestAppSecret, setPinterestAppSecret] = useState("");
@@ -169,6 +172,41 @@ export default function IntegrationsPage() {
       setShopifyDomain(org.shopify_domain);
     }
   }, [org?.shopify_domain]);
+
+  // Surface the result of the Shopify OAuth round-trip (?shopify=connected|error).
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const s = p.get("shopify");
+    if (s === "connected") {
+      setBanner({ type: "ok", msg: "Shopify connected successfully. Products will sync shortly." });
+    } else if (s === "error") {
+      const reason = p.get("reason");
+      setBanner({ type: "err", msg: `Shopify connection failed${reason ? ` (${reason})` : ""}. Please try again.` });
+    }
+  }, []);
+
+  // OAuth connect: the owner enters their store domain, approves scopes on
+  // Shopify, and we exchange the code for a token in the callback.
+  async function connectShopifyOAuth() {
+    if (!shopifyDomain.trim()) {
+      alert("Enter your Shopify store domain first (e.g. your-store.myshopify.com).");
+      return;
+    }
+    setShopifyConnecting(true);
+    try {
+      const res = await fetch(`/api/shopify/auth?shop=${encodeURIComponent(shopifyDomain.trim())}`);
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.error || "Failed to start Shopify connect.");
+      }
+    } catch {
+      alert("Failed to start Shopify connect.");
+    } finally {
+      setShopifyConnecting(false);
+    }
+  }
 
   async function saveShopify() {
     if (!shopifyDomain.trim() || !shopifyAccessToken.trim()) {
@@ -308,8 +346,92 @@ export default function IntegrationsPage() {
     { key: "CRON_SECRET", description: "Secret for authenticating cron job requests", required: true },
     { key: "PINTEREST_APP_ID", description: "Pinterest app client ID", required: false },
     { key: "PINTEREST_APP_SECRET", description: "Pinterest app client secret", required: false },
-    { key: "SHOPIFY_ACCESS_TOKEN", description: "Shopify Admin API access token", required: false },
+    { key: "SHOPIFY_API_KEY", description: "Shopify Partner app API key (for owner OAuth connect)", required: false },
+    { key: "SHOPIFY_API_SECRET", description: "Shopify Partner app API secret (for owner OAuth connect)", required: false },
   ];
+
+  // Store owners get a connect-only view: just the Shopify OAuth panel.
+  if (isStoreOwner) {
+    const connected = !!org?.shopify_domain;
+    return (
+      <div className="p-6 max-w-2xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Key className="w-6 h-6 text-primary" />
+            Integrations
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Connect your Shopify store so we can sync your product catalogue.
+          </p>
+        </div>
+
+        {banner && (
+          <div
+            className={`rounded-lg p-3 text-sm ${
+              banner.type === "ok"
+                ? "bg-green-50 text-green-700 border border-green-200"
+                : "bg-red-50 text-red-700 border border-red-200"
+            }`}
+          >
+            {banner.msg}
+          </div>
+        )}
+
+        <div className="glass-card rounded-xl p-6 space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center text-2xl flex-shrink-0">
+              🛍️
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold">Shopify</h3>
+                <StatusBadge status={connected ? "connected" : "not_connected"} />
+              </div>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {connected
+                  ? `Connected: ${org?.shopify_domain}`
+                  : "Connect your store to sync your products."}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Store domain</label>
+            <input
+              type="text"
+              value={shopifyDomain}
+              onChange={(e) => setShopifyDomain(e.target.value)}
+              placeholder="your-store.myshopify.com"
+              className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+
+          <button
+            onClick={connectShopifyOAuth}
+            disabled={shopifyConnecting}
+            className="px-4 py-2 text-sm bg-primary text-white rounded-lg glow-btn disabled:opacity-50 flex items-center gap-1.5"
+          >
+            {shopifyConnecting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Redirecting…
+              </>
+            ) : connected ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5" />
+                Reconnect Shopify
+              </>
+            ) : (
+              "Connect Shopify"
+            )}
+          </button>
+          <p className="text-[11px] text-muted-foreground/70">
+            You&apos;ll be sent to Shopify to approve access. Sign in as the store owner and approve the requested permissions.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
@@ -323,6 +445,18 @@ export default function IntegrationsPage() {
           Connect external services to power the automation pipeline
         </p>
       </div>
+
+      {banner && (
+        <div
+          className={`rounded-lg p-3 text-sm ${
+            banner.type === "ok"
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
+          {banner.msg}
+        </div>
+      )}
 
       {/* Integration Cards */}
       <div className="grid gap-4">
@@ -564,7 +698,24 @@ export default function IntegrationsPage() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 mt-3">
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <button
+                    onClick={connectShopifyOAuth}
+                    disabled={shopifyConnecting}
+                    className="px-4 py-2 text-sm bg-primary text-white rounded-lg glow-btn transition flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {shopifyConnecting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Redirecting…
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        Connect with Shopify
+                      </>
+                    )}
+                  </button>
                   <button
                     onClick={saveShopify}
                     disabled={savingShopify}
@@ -576,10 +727,7 @@ export default function IntegrationsPage() {
                         Connecting...
                       </>
                     ) : (
-                      <>
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        Connect Shopify
-                      </>
+                      "Use Admin API token"
                     )}
                   </button>
                   {org?.shopify_domain && (
@@ -590,7 +738,10 @@ export default function IntegrationsPage() {
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground/60 mt-2">
-                  Get your access token from Shopify Admin → Settings → Apps → Develop apps → Your app → API credentials. The token is encrypted at rest.
+                  <strong>Recommended:</strong> enter your store domain and click
+                  &ldquo;Connect with Shopify&rdquo; — the owner approves access on Shopify (OAuth),
+                  no token needed. Advanced: paste an Admin API token from Shopify Admin → Settings →
+                  Apps → Develop apps. Tokens are encrypted at rest.
                 </p>
               </div>
             )}

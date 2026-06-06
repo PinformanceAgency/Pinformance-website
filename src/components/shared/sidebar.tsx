@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
+import { canAccessPath } from "@/lib/auth/access";
 import { createClient } from "@/lib/supabase/client";
 import { useState } from "react";
 import { OrgSwitcher } from "./org-switcher";
@@ -60,8 +61,14 @@ const adminOnlyNav = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { org, isAgencyAdmin, loading } = useOrg();
+  const { org, user, isAgencyAdmin, loading } = useOrg();
   const [signingOut, setSigningOut] = useState(false);
+
+  // Restricted roles (store_owner) see only a subset of nav items.
+  const role = user?.role;
+  const visibleOrganic = organicNav.filter((i) => canAccessPath(role, i.href));
+  const visiblePaidAds = paidAdsNav.filter((i) => canAccessPath(role, i.href));
+  const visibleAdminShared = adminSharedNav.filter((i) => canAccessPath(role, i.href));
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -124,10 +131,12 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto relative z-10">
-        <div className="text-[10px] font-semibold text-white/30 px-3 pb-2 uppercase tracking-[0.15em]">
-          Organic
-        </div>
-        {organicNav.map((item) => {
+        {visibleOrganic.length > 0 && (
+          <div className="text-[10px] font-semibold text-white/30 px-3 pb-2 uppercase tracking-[0.15em]">
+            Organic
+          </div>
+        )}
+        {visibleOrganic.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
@@ -149,10 +158,12 @@ export function Sidebar() {
           );
         })}
 
-        <div className="text-[10px] font-semibold text-white/30 px-3 pt-5 pb-2 uppercase tracking-[0.15em]">
-          Paid Ads
-        </div>
-        {paidAdsNav.map((item) => {
+        {visiblePaidAds.length > 0 && (
+          <div className="text-[10px] font-semibold text-white/30 px-3 pt-5 pb-2 uppercase tracking-[0.15em]">
+            Paid Ads
+          </div>
+        )}
+        {visiblePaidAds.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
@@ -174,10 +185,12 @@ export function Sidebar() {
           );
         })}
 
-        <div className="text-[10px] font-semibold text-white/30 px-3 pt-5 pb-2 uppercase tracking-[0.15em]">
-          Agency Admin
-        </div>
-        {adminSharedNav.map((item) => {
+        {(visibleAdminShared.length > 0 || isAgencyAdmin) && (
+          <div className="text-[10px] font-semibold text-white/30 px-3 pt-5 pb-2 uppercase tracking-[0.15em]">
+            {role === "store_owner" ? "Account" : "Agency Admin"}
+          </div>
+        )}
+        {visibleAdminShared.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link

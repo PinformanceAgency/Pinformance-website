@@ -29,6 +29,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   agency_admin: "Agency Admin",
   client_admin: "Client Admin",
   client_viewer: "Client Viewer",
+  store_owner: "Store Owner",
 };
 
 export default function TeamPage() {
@@ -181,7 +182,9 @@ export default function TeamPage() {
                   member.role === "client_admin" &&
                     "bg-blue-100 text-blue-700",
                   member.role === "client_viewer" &&
-                    "bg-muted text-muted-foreground"
+                    "bg-muted text-muted-foreground",
+                  member.role === "store_owner" &&
+                    "bg-amber-100 text-amber-700"
                 )}
               >
                 <Shield className="w-3 h-3" />
@@ -245,8 +248,15 @@ export default function TeamPage() {
                 >
                   <option value="client_viewer">Client Viewer</option>
                   <option value="client_admin">Client Admin</option>
+                  <option value="store_owner">Store Owner (connect-only)</option>
                   <option value="agency_admin">Agency Admin</option>
                 </select>
+                {inviteRole === "store_owner" && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Restricted login: can only see Overview, Calendar, and Integrations
+                    (to connect their own Shopify store).
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-2 pt-2">
