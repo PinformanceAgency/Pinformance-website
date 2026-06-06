@@ -164,6 +164,35 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
     if (!error) summary.deleted++;
   }
 
+  // Refresh the most-recent pin date per linked board from Pinterest so the
+  // board-health overview has real pin velocity — even for boards whose pins
+  // were created directly on Pinterest (not via Pinformance). One cheap call
+  // per board (newest page only); failures are skipped, never fatal.
+  const { data: linkedBoards } = await admin
+    .from("boards")
+    .select("id, pinterest_board_id")
+    .eq("org_id", orgId)
+    .not("pinterest_board_id", "is", null);
+
+  for (const b of linkedBoards || []) {
+    try {
+      const page = await client.getBoardPins(b.pinterest_board_id as string, 25);
+      let latest: string | null = null;
+      for (const item of page.items || []) {
+        const c = item.created_at;
+        if (c && (!latest || c > latest)) latest = c;
+      }
+      if (latest) {
+        await admin
+          .from("boards")
+          .update({ last_pin_added_at: latest })
+          .eq("id", b.id);
+      }
+    } catch {
+      // Board may be empty or the call may fail — leave the date as-is.
+    }
+  }
+
   // Record the sync timestamp on the org settings so the UI can show it.
   const settings = (org.settings as Record<string, unknown>) || {};
   settings.boards_last_synced_at = new Date().toISOString();

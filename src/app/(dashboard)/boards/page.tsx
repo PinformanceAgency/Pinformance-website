@@ -43,12 +43,30 @@ type SortKey =
   | "saves"
   | "clicks"
   | "engagement_rate"
+  | "health_score"
   | "label";
 
 function formatNumber(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "K";
   return n.toLocaleString();
+}
+
+function scoreColor(score: number): string {
+  if (score >= 70) return "bg-green-500";
+  if (score >= 40) return "bg-amber-500";
+  return "bg-red-500";
+}
+
+function scoreTooltip(h: BoardHealthRow): string {
+  const p = h.score_parts;
+  const fmt = (v: number | null) => (v === null ? "n/a" : `${Math.round(v)}`);
+  return [
+    `Velocity: ${fmt(p.velocity)}`,
+    `Volume: ${fmt(p.volume)}`,
+    `Performance: ${fmt(p.performance)}`,
+    `Engagement: ${fmt(p.engagement)}`,
+  ].join(" · ");
 }
 
 export default function BoardsPage() {
@@ -73,7 +91,7 @@ export default function BoardsPage() {
   const [inactiveDays, setInactiveDays] = useState(14);
   const [labelFilter, setLabelFilter] = useState<"all" | BoardHealthLabel>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("impressions");
+  const [sortKey, setSortKey] = useState<SortKey>("health_score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
@@ -448,6 +466,7 @@ export default function BoardsPage() {
                   <SortHeader label="Saves" k="saves" align="right" />
                   <SortHeader label="Clicks" k="clicks" align="right" />
                   <SortHeader label="Engagement" k="engagement_rate" align="right" />
+                  <SortHeader label="Score" k="health_score" align="right" />
                   <SortHeader label="Health" k="label" />
                 </tr>
               </thead>
@@ -486,6 +505,17 @@ export default function BoardsPage() {
                     <td className="p-3 text-right tabular-nums">{formatNumber(h.saves)}</td>
                     <td className="p-3 text-right tabular-nums">{formatNumber(h.clicks)}</td>
                     <td className="p-3 text-right tabular-nums">{h.engagement_rate.toFixed(2)}%</td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2 justify-end" title={scoreTooltip(h)}>
+                        <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full", scoreColor(h.health_score))}
+                            style={{ width: `${h.health_score}%` }}
+                          />
+                        </div>
+                        <span className="tabular-nums font-medium w-7 text-right">{h.health_score}</span>
+                      </div>
+                    </td>
                     <td className="p-3">
                       <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap", LABEL_META[h.label].className)}>
                         {LABEL_META[h.label].label}
@@ -539,6 +569,13 @@ export default function BoardsPage() {
                   {/* Health + inactive badges */}
                   {h && (
                     <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-muted text-foreground inline-flex items-center gap-1.5"
+                        title={scoreTooltip(h)}
+                      >
+                        <span className={cn("w-1.5 h-1.5 rounded-full", scoreColor(h.health_score))} />
+                        Score {h.health_score}
+                      </span>
                       <span className={cn("text-[11px] px-2 py-0.5 rounded-full font-medium", LABEL_META[h.label].className)}>
                         {LABEL_META[h.label].label}
                       </span>

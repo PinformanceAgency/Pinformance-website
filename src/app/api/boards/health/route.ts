@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
-import { DEFAULT_BOARD_HEALTH } from "@/lib/constants";
+import { DEFAULT_BOARD_HEALTH, BOARD_RULES } from "@/lib/constants";
 import type {
   BoardHealthLabel,
   BoardHealthRow,
@@ -12,12 +12,18 @@ import type {
 /**
  * GET /api/boards/health
  *
- * Board-health overview (Task 1) + inactive-board detection (Task 2).
- * Aggregates per-board organic metrics from `pin_analytics` (joined to boards
- * via `pins.board_id` — `board_analytics` is not populated), derives a
- * pin-velocity from the most recent pin, and labels each board using
- * thresholds from `settings.board_health` (falling back to DEFAULT_BOARD_HEALTH).
+ * Board-health overview (Task 1) + inactive-board detection (Task 2) +
+ * composite health score.
  *
+ * Aggregates per-board organic metrics from `pin_analytics` (joined to boards
+ * via `pins.board_id` — `board_analytics` is not populated), reads the latest
+ * pin date (`boards.last_pin_added_at`, refreshed from Pinterest during sync,
+ * falling back to Pinformance-created pins), and combines every available
+ * signal — pin velocity, pin volume, impressions, and saves/engagement — into
+ * a 0–100 score. Components with no data are dropped and the remaining weights
+ * renormalised, so the score always reflects "all the data we have".
+ *
+ * Thresholds come from `settings.board_health` (fallback DEFAULT_BOARD_HEALTH).
  * Auth-gated and org-scoped (RLS via the user's session).
  */
 export async function GET() {
@@ -44,20 +50,43 @@ export async function GET() {
   const orgSettings = (orgRow?.settings as OrgSettings) || ({} as OrgSettings);
   const t = { ...DEFAULT_BOARD_HEALTH, ...(orgSettings.board_health || {}) };
 
-  // All non-archived boards for the org.
-  const { data: boardsData, error: boardsErr } = await supabase
-    .from("boards")
-    .select("id, name, category, status, pin_count")
-    .eq("org_id", orgId)
-    .neq("status", "archived")
-    .order("sort_order", { ascending: true });
-  if (boardsErr) {
-    return NextResponse.json({ error: boardsErr.message }, { status: 500 });
+  // All non-archived boards. Prefer the Pinterest-sourced last_pin_added_at;
+  // fall back gracefully if migration 019 hasn't been applied yet.
+  type BoardRow = {
+    id: string;
+    name: string;
+    category: string | null;
+    status: string;
+    pin_count: number | null;
+    last_pin_added_at?: string | null;
+  };
+  const baseCols = "id, name, category, status, pin_count";
+  let boards: BoardRow[] = [];
+  {
+    const res = await supabase
+      .from("boards")
+      .select(`${baseCols}, last_pin_added_at`)
+      .eq("org_id", orgId)
+      .neq("status", "archived")
+      .order("sort_order", { ascending: true });
+    if (res.error) {
+      const fallback = await supabase
+        .from("boards")
+        .select(baseCols)
+        .eq("org_id", orgId)
+        .neq("status", "archived")
+        .order("sort_order", { ascending: true });
+      if (fallback.error) {
+        return NextResponse.json({ error: fallback.error.message }, { status: 500 });
+      }
+      boards = (fallback.data as unknown as BoardRow[]) || [];
+    } else {
+      boards = (res.data as unknown as BoardRow[]) || [];
+    }
   }
-  const boards = boardsData || [];
 
   // All pins (id → board_id + recency) so we can count pins and find the most
-  // recent pin per board. board_id can be null (unassigned) — skip those.
+  // recent Pinformance pin per board (fallback for last_pin_added_at).
   const { data: pinsData } = await supabase
     .from("pins")
     .select("id, board_id, created_at, posted_at")
@@ -65,7 +94,6 @@ export async function GET() {
     .not("board_id", "is", null);
   const pins = pinsData || [];
 
-  // Map each pin to its board, track per-board pin count + latest pin date.
   const pinToBoard = new Map<string, string>();
   const pinCountByBoard = new Map<string, number>();
   const lastPinByBoard = new Map<string, string>();
@@ -73,7 +101,6 @@ export async function GET() {
     const boardId = p.board_id as string;
     pinToBoard.set(p.id as string, boardId);
     pinCountByBoard.set(boardId, (pinCountByBoard.get(boardId) || 0) + 1);
-    // Use the latest of created_at / posted_at as "pin added" timestamp.
     const stamp =
       (p.posted_at as string) && (p.posted_at as string) > (p.created_at as string)
         ? (p.posted_at as string)
@@ -109,10 +136,16 @@ export async function GET() {
     agg.set(boardId, cur);
   }
 
+  const clamp = (n: number) => Math.max(0, Math.min(100, n));
+  // Sub-score weights (renormalised over whichever components have data).
+  const WEIGHTS = { velocity: 0.4, volume: 0.2, performance: 0.25, engagement: 0.15 };
+  const pinTarget = BOARD_RULES.TARGET_PINS_PER_BOARD || 40;
+
   const now = Date.now();
   const rows: BoardHealthRow[] = boards.map((b) => {
     const metrics = agg.get(b.id) || { impressions: 0, saves: 0, clicks: 0 };
-    const lastPinAt = lastPinByBoard.get(b.id) || null;
+    // Latest pin: Pinterest-sourced date wins, else our most recent pin.
+    const lastPinAt = b.last_pin_added_at || lastPinByBoard.get(b.id) || null;
     const daysSinceLastPin =
       lastPinAt !== null
         ? Math.floor((now - new Date(lastPinAt).getTime()) / (24 * 60 * 60 * 1000))
@@ -123,36 +156,57 @@ export async function GET() {
         ? ((metrics.saves + metrics.clicks) / metrics.impressions) * 100
         : 0;
 
-    // Stale = no new pin within the inactive window (or never any pin).
-    const stale =
-      daysSinceLastPin === null || daysSinceLastPin > t.inactive_days;
-    const performingWell =
-      metrics.impressions >= t.top_min_impressions &&
-      engagementRate >= t.top_min_engagement_rate;
-
-    // Label decision tree → exactly one of the three spec states.
-    let label: BoardHealthLabel;
-    if (metrics.impressions === 0) {
-      // No measurable performance yet → needs pins / velocity.
-      label = "content_refresh";
-    } else if (!performingWell) {
-      label = "underperforming";
-    } else if (stale) {
-      label = "content_refresh";
-    } else {
-      label = "top_performing";
-    }
-
-    // Inactive alert (Task 2): only assert when we actually have a last-pin
-    // date and it's older than the threshold (avoid false alarms on boards
-    // whose pins were all created outside Pinformance).
-    const isInactive = daysSinceLastPin !== null && daysSinceLastPin > t.inactive_days;
-
-    // Prefer Pinterest-synced pin_count; fall back to our own pin rows.
     const pinCount =
       typeof b.pin_count === "number" && b.pin_count > 0
         ? (b.pin_count as number)
         : pinCountByBoard.get(b.id) || 0;
+
+    const hasKpi = metrics.impressions > 0;
+
+    // ── Sub-scores (0–100), null = no data for that signal ──
+    // Velocity: 100 at 0 days, 50 at inactive_days, 0 at 2× inactive_days.
+    const velocity =
+      daysSinceLastPin === null
+        ? null
+        : clamp(100 * (1 - daysSinceLastPin / (t.inactive_days * 2)));
+    // Volume: pins toward the per-board target.
+    const volume = pinCount > 0 ? clamp((100 * pinCount) / pinTarget) : null;
+    // Performance: impressions toward the "top performing" threshold.
+    const performance = hasKpi
+      ? clamp((100 * metrics.impressions) / Math.max(1, t.top_min_impressions))
+      : null;
+    // Engagement: engagement-rate toward the "top performing" threshold.
+    const engagement = hasKpi
+      ? clamp((100 * engagementRate) / Math.max(0.01, t.top_min_engagement_rate))
+      : null;
+
+    const parts = { velocity, volume, performance, engagement };
+
+    // Weighted average over present components (renormalised).
+    let weighted = 0;
+    let weightSum = 0;
+    (Object.keys(WEIGHTS) as Array<keyof typeof WEIGHTS>).forEach((k) => {
+      const v = parts[k];
+      if (v !== null) {
+        weighted += v * WEIGHTS[k];
+        weightSum += WEIGHTS[k];
+      }
+    });
+    const healthScore = weightSum > 0 ? Math.round(weighted / weightSum) : 0;
+
+    const isInactive =
+      daysSinceLastPin !== null && daysSinceLastPin > t.inactive_days;
+    // Don't crown a board "top performing" without a freshness or KPI signal.
+    const hasSignal = daysSinceLastPin !== null || hasKpi;
+
+    let label: BoardHealthLabel;
+    if (healthScore >= 70 && !isInactive && hasSignal) {
+      label = "top_performing";
+    } else if (healthScore >= 40) {
+      label = "content_refresh";
+    } else {
+      label = "underperforming";
+    }
 
     return {
       id: b.id as string,
@@ -166,6 +220,8 @@ export async function GET() {
       saves: metrics.saves,
       clicks: metrics.clicks,
       engagement_rate: Math.round(engagementRate * 100) / 100,
+      health_score: healthScore,
+      score_parts: parts,
       label,
       is_inactive: isInactive,
     };

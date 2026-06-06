@@ -86,6 +86,15 @@ export interface BoardHealthRow {
   saves: number;
   clicks: number;
   engagement_rate: number;
+  /** Composite 0–100 health score from all available signals. */
+  health_score: number;
+  /** Per-component sub-scores (0–100) that fed the composite, for tooltips. */
+  score_parts: {
+    velocity: number | null;
+    volume: number | null;
+    performance: number | null;
+    engagement: number | null;
+  };
   label: BoardHealthLabel;
   /** True when no new pin within the configured inactive_days window. */
   is_inactive: boolean;

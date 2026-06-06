@@ -308,6 +308,21 @@ export class PinterestClient {
     return this.request(`/user_account/pins${params}`);
   }
 
+  /**
+   * List a board's pins (newest first). Used by the boards sync to read the
+   * most-recent pin's `created_at` so the health overview has real pin
+   * velocity even for boards whose pins were created outside Pinformance.
+   */
+  async getBoardPins(
+    boardId: string,
+    pageSize = 25,
+    bookmark?: string
+  ): Promise<{ items: Array<{ id: string; created_at?: string }>; bookmark?: string }> {
+    const params = new URLSearchParams({ page_size: String(pageSize) });
+    if (bookmark) params.set("bookmark", bookmark);
+    return this.request(`/boards/${boardId}/pins?${params}`);
+  }
+
   async getUserAccountAnalytics(
     startDate: string,
     endDate: string,
