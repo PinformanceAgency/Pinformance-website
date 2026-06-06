@@ -111,6 +111,45 @@ export const BRAND_VOICE_OPTIONS = [
   "Classic",
 ] as const;
 
+// Organic board categories (revenue / traffic / seasonal). Used to group
+// boards in the health overview (Task 1) and to filter the batch
+// board-assignment selector in the creatives flow (Task 3).
+export const BOARD_CATEGORIES = [
+  { value: "revenue", label: "Revenue" },
+  { value: "traffic", label: "Traffic" },
+  { value: "seasonal", label: "Seasonal" },
+] as const;
+
+export type BoardCategory = (typeof BOARD_CATEGORIES)[number]["value"];
+
+export function boardCategoryLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return BOARD_CATEGORIES.find((c) => c.value === value)?.label ?? value;
+}
+
+/**
+ * Board-health thresholds. Centralised here (not hardcoded across the UI) so
+ * they can be overridden per-org via `settings.board_health` and tuned later
+ * without code changes. See /api/boards/health for how they drive the labels.
+ */
+export interface BoardHealthThresholds {
+  /** Days of analytics aggregated for the performance metrics. */
+  metric_window_days: number;
+  /** No new pin within this many days → inactive alert + content-refresh. */
+  inactive_days: number;
+  /** Min impressions over the window to count as "performing well". */
+  top_min_impressions: number;
+  /** Min engagement-rate (%) over the window to count as "performing well". */
+  top_min_engagement_rate: number;
+}
+
+export const DEFAULT_BOARD_HEALTH: BoardHealthThresholds = {
+  metric_window_days: 30,
+  inactive_days: 14,
+  top_min_impressions: 500,
+  top_min_engagement_rate: 0.3,
+};
+
 export const REVENUE_RANGES = [
   { value: "sub-10k", label: "< \u20AC10K / month" },
   { value: "10k-50k", label: "\u20AC10K \u2013 \u20AC50K / month" },

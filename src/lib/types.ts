@@ -58,6 +58,37 @@ export interface OrgSettings {
   max_pins_per_day?: number;
   weekend_boost?: boolean;
   pillar_rotation?: boolean;
+  /** Board-health thresholds (overrides DEFAULT_BOARD_HEALTH). */
+  board_health?: {
+    metric_window_days?: number;
+    inactive_days?: number;
+    top_min_impressions?: number;
+    top_min_engagement_rate?: number;
+  };
+}
+
+export type BoardHealthLabel =
+  | "top_performing"
+  | "content_refresh"
+  | "underperforming";
+
+/** One row of the board-health overview (Task 1), returned by /api/boards/health. */
+export interface BoardHealthRow {
+  id: string;
+  name: string;
+  category: string | null;
+  status: BoardStatus;
+  pin_count: number;
+  /** Most recent pin added via Pinformance (max created_at). null = none yet. */
+  last_pin_at: string | null;
+  days_since_last_pin: number | null;
+  impressions: number;
+  saves: number;
+  clicks: number;
+  engagement_rate: number;
+  label: BoardHealthLabel;
+  /** True when no new pin within the configured inactive_days window. */
+  is_inactive: boolean;
 }
 
 export const DEFAULT_ORG_SETTINGS: OrgSettings = {

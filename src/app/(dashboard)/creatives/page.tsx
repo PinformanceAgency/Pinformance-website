@@ -14,9 +14,11 @@ import {
   Video,
   Camera,
   Settings as SettingsIcon,
+  LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { OverlaySettings } from "@/components/creatives/overlay-settings";
+import { BOARD_CATEGORIES, boardCategoryLabel } from "@/lib/constants";
 
 interface UploadedCreative {
   image_url: string;
@@ -40,6 +42,7 @@ interface ActiveBoard {
   id: string;
   name: string;
   pinterest_board_id: string | null;
+  category: string | null;
 }
 
 export default function CreativesPage() {
@@ -56,6 +59,10 @@ export default function CreativesPage() {
   const [activeBoards, setActiveBoards] = useState<ActiveBoard[]>([]);
   // Per-creative override: image_url → board_id chosen by the user.
   const [boardOverrides, setBoardOverrides] = useState<Record<string, string>>({});
+  // Batch board assignment (Task 3): apply one board to all creatives at once,
+  // overriding the AI's per-creative board choice.
+  const [batchBoardId, setBatchBoardId] = useState<string>("");
+  const [batchCategoryFilter, setBatchCategoryFilter] = useState<string>("all");
   // Per-creative override: image_url → destination link URL.
   const [linkOverrides, setLinkOverrides] = useState<Record<string, string>>({});
   // Products with explicit destination URLs, used for auto-match + quick-pick.
@@ -119,7 +126,7 @@ export default function CreativesPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("boards")
-      .select("id, name, pinterest_board_id")
+      .select("id, name, pinterest_board_id, category")
       .eq("org_id", org.id)
       .eq("status", "active")
       .order("name");
@@ -128,6 +135,21 @@ export default function CreativesPage() {
 
   function setBoardOverride(creativeUrl: string, boardId: string) {
     setBoardOverrides((prev) => ({ ...prev, [creativeUrl]: boardId }));
+  }
+
+  /**
+   * Apply the chosen batch board to every uploaded creative at once. This
+   * overrides the AI's per-creative board suggestion for all of them — used
+   * when the user already knows the destination board (e.g. seasonal boards
+   * the AI doesn't pick up).
+   */
+  function applyBatchBoard() {
+    if (!batchBoardId) return;
+    setBoardOverrides((prev) => {
+      const next = { ...prev };
+      for (const c of creatives) next[c.image_url] = batchBoardId;
+      return next;
+    });
   }
 
   function setLinkOverride(creativeUrl: string, link: string) {
@@ -522,6 +544,59 @@ export default function CreativesPage() {
           </div>
         </button>
       </div>
+
+      {/* Batch board assignment (Task 3) */}
+      {tabCreatives.length > 0 && activeBoards.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="w-4 h-4 text-primary" />
+            <h3 className="font-semibold text-sm">Assign all to one board</h3>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Override the AI&apos;s board choice for every uploaded creative at once — handy for
+            seasonal or lifestyle boards the AI doesn&apos;t pick up automatically.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={batchCategoryFilter}
+              onChange={(e) => {
+                setBatchCategoryFilter(e.target.value);
+                setBatchBoardId("");
+              }}
+              className="px-2.5 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <option value="all">All categories</option>
+              {BOARD_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+            <select
+              value={batchBoardId}
+              onChange={(e) => setBatchBoardId(e.target.value)}
+              className="flex-1 min-w-[180px] px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <option value="">— Choose a board —</option>
+              {activeBoards
+                .filter((b) => batchCategoryFilter === "all" || b.category === batchCategoryFilter)
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                    {b.category ? ` · ${boardCategoryLabel(b.category)}` : ""}
+                    {!b.pinterest_board_id ? " ⚠ not on Pinterest" : ""}
+                  </option>
+                ))}
+            </select>
+            <button
+              type="button"
+              onClick={applyBatchBoard}
+              disabled={!batchBoardId}
+              className="bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            >
+              Apply to all {tabCreatives.length}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Creative cards */}
       {tabCreatives.length > 0 && (

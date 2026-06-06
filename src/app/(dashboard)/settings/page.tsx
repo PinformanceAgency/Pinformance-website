@@ -18,6 +18,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { OrgSettings } from "@/lib/types";
 import { DEFAULT_ORG_SETTINGS } from "@/lib/types";
+import { DEFAULT_BOARD_HEALTH } from "@/lib/constants";
 import { OnboardingVideoModal } from "@/components/shared/onboarding-video-modal";
 
 const TIMEZONES = [
@@ -140,6 +141,20 @@ export default function SettingsPage() {
       ? settings.posting_hours.filter((h) => h !== hour)
       : [...settings.posting_hours, hour].sort((a, b) => a - b);
     setSettings({ ...settings, posting_hours: hours });
+  }
+
+  // Effective board-health thresholds (org overrides merged over defaults).
+  const boardHealth = { ...DEFAULT_BOARD_HEALTH, ...(settings.board_health || {}) };
+
+  function updateBoardHealth(
+    key: keyof typeof DEFAULT_BOARD_HEALTH,
+    value: number
+  ) {
+    if (Number.isNaN(value)) return;
+    setSettings({
+      ...settings,
+      board_health: { ...boardHealth, [key]: value },
+    });
   }
 
   async function handleDisconnectPinterest() {
@@ -569,6 +584,84 @@ export default function SettingsPage() {
               {hour.toString().padStart(2, "0")}:00
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Board Health thresholds (drives the Boards → Health overview + alerts) */}
+      <div className="bg-card border border-border rounded-xl p-6 space-y-5">
+        <div>
+          <h2 className="font-semibold">Board Health</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Thresholds for the board health overview and inactive-board alerts (Boards → Health).
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              Inactive alert after (days)
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={boardHealth.inactive_days}
+              onChange={(e) => updateBoardHealth("inactive_days", parseInt(e.target.value))}
+              className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <p className="text-[10px] text-muted-foreground/70 mt-1">
+              A board with no new pin within this many days is flagged.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              Metrics window (days)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={90}
+              value={boardHealth.metric_window_days}
+              onChange={(e) => updateBoardHealth("metric_window_days", parseInt(e.target.value))}
+              className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <p className="text-[10px] text-muted-foreground/70 mt-1">
+              How many days of analytics to aggregate per board.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              &ldquo;Top performing&rdquo; min impressions
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={boardHealth.top_min_impressions}
+              onChange={(e) => updateBoardHealth("top_min_impressions", parseInt(e.target.value))}
+              className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <p className="text-[10px] text-muted-foreground/70 mt-1">
+              Impressions over the window needed to count as performing well.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              &ldquo;Top performing&rdquo; min engagement (%)
+            </label>
+            <input
+              type="number"
+              min={0}
+              step={0.1}
+              value={boardHealth.top_min_engagement_rate}
+              onChange={(e) => updateBoardHealth("top_min_engagement_rate", parseFloat(e.target.value))}
+              className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <p className="text-[10px] text-muted-foreground/70 mt-1">
+              Engagement rate over the window needed to count as performing well.
+            </p>
+          </div>
         </div>
       </div>
 
