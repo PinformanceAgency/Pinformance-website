@@ -214,36 +214,44 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
           saves = 0,
           pinClicks = 0,
           outClicks = 0;
-        for (let i = 0; i < slice.length; i += 10) {
-          const batch = slice.slice(i, i + 10);
+        let ok = 0; // successful analytics responses (to avoid wiping to 0)
+        for (let i = 0; i < slice.length; i += 6) {
+          const batch = slice.slice(i, i + 6);
           const res = await Promise.all(
-            batch.map((id) =>
-              client
-                .getPinAnalytics(id, startDate, endDate)
-                .then(
-                  (a) =>
-                    (a as {
-                      all?: { daily_metrics?: Array<{ metrics?: Record<string, number> }> };
-                    })?.all?.daily_metrics
-                )
-                .catch(() => null)
-            )
+            batch.map(async (id) => {
+              // Retry once on transient failure (e.g. rate limit) so a blip
+              // doesn't drop a pin's metrics and undercount the board.
+              for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                  const a = (await client.getPinAnalytics(id, startDate, endDate)) as {
+                    all?: { summary_metrics?: Record<string, number> };
+                  };
+                  return a?.all?.summary_metrics || {};
+                } catch {
+                  if (attempt === 0) await new Promise((r) => setTimeout(r, 600));
+                }
+              }
+              return null; // failed both attempts
+            })
           );
-          for (const dm of res) {
-            if (!Array.isArray(dm)) continue;
-            for (const d of dm) {
-              const m = d?.metrics || {};
-              impr += m.IMPRESSION || 0;
-              saves += m.SAVE || 0;
-              pinClicks += m.PIN_CLICK || 0;
-              outClicks += m.OUTBOUND_CLICK || 0;
-            }
+          for (const sm of res) {
+            if (sm === null) continue; // failed — don't count as a real 0
+            ok++;
+            impr += sm.IMPRESSION || 0;
+            saves += sm.SAVE || 0;
+            pinClicks += sm.PIN_CLICK || 0;
+            outClicks += sm.OUTBOUND_CLICK || 0;
           }
         }
-        upd.metrics_impressions = impr;
-        upd.metrics_saves = saves;
-        upd.metrics_pin_clicks = pinClicks;
-        upd.metrics_outbound_clicks = outClicks;
+        // Only overwrite metrics when at least one pin's analytics succeeded.
+        // Otherwise (total transient failure) keep the previous numbers instead
+        // of wiping the board to a misleading 0 / "No data".
+        if (ok > 0) {
+          upd.metrics_impressions = impr;
+          upd.metrics_saves = saves;
+          upd.metrics_pin_clicks = pinClicks;
+          upd.metrics_outbound_clicks = outClicks;
+        }
       }
       // Budget exhausted → still update last-pin; metrics left untouched.
       await admin.from("boards").update(upd).eq("id", b.id);
