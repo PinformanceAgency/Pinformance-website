@@ -193,6 +193,81 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
     }
   }
 
+  // Attribute the account's top organic pins (the only pins Pinterest exposes
+  // metrics for via the API) to their board, so the health overview shows real
+  // impressions/saves/clicks on the most active boards — even for boards whose
+  // pins were created outside Pinformance. Cached on the board row.
+  try {
+    const endDate = new Date().toISOString().split("T")[0];
+    const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+
+    const pbToLocal = new Map(
+      (linkedBoards || [])
+        .filter((b) => b.pinterest_board_id)
+        .map((b) => [b.pinterest_board_id as string, b.id])
+    );
+
+    const top = await client.getTopPins(
+      startDate,
+      endDate,
+      "IMPRESSION",
+      ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK"],
+      "ORGANIC"
+    );
+    const topPins = (top.pins || []).slice(0, 50);
+
+    const byBoard = new Map<
+      string,
+      { impr: number; saves: number; pinClicks: number; outClicks: number }
+    >();
+    // Resolve each top pin's board in small concurrent batches.
+    for (let i = 0; i < topPins.length; i += 10) {
+      const batch = topPins.slice(i, i + 10);
+      const resolved = await Promise.all(
+        batch.map((p) =>
+          client
+            .getPin(p.pin_id)
+            .then((d) => ({ metrics: p.metrics, boardId: d.board_id }))
+            .catch(() => null)
+        )
+      );
+      for (const r of resolved) {
+        if (!r?.boardId) continue;
+        const localId = pbToLocal.get(r.boardId);
+        if (!localId) continue;
+        const m = r.metrics || {};
+        const cur =
+          byBoard.get(localId) || { impr: 0, saves: 0, pinClicks: 0, outClicks: 0 };
+        cur.impr += m.IMPRESSION || 0;
+        cur.saves += m.SAVE || 0;
+        cur.pinClicks += m.PIN_CLICK || 0;
+        cur.outClicks += m.OUTBOUND_CLICK || 0;
+        byBoard.set(localId, cur);
+      }
+    }
+
+    // Write cached metrics for every linked board (0 when it has no top pins),
+    // so boards that dropped out of the top set don't keep stale numbers.
+    const syncedAt = new Date().toISOString();
+    for (const b of linkedBoards || []) {
+      const m = byBoard.get(b.id) || { impr: 0, saves: 0, pinClicks: 0, outClicks: 0 };
+      await admin
+        .from("boards")
+        .update({
+          metrics_impressions: m.impr,
+          metrics_saves: m.saves,
+          metrics_pin_clicks: m.pinClicks,
+          metrics_outbound_clicks: m.outClicks,
+          metrics_synced_at: syncedAt,
+        })
+        .eq("id", b.id);
+    }
+  } catch {
+    // Top-pins/analytics unavailable (scope/permission) — leave cached metrics.
+  }
+
   // Record the sync timestamp on the org settings so the UI can show it.
   const settings = (org.settings as Record<string, unknown>) || {};
   settings.boards_last_synced_at = new Date().toISOString();

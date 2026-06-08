@@ -59,13 +59,18 @@ export async function GET() {
     status: string;
     pin_count: number | null;
     last_pin_added_at?: string | null;
+    metrics_impressions?: number | null;
+    metrics_saves?: number | null;
+    metrics_pin_clicks?: number | null;
+    metrics_outbound_clicks?: number | null;
   };
   const baseCols = "id, name, category, status, pin_count";
+  const fullCols = `${baseCols}, last_pin_added_at, metrics_impressions, metrics_saves, metrics_pin_clicks, metrics_outbound_clicks`;
   let boards: BoardRow[] = [];
   {
     const res = await supabase
       .from("boards")
-      .select(`${baseCols}, last_pin_added_at`)
+      .select(fullCols)
       .eq("org_id", orgId)
       .neq("status", "archived")
       .order("sort_order", { ascending: true });
@@ -144,7 +149,18 @@ export async function GET() {
 
   const now = Date.now();
   const rows: BoardHealthRow[] = boards.map((b) => {
-    const metrics = agg.get(b.id) || { impressions: 0, saves: 0, clicks: 0, pinClicks: 0 };
+    // Prefer Pinformance per-pin analytics; fall back to cached top-pins
+    // attribution (set during sync) for boards whose pins live only on Pinterest.
+    const pinAgg = agg.get(b.id);
+    const metrics =
+      pinAgg && pinAgg.impressions > 0
+        ? pinAgg
+        : {
+            impressions: b.metrics_impressions || 0,
+            saves: b.metrics_saves || 0,
+            clicks: (b.metrics_pin_clicks || 0) + (b.metrics_outbound_clicks || 0),
+            pinClicks: b.metrics_pin_clicks || 0,
+          };
     // Latest pin: Pinterest-sourced date wins, else our most recent pin.
     const lastPinAt = b.last_pin_added_at || lastPinByBoard.get(b.id) || null;
     const daysSinceLastPin =

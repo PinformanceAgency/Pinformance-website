@@ -167,6 +167,12 @@ export interface Board {
   sort_order: number;
   /** Pin count synced from Pinterest. null = not yet synced. */
   pin_count?: number | null;
+  /** Cached organic metrics from top-pins attribution (set during sync). */
+  metrics_impressions?: number | null;
+  metrics_saves?: number | null;
+  metrics_pin_clicks?: number | null;
+  metrics_outbound_clicks?: number | null;
+  metrics_synced_at?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -13,6 +13,7 @@ export interface PinterestImage {
 
 export interface PinterestPinResponse {
   id: string;
+  board_id?: string;
   title?: string;
   description?: string;
   link?: string;
