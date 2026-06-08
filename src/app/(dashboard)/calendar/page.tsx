@@ -41,17 +41,41 @@ export default function CalendarPage() {
   const loadEntries = useCallback(async () => {
     if (!org) return;
     const supabase = createClient();
-    const weekEnd = addDays(weekStart, 6);
+    // Read scheduled/posted pins straight from the `pins` table — that's the
+    // source of truth for scheduling (and what the posting cron uses). The old
+    // path read `calendar_entries`, which is only populated by the AI content
+    // pipeline, so pins scheduled any other way (e.g. Own Creatives) never
+    // showed up even though the pipeline counter counted them.
+    const rangeStartISO = weekStart.toISOString();
+    const rangeEndISO = addDays(weekStart, 7).toISOString(); // exclusive next Monday
 
-    const { data } = await supabase
-      .from("calendar_entries")
-      .select("*, pin:pins(*)")
+    const { data: pinRows } = await supabase
+      .from("pins")
+      .select("*")
       .eq("org_id", org.id)
-      .gte("scheduled_date", format(weekStart, "yyyy-MM-dd"))
-      .lte("scheduled_date", format(weekEnd, "yyyy-MM-dd"))
-      .order("scheduled_time");
+      .or(
+        `and(scheduled_at.gte.${rangeStartISO},scheduled_at.lt.${rangeEndISO}),and(posted_at.gte.${rangeStartISO},posted_at.lt.${rangeEndISO})`
+      );
 
-    setEntries((data as CalendarPin[]) || []);
+    const built = ((pinRows as Pin[]) || [])
+      .map((pin) => {
+        // Posted pins sit on their posted date; everything else on its
+        // scheduled date.
+        const effective =
+          pin.status === "posted" && pin.posted_at ? pin.posted_at : pin.scheduled_at;
+        if (!effective) return null;
+        return {
+          id: pin.id,
+          org_id: pin.org_id,
+          pin_id: pin.id,
+          scheduled_date: effective,
+          scheduled_time: format(new Date(effective), "HH:mm:ss"),
+          pin,
+        } as unknown as CalendarPin;
+      })
+      .filter(Boolean) as CalendarPin[];
+
+    setEntries(built);
 
     const { data: allPins } = await supabase.from("pins").select("id, status").eq("org_id", org.id);
     const pins = allPins || [];
