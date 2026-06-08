@@ -168,95 +168,32 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
     if (!error) summary.deleted++;
   }
 
+  // Refresh the most-recent pin date per board (cheap: newest page, NOT the
+  // rate-limited analytics endpoint). Per-board ORGANIC metrics
+  // (impressions/saves/clicks) are computed separately by the paced
+  // /api/cron/board-metrics job, because Pinterest's per-pin analytics endpoint
+  // is hard-limited to 60 calls/minute — far too slow to do inline here.
   const { data: linkedBoards } = await admin
     .from("boards")
-    .select("id, pinterest_board_id, pin_count")
+    .select("id, pinterest_board_id")
     .eq("org_id", orgId)
     .not("pinterest_board_id", "is", null);
 
-  // Per-board ORGANIC metrics: list each board's pins and sum their per-pin
-  // ORGANIC analytics (impressions/saves/clicks). This is accurate per board
-  // and consistent with the organic Overview — unlike top-pins (misses
-  // mid-tier boards) or the inline board pin_metrics (which include paid/ads).
-  // Bounded by a global pin budget + per-board cap so the sync stays within
-  // serverless limits; smallest boards are processed first so they're always
-  // covered. Also captures the most-recent pin date in the same pass.
-  const endDate = new Date().toISOString().split("T")[0];
-  const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .split("T")[0];
-
-  const boardsBySize = [...(linkedBoards || [])].sort(
-    (a, b) => ((a.pin_count as number) || 0) - ((b.pin_count as number) || 0)
-  );
-  const PER_BOARD_CAP = 80; // organic is concentrated; 80 newest pins is plenty
-  let pinBudget = 450; // global cap on per-pin analytics calls per sync
-  const syncedAt = new Date().toISOString();
-
-  for (const b of boardsBySize) {
+  for (const b of linkedBoards || []) {
     try {
-      // Newest pins → ids (for analytics) + last-pin date.
-      const page = await client.getBoardPins(b.pinterest_board_id as string, 100);
-      const pinIds: string[] = [];
+      const page = await client.getBoardPins(b.pinterest_board_id as string, 25);
       let latest: string | null = null;
       for (const it of page.items || []) {
         if (it.created_at && (!latest || it.created_at > latest)) latest = it.created_at;
-        if (pinIds.length < PER_BOARD_CAP) pinIds.push(it.id);
       }
-
-      const upd: Record<string, unknown> = { metrics_synced_at: syncedAt };
-      if (latest) upd.last_pin_added_at = latest;
-
-      const slice = pinBudget > 0 ? pinIds.slice(0, Math.min(pinIds.length, pinBudget)) : [];
-      if (slice.length > 0) {
-        pinBudget -= slice.length;
-        let impr = 0,
-          saves = 0,
-          pinClicks = 0,
-          outClicks = 0;
-        let ok = 0; // successful analytics responses (to avoid wiping to 0)
-        for (let i = 0; i < slice.length; i += 6) {
-          const batch = slice.slice(i, i + 6);
-          const res = await Promise.all(
-            batch.map(async (id) => {
-              // Retry once on transient failure (e.g. rate limit) so a blip
-              // doesn't drop a pin's metrics and undercount the board.
-              for (let attempt = 0; attempt < 2; attempt++) {
-                try {
-                  const a = (await client.getPinAnalytics(id, startDate, endDate)) as {
-                    all?: { summary_metrics?: Record<string, number> };
-                  };
-                  return a?.all?.summary_metrics || {};
-                } catch {
-                  if (attempt === 0) await new Promise((r) => setTimeout(r, 600));
-                }
-              }
-              return null; // failed both attempts
-            })
-          );
-          for (const sm of res) {
-            if (sm === null) continue; // failed — don't count as a real 0
-            ok++;
-            impr += sm.IMPRESSION || 0;
-            saves += sm.SAVE || 0;
-            pinClicks += sm.PIN_CLICK || 0;
-            outClicks += sm.OUTBOUND_CLICK || 0;
-          }
-        }
-        // Only overwrite metrics when at least one pin's analytics succeeded.
-        // Otherwise (total transient failure) keep the previous numbers instead
-        // of wiping the board to a misleading 0 / "No data".
-        if (ok > 0) {
-          upd.metrics_impressions = impr;
-          upd.metrics_saves = saves;
-          upd.metrics_pin_clicks = pinClicks;
-          upd.metrics_outbound_clicks = outClicks;
-        }
+      if (latest) {
+        await admin
+          .from("boards")
+          .update({ last_pin_added_at: latest })
+          .eq("id", b.id);
       }
-      // Budget exhausted → still update last-pin; metrics left untouched.
-      await admin.from("boards").update(upd).eq("id", b.id);
     } catch {
-      // Board empty or calls failed — leave existing values untouched.
+      // Board empty or call failed — leave the date as-is.
     }
   }
 

@@ -20,6 +20,10 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/cron/board-metrics",
+      "schedule": "30 * * * *"
+    },
+    {
       "path": "/api/cron/optimize-prompts",
       "schedule": "0 3 * * 1"
     }

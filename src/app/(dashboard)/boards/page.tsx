@@ -315,9 +315,16 @@ export default function BoardsPage() {
 
       {/* ── BOARD HEALTH (same page, below the cards) ── */}
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Board health</h2>
-          {healthLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">Board health</h2>
+            {healthLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Organic impressions, saves &amp; clicks (last 90 days). Refreshed hourly in the
+            background — Pinterest rate-limits per-board analytics, so newly synced boards
+            may show &ldquo;No data&rdquo; until the next refresh.
+          </p>
         </div>
 
         {/* Inactive-board alert */}
