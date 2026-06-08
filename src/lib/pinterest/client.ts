@@ -310,16 +310,35 @@ export class PinterestClient {
   }
 
   /**
-   * List a board's pins (newest first). Used by the boards sync to read the
-   * most-recent pin's `created_at` so the health overview has real pin
-   * velocity even for boards whose pins were created outside Pinformance.
+   * List a board's pins with inline per-pin metrics (`pin_metrics=true`). The
+   * boards sync sums each pin's 90-day metrics to get REAL per-board organic
+   * totals (impressions/saves/clicks) — the only affordable way, since
+   * Pinterest has no per-board analytics endpoint and the multi-pin analytics
+   * endpoint is a restricted feature. Also yields `created_at` for pin velocity.
    */
   async getBoardPins(
     boardId: string,
-    pageSize = 25,
+    pageSize = 100,
     bookmark?: string
-  ): Promise<{ items: Array<{ id: string; created_at?: string }>; bookmark?: string }> {
-    const params = new URLSearchParams({ page_size: String(pageSize) });
+  ): Promise<{
+    items: Array<{
+      id: string;
+      created_at?: string;
+      pin_metrics?: {
+        "90d"?: {
+          impression?: number;
+          save?: number;
+          pin_click?: number;
+          outbound_click?: number;
+        };
+      } | null;
+    }>;
+    bookmark?: string;
+  }> {
+    const params = new URLSearchParams({
+      page_size: String(pageSize),
+      pin_metrics: "true",
+    });
     if (bookmark) params.set("bookmark", bookmark);
     return this.request(`/boards/${boardId}/pins?${params}`);
   }

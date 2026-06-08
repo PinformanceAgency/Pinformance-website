@@ -76,7 +76,8 @@ export interface OrgSettings {
 export type BoardHealthLabel =
   | "top_performing"
   | "content_refresh"
-  | "underperforming";
+  | "underperforming"
+  | "no_data";
 
 /** One row of the board-health overview (Task 1), returned by /api/boards/health. */
 export interface BoardHealthRow {

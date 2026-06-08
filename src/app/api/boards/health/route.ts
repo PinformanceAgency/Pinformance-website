@@ -213,11 +213,16 @@ export async function GET() {
 
     const isInactive =
       daysSinceLastPin !== null && daysSinceLastPin > t.inactive_days;
-    // Don't crown a board "top performing" without a freshness or KPI signal.
-    const hasSignal = daysSinceLastPin !== null || hasKpi;
 
+    // Status:
+    //  - No measured impressions → "no_data" (we genuinely can't assess it;
+    //    never fake a "Leader" off pin-volume/recency alone).
+    //  - Otherwise band the score: Leader / Growth / Weak. A board can only be
+    //    a Leader when it actually has performance data (impressions > 0).
     let label: BoardHealthLabel;
-    if (healthScore >= 70 && !isInactive && hasSignal) {
+    if (!hasKpi) {
+      label = "no_data";
+    } else if (healthScore >= 70 && !isInactive) {
       label = "top_performing";
     } else if (healthScore >= 40) {
       label = "content_refresh";

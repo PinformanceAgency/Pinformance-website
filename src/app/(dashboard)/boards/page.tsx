@@ -34,6 +34,7 @@ const STATUS_META: Record<
   top_performing: { label: "Leader", dot: "bg-green-500", action: "Maintain" },
   content_refresh: { label: "Growth", dot: "bg-yellow-400", action: "Add Pins" },
   underperforming: { label: "Weak", dot: "bg-red-500", action: "Refresh" },
+  no_data: { label: "No data", dot: "bg-gray-300", action: "Add Pins" },
 };
 
 function formatNumber(n: number): string {
