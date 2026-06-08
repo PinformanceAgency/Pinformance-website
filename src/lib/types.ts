@@ -91,6 +91,8 @@ export interface BoardHealthRow {
   impressions: number;
   saves: number;
   clicks: number;
+  /** Pin clicks only (clicks = pin_clicks + outbound_clicks). */
+  pin_clicks: number;
   engagement_rate: number;
   /** Composite 0–100 health score from all available signals. */
   health_score: number;

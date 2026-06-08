@@ -11,13 +11,11 @@ import {
   Image,
   RefreshCw,
   Loader2,
-  Table2,
   AlertTriangle,
-  ArrowUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Board, BoardHealthRow, BoardHealthLabel } from "@/lib/types";
-import { BOARD_CATEGORIES, boardCategoryLabel } from "@/lib/constants";
+import { BOARD_CATEGORIES } from "@/lib/constants";
 
 interface SyncSummary {
   added: number;
@@ -28,45 +26,27 @@ interface SyncSummary {
   local_count_before: number;
 }
 
-const LABEL_META: Record<BoardHealthLabel, { label: string; className: string }> = {
-  top_performing: { label: "Top performing", className: "bg-green-100 text-green-700" },
-  content_refresh: { label: "Content refresh needed", className: "bg-yellow-100 text-yellow-700" },
-  underperforming: { label: "Underperforming", className: "bg-red-100 text-red-700" },
+// Health status shown in the table: colored dot + label + recommended action.
+const STATUS_META: Record<
+  BoardHealthLabel,
+  { label: string; dot: string; action: string }
+> = {
+  top_performing: { label: "Leader", dot: "bg-green-500", action: "Maintain" },
+  content_refresh: { label: "Growth", dot: "bg-yellow-400", action: "Add Pins" },
+  underperforming: { label: "Weak", dot: "bg-red-500", action: "Refresh" },
 };
-
-type SortKey =
-  | "name"
-  | "category"
-  | "pin_count"
-  | "days_since_last_pin"
-  | "impressions"
-  | "saves"
-  | "clicks"
-  | "engagement_rate"
-  | "health_score"
-  | "label";
 
 function formatNumber(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return n.toLocaleString();
 }
 
-function scoreColor(score: number): string {
-  if (score >= 70) return "bg-green-500";
-  if (score >= 40) return "bg-amber-500";
-  return "bg-red-500";
-}
-
-function scoreTooltip(h: BoardHealthRow): string {
-  const p = h.score_parts;
-  const fmt = (v: number | null) => (v === null ? "n/a" : `${Math.round(v)}`);
-  return [
-    `Velocity: ${fmt(p.velocity)}`,
-    `Volume: ${fmt(p.volume)}`,
-    `Performance: ${fmt(p.performance)}`,
-    `Engagement: ${fmt(p.engagement)}`,
-  ].join(" · ");
+function lastPinLabel(days: number | null): string {
+  if (days === null) return "—";
+  if (days === 0) return "today";
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
 }
 
 export default function BoardsPage() {
@@ -84,15 +64,10 @@ export default function BoardsPage() {
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
 
-  // ── Health view (Task 1 + Task 2) ──
-  const [view, setView] = useState<"cards" | "health">("cards");
+  // Health data (rendered below the cards on the same page).
   const [health, setHealth] = useState<BoardHealthRow[] | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [inactiveDays, setInactiveDays] = useState(14);
-  const [labelFilter, setLabelFilter] = useState<"all" | BoardHealthLabel>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("health_score");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
     if (!org) return;
@@ -109,10 +84,8 @@ export default function BoardsPage() {
       .eq("org_id", org!.id)
       .order("sort_order");
 
-    const boardList = (data as Board[]) || [];
-    setBoards(boardList);
+    setBoards((data as Board[]) || []);
 
-    // Read last sync timestamp from org settings.
     const { data: orgRow } = await supabase
       .from("organizations")
       .select("settings")
@@ -135,26 +108,10 @@ export default function BoardsPage() {
         if (json.thresholds?.inactive_days) setInactiveDays(json.thresholds.inactive_days);
       }
     } catch {
-      // Keep whatever we had — the table just won't refresh.
+      // Keep whatever we had.
     } finally {
       setHealthLoading(false);
     }
-  }
-
-  async function updateBoardCategory(boardId: string, category: string) {
-    const supabase = createClient();
-    await supabase
-      .from("boards")
-      .update({ category: category || null })
-      .eq("id", boardId);
-    setBoards((prev) =>
-      prev.map((b) => (b.id === boardId ? { ...b, category: category || null } : b))
-    );
-    setHealth((prev) =>
-      prev
-        ? prev.map((h) => (h.id === boardId ? { ...h, category: category || null } : h))
-        : prev
-    );
   }
 
   async function handleCreate() {
@@ -163,7 +120,6 @@ export default function BoardsPage() {
     setPublishError(null);
 
     const supabase = createClient();
-    // 1) Save the board locally as a draft (with optional description + category).
     const { data: draft, error: insertErr } = await supabase
       .from("boards")
       .insert({
@@ -178,8 +134,6 @@ export default function BoardsPage() {
       .select("id")
       .single();
 
-    // Close the modal regardless — the board now exists. If the Pinterest
-    // push fails, it stays as a draft with a "Create on Pinterest" button.
     setNewBoardName("");
     setNewBoardDescription("");
     setNewBoardCategory("");
@@ -192,9 +146,6 @@ export default function BoardsPage() {
       return;
     }
 
-    // Show the draft card immediately (with its "Creating…" spinner), then
-    // push to Pinterest so creation is one step for every connected brand.
-    // Failures are surfaced but never lose the draft.
     await loadBoards();
     await handleCreateOnPinterest(draft.id);
   }
@@ -243,80 +194,22 @@ export default function BoardsPage() {
     }
   }
 
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir(key === "name" || key === "category" ? "asc" : "desc");
-    }
-  }
-
   if (loading) {
     return <div className="h-96 bg-muted animate-pulse rounded-xl" />;
   }
 
-  const healthById = new Map((health || []).map((h) => [h.id, h]));
   const inactiveBoards = (health || []).filter((h) => h.is_inactive);
-
-  // Filter + sort the health rows for the table.
-  const filteredHealth = (health || [])
-    .filter((h) => labelFilter === "all" || h.label === labelFilter)
-    .filter((h) => {
-      if (categoryFilter === "all") return true;
-      if (categoryFilter === "uncategorized") return !h.category;
-      return h.category === categoryFilter;
-    });
-  const sortedHealth = [...filteredHealth].sort((a, b) => {
-    let av: number | string;
-    let bv: number | string;
-    if (sortKey === "name") {
-      av = a.name.toLowerCase();
-      bv = b.name.toLowerCase();
-    } else if (sortKey === "category") {
-      av = (a.category || "~").toLowerCase();
-      bv = (b.category || "~").toLowerCase();
-    } else if (sortKey === "label") {
-      const order: Record<BoardHealthLabel, number> = {
-        underperforming: 0,
-        content_refresh: 1,
-        top_performing: 2,
-      };
-      av = order[a.label];
-      bv = order[b.label];
-    } else if (sortKey === "days_since_last_pin") {
-      // Treat "never" as the most stale (largest).
-      av = a.days_since_last_pin ?? Number.MAX_SAFE_INTEGER;
-      bv = b.days_since_last_pin ?? Number.MAX_SAFE_INTEGER;
-    } else {
-      av = a[sortKey] as number;
-      bv = b[sortKey] as number;
-    }
-    if (av < bv) return sortDir === "asc" ? -1 : 1;
-    if (av > bv) return sortDir === "asc" ? 1 : -1;
-    return 0;
-  });
-
-  const SortHeader = ({ label, k, align = "left" }: { label: string; k: SortKey; align?: "left" | "right" }) => (
-    <th
-      className={cn("p-3 font-medium cursor-pointer select-none hover:text-foreground", align === "right" ? "text-right" : "text-left")}
-      onClick={() => toggleSort(k)}
-    >
-      <span className={cn("inline-flex items-center gap-1", align === "right" && "flex-row-reverse")}>
-        {label}
-        <ArrowUpDown className={cn("w-3 h-3", sortKey === k ? "text-foreground" : "text-muted-foreground/40")} />
-      </span>
-    </th>
+  // Sort the health table by score (leaders first), then by impressions.
+  const healthRows = [...(health || [])].sort(
+    (a, b) => b.health_score - a.health_score || b.impressions - a.impressions
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Boards</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage your Pinterest boards
-          </p>
+          <p className="text-muted-foreground mt-1">Manage your Pinterest boards</p>
           <div className="text-[11px] text-muted-foreground mt-1">
             {lastSyncedAt ? (
               <>Last synced from Pinterest: <strong className="text-foreground">{new Date(lastSyncedAt).toLocaleString()}</strong> · auto-syncs daily</>
@@ -326,42 +219,12 @@ export default function BoardsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Cards ↔ Health toggle */}
-          <div className="flex items-center gap-1 border border-border rounded-lg p-0.5">
-            <button
-              onClick={() => setView("cards")}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors",
-                view === "cards" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <LayoutGrid className="w-4 h-4" /> Cards
-            </button>
-            <button
-              onClick={() => setView("health")}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors",
-                view === "health" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Table2 className="w-4 h-4" /> Health
-              {inactiveBoards.length > 0 && (
-                <span className="ml-0.5 bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
-                  {inactiveBoards.length}
-                </span>
-              )}
-            </button>
-          </div>
           <button
             onClick={handleSync}
             disabled={syncing}
             className="border border-border bg-card text-foreground px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-muted disabled:opacity-50"
           >
-            {syncing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Sync from Pinterest
           </button>
           <button
@@ -393,255 +256,139 @@ export default function BoardsPage() {
         </div>
       )}
 
-      {/* Inactive-board alert (Task 2) — visible in both views. */}
-      {inactiveBoards.length > 0 && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="flex items-center gap-2 font-medium">
-            <AlertTriangle className="w-4 h-4" />
-            {inactiveBoards.length} board{inactiveBoards.length !== 1 ? "s" : ""} {inactiveBoards.length !== 1 ? "have" : "has"} had no new pins in the last {inactiveDays} days
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {inactiveBoards.map((h) => (
-              <span key={h.id} className="bg-white/70 border border-amber-200 rounded-full px-2.5 py-1 text-xs">
-                {h.name}
-                <span className="text-amber-700/70">
-                  {" · "}
-                  {h.days_since_last_pin === null
-                    ? "no pins added yet"
-                    : `${h.days_since_last_pin} days ago`}
-                </span>
+      {/* ── ALL BOARDS (blank cards) ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {boards.map((board) => (
+          <div key={board.id} className="bg-card border border-border rounded-xl p-5 space-y-3">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <LayoutGrid className="w-4 h-4 text-primary" />
+                <h3 className="font-medium">{board.name}</h3>
+              </div>
+              <span
+                className={cn(
+                  "text-xs px-2 py-0.5 rounded-full font-medium",
+                  board.status === "active" && "bg-green-100 text-green-700",
+                  board.status === "created" && "bg-blue-100 text-blue-700",
+                  board.status === "draft" && "bg-yellow-100 text-yellow-700",
+                  board.status === "archived" && "bg-gray-100 text-gray-700"
+                )}
+              >
+                {board.status}
               </span>
-            ))}
+            </div>
+
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Image className="w-3 h-3" />
+                {board.pin_count ?? 0} pins
+              </span>
+            </div>
+
+            {board.status === "draft" && (
+              <button
+                onClick={() => handleCreateOnPinterest(board.id)}
+                disabled={publishingId === board.id}
+                className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
+              >
+                {publishingId === board.id ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" /> Creating…
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-3 h-3" /> Create on Pinterest
+                  </>
+                )}
+              </button>
+            )}
           </div>
+        ))}
+      </div>
+
+      {boards.length === 0 && (
+        <div className="text-center py-12 text-muted-foreground">
+          No boards yet. Create your first board to get started.
         </div>
       )}
 
-      {/* ── HEALTH TABLE VIEW (Task 1) ── */}
-      {view === "health" ? (
-        <div className="space-y-4">
-          {/* Filters */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Health</span>
-              <select
-                value={labelFilter}
-                onChange={(e) => setLabelFilter(e.target.value as "all" | BoardHealthLabel)}
-                className="px-2.5 py-1.5 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              >
-                <option value="all">All labels</option>
-                <option value="top_performing">Top performing</option>
-                <option value="content_refresh">Content refresh needed</option>
-                <option value="underperforming">Underperforming</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Category</span>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="px-2.5 py-1.5 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              >
-                <option value="all">All categories</option>
-                {BOARD_CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-                <option value="uncategorized">Uncategorized</option>
-              </select>
-            </div>
-            {healthLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
-            <span className="text-xs text-muted-foreground ml-auto">
-              Metrics over the configured window · thresholds in Settings
-            </span>
-          </div>
+      {/* ── BOARD HEALTH (same page, below the cards) ── */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold">Board health</h2>
+          {healthLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+        </div>
 
-          <div className="bg-card border border-border rounded-xl overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/50 text-muted-foreground">
-                  <SortHeader label="Board" k="name" />
-                  <SortHeader label="Category" k="category" />
-                  <SortHeader label="Pins" k="pin_count" align="right" />
-                  <SortHeader label="Last pin" k="days_since_last_pin" align="right" />
-                  <SortHeader label="Impressions" k="impressions" align="right" />
-                  <SortHeader label="Saves" k="saves" align="right" />
-                  <SortHeader label="Clicks" k="clicks" align="right" />
-                  <SortHeader label="Engagement" k="engagement_rate" align="right" />
-                  <SortHeader label="Score" k="health_score" align="right" />
-                  <SortHeader label="Health" k="label" />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedHealth.map((h) => (
+        {/* Inactive-board alert */}
+        {inactiveBoards.length > 0 && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="w-4 h-4" />
+              {inactiveBoards.length} board{inactiveBoards.length !== 1 ? "s" : ""} {inactiveBoards.length !== 1 ? "have" : "has"} had no new pins in the last {inactiveDays} days
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {inactiveBoards.map((h) => (
+                <span key={h.id} className="bg-white/70 border border-amber-200 rounded-full px-2.5 py-1 text-xs">
+                  {h.name}
+                  <span className="text-amber-700/70">
+                    {" · "}
+                    {h.days_since_last_pin === null ? "no pins added yet" : `${h.days_since_last_pin} days ago`}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="bg-card border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-muted-foreground">
+                <th className="p-3 font-semibold">Board</th>
+                <th className="p-3 font-semibold text-right">Pins</th>
+                <th className="p-3 font-semibold">Last Pin</th>
+                <th className="p-3 font-semibold text-right">Impressions</th>
+                <th className="p-3 font-semibold text-right">Saves</th>
+                <th className="p-3 font-semibold text-right">Pin Clicks</th>
+                <th className="p-3 font-semibold">Status</th>
+                <th className="p-3 font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {healthRows.map((h) => {
+                const meta = STATUS_META[h.label];
+                return (
                   <tr key={h.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                    <td className="p-3">
-                      <div className="font-medium flex items-center gap-1.5">
-                        {h.is_inactive && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />}
-                        {h.name}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <select
-                        value={h.category || ""}
-                        onChange={(e) => updateBoardCategory(h.id, e.target.value)}
-                        className="px-2 py-1 bg-background border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
-                      >
-                        <option value="">—</option>
-                        {BOARD_CATEGORIES.map((c) => (
-                          <option key={c.value} value={c.value}>{c.label}</option>
-                        ))}
-                      </select>
-                    </td>
+                    <td className="p-3 font-medium">{h.name}</td>
                     <td className="p-3 text-right tabular-nums">{h.pin_count}</td>
-                    <td className="p-3 text-right tabular-nums">
-                      {h.last_pin_at === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <span className={cn(h.is_inactive && "text-amber-600 font-medium")} title={new Date(h.last_pin_at).toLocaleDateString()}>
-                          {h.days_since_last_pin}d ago
-                        </span>
-                      )}
+                    <td className="p-3">
+                      <span className={cn(h.is_inactive && "text-amber-600 font-medium")}>
+                        {lastPinLabel(h.days_since_last_pin)}
+                      </span>
                     </td>
                     <td className="p-3 text-right tabular-nums">{formatNumber(h.impressions)}</td>
                     <td className="p-3 text-right tabular-nums">{formatNumber(h.saves)}</td>
-                    <td className="p-3 text-right tabular-nums">{formatNumber(h.clicks)}</td>
-                    <td className="p-3 text-right tabular-nums">{h.engagement_rate.toFixed(2)}%</td>
+                    <td className="p-3 text-right tabular-nums">{formatNumber(h.pin_clicks)}</td>
                     <td className="p-3">
-                      <div className="flex items-center gap-2 justify-end" title={scoreTooltip(h)}>
-                        <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className={cn("h-full rounded-full", scoreColor(h.health_score))}
-                            style={{ width: `${h.health_score}%` }}
-                          />
-                        </div>
-                        <span className="tabular-nums font-medium w-7 text-right">{h.health_score}</span>
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap", LABEL_META[h.label].className)}>
-                        {LABEL_META[h.label].label}
+                      <span className="inline-flex items-center gap-2">
+                        <span className={cn("w-2.5 h-2.5 rounded-full", meta.dot)} />
+                        {meta.label}
                       </span>
                     </td>
+                    <td className="p-3 text-muted-foreground">{meta.action}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                );
+              })}
+            </tbody>
+          </table>
 
-            {sortedHealth.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground text-sm">
-                {health === null
-                  ? "Loading board health…"
-                  : (health.length === 0
-                    ? "No boards yet. Create your first board to get started."
-                    : "No boards match the current filters.")}
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        /* ── CARDS VIEW ── */
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {boards.map((board) => {
-              const h = healthById.get(board.id);
-              return (
-                <div
-                  key={board.id}
-                  className="bg-card border border-border rounded-xl p-5 space-y-3"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <LayoutGrid className="w-4 h-4 text-primary" />
-                      <h3 className="font-medium">{board.name}</h3>
-                    </div>
-                    <span
-                      className={cn(
-                        "text-xs px-2 py-0.5 rounded-full font-medium",
-                        board.status === "active" && "bg-green-100 text-green-700",
-                        board.status === "created" && "bg-blue-100 text-blue-700",
-                        board.status === "draft" && "bg-yellow-100 text-yellow-700",
-                        board.status === "archived" && "bg-gray-100 text-gray-700"
-                      )}
-                    >
-                      {board.status}
-                    </span>
-                  </div>
-
-                  {/* Health + inactive badges */}
-                  {h && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-muted text-foreground inline-flex items-center gap-1.5"
-                        title={scoreTooltip(h)}
-                      >
-                        <span className={cn("w-1.5 h-1.5 rounded-full", scoreColor(h.health_score))} />
-                        Score {h.health_score}
-                      </span>
-                      <span className={cn("text-[11px] px-2 py-0.5 rounded-full font-medium", LABEL_META[h.label].className)}>
-                        {LABEL_META[h.label].label}
-                      </span>
-                      {h.is_inactive && (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" />
-                          {h.days_since_last_pin}d no pins
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Image className="w-3 h-3" />
-                      {board.pin_count ?? 0} pins
-                    </span>
-                    {boardCategoryLabel(board.category) && (
-                      <span className="capitalize">{boardCategoryLabel(board.category)}</span>
-                    )}
-                  </div>
-
-                  {/* Category selector (Task 3 — categories on boards) */}
-                  <div>
-                    <label className="text-[11px] font-medium text-muted-foreground">Category</label>
-                    <select
-                      value={board.category || ""}
-                      onChange={(e) => updateBoardCategory(board.id, e.target.value)}
-                      className="w-full mt-0.5 px-2 py-1.5 bg-background border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
-                    >
-                      <option value="">— No category —</option>
-                      {BOARD_CATEGORIES.map((c) => (
-                        <option key={c.value} value={c.value}>{c.label}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {board.status === "draft" && (
-                    <button
-                      onClick={() => handleCreateOnPinterest(board.id)}
-                      disabled={publishingId === board.id}
-                      className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
-                    >
-                      {publishingId === board.id ? (
-                        <>
-                          <Loader2 className="w-3 h-3 animate-spin" /> Creating…
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-3 h-3" /> Create on Pinterest
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {boards.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
-              No boards yet. Create your first board to get started.
+          {healthRows.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              {health === null ? "Loading board health…" : "No boards yet."}
             </div>
           )}
-        </>
-      )}
+        </div>
+      </div>
 
       {/* Create Board Modal */}
       {showCreate && (
@@ -650,18 +397,13 @@ export default function BoardsPage() {
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">Create Board</h3>
-                <button
-                  onClick={() => setShowCreate(false)}
-                  className="p-1 hover:bg-muted rounded"
-                >
+                <button onClick={() => setShowCreate(false)} className="p-1 hover:bg-muted rounded">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div>
-                <label className="text-xs font-medium text-muted-foreground">
-                  Name
-                </label>
+                <label className="text-xs font-medium text-muted-foreground">Name</label>
                 <input
                   type="text"
                   value={newBoardName}

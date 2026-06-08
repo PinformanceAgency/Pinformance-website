@@ -123,14 +123,15 @@ export async function GET() {
 
   const agg = new Map<
     string,
-    { impressions: number; saves: number; clicks: number }
+    { impressions: number; saves: number; clicks: number; pinClicks: number }
   >();
   for (const row of analyticsData || []) {
     const boardId = pinToBoard.get(row.pin_id as string);
     if (!boardId) continue;
-    const cur = agg.get(boardId) || { impressions: 0, saves: 0, clicks: 0 };
+    const cur = agg.get(boardId) || { impressions: 0, saves: 0, clicks: 0, pinClicks: 0 };
     cur.impressions += (row.impressions as number) || 0;
     cur.saves += (row.saves as number) || 0;
+    cur.pinClicks += (row.pin_clicks as number) || 0;
     cur.clicks +=
       ((row.pin_clicks as number) || 0) + ((row.outbound_clicks as number) || 0);
     agg.set(boardId, cur);
@@ -143,7 +144,7 @@ export async function GET() {
 
   const now = Date.now();
   const rows: BoardHealthRow[] = boards.map((b) => {
-    const metrics = agg.get(b.id) || { impressions: 0, saves: 0, clicks: 0 };
+    const metrics = agg.get(b.id) || { impressions: 0, saves: 0, clicks: 0, pinClicks: 0 };
     // Latest pin: Pinterest-sourced date wins, else our most recent pin.
     const lastPinAt = b.last_pin_added_at || lastPinByBoard.get(b.id) || null;
     const daysSinceLastPin =
@@ -219,6 +220,7 @@ export async function GET() {
       impressions: metrics.impressions,
       saves: metrics.saves,
       clicks: metrics.clicks,
+      pin_clicks: metrics.pinClicks,
       engagement_rate: Math.round(engagementRate * 100) / 100,
       health_score: healthScore,
       score_parts: parts,
