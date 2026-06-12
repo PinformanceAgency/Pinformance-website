@@ -15,7 +15,7 @@ import {
 // Constants
 // -----------------------------------------------------------------------------
 const CAP = 10_000;
-const BASE_FEE = 750;
+const BASE_FEE = 1_000;
 const STARTUP_FEE = 1_000;
 const MIN_REVENUE_FOR_PERF = 20_000;
 const MIN_ADSPEND_FOR_FEE = 7_500;
