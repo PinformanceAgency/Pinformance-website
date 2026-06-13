@@ -43,17 +43,27 @@ export async function middleware(request: NextRequest) {
 
   // Gate the calculator (both the dedicated host and the /calculator path).
   if (isCalculatorHost || isCalculatorPath) {
-    const challenge = calculatorAuthChallenge(request);
-    if (challenge) return challenge;
-  }
+    // TEMP debug: expose whether the middleware actually sees the auth env vars.
+    const dbg =
+      (process.env.CALCULATOR_AUTH_USER ? "U" : "-") +
+      (process.env.CALCULATOR_AUTH_PASSWORD ? "P" : "-");
 
-  if (isCalculatorHost) {
-    const url = request.nextUrl.clone();
-    if (!url.pathname.startsWith("/calculator")) {
-      url.pathname = "/calculator";
-      return NextResponse.rewrite(url);
+    const challenge = calculatorAuthChallenge(request);
+    if (challenge) {
+      challenge.headers.set("x-calc-auth", dbg);
+      return challenge;
     }
-    return NextResponse.next();
+
+    let res: NextResponse;
+    if (isCalculatorHost && !request.nextUrl.pathname.startsWith("/calculator")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/calculator";
+      res = NextResponse.rewrite(url);
+    } else {
+      res = NextResponse.next();
+    }
+    res.headers.set("x-calc-auth", dbg);
+    return res;
   }
 
   return await updateSession(request);
