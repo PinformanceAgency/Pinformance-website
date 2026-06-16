@@ -690,34 +690,42 @@ function CompactCostCard({
 // -----------------------------------------------------------------------------
 // Guarantees — 3 prominent cards that claim our promises
 // -----------------------------------------------------------------------------
-function GuaranteesFirstPurchase({ model }: { model: FpModel }) {
+function GuaranteesFirstPurchase({
+  model,
+  isDropship = false,
+}: {
+  model: FpModel;
+  isDropship?: boolean;
+}) {
   const g = model.guaranteeRoas.toString();
-  return (
-    <GuaranteesGrid
-      items={[
-        {
-          label: "Guarantee",
-          headline: `ROAS below ${g} — no performance fee`,
-          body: `If we don't hit a ROAS of ${g}, you pay no performance fee. We carry the performance risk.`,
-        },
-        {
-          label: "Threshold",
-          headline: `Only from € ${MIN_REVENUE_FOR_PERF.toLocaleString("en-US")} revenue`,
-          body: `Below this monthly revenue, only the base fee applies. No variable cost.`,
-        },
-        {
-          label: "Maximum",
-          headline: `Fee capped at € ${CAP.toLocaleString("en-US")} per month`,
-          body: `Our total monthly fee never goes above this, however far we scale.`,
-        },
-        {
-          label: "Invoicing",
-          headline: "After the month, never before",
-          body: "The performance fee is calculated and invoiced at month-end, on actual results. You earn first, pay after.",
-        },
-      ]}
-    />
-  );
+  const items = [
+    {
+      label: "Guarantee",
+      headline: `ROAS below ${g} — no performance fee`,
+      body: `If we don't hit a ROAS of ${g}, you pay no performance fee. We carry the performance risk.`,
+    },
+    {
+      label: "Threshold",
+      headline: `Only from € ${MIN_REVENUE_FOR_PERF.toLocaleString("en-US")} revenue`,
+      body: `Below this monthly revenue, only the base fee applies. No variable cost.`,
+    },
+    // Dropship has no monthly cap, so the Maximum card is omitted.
+    ...(isDropship
+      ? []
+      : [
+          {
+            label: "Maximum",
+            headline: `Fee capped at € ${CAP.toLocaleString("en-US")} per month`,
+            body: `Our total monthly fee never goes above this, however far we scale.`,
+          },
+        ]),
+    {
+      label: "Invoicing",
+      headline: "After the month, never before",
+      body: "The performance fee is calculated and invoiced at month-end, on actual results. You earn first, pay after.",
+    },
+  ];
+  return <GuaranteesGrid items={items} />;
 }
 
 function GuaranteesSubscription({ minimumRoas }: { minimumRoas: number }) {
@@ -828,7 +836,8 @@ function FirstPurchasePanel({
       return { perfFee: 0, capped: false, total: baseFee, effectivePct: 0 };
     }
     const raw = Math.round(revenue * ((perfPct as number) / 100));
-    const maxPerf = CAP - baseFee;
+    // Dropship has no monthly fee cap — performance fee scales unbounded.
+    const maxPerf = isDropship ? Infinity : CAP - baseFee;
     const isCapped = raw > maxPerf;
     const perf = isCapped ? maxPerf : raw;
     const tot = baseFee + perf;
@@ -838,7 +847,7 @@ function FirstPurchasePanel({
       total: tot,
       effectivePct: (tot / revenue) * 100,
     };
-  }, [roas, revenue, perfPct, belowGuarantee, belowMinRev, baseFee]);
+  }, [roas, revenue, perfPct, belowGuarantee, belowMinRev, baseFee, isDropship]);
 
   const chartData = useMemo(() => {
     const min = model.guaranteeRoas;
@@ -892,7 +901,7 @@ function FirstPurchasePanel({
       />
 
       {/* 2. Guarantees — what we commit to (de-risks the cost reveal next) */}
-      <GuaranteesFirstPurchase model={model} />
+      <GuaranteesFirstPurchase model={model} isDropship={isDropship} />
 
       <section>
         <div className="mb-6">
