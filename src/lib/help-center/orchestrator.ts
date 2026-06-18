@@ -100,11 +100,10 @@ export async function orchestrate(
     `Admin request:\n${prompt}`;
 
   const response = await anthropic.messages.create({
-    // Same model the rest of the codebase uses for AI tasks. Date-suffixed
-    // model IDs are required by the Anthropic API — a bare 'claude-sonnet-4-5'
-    // is rejected and causes the catch in the route to fire with the
-    // generic 'AI service could not be reached' message.
-    model: "claude-sonnet-4-20250514",
+    // Same model the rest of the codebase uses for AI tasks (see src/lib/ai/client.ts).
+    // The previous date-suffixed ID (claude-sonnet-4-20250514) was decommissioned
+    // and returned 404 not_found_error; claude-sonnet-4-6 is the current Sonnet.
+    model: "claude-sonnet-4-6",
     max_tokens: 2048,
     system: SYSTEM_PROMPT,
     tools: buildToolDefinitions(),

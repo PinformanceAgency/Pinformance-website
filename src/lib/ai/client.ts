@@ -43,7 +43,7 @@ function extractJsonFromText<T>(text: string): T {
 export async function generateJSON<T>(
   systemPrompt: string,
   userPrompt: string,
-  model = "claude-sonnet-4-20250514",
+  model = "claude-sonnet-4-6",
   apiKey?: string
 ): Promise<T> {
   const anthropic = getAnthropicClient(apiKey);
@@ -67,7 +67,7 @@ export async function generateJSONWithImage<T>(
   systemPrompt: string,
   userPrompt: string,
   imageUrl: string,
-  model = "claude-sonnet-4-20250514",
+  model = "claude-sonnet-4-6",
   apiKey?: string
 ): Promise<T> {
   const anthropic = getAnthropicClient(apiKey);
