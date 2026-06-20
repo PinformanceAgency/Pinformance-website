@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Image from "next/image";
 import StatsCounter from "./StatsCounter";
+import ResultsCarousel from "./ResultsCarousel";
 
 // ============================================================
 //  CONFIG — Edit these values
@@ -312,34 +313,7 @@ export default function TyPage() {
                 and redeploy.
               </div>
             ) : (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 24,
-                  maxWidth: 820,
-                  margin: "0 auto",
-                }}
-              >
-                {images.map((file, i) => (
-                  <Image
-                    key={file}
-                    src={`/ty-page/results/${file}`}
-                    alt={`Pinformance client result ${i + 1}`}
-                    width={1600}
-                    height={1000}
-                    sizes="(max-width: 820px) 100vw, 820px"
-                    style={{
-                      width: "100%",
-                      height: "auto",
-                      borderRadius: 14,
-                      boxShadow: "0 1px 2px rgba(17,19,21,0.04), 0 6px 20px rgba(17,19,21,0.06)",
-                      background: "#fff",
-                    }}
-                    priority={i < 2}
-                  />
-                ))}
-              </div>
+              <ResultsCarousel images={images} />
             )}
           </div>
         </section>
