@@ -8,7 +8,7 @@ import ReviewsCarousel from "./ReviewsCarousel";
 // ============================================================
 //  CONFIG — Edit these values
 // ============================================================
-const INSTAGRAM_URL = "https://www.instagram.com/rensvanderzwart/";
+const INSTAGRAM_URL = "https://www.instagram.com/renshasperhoven/";
 const INBOX_LINE =
   "Check your inbox for the confirmation and calendar invite.";
 // ============================================================
