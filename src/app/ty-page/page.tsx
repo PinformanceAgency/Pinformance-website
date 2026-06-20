@@ -378,21 +378,18 @@ export default function TyPage() {
                     marginBottom: 6,
                   }}
                 >
-                  Voor onze call
+                  Let&apos;s connect
                 </div>
                 <h3
                   style={{
-                    margin: "0 0 8px",
+                    margin: 0,
                     fontSize: "clamp(22px, 3.4vw, 28px)",
                     fontWeight: 700,
                     letterSpacing: "-0.015em",
                   }}
                 >
-                  Leer ons kennen op Instagram
+                  Volg mij op Instagram
                 </h3>
-                <p style={{ margin: 0, color: "#bfc3c7", fontSize: 14.5 }}>
-                  Dagelijks Pinterest-strategie, behind-the-scenes en klant-wins.
-                </p>
               </div>
               <a
                 href={INSTAGRAM_URL}
