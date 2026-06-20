@@ -187,7 +187,7 @@ export default function TyPage() {
                 fontWeight: 500,
               }}
             >
-              We bereiden je call zorgvuldig voor — tot dan!
+              We bereiden je call zorgvuldig voor, tot dan!
             </p>
             <a
               href="#cases"
