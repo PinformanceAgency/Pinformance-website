@@ -163,7 +163,7 @@ export default function TyPage() {
             <h1 className="ty-hero-title" style={{ margin: "0 0 18px" }}>
               Je staat ingepland.
               <br />
-              <span style={{ color: BRAND.red }}>Je introductie call is bevestigd.</span>
+              <span style={{ color: BRAND.red }}>Je introductie call is bevestigd!</span>
             </h1>
             <p
               style={{
@@ -179,15 +179,12 @@ export default function TyPage() {
               style={{
                 fontSize: "clamp(15px, 2.4vw, 17px)",
                 color: BRAND.ink,
-                maxWidth: 680,
+                maxWidth: 580,
                 margin: "0 auto 28px",
                 fontWeight: 500,
               }}
             >
-              We bereiden jouw call grondig voor: vóór onze afspraak duiken we in je merk, je
-              huidige Pinterest-account en je markt, zodat we direct met concrete inzichten en
-              een plan komen. Reserveer dus alvast die tijd in je agenda — het zou jammer zijn
-              als al die voorbereiding voor niets is.
+              We bereiden je call zorgvuldig voor — tot dan!
             </p>
             <a
               href="#cases"
