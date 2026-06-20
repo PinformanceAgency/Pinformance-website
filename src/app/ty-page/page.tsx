@@ -109,8 +109,10 @@ export default function TyPage() {
         .ty-case-grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
         @media (min-width: 980px) { .ty-case-grid { grid-template-columns: repeat(3, 1fr); gap: 24px; } }
 
-        .ty-case-card { background: #fff; border: 1px solid ${BRAND.border}; border-radius: 20px; overflow: hidden; box-shadow: 0 1px 2px rgba(17,19,21,0.04), 0 4px 16px rgba(17,19,21,0.05); transition: transform .2s ease, box-shadow .2s ease; }
+        .ty-case-card { background: #fff; border: 1px solid ${BRAND.border}; border-radius: 20px; overflow: hidden; box-shadow: 0 1px 2px rgba(17,19,21,0.04), 0 4px 16px rgba(17,19,21,0.05); transition: transform .2s ease, box-shadow .2s ease; display: flex; flex-direction: column; height: 100%; }
         .ty-case-card:hover { transform: translateY(-4px); box-shadow: 0 8px 32px rgba(17,19,21,0.1); }
+        .ty-case-body { padding: 24px; display: flex; flex-direction: column; flex: 1; }
+        .ty-case-desc { flex: 1; }
 
         .ty-ig-card { display: flex; flex-direction: column; gap: 18px; align-items: flex-start; }
         @media (min-width: 720px) { .ty-ig-card { flex-direction: row; align-items: center; justify-content: space-between; padding: 36px 40px !important; } }
@@ -239,7 +241,7 @@ export default function TyPage() {
                       style={{ objectFit: "cover" }}
                     />
                   </div>
-                  <div style={{ padding: 24 }}>
+                  <div className="ty-case-body">
                     <h3
                       style={{
                         margin: "0 0 10px",
@@ -251,6 +253,7 @@ export default function TyPage() {
                       {c.name}
                     </h3>
                     <p
+                      className="ty-case-desc"
                       style={{
                         margin: "0 0 22px",
                         color: BRAND.muted,
