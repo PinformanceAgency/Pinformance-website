@@ -11,49 +11,49 @@ interface Review {
 const REVIEWS: Review[] = [
   {
     name: "Bram Konings",
-    role: "Founder",
+    role: "Oprichter",
     text:
       "I've been working together with the guys from Pinformance Agency for a while now, and it's honestly been a really nice collaboration. They have a lot of knowledge about Pinterest and a strong network within Pinterest itself. You notice that right away in how they think along, move fast, and optimize. They helped me a lot with scaling my brand, where we started working multichannel, including Pinterest. The media buying from Pinformance played a big role in reaching our niche. They actively think along and really understand both the “Pinterest user” persona and the main persona of our brand. What I really appreciate is that they don't just execute, but also share their knowledge. They take you through their strategy, think along on a content level, and make sure you actually understand what's happening. Because of that, you really learn as an entrepreneur instead of just outsourcing everything without insight.",
   },
   {
     name: "Khair Chraou",
-    role: "Founder",
+    role: "Oprichter",
     text:
       "I've been working with Pinformance for almost a year and a half now, and I can honestly say I'm extremely satisfied with the collaboration. Month after month we've been consistently generating seven figure revenue with very healthy and sustainable profits coming directly from Pinterest. What really stands out is their communication and the way they truly think along with your brand. They don't just run campaigns, they actively look for opportunities to scale and help you grow long term. Whenever there are issues or challenges, they come back quickly with clear solutions, which gives a lot of confidence. If you're running a serious brand and truly want to scale, I believe Pinterest is a must-have channel. After working with Pinterest for a few months, we saw an increase in our blended ROAS. This wasn't only because of Pinterest's direct ROAS, but also because of the strength of a multichannel setup, with Pinterest helping to lift our Google ROAS as well. Pinformance is definitely a partner I would recommend. Besides the strong performance and consistency, it's also genuinely fun to advertise on Pinterest when you see how well it works and have a great connection with the team at Pinformance. Overall, a great experience and a strong recommendation. Thanks guys and keep on scaling 🚀",
   },
   {
     name: "Daniel Van Til",
-    role: "Founder",
+    role: "Oprichter",
     text:
       "We came into contact with the owners of Pinformance about a year ago, recommended to us by a good friend. He said we should talk to these guys if we wanted to scale up on Pinterest, and he wasn't lying. Our brand is in a niche that Pinterest doesn't favor, but due to the experience and good contacts Pinformance has internal we still manage to get our ads through and help us with our creative strategy. The results are also strong; Pinterest is responsible for a large part of the total sales of our Brand. Thanks to Pinformance, the results have only gotten better.",
   },
   {
     name: "Karol Rosinski",
-    role: "Founder",
+    role: "Oprichter",
     text:
       "Before working with Pinformance I have dabbled into Pinterest ads but saw no results and didn't have time to expand into a new channel. I regret not working with the guys sooner because as soon as we started working together, within 3 weeks Pinterest became my main platform, and had the highest and most stable roas across 4 different platforms. If you are already advertising on other platforms, and don't have time or knowledge to expand, work with the guys at Pinformance and Pinterest might just become your main platform.",
   },
   {
     name: "Kain Kolenbrander",
-    role: "Founder",
+    role: "Oprichter",
     text:
       "We've been working with Thijmen and Tycho for several months now and are very pleased with the collaboration. For a brand, an omni-channel approach is one of the most important factors for growth, which is why we launched our Pinterest account and started working with Thijmen and Tycho. The results have been good, and we're very satisfied with the communication. If you have a brand and want to take the hassle out of managing Pinterest, I definitely recommend working with Thijmen and Tycho.",
   },
   {
     name: "Sinan Kaya",
-    role: "Founder",
+    role: "Oprichter",
     text:
       "These guys are truly super passionate and work on e-commerce day in and day out. That's why they really understand the customer. I don't think you could find a better partner for Pinterest ads.",
   },
   {
     name: "Chris Borghouts",
-    role: "Founder",
+    role: "Oprichter",
     text:
       "I've had the pleasure of working with these guys for well over a year now. The brand I'm heavily involved in originally moved over from being completely Meta-only to adding Pinterest as an extra platform. It ended up playing out a bit differently than planned, as we're now significantly outspending Meta on Pinterest, with substantial improvement in the brand's overall performance thanks to these guys. They really know everything there is to know about Pinterest, have strong connections there, and above all just an insane amount of expertise in media buying and what you specifically need to make Pinterest work successfully. If you don't get results you don't pay so there's really no reason not to give it a shot. I'm sure it could have a big impact for many other brand owners as well.",
   },
   {
     name: "Dante Merlin",
-    role: "Founder",
+    role: "Oprichter",
     text:
       "Exceptional Pinterest Ads Partner — Highly Recommend. We've been working with this agency to manage all of our Pinterest advertising, and the experience has been outstanding from day one. We handle the creative assets, and they take everything else completely off our plate — campaign setup, targeting, optimization, ongoing management — all handled seamlessly. What really sets them apart is their communication. They're always responsive, proactive about updates, and easy to get ahold of when we have questions. We never have to wonder what's happening with our campaigns. Most importantly, the results speak for themselves. Our Pinterest ads have been performing consistently well, and we're seeing real returns on our investment. It's clear they know the platform inside and out. If you're looking for an agency that's professional, reliable, and actually delivers results, look no further. We couldn't be happier with the partnership.",
   },
@@ -231,7 +231,7 @@ export default function ReviewsCarousel() {
                   className="rv-readmore"
                   onClick={() => toggle(i)}
                 >
-                  {isExpanded ? "Show less" : "Read more"}
+                  {isExpanded ? "Toon minder" : "Lees meer"}
                 </button>
               )}
               <div className="rv-divider" />

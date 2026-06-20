@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "You're booked — Pinformance Agency",
-  description: "Your Pinformance roadmap call is confirmed.",
+  title: "Je call staat ingepland — Pinformance Agency",
+  description: "Je introductie call met Pinformance is bevestigd.",
   robots: { index: false, follow: false },
   icons: {
     icon: [
