@@ -9,7 +9,6 @@ import ReviewsCarousel from "./ReviewsCarousel";
 //  CONFIG — Edit these values
 // ============================================================
 const INSTAGRAM_URL = "https://www.instagram.com/renshasperhoven/";
-const TRUSTPILOT_URL = "https://www.trustpilot.com/review/pinformance-agency.com";
 const INBOX_LINE =
   "Check je inbox voor de bevestiging en de agenda-uitnodiging.";
 // ============================================================
@@ -113,10 +112,8 @@ export default function TyPage() {
         .ty-case-card { background: #fff; border: 1px solid ${BRAND.border}; border-radius: 20px; overflow: hidden; box-shadow: 0 1px 2px rgba(17,19,21,0.04), 0 4px 16px rgba(17,19,21,0.05); transition: transform .2s ease, box-shadow .2s ease; }
         .ty-case-card:hover { transform: translateY(-4px); box-shadow: 0 8px 32px rgba(17,19,21,0.1); }
 
-        .ty-cta-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 820px) { .ty-cta-grid { grid-template-columns: 1fr 1fr; gap: 24px; } }
-        .ty-cta-card { display: flex; flex-direction: column; justify-content: space-between; gap: 20px; min-height: 200px; }
-        .ty-trustpilot-stars { display: flex; gap: 2px; align-items: center; }
+        .ty-ig-card { display: flex; flex-direction: column; gap: 18px; align-items: flex-start; }
+        @media (min-width: 720px) { .ty-ig-card { flex-direction: row; align-items: center; justify-content: space-between; padding: 36px 40px !important; } }
 
         .ty-btn-primary:hover { background: ${BRAND.redDark}; transform: translateY(-1px); }
         .ty-scroll-cue:hover { background: #000; }
@@ -354,163 +351,65 @@ export default function TyPage() {
           </div>
         </section>
 
-        {/* CTAs — Instagram + Trustpilot */}
+        {/* IG CTA */}
         <section style={{ padding: "24px 0 96px" }}>
           <div className="ty-container">
-            <div className="ty-cta-grid">
-              {/* Instagram card */}
-              <div
-                className="ty-cta-card"
+            <div
+              className="ty-ig-card"
+              style={{
+                background: BRAND.ink,
+                color: "#fff",
+                borderRadius: 20,
+                padding: 32,
+                boxShadow: "0 8px 28px rgba(17,19,21,0.12)",
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.12em",
+                    color: BRAND.red,
+                    fontWeight: 700,
+                    marginBottom: 6,
+                  }}
+                >
+                  Voor onze call
+                </div>
+                <h3
+                  style={{
+                    margin: "0 0 8px",
+                    fontSize: "clamp(22px, 3.4vw, 28px)",
+                    fontWeight: 700,
+                    letterSpacing: "-0.015em",
+                  }}
+                >
+                  Leer ons kennen op Instagram
+                </h3>
+                <p style={{ margin: 0, color: "#bfc3c7", fontSize: 14.5 }}>
+                  Dagelijks Pinterest-strategie, behind-the-scenes en klant-wins.
+                </p>
+              </div>
+              <a
+                href={INSTAGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ty-btn-primary"
                 style={{
-                  background: BRAND.ink,
+                  display: "inline-block",
+                  padding: "14px 26px",
+                  borderRadius: 999,
+                  background: BRAND.red,
                   color: "#fff",
-                  borderRadius: 20,
-                  padding: 32,
-                  boxShadow: "0 8px 28px rgba(17,19,21,0.12)",
+                  fontWeight: 700,
+                  fontSize: 15,
+                  textDecoration: "none",
+                  transition: "background .15s ease, transform .15s ease",
                 }}
               >
-                <div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.12em",
-                      color: BRAND.red,
-                      fontWeight: 700,
-                      marginBottom: 8,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-                      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-                      <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
-                    </svg>
-                    Voor onze call
-                  </div>
-                  <h3
-                    style={{
-                      margin: "0 0 8px",
-                      fontSize: "clamp(20px, 2.6vw, 24px)",
-                      fontWeight: 700,
-                      letterSpacing: "-0.015em",
-                    }}
-                  >
-                    Leer ons kennen op Instagram
-                  </h3>
-                  <p style={{ margin: 0, color: "#bfc3c7", fontSize: 14.5, lineHeight: 1.5 }}>
-                    Dagelijks Pinterest-strategie, behind-the-scenes en klant-wins.
-                  </p>
-                </div>
-                <a
-                  href={INSTAGRAM_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ty-btn-primary"
-                  style={{
-                    display: "inline-block",
-                    padding: "14px 26px",
-                    borderRadius: 999,
-                    background: BRAND.red,
-                    color: "#fff",
-                    fontWeight: 700,
-                    fontSize: 15,
-                    textDecoration: "none",
-                    transition: "background .15s ease, transform .15s ease",
-                    alignSelf: "flex-start",
-                  }}
-                >
-                  Volg op Instagram
-                </a>
-              </div>
-
-              {/* Trustpilot card */}
-              <div
-                className="ty-cta-card"
-                style={{
-                  background: "#fff",
-                  color: BRAND.ink,
-                  borderRadius: 20,
-                  padding: 32,
-                  border: `1px solid ${BRAND.border}`,
-                  boxShadow: "0 8px 28px rgba(17,19,21,0.06)",
-                }}
-              >
-                <div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.12em",
-                      color: "#00B67A",
-                      fontWeight: 700,
-                      marginBottom: 8,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    {/* Trustpilot star */}
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#00B67A" aria-hidden>
-                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                    </svg>
-                    Bekijk onze reviews
-                  </div>
-                  <h3
-                    style={{
-                      margin: "0 0 10px",
-                      fontSize: "clamp(20px, 2.6vw, 24px)",
-                      fontWeight: 700,
-                      letterSpacing: "-0.015em",
-                    }}
-                  >
-                    Pinformance op Trustpilot
-                  </h3>
-                  <div className="ty-trustpilot-stars" style={{ marginBottom: 10 }}>
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <span
-                        key={i}
-                        style={{
-                          display: "inline-grid",
-                          placeItems: "center",
-                          width: 24,
-                          height: 24,
-                          background: "#00B67A",
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden>
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                      </span>
-                    ))}
-                  </div>
-                  <p style={{ margin: 0, color: BRAND.muted, fontSize: 14.5, lineHeight: 1.5 }}>
-                    Lees verifieerbare ervaringen van brand owners die met ons werken.
-                  </p>
-                </div>
-                <a
-                  href={TRUSTPILOT_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: "inline-block",
-                    padding: "14px 26px",
-                    borderRadius: 999,
-                    background: "#00B67A",
-                    color: "#fff",
-                    fontWeight: 700,
-                    fontSize: 15,
-                    textDecoration: "none",
-                    transition: "background .15s ease, transform .15s ease",
-                    alignSelf: "flex-start",
-                  }}
-                  onMouseEnter={undefined}
-                >
-                  Bekijk op Trustpilot
-                </a>
-              </div>
+                Volg op Instagram
+              </a>
             </div>
           </div>
         </section>
