@@ -134,7 +134,7 @@ export default function TyPage() {
         <div className="ty-container" style={{ display: "flex", alignItems: "center" }}>
           <a href="https://pinformance-agency.com" aria-label="Pinformance Agency">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/ty-page/logo.svg" alt="Pinformance" style={{ height: 28, width: "auto", display: "block" }} />
+            <img src="/ty-page/logo-dark.svg" alt="Pinformance" style={{ height: 28, width: "auto", display: "block" }} />
           </a>
         </div>
       </header>
@@ -422,7 +422,7 @@ export default function TyPage() {
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/ty-page/logo.svg" alt="Pinformance" style={{ height: 24, opacity: 0.85 }} />
+          <img src="/ty-page/logo-dark.svg" alt="Pinformance" style={{ height: 24, opacity: 0.85 }} />
           <p style={{ color: BRAND.muted, fontSize: 13, margin: 0 }}>
             © 2026 Pinformance Agency. We win when you win.
           </p>
