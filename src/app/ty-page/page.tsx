@@ -3,6 +3,7 @@ import path from "node:path";
 import Image from "next/image";
 import StatsCounter from "./StatsCounter";
 import ResultsCarousel from "./ResultsCarousel";
+import ReviewsCarousel from "./ReviewsCarousel";
 
 // ============================================================
 //  CONFIG — Edit these values
@@ -318,33 +319,24 @@ export default function TyPage() {
           </div>
         </section>
 
-        {/* TESTIMONIAL */}
-        <section style={{ padding: "72px 0", textAlign: "center" }}>
+        {/* REVIEWS */}
+        <section style={{ padding: "96px 0", background: BRAND.ink }}>
           <div className="ty-container">
-            <blockquote
-              style={{
-                margin: "0 auto",
-                maxWidth: 760,
-                fontSize: "clamp(20px, 3.2vw, 26px)",
-                fontWeight: 500,
-                lineHeight: 1.45,
-                fontStyle: "italic",
-              }}
-            >
-              &ldquo;Omnichannel without Pinterest is incomplete. Pinformance fixed that for us.&rdquo;
-              <cite
-                style={{
-                  display: "block",
-                  marginTop: 18,
-                  fontStyle: "normal",
-                  fontSize: 14,
-                  color: BRAND.muted,
-                  fontWeight: 600,
-                }}
+            <div style={{ textAlign: "center", marginBottom: 48 }}>
+              <div
+                className="ty-section-eyebrow"
+                style={{ marginBottom: 12, color: "rgba(255,255,255,0.55)" }}
               >
-                — Kain Kolenbrander, Founder, May Cosmetics
-              </cite>
-            </blockquote>
+                Reviews
+              </div>
+              <h2
+                className="ty-section-title"
+                style={{ margin: 0, color: "#fff" }}
+              >
+                What brand owners <span style={{ color: BRAND.red }}>say about us</span>
+              </h2>
+            </div>
+            <ReviewsCarousel />
           </div>
         </section>
 
