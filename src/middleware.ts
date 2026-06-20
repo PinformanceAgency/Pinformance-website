@@ -5,6 +5,10 @@ const CALCULATOR_HOSTNAMES = new Set([
   "calculator.pinformance-agency.com",
 ]);
 
+const TY_PAGE_HOSTNAMES = new Set([
+  "typage.pinformance-agency.com",
+]);
+
 /**
  * HTTP Basic Auth gate for the calculator. Credentials come from env vars
  * CALCULATOR_AUTH_USER / CALCULATOR_AUTH_PASSWORD. If either is unset the gate
@@ -40,6 +44,14 @@ export async function middleware(request: NextRequest) {
   const host = (request.headers.get("host") ?? "").split(":")[0].toLowerCase();
   const isCalculatorHost = CALCULATOR_HOSTNAMES.has(host);
   const isCalculatorPath = request.nextUrl.pathname.startsWith("/calculator");
+  const isTyPageHost = TY_PAGE_HOSTNAMES.has(host);
+
+  // Rewrite typage.pinformance-agency.com root → /ty-page (public, no auth).
+  if (isTyPageHost && !request.nextUrl.pathname.startsWith("/ty-page")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/ty-page" + (request.nextUrl.pathname === "/" ? "" : request.nextUrl.pathname);
+    return NextResponse.rewrite(url);
+  }
 
   // Gate the calculator (both the dedicated host and the /calculator path).
   if (isCalculatorHost || isCalculatorPath) {
