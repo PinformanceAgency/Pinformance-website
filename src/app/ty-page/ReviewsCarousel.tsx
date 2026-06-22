@@ -11,51 +11,51 @@ interface Review {
 const REVIEWS: Review[] = [
   {
     name: "Bram Konings",
-    role: "Oprichter",
+    role: "Founder",
     text:
-      "I've been working together with the guys from Pinformance Agency for a while now, and it's honestly been a really nice collaboration. They have a lot of knowledge about Pinterest and a strong network within Pinterest itself. You notice that right away in how they think along, move fast, and optimize. They helped me a lot with scaling my brand, where we started working multichannel, including Pinterest. The media buying from Pinformance played a big role in reaching our niche. They actively think along and really understand both the “Pinterest user” persona and the main persona of our brand. What I really appreciate is that they don't just execute, but also share their knowledge. They take you through their strategy, think along on a content level, and make sure you actually understand what's happening. Because of that, you really learn as an entrepreneur instead of just outsourcing everything without insight.",
+      "Ik werk al een tijdje samen met de mannen van Pinformance Agency en het is eerlijk gezegd een hele fijne samenwerking. Ze hebben veel kennis van Pinterest en een sterk netwerk binnen het platform. Dat merk je meteen aan hoe ze meedenken, snel schakelen en optimaliseren. Ze hebben me enorm geholpen met het opschalen van mijn merk, waarbij we multichannel zijn gaan werken, inclusief Pinterest. De media buying van Pinformance speelde een grote rol in het bereiken van onze niche. Ze denken actief mee en begrijpen zowel de Pinterest-gebruiker als de doelgroep van ons merk goed. Wat ik echt waardeer is dat ze niet alleen uitvoeren, maar ook hun kennis delen. Ze nemen je mee in hun strategie, denken mee op content-niveau en zorgen dat je écht snapt wat er gebeurt. Daardoor leer je als ondernemer in plaats van alles blind uit te besteden.",
   },
   {
     name: "Khair Chraou",
-    role: "Oprichter",
+    role: "Founder",
     text:
-      "I've been working with Pinformance for almost a year and a half now, and I can honestly say I'm extremely satisfied with the collaboration. Month after month we've been consistently generating seven figure revenue with very healthy and sustainable profits coming directly from Pinterest. What really stands out is their communication and the way they truly think along with your brand. They don't just run campaigns, they actively look for opportunities to scale and help you grow long term. Whenever there are issues or challenges, they come back quickly with clear solutions, which gives a lot of confidence. If you're running a serious brand and truly want to scale, I believe Pinterest is a must-have channel. After working with Pinterest for a few months, we saw an increase in our blended ROAS. This wasn't only because of Pinterest's direct ROAS, but also because of the strength of a multichannel setup, with Pinterest helping to lift our Google ROAS as well. Pinformance is definitely a partner I would recommend. Besides the strong performance and consistency, it's also genuinely fun to advertise on Pinterest when you see how well it works and have a great connection with the team at Pinformance. Overall, a great experience and a strong recommendation. Thanks guys and keep on scaling 🚀",
+      "Ik werk inmiddels bijna anderhalf jaar samen met Pinformance en ik kan eerlijk zeggen dat ik extreem tevreden ben over de samenwerking. Maand na maand draaien we consistent een seven-figure omzet met hele gezonde en duurzame marges die direct uit Pinterest komen. Wat er echt uitspringt is hun communicatie en de manier waarop ze écht met je merk meedenken. Ze runnen niet alleen campagnes, ze zoeken actief naar kansen om op te schalen en helpen je voor de lange termijn te groeien. Als er issues of uitdagingen zijn, komen ze snel met duidelijke oplossingen — dat geeft veel vertrouwen. Als je een serieus merk runt en echt wil opschalen, dan is Pinterest wat mij betreft een must-have kanaal. Na een paar maanden Pinterest zagen we onze blended ROAS stijgen. Niet alleen door de directe ROAS van Pinterest, maar ook door de kracht van een multichannel-setup waarbij Pinterest onze Google ROAS ook omhoog trok. Pinformance is een partner die ik zeker zou aanraden. Naast de sterke performance en consistentie is het ook gewoon leuk om op Pinterest te adverteren als je ziet hoe goed het werkt en hoe fijn het contact met het team is. Al met al een geweldige ervaring en een sterke aanrader. Thanks guys en keep on scaling 🚀",
   },
   {
     name: "Daniel Van Til",
-    role: "Oprichter",
+    role: "Founder",
     text:
-      "We came into contact with the owners of Pinformance about a year ago, recommended to us by a good friend. He said we should talk to these guys if we wanted to scale up on Pinterest, and he wasn't lying. Our brand is in a niche that Pinterest doesn't favor, but due to the experience and good contacts Pinformance has internal we still manage to get our ads through and help us with our creative strategy. The results are also strong; Pinterest is responsible for a large part of the total sales of our Brand. Thanks to Pinformance, the results have only gotten better.",
+      "We zijn ongeveer een jaar geleden in contact gekomen met de oprichters van Pinformance, via een goede vriend die ons aanraadde om met deze mannen te praten als we wilden opschalen op Pinterest — en hij had gelijk. Ons merk zit in een niche waar Pinterest niet de voorkeur aan geeft, maar door de ervaring en goede contacten die Pinformance intern heeft, krijgen we onze ads er toch doorheen en helpen ze ons ook met onze creative strategy. De resultaten zijn ook sterk: Pinterest is verantwoordelijk voor een groot deel van de totale omzet van ons merk. Dankzij Pinformance zijn de resultaten alleen maar beter geworden.",
   },
   {
     name: "Karol Rosinski",
-    role: "Oprichter",
+    role: "Founder",
     text:
-      "Before working with Pinformance I have dabbled into Pinterest ads but saw no results and didn't have time to expand into a new channel. I regret not working with the guys sooner because as soon as we started working together, within 3 weeks Pinterest became my main platform, and had the highest and most stable roas across 4 different platforms. If you are already advertising on other platforms, and don't have time or knowledge to expand, work with the guys at Pinformance and Pinterest might just become your main platform.",
+      "Voor ik met Pinformance ging werken had ik wat dingen geprobeerd met Pinterest ads, maar zonder resultaat — en ik had geen tijd om een nieuw kanaal vanaf nul op te bouwen. Ik baal er nu van dat ik niet eerder met de mannen ben gaan werken, want zodra we begonnen werd Pinterest binnen 3 weken mijn belangrijkste platform, met de hoogste en meest stabiele ROAS van alle 4 platforms waar ik op draai. Als je al adverteert op andere platforms en je hebt zelf geen tijd of kennis om uit te breiden, werk dan met de mannen van Pinformance — Pinterest wordt zomaar je belangrijkste kanaal.",
   },
   {
     name: "Kain Kolenbrander",
-    role: "Oprichter",
+    role: "Founder",
     text:
-      "We've been working with Thijmen and Tycho for several months now and are very pleased with the collaboration. For a brand, an omni-channel approach is one of the most important factors for growth, which is why we launched our Pinterest account and started working with Thijmen and Tycho. The results have been good, and we're very satisfied with the communication. If you have a brand and want to take the hassle out of managing Pinterest, I definitely recommend working with Thijmen and Tycho.",
+      "We werken inmiddels enkele maanden samen met Thijmen en Tycho en zijn erg tevreden over de samenwerking. Voor een merk is een omni-channel aanpak één van de belangrijkste groeifactoren — daarom zijn we ons Pinterest-account gestart en met Thijmen en Tycho gaan werken. De resultaten zijn goed en we zijn erg tevreden over de communicatie. Heb je een merk en wil je het gedoe van Pinterest uit handen geven, dan raad ik het samenwerken met Thijmen en Tycho zeker aan.",
   },
   {
     name: "Sinan Kaya",
-    role: "Oprichter",
+    role: "Founder",
     text:
-      "These guys are truly super passionate and work on e-commerce day in and day out. That's why they really understand the customer. I don't think you could find a better partner for Pinterest ads.",
+      "Deze mannen zijn ontzettend gedreven en zijn dagelijks bezig met e-commerce. Daardoor begrijpen ze de klant écht. Ik denk niet dat je een betere partner voor Pinterest ads kunt vinden.",
   },
   {
     name: "Chris Borghouts",
-    role: "Oprichter",
+    role: "Founder",
     text:
-      "I've had the pleasure of working with these guys for well over a year now. The brand I'm heavily involved in originally moved over from being completely Meta-only to adding Pinterest as an extra platform. It ended up playing out a bit differently than planned, as we're now significantly outspending Meta on Pinterest, with substantial improvement in the brand's overall performance thanks to these guys. They really know everything there is to know about Pinterest, have strong connections there, and above all just an insane amount of expertise in media buying and what you specifically need to make Pinterest work successfully. If you don't get results you don't pay so there's really no reason not to give it a shot. I'm sure it could have a big impact for many other brand owners as well.",
+      "Ik heb het genoegen om al ruim een jaar met deze mannen samen te werken. Het merk waar ik nauw bij betrokken ben is van puur Meta overgestapt naar Meta plus Pinterest als extra platform. Het is uiteindelijk net iets anders gelopen dan gepland: we geven inmiddels significant meer uit op Pinterest dan op Meta, met een substantiële verbetering in de algehele performance van het merk — en dat is dankzij deze mannen. Ze weten echt alles over Pinterest, hebben sterke connecties binnen het platform, en bovenal een waanzinnige hoeveelheid expertise in media buying en wat er specifiek nodig is om Pinterest succesvol te laten draaien. Krijg je geen resultaat, dan betaal je niet — er is dus eigenlijk geen reden om het niet te proberen. Ik weet zeker dat het voor veel andere brand founders ook een grote impact kan hebben.",
   },
   {
     name: "Dante Merlin",
-    role: "Oprichter",
+    role: "Founder",
     text:
-      "Exceptional Pinterest Ads Partner — Highly Recommend. We've been working with this agency to manage all of our Pinterest advertising, and the experience has been outstanding from day one. We handle the creative assets, and they take everything else completely off our plate — campaign setup, targeting, optimization, ongoing management — all handled seamlessly. What really sets them apart is their communication. They're always responsive, proactive about updates, and easy to get ahold of when we have questions. We never have to wonder what's happening with our campaigns. Most importantly, the results speak for themselves. Our Pinterest ads have been performing consistently well, and we're seeing real returns on our investment. It's clear they know the platform inside and out. If you're looking for an agency that's professional, reliable, and actually delivers results, look no further. We couldn't be happier with the partnership.",
+      "Uitstekende Pinterest Ads partner — een dikke aanrader. We werken nu samen met dit agency om al onze Pinterest-advertising te beheren, en de ervaring is vanaf dag één uitstekend geweest. Wij leveren de creatives aan en zij nemen al het andere volledig uit handen — campaign setup, targeting, optimalisatie, ongoing management — alles soepel geregeld. Wat ze écht onderscheidt is hun communicatie. Ze zijn altijd bereikbaar, proactief met updates en makkelijk te benaderen als we vragen hebben. We hoeven ons nooit af te vragen wat er met onze campagnes gebeurt. En het belangrijkste: de resultaten spreken voor zich. Onze Pinterest-ads presteren consistent goed en we zien echte returns op onze investering. Je merkt dat ze het platform tot in detail kennen. Zoek je een agency dat professioneel, betrouwbaar en resultaatgericht is — kijk niet verder. We zijn ontzettend blij met deze samenwerking.",
   },
 ];
 

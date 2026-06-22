@@ -53,7 +53,7 @@ const CASES = [
   {
     name: "Fit Cherries",
     img: "/ty-page/cases/fit-cherries.png",
-    desc: "De brand owner deed Pinterest zelf en bleef hangen op $200 per dag. We hebben het account herstructureerd en opgeschaald naar $3K+ per dag — met een lagere CPA dan op enig ander platform.",
+    desc: "De founder deed Pinterest zelf en bleef hangen op $200 per dag. We hebben het account herstructureerd en opgeschaald naar $3K+ per dag — met een lagere CPA dan op enig ander platform.",
     stats: [
       ["+€270k", "Omzet"],
       ["2,2", "ROAS"],
@@ -214,7 +214,7 @@ export default function TyPage() {
             <div className="ty-stats-grid">
               <StatsCounter target={23} suffix="M+" label="Omzet gegenereerd met onze Pinterest campagnes" />
               <StatsCounter target={900} suffix="k+" label="Maandelijkse adspend" />
-              <StatsCounter target={55} suffix="+" label="Succesvolle samenwerkingen met brand owners" />
+              <StatsCounter target={55} suffix="+" label="Succesvolle samenwerkingen met brand founders" />
             </div>
           </div>
         </section>
@@ -347,7 +347,7 @@ export default function TyPage() {
                 className="ty-section-title"
                 style={{ margin: 0, color: "#fff" }}
               >
-                Wat brand owners <span style={{ color: BRAND.red }}>over ons zeggen</span>
+                Wat brand founders <span style={{ color: BRAND.red }}>over ons zeggen</span>
               </h2>
             </div>
             <ReviewsCarousel />
