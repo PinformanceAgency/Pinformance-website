@@ -21,6 +21,7 @@ import {
   Key,
   LifeBuoy,
   Activity,
+  Gauge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -46,6 +47,7 @@ const organicNav = [
 const paidAdsNav = [
   { href: "/paid-ads/creatives", label: "Creatives", icon: Sparkles },
   { href: "/paid-ads/media-buying", label: "Mediabuying", icon: BarChart3 },
+  { href: "/paid-ads/creative-cadence", label: "Creative Cadence", icon: Gauge },
 ];
 
 const adminSharedNav = [
