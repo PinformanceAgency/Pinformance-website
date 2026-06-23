@@ -103,8 +103,8 @@ export default function CreativeCadencePage() {
   const [data, setData] = useState<Response | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"impressions" | "fatigue" | "days_since">(
-    "impressions"
+  const [sortBy, setSortBy] = useState<"recent" | "impressions" | "fatigue" | "days_since">(
+    "recent"
   );
   const [statusFilter, setStatusFilter] = useState<"active" | "all">("active");
 
@@ -132,6 +132,11 @@ export default function CreativeCadencePage() {
     : [];
   const sorted = data
     ? [...filteredBase].sort((a, b) => {
+        if (sortBy === "recent") {
+          if (b.ads_added_30d !== a.ads_added_30d) return b.ads_added_30d - a.ads_added_30d;
+          // tiebreak: most recent last_add first
+          return (b.last_ad_created_at ?? 0) - (a.last_ad_created_at ?? 0);
+        }
         if (sortBy === "impressions") return b.impressions_30d - a.impressions_30d;
         if (sortBy === "fatigue") {
           const order = { fatigued: 0, aging: 1, fresh: 2, no_data: 3 };
@@ -263,6 +268,7 @@ export default function CreativeCadencePage() {
             </div>
             <div className="flex bg-muted/50 rounded-md p-0.5 text-xs">
               {([
+                ["recent", "Recent activity"],
                 ["impressions", "By impressions"],
                 ["fatigue", "By fatigue"],
                 ["days_since", "By stale"],

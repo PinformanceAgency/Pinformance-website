@@ -347,6 +347,24 @@ export async function POST(request: NextRequest) {
     // Sort by impressions_30d desc so the busiest campaigns are at the top.
     rows.sort((a, b) => b.impressions_30d - a.impressions_30d);
 
+    // Lightweight diagnostics so we can tell from the wire payload whether
+    // ad → campaign attribution actually worked. If diag.ads_with_campaign
+    // is 0 while diag.total_ads > 0, Pinterest stopped returning campaign_id
+    // and we'd need to fetch ad_fields explicitly.
+    const totalAds = ads.length;
+    const adsWithCampaignDirect = ads.filter((a) => !!a.campaign_id).length;
+    const adsWithAdGroup = ads.filter((a) => !!a.ad_group_id).length;
+    const adsAttributed = ads.filter((a) => !!resolveCampaignId(a)).length;
+    const diag = {
+      total_ads_fetched: totalAds,
+      ads_with_campaign_id_direct: adsWithCampaignDirect,
+      ads_with_ad_group_id: adsWithAdGroup,
+      ads_attributed_to_campaign: adsAttributed,
+      ad_groups_fetched: adGroups.length,
+      campaigns_fetched: campaigns.length,
+      sample_ad_keys: ads[0] ? Object.keys(ads[0]) : [],
+    };
+
     return NextResponse.json({
       ok: true,
       ad_account_id: adAccount.id,
@@ -354,6 +372,7 @@ export async function POST(request: NextRequest) {
       currency: adAccount.currency || "USD",
       totals,
       campaigns: rows,
+      diag,
     });
   } catch (e) {
     return NextResponse.json(
