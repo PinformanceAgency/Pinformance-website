@@ -213,24 +213,48 @@ export async function POST(request: NextRequest) {
       fetchCampaignWindow(start30),
     ]);
 
-    // Account-wide frequency for both windows.
+    // Account-wide frequency for both windows. Pinterest's response shape
+    // for /ad_accounts/{id}/analytics?granularity=TOTAL varies — sometimes
+    // it's `[{...}]`, sometimes `{ summary_metrics: {...} }`, sometimes
+    // `{ FREQUENCY: ... }` at the top level. We probe all three.
     async function fetchAccountFrequency(start: string): Promise<number | null> {
       try {
         const res = await client.getAdAccountAnalytics(adAccountId, start, todayIso, {
           columns: ["FREQUENCY", "IMPRESSION_1"],
           granularity: "TOTAL",
         });
-        // The API returns either { all: { daily_metrics: [...] } } or a flat
-        // array depending on granularity. For TOTAL it's an array of one row.
+        let row: Record<string, unknown> | null = null;
         if (Array.isArray(res) && res[0]) {
-          const r = res[0] as Record<string, unknown>;
-          const f = num(r["FREQUENCY"]);
-          return f > 0 ? f : null;
+          row = res[0] as Record<string, unknown>;
+        } else if (res && typeof res === "object") {
+          const obj = res as Record<string, unknown>;
+          if (obj.summary_metrics && typeof obj.summary_metrics === "object") {
+            row = obj.summary_metrics as Record<string, unknown>;
+          } else if ("FREQUENCY" in obj) {
+            row = obj;
+          } else if (
+            obj.all &&
+            typeof obj.all === "object" &&
+            Array.isArray((obj.all as Record<string, unknown>).daily_metrics)
+          ) {
+            // Sum daily — should match TOTAL.
+            const days = (obj.all as { daily_metrics: Array<{ metrics?: Record<string, number> }> })
+              .daily_metrics;
+            let totalImp = 0,
+              totalReach = 0;
+            for (const d of days) {
+              totalImp += num(d.metrics?.IMPRESSION_1);
+              totalReach += num(d.metrics?.IMPRESSION_USER);
+            }
+            return totalReach > 0 ? totalImp / totalReach : null;
+          }
         }
+        if (!row) return null;
+        const f = num(row["FREQUENCY"]);
+        return f > 0 ? f : null;
       } catch {
-        // ignore
+        return null;
       }
-      return null;
     }
 
     const [accFreq7, accFreq30] = await Promise.all([

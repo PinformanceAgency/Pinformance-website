@@ -80,6 +80,7 @@ function fmtPct(v: number | null): string {
 }
 function fmtDays(v: number | null): string {
   if (v == null) return "—";
+  if (v < 1 / 24) return "<1h";
   if (v < 1) return `${Math.round(v * 24)}h`;
   return `${v}d`;
 }
@@ -105,6 +106,7 @@ export default function CreativeCadencePage() {
   const [sortBy, setSortBy] = useState<"impressions" | "fatigue" | "days_since">(
     "impressions"
   );
+  const [statusFilter, setStatusFilter] = useState<"active" | "all">("active");
 
   useEffect(() => {
     setLoading(true);
@@ -123,8 +125,13 @@ export default function CreativeCadencePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const filteredBase = data
+    ? data.campaigns.filter((c) =>
+        statusFilter === "active" ? (c.status || "").toUpperCase() === "ACTIVE" : true
+      )
+    : [];
   const sorted = data
-    ? [...data.campaigns].sort((a, b) => {
+    ? [...filteredBase].sort((a, b) => {
         if (sortBy === "impressions") return b.impressions_30d - a.impressions_30d;
         if (sortBy === "fatigue") {
           const order = { fatigued: 0, aging: 1, fresh: 2, no_data: 3 };
@@ -160,12 +167,12 @@ export default function CreativeCadencePage() {
         <Kpi label="Ads added · 7d" value={data?.totals.ads_added_7d} loading={loading} icon={Plus} accent="text-green-600" />
         <Kpi label="Ads added · 30d" value={data?.totals.ads_added_30d} loading={loading} icon={Plus} accent="text-green-600" />
         <Kpi
-          label="Avg days between ads"
+          label="Avg time between ads"
           value={data?.totals.avg_days_between_ads}
           loading={loading}
           icon={Clock}
           accent="text-foreground"
-          decimals={1}
+          format={fmtDays}
         />
         <Kpi
           label="Account frequency · 7d"
@@ -226,25 +233,54 @@ export default function CreativeCadencePage() {
               </span>
             )}
           </div>
-          <div className="flex bg-muted/50 rounded-md p-0.5 text-xs">
-            {([
-              ["impressions", "By impressions"],
-              ["fatigue", "By fatigue"],
-              ["days_since", "By stale"],
-            ] as const).map(([k, l]) => (
-              <button
-                key={k}
-                onClick={() => setSortBy(k)}
-                className={cn(
-                  "px-2.5 py-1 rounded font-medium transition-colors",
-                  sortBy === k
-                    ? "bg-card shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {l}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <div className="flex bg-muted/50 rounded-md p-0.5 text-xs">
+              {([
+                ["active", "Active only"],
+                ["all", "All"],
+              ] as const).map(([k, l]) => (
+                <button
+                  key={k}
+                  onClick={() => setStatusFilter(k)}
+                  className={cn(
+                    "px-2.5 py-1 rounded font-medium transition-colors",
+                    statusFilter === k
+                      ? "bg-card shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {l}
+                  {data && k === "active" && (
+                    <span className="ml-1 text-muted-foreground">
+                      ({data.campaigns.filter((c) => (c.status || "").toUpperCase() === "ACTIVE").length})
+                    </span>
+                  )}
+                  {data && k === "all" && (
+                    <span className="ml-1 text-muted-foreground">({data.campaigns.length})</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="flex bg-muted/50 rounded-md p-0.5 text-xs">
+              {([
+                ["impressions", "By impressions"],
+                ["fatigue", "By fatigue"],
+                ["days_since", "By stale"],
+              ] as const).map(([k, l]) => (
+                <button
+                  key={k}
+                  onClick={() => setSortBy(k)}
+                  className={cn(
+                    "px-2.5 py-1 rounded font-medium transition-colors",
+                    sortBy === k
+                      ? "bg-card shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -378,6 +414,7 @@ function Kpi({
   accent,
   decimals,
   suffix,
+  format,
 }: {
   label: string;
   value: number | null | undefined;
@@ -386,6 +423,7 @@ function Kpi({
   accent: string;
   decimals?: number;
   suffix?: string;
+  format?: (v: number | null) => string;
 }) {
   return (
     <div className="bg-card border border-border rounded-xl p-4">
@@ -400,7 +438,7 @@ function Kpi({
           <span className="text-muted-foreground">—</span>
         ) : (
           <>
-            {decimals != null ? value.toFixed(decimals) : value.toLocaleString()}
+            {format ? format(value) : decimals != null ? value.toFixed(decimals) : value.toLocaleString()}
             {suffix && <span className="text-base text-muted-foreground font-normal">{suffix}</span>}
           </>
         )}
