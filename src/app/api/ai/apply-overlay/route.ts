@@ -10,6 +10,24 @@ type Style = "hero-bottom" | "editorial-top" | "minimal-bottom" | "accent-center
 
 const ALL_STYLES: Style[] = ["hero-bottom", "editorial-top", "minimal-bottom", "accent-center", "split-top", "bold-bottom", "elegant-top", "dark-bar"];
 
+// Cache the overlay font across warm invocations — avoids re-downloading the
+// ~100KB Inter TTF from gstatic on every single image.
+const INTER_FONT_URL =
+  "https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYMZhrib2Bg-4.ttf";
+let cachedFont: Promise<Buffer> | null = null;
+function getOverlayFont(): Promise<Buffer> {
+  if (!cachedFont) {
+    cachedFont = fetch(INTER_FONT_URL)
+      .then((r) => r.arrayBuffer())
+      .then((b) => Buffer.from(b))
+      .catch((e) => {
+        cachedFont = null; // allow retry on next request
+        throw e;
+      });
+  }
+  return cachedFont;
+}
+
 function pickStyle(activeStyles?: Style[]): Style {
   const pool = activeStyles && activeStyles.length > 0 ? activeStyles : ALL_STYLES;
   return pool[Math.floor(Math.random() * pool.length)];
@@ -209,14 +227,22 @@ export async function POST(request: NextRequest) {
       .jpeg({ quality: 95 })
       .toBuffer();
 
+    // Read the brand profile ONCE (logo + overlay config) — reused by both the
+    // logo-only and full-overlay paths instead of querying it 2-3 times.
+    const { data: bp } = await admin
+      .from("brand_profiles")
+      .select("raw_data")
+      .eq("org_id", orgId)
+      .single();
+    const rawData = (bp?.raw_data as Record<string, unknown>) || {};
+    const logoUrl = rawData.logo_url as string | undefined;
+
     // Logo-only variant: just resize + add logo, no text overlay
     if (variant === "logo-only") {
-      const { data: bp2 } = await admin.from("brand_profiles").select("raw_data").eq("org_id", orgId).single();
-      const logoUrl2 = (bp2?.raw_data as Record<string, unknown>)?.logo_url as string | undefined;
       const layers2: sharp.OverlayOptions[] = [];
 
-      if (logoUrl2) {
-        const logoRes2 = await fetch(logoUrl2);
+      if (logoUrl) {
+        const logoRes2 = await fetch(logoUrl);
         if (logoRes2.ok) {
           const resizedLogo2 = await sharp(Buffer.from(await logoRes2.arrayBuffer())).resize(200, undefined, { fit: "inside" }).png().toBuffer();
           // Check brightness of top-left for logo placement
@@ -237,13 +263,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, overlay_url: ud2.publicUrl, variant: "logo-only" });
     }
 
-    // Load font for full overlay
-    const fontRes = await fetch("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYMZhrib2Bg-4.ttf");
-    const fontBuffer = Buffer.from(await fontRes.arrayBuffer());
+    // Load font for full overlay (cached across invocations)
+    const fontBuffer = await getOverlayFont();
 
-    // Read brand overlay config (active_styles + text_rules)
-    const { data: bpCfg } = await admin.from("brand_profiles").select("raw_data").eq("org_id", orgId).single();
-    const overlayCfg = ((bpCfg?.raw_data as Record<string, unknown>)?.overlay_config || {}) as {
+    // Overlay config from the brand profile fetched above.
+    const overlayCfg = (rawData.overlay_config || {}) as {
       active_styles?: Style[];
       text_rules?: TextRules;
     };
@@ -259,9 +283,8 @@ export async function POST(request: NextRequest) {
     });
     const overlayPng = await sharp(Buffer.from(svg)).resize(1000, 1500).png().toBuffer();
 
-    // Logo placement: prefer top-left, fall back to bottom-left if contrast is bad
-    const { data: bp } = await admin.from("brand_profiles").select("raw_data").eq("org_id", orgId).single();
-    const logoUrl = (bp?.raw_data as Record<string, unknown>)?.logo_url as string | undefined;
+    // Logo placement: prefer top-left, fall back to bottom-left if contrast is
+    // bad. (logoUrl was read from the brand profile above.)
     const layers: sharp.OverlayOptions[] = [{ input: overlayPng }];
 
     if (logoUrl) {

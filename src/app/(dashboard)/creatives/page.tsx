@@ -199,149 +199,134 @@ export default function CreativesPage() {
     });
   }
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || !org) return;
+  // Process one uploaded file end-to-end (upload → analyze → overlay). The
+  // overlay variant is decided up-front by the caller so the rotation stays
+  // deterministic even though files run concurrently.
+  async function processFile(
+    file: File,
+    overlayVariant: "full" | "logo-only" | "clean" | null
+  ) {
+    if (!org) return;
+    const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const isVideo = file.type.startsWith("video/") || ["mov", "mp4", "avi", "webm", "mkv"].includes(ext);
+    const mediaType: "image" | "video" = isVideo ? "video" : "image";
 
-    const isVideoTab = activeTab === "video";
+    const rand = Math.random().toString(36).slice(2, 8);
+    const fileName = `${org.id}/creatives/${Date.now()}-${rand}.${ext}`;
+    const tempUrl = URL.createObjectURL(file);
+    setCreatives((prev) => [...prev, { image_url: tempUrl, media_type: mediaType, analysis: null, status: "uploading" }]);
 
-    for (const file of Array.from(files)) {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const isVideo = file.type.startsWith("video/") || ["mov", "mp4", "avi", "webm", "mkv"].includes(ext);
-      const mediaType: "image" | "video" = isVideo ? "video" : "image";
+    const supabase = createClient();
+    const { error } = await supabase.storage
+      .from("pin-images")
+      .upload(fileName, file, { contentType: file.type || (isVideo ? "video/mp4" : "image/jpeg"), upsert: false });
 
-      const fileName = `${org.id}/creatives/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
-      const tempUrl = URL.createObjectURL(file);
-      setCreatives((prev) => [...prev, { image_url: tempUrl, media_type: mediaType, analysis: null, status: "uploading" }]);
-
-      const supabase = createClient();
-      const { error } = await supabase.storage
-        .from("pin-images")
-        .upload(fileName, file, { contentType: file.type || (isVideo ? "video/mp4" : "image/jpeg"), upsert: false });
-
-      if (error) {
-        setCreatives((prev) =>
-          prev.map((c) => (c.image_url === tempUrl ? { ...c, status: "error" as const, error: error.message } : c))
-        );
-        continue;
-      }
-
-      const { data: urlData } = supabase.storage.from("pin-images").getPublicUrl(fileName);
-      const publicUrl = urlData.publicUrl;
-
+    if (error) {
       setCreatives((prev) =>
-        prev.map((c) => (c.image_url === tempUrl ? { ...c, image_url: publicUrl, status: "analyzing" as const, media_type: mediaType } : c))
+        prev.map((c) => (c.image_url === tempUrl ? { ...c, status: "error" as const, error: error.message } : c))
       );
+      return;
+    }
 
-      // For videos: extract thumbnail and upload it so Claude can see the content
-      let thumbnailUrl: string | null = null;
-      if (isVideo) {
-        const thumbBlob = await extractVideoThumbnail(file);
-        if (thumbBlob) {
-          const thumbName = `${org.id}/creatives/thumb-${Date.now()}.jpg`;
-          const { error: thumbErr } = await supabase.storage
-            .from("pin-images")
-            .upload(thumbName, thumbBlob, { contentType: "image/jpeg", upsert: false });
-          if (!thumbErr) {
-            const { data: thumbUrlData } = supabase.storage.from("pin-images").getPublicUrl(thumbName);
-            thumbnailUrl = thumbUrlData.publicUrl;
-          }
+    const { data: urlData } = supabase.storage.from("pin-images").getPublicUrl(fileName);
+    const publicUrl = urlData.publicUrl;
+
+    setCreatives((prev) =>
+      prev.map((c) => (c.image_url === tempUrl ? { ...c, image_url: publicUrl, status: "analyzing" as const, media_type: mediaType } : c))
+    );
+
+    // For videos: extract thumbnail and upload it so Claude can see the content
+    let thumbnailUrl: string | null = null;
+    if (isVideo) {
+      const thumbBlob = await extractVideoThumbnail(file);
+      if (thumbBlob) {
+        const thumbName = `${org.id}/creatives/thumb-${Date.now()}-${rand}.jpg`;
+        const { error: thumbErr } = await supabase.storage
+          .from("pin-images")
+          .upload(thumbName, thumbBlob, { contentType: "image/jpeg", upsert: false });
+        if (!thumbErr) {
+          const { data: thumbUrlData } = supabase.storage.from("pin-images").getPublicUrl(thumbName);
+          thumbnailUrl = thumbUrlData.publicUrl;
         }
       }
+    }
 
-      // Analyze the creative (SEO generation)
-      try {
-        const res = await fetch("/api/ai/analyze-creative", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            image_url: publicUrl,
-            media_type: mediaType,
-            file_name: file.name,
-            thumbnail_url: thumbnailUrl,
-          }),
-        });
+    // Analyze the creative (SEO generation)
+    try {
+      const res = await fetch("/api/ai/analyze-creative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_url: publicUrl,
+          media_type: mediaType,
+          file_name: file.name,
+          thumbnail_url: thumbnailUrl,
+        }),
+      });
 
-        if (res.ok) {
-          const data = await res.json();
-          const analysis = data.analysis;
+      if (res.ok) {
+        const data = await res.json();
+        const analysis = data.analysis;
 
-          // Auto-fill the destination URL from the product that best matches
-          // the analyzed title, unless the user already set one manually.
-          if (analysis?.title) {
-            const matched = matchProductUrl(analysis.title);
-            if (matched) {
-              setLinkOverrides(prev => {
-                // Don't overwrite a URL the user already typed.
-                if (prev[publicUrl] !== undefined && prev[publicUrl] !== "") return prev;
-                return { ...prev, [publicUrl]: matched };
-              });
-            }
+        // Auto-fill the destination URL from the product that best matches
+        // the analyzed title, unless the user already set one manually.
+        if (analysis?.title) {
+          const matched = matchProductUrl(analysis.title);
+          if (matched) {
+            setLinkOverrides(prev => {
+              if (prev[publicUrl] !== undefined && prev[publicUrl] !== "") return prev;
+              return { ...prev, [publicUrl]: matched };
+            });
           }
+        }
 
-          // For statics: apply overlay based on per-brand rotation config (full / logo-only / clean)
-          if (!isVideo && mediaType === "image" && analysis) {
-            const cycleSize = Math.max(1, rotation.full_overlay + rotation.logo_only + rotation.clean);
-            const counter = staticCounterRef.current % cycleSize;
-            staticCounterRef.current++;
-            let overlayVariant: "full" | "logo-only" | "clean";
-            if (counter < rotation.full_overlay) overlayVariant = "full";
-            else if (counter < rotation.full_overlay + rotation.logo_only) overlayVariant = "logo-only";
-            else overlayVariant = "clean";
+        // For statics: apply the pre-assigned overlay variant (full / logo-only / clean)
+        if (!isVideo && mediaType === "image" && analysis && overlayVariant) {
+          setCreatives((prev) =>
+            prev.map((c) =>
+              c.image_url === publicUrl ? { ...c, analysis, status: "applying_overlay" as const } : c
+            )
+          );
 
-            setCreatives((prev) =>
-              prev.map((c) =>
-                c.image_url === publicUrl ? { ...c, analysis, status: "applying_overlay" as const } : c
-              )
-            );
+          try {
+            const overlayRes = await fetch("/api/ai/apply-overlay", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                image_url: publicUrl,
+                headline: analysis.text_overlay || analysis.title.substring(0, 50),
+                variant: overlayVariant,
+              }),
+            });
 
-            try {
-              const overlayRes = await fetch("/api/ai/apply-overlay", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  image_url: publicUrl,
-                  headline: analysis.text_overlay || analysis.title.substring(0, 50),
-                  variant: overlayVariant,
-                }),
-              });
-
-              if (overlayRes.ok) {
-                const overlayData = await overlayRes.json();
-                if (overlayData.overlay_url) {
-                  setCreatives((prev) =>
-                    prev.map((c) =>
-                      c.image_url === publicUrl
-                        ? { ...c, overlay_url: overlayData.overlay_url, status: "ready" as const }
-                        : c
-                    )
-                  );
-                } else {
-                  console.error("Overlay response missing overlay_url:", overlayData);
-                  setCreatives((prev) =>
-                    prev.map((c) =>
-                      c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
-                    )
-                  );
-                }
-              } else {
-                const errText = await overlayRes.text();
-                console.error("Overlay failed:", overlayRes.status, errText);
+            if (overlayRes.ok) {
+              const overlayData = await overlayRes.json();
+              if (overlayData.overlay_url) {
                 setCreatives((prev) =>
                   prev.map((c) =>
-                    c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const, error: `Overlay: ${overlayRes.status}` } : c
+                    c.image_url === publicUrl
+                      ? { ...c, overlay_url: overlayData.overlay_url, status: "ready" as const }
+                      : c
+                  )
+                );
+              } else {
+                console.error("Overlay response missing overlay_url:", overlayData);
+                setCreatives((prev) =>
+                  prev.map((c) =>
+                    c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
                   )
                 );
               }
-            } catch {
+            } else {
+              const errText = await overlayRes.text();
+              console.error("Overlay failed:", overlayRes.status, errText);
               setCreatives((prev) =>
                 prev.map((c) =>
-                  c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
+                  c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const, error: `Overlay: ${overlayRes.status}` } : c
                 )
               );
             }
-          } else {
-            // Videos: just SEO, no overlay
+          } catch {
             setCreatives((prev) =>
               prev.map((c) =>
                 c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
@@ -349,21 +334,61 @@ export default function CreativesPage() {
             );
           }
         } else {
-          const err = await res.json();
+          // Videos: just SEO, no overlay
           setCreatives((prev) =>
             prev.map((c) =>
-              c.image_url === publicUrl ? { ...c, status: "error" as const, error: err.error || "Analysis failed" } : c
+              c.image_url === publicUrl ? { ...c, analysis, status: "ready" as const } : c
             )
           );
         }
-      } catch {
+      } else {
+        const err = await res.json();
         setCreatives((prev) =>
           prev.map((c) =>
-            c.image_url === publicUrl ? { ...c, status: "error" as const, error: "Network error" } : c
+            c.image_url === publicUrl ? { ...c, status: "error" as const, error: err.error || "Analysis failed" } : c
           )
         );
       }
+    } catch {
+      setCreatives((prev) =>
+        prev.map((c) =>
+          c.image_url === publicUrl ? { ...c, status: "error" as const, error: "Network error" } : c
+        )
+      );
     }
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || !org) return;
+    const fileArr = Array.from(files);
+
+    // Decide the overlay variant for each static up-front (deterministic
+    // rotation), so concurrent processing doesn't race on staticCounterRef.
+    const variants = fileArr.map((file) => {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const isVideo = file.type.startsWith("video/") || ["mov", "mp4", "avi", "webm", "mkv"].includes(ext);
+      if (isVideo) return null;
+      const cycleSize = Math.max(1, rotation.full_overlay + rotation.logo_only + rotation.clean);
+      const counter = staticCounterRef.current % cycleSize;
+      staticCounterRef.current++;
+      if (counter < rotation.full_overlay) return "full" as const;
+      if (counter < rotation.full_overlay + rotation.logo_only) return "logo-only" as const;
+      return "clean" as const;
+    });
+
+    // Process up to CONCURRENCY files at once instead of one-by-one.
+    const CONCURRENCY = 3;
+    let next = 0;
+    async function worker() {
+      while (next < fileArr.length) {
+        const i = next++;
+        await processFile(fileArr[i], variants[i]);
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, fileArr.length) }, () => worker())
+    );
 
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
