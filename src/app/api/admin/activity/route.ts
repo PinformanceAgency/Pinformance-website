@@ -123,30 +123,25 @@ export async function POST(request: NextRequest) {
 
     const items: ActivityItem[] = [];
 
-    function consider(
+    // Pinterest's `updated_time` is unreliable for mediabuyer-attribution —
+    // it gets bumped by platform-side recalcs, delivery state ticks, and
+    // bulk refreshes (we saw 2k+ "updates" all at the same timestamp). Only
+    // `created_time` is a real, attributable user event from the API alone.
+    // Status flips / budget edits / pauses need the snapshot-diff path
+    // (/api/admin/activity/changes) — they live in a separate response.
+    function considerCreate(
       type: EntityType,
       e: {
         id: string;
         name?: string;
         status?: string;
         created_time?: number;
-        updated_time?: number;
       },
       extra?: Record<string, unknown>,
       parent?: { campaign_id?: string; ad_group_id?: string }
     ) {
       const created = typeof e.created_time === "number" ? e.created_time : null;
-      const updated = typeof e.updated_time === "number" ? e.updated_time : null;
-      const createdInWindow = created != null && created >= startSec && created <= endSec;
-      const updatedInWindow = updated != null && updated >= startSec && updated <= endSec;
-
-      // Prefer the most recent event in window. If only created falls in
-      // window we call it "created"; otherwise "updated".
-      if (!createdInWindow && !updatedInWindow) return;
-      const action: "created" | "updated" = createdInWindow && (!updatedInWindow || updated === created)
-        ? "created"
-        : "updated";
-      const action_time = action === "created" ? created! : updated!;
+      if (created == null || created < startSec || created > endSec) return;
 
       items.push({
         id: e.id,
@@ -154,23 +149,23 @@ export async function POST(request: NextRequest) {
         name: e.name || "(unnamed)",
         status: e.status ?? null,
         created_time: created,
-        updated_time: updated,
-        action,
-        action_time,
+        updated_time: null,
+        action: "created",
+        action_time: created,
         extra,
         parent,
       });
     }
 
     for (const c of campaigns) {
-      consider("campaign", c, {
+      considerCreate("campaign", c, {
         daily_spend_cap: c.daily_spend_cap ?? null,
         lifetime_spend_cap: c.lifetime_spend_cap ?? null,
         objective_type: c.objective_type ?? null,
       });
     }
     for (const g of adGroups) {
-      consider(
+      considerCreate(
         "ad_group",
         g,
         {
@@ -181,7 +176,7 @@ export async function POST(request: NextRequest) {
       );
     }
     for (const a of ads) {
-      consider(
+      considerCreate(
         "ad",
         a,
         { creative_type: a.creative_type ?? null, pin_id: a.pin_id ?? null },
@@ -193,8 +188,8 @@ export async function POST(request: NextRequest) {
 
     // Totals for the header.
     const totals = {
-      created: items.filter((i) => i.action === "created").length,
-      updated: items.filter((i) => i.action === "updated").length,
+      created: items.length,
+      updated: 0,
       by_type: {
         campaign: items.filter((i) => i.type === "campaign").length,
         ad_group: items.filter((i) => i.type === "ad_group").length,
