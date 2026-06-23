@@ -145,20 +145,36 @@ export async function POST(request: NextRequest) {
       return out;
     }
 
-    const [campaigns, ads] = await Promise.all([
+    const [campaigns, adGroups, ads] = await Promise.all([
       pullAll((bookmark) => client.getCampaigns(adAccountId, { bookmark, pageSize: 250 })),
+      pullAll((bookmark) => client.getAdGroups(adAccountId, { bookmark, pageSize: 250 })),
       pullAll((bookmark) => client.getAds(adAccountId, { bookmark, pageSize: 250 })),
     ]);
+
+    // Pinterest's /ads endpoint returns campaign_id inconsistently — sometimes
+    // it's there, sometimes only ad_group_id is set. Build a fallback lookup
+    // so every ad can be attributed to its campaign.
+    const adGroupToCampaign = new Map<string, string>();
+    for (const g of adGroups) {
+      if (g.id && g.campaign_id) adGroupToCampaign.set(g.id, g.campaign_id);
+    }
+
+    function resolveCampaignId(a: { campaign_id?: string; ad_group_id?: string }): string | null {
+      if (a.campaign_id) return a.campaign_id;
+      if (a.ad_group_id) return adGroupToCampaign.get(a.ad_group_id) || null;
+      return null;
+    }
 
     // Bucket ad created_times by campaign.
     const adsByCampaign = new Map<string, number[]>();
     for (const a of ads) {
-      if (!a.campaign_id) continue;
+      const cid = resolveCampaignId(a);
+      if (!cid) continue;
       const t = typeof a.created_time === "number" ? a.created_time : null;
       if (t == null) continue;
-      const arr = adsByCampaign.get(a.campaign_id) || [];
+      const arr = adsByCampaign.get(cid) || [];
       arr.push(t);
-      adsByCampaign.set(a.campaign_id, arr);
+      adsByCampaign.set(cid, arr);
     }
 
     // Account-level ad-addition counts.
@@ -181,10 +197,10 @@ export async function POST(request: NextRequest) {
         intervals.reduce((s, x) => s + x, 0) / intervals.length;
     }
 
-    // Fetch campaign-level analytics in two windows. We only need FREQUENCY,
-    // IMPRESSION_1, CLICKTHROUGH_1 — keep the payload tight to stay under
-    // Pinterest's column limits.
-    const cols = ["FREQUENCY", "IMPRESSION_1", "CLICKTHROUGH_1", "CTR"];
+    // Fetch campaign-level analytics in two windows. We compute frequency
+    // ourselves (IMPRESSION_1 / IMPRESSION_USER) — Pinterest's bundled
+    // FREQUENCY column is inconsistently returned per account.
+    const cols = ["IMPRESSION_1", "IMPRESSION_USER", "CLICKTHROUGH_1", "CTR"];
     async function fetchCampaignWindow(start: string) {
       const out = new Map<string, Record<string, number | string>>();
       for (let i = 0; i < campaigns.length; i += 100) {
@@ -220,38 +236,39 @@ export async function POST(request: NextRequest) {
     async function fetchAccountFrequency(start: string): Promise<number | null> {
       try {
         const res = await client.getAdAccountAnalytics(adAccountId, start, todayIso, {
-          columns: ["FREQUENCY", "IMPRESSION_1"],
+          columns: ["IMPRESSION_1", "IMPRESSION_USER"],
           granularity: "TOTAL",
         });
-        let row: Record<string, unknown> | null = null;
+        // Pinterest's TOTAL response shape varies — array of one row,
+        // { summary_metrics: {...} }, top-level fields, or { all: { daily_metrics } }.
+        let imp = 0,
+          reach = 0;
         if (Array.isArray(res) && res[0]) {
-          row = res[0] as Record<string, unknown>;
+          const r = res[0] as Record<string, unknown>;
+          imp = num(r["IMPRESSION_1"]);
+          reach = num(r["IMPRESSION_USER"]);
         } else if (res && typeof res === "object") {
           const obj = res as Record<string, unknown>;
-          if (obj.summary_metrics && typeof obj.summary_metrics === "object") {
-            row = obj.summary_metrics as Record<string, unknown>;
-          } else if ("FREQUENCY" in obj) {
-            row = obj;
+          const src =
+            (obj.summary_metrics as Record<string, unknown> | undefined) ||
+            (("IMPRESSION_1" in obj) ? obj : undefined);
+          if (src) {
+            imp = num(src["IMPRESSION_1"]);
+            reach = num(src["IMPRESSION_USER"]);
           } else if (
             obj.all &&
             typeof obj.all === "object" &&
             Array.isArray((obj.all as Record<string, unknown>).daily_metrics)
           ) {
-            // Sum daily — should match TOTAL.
             const days = (obj.all as { daily_metrics: Array<{ metrics?: Record<string, number> }> })
               .daily_metrics;
-            let totalImp = 0,
-              totalReach = 0;
             for (const d of days) {
-              totalImp += num(d.metrics?.IMPRESSION_1);
-              totalReach += num(d.metrics?.IMPRESSION_USER);
+              imp += num(d.metrics?.IMPRESSION_1);
+              reach += num(d.metrics?.IMPRESSION_USER);
             }
-            return totalReach > 0 ? totalImp / totalReach : null;
           }
         }
-        if (!row) return null;
-        const f = num(row["FREQUENCY"]);
-        return f > 0 ? f : null;
+        return reach > 0 ? imp / reach : null;
       } catch {
         return null;
       }
@@ -284,12 +301,14 @@ export async function POST(request: NextRequest) {
 
       const a7 = cmp7.get(c.id);
       const a30 = cmp30.get(c.id);
-      const freq7 = a7 ? num(a7["FREQUENCY"]) : 0;
-      const freq30 = a30 ? num(a30["FREQUENCY"]) : 0;
-      const ctr7 = a7 ? num(a7["CTR"]) : 0;
-      const ctr30 = a30 ? num(a30["CTR"]) : 0;
       const imp7 = a7 ? num(a7["IMPRESSION_1"]) : 0;
       const imp30 = a30 ? num(a30["IMPRESSION_1"]) : 0;
+      const reach7 = a7 ? num(a7["IMPRESSION_USER"]) : 0;
+      const reach30 = a30 ? num(a30["IMPRESSION_USER"]) : 0;
+      const freq7 = reach7 > 0 ? imp7 / reach7 : 0;
+      const freq30 = reach30 > 0 ? imp30 / reach30 : 0;
+      const ctr7 = a7 ? num(a7["CTR"]) : 0;
+      const ctr30 = a30 ? num(a30["CTR"]) : 0;
 
       return {
         id: c.id,
