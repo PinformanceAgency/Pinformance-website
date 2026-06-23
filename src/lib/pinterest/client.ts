@@ -471,6 +471,7 @@ export class PinterestClient {
       status?: string;
       creative_type?: string;
       created_time?: number;
+      updated_time?: number;
     }>;
     bookmark?: string;
   }> {
@@ -542,6 +543,9 @@ export class PinterestClient {
       status?: string;
       objective_type?: string;
       created_time?: number;
+      updated_time?: number;
+      daily_spend_cap?: number;
+      lifetime_spend_cap?: number;
       ad_account_id?: string;
     }>;
     bookmark?: string;
@@ -614,6 +618,9 @@ export class PinterestClient {
       campaign_id?: string;
       status?: string;
       created_time?: number;
+      updated_time?: number;
+      budget_in_micro_currency?: number;
+      bid_in_micro_currency?: number;
     }>;
     bookmark?: string;
   }> {
