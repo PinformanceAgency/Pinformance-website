@@ -43,6 +43,8 @@ interface CampaignRow {
   frequency_30d: number | null;
   ctr_7d: number | null;
   ctr_30d: number | null;
+  roas_7d: number | null;
+  roas_30d: number | null;
   impressions_7d: number;
   impressions_30d: number;
   fatigue: "fresh" | "aging" | "fatigued" | "no_data";
@@ -92,6 +94,16 @@ function fmtFreq(v: number | null): string {
 }
 function fmtPct(v: number | null): string {
   return v == null ? "—" : `${v.toFixed(2)}%`;
+}
+function fmtRoas(v: number | null): string {
+  if (v == null) return "—";
+  return `${v.toFixed(2)}x`;
+}
+function roasAccent(v: number | null): string {
+  if (v == null) return "text-muted-foreground";
+  if (v < 1) return "text-red-600";
+  if (v < 2) return "text-amber-600";
+  return "text-green-600 font-medium";
 }
 function fmtMoney(v: number, currency: string): string {
   try {
@@ -340,6 +352,7 @@ export default function CreativeCadencePage() {
                 <th className="text-right px-3 py-2 font-medium">Freq 7d</th>
                 <th className="text-right px-3 py-2 font-medium">Freq 30d</th>
                 <th className="text-right px-3 py-2 font-medium">CTR 7d / 30d</th>
+                <th className="text-right px-3 py-2 font-medium">ROAS 7d / 30d</th>
                 <th className="text-left px-3 py-2 font-medium">Fatigue</th>
               </tr>
             </thead>
@@ -422,6 +435,11 @@ export default function CreativeCadencePage() {
                       </td>
                       <td className="text-right px-3 py-2.5 tabular-nums text-muted-foreground">
                         {fmtPct(c.ctr_7d)} / {fmtPct(c.ctr_30d)}
+                      </td>
+                      <td className="text-right px-3 py-2.5 tabular-nums">
+                        <span className={roasAccent(c.roas_7d)}>{fmtRoas(c.roas_7d)}</span>
+                        <span className="text-muted-foreground"> / </span>
+                        <span className={roasAccent(c.roas_30d)}>{fmtRoas(c.roas_30d)}</span>
                       </td>
                       <td className="px-3 py-2.5">
                         <span

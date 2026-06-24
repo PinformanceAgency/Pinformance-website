@@ -37,6 +37,8 @@ interface CampaignCadenceRow {
   frequency_30d: number | null;
   ctr_7d: number | null;
   ctr_30d: number | null;
+  roas_7d: number | null;
+  roas_30d: number | null;
   impressions_7d: number;
   impressions_30d: number;
   /** "fresh" | "aging" | "fatigued" — driven by frequency_30d. */
@@ -203,7 +205,13 @@ export async function POST(request: NextRequest) {
     // CLICKTHROUGH_1 so we can compute CTR ourselves — Pinterest's bundled
     // CTR column has format inconsistencies, the existing media-buying code
     // computes clicks/impressions*100 for the same reason.
-    const cols = ["IMPRESSION_1", "CLICKTHROUGH_1", "TOTAL_IMPRESSION_FREQUENCY"];
+    const cols = [
+      "IMPRESSION_1",
+      "CLICKTHROUGH_1",
+      "TOTAL_IMPRESSION_FREQUENCY",
+      "SPEND_IN_DOLLAR",
+      "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+    ];
     const analyticsErrors: string[] = [];
 
     async function fetchCampaignWindow(start: string) {
@@ -288,6 +296,12 @@ export async function POST(request: NextRequest) {
       // Pinterest's CTR column due to format inconsistencies.
       const ctr7 = imp7 > 0 ? (clicks7 / imp7) * 100 : 0;
       const ctr30 = imp30 > 0 ? (clicks30 / imp30) * 100 : 0;
+      const spend7 = a7 ? num(a7["SPEND_IN_DOLLAR"]) : 0;
+      const spend30 = a30 ? num(a30["SPEND_IN_DOLLAR"]) : 0;
+      const rev7 = a7 ? num(a7["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000 : 0;
+      const rev30 = a30 ? num(a30["TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000 : 0;
+      const roas7 = spend7 > 0 ? rev7 / spend7 : 0;
+      const roas30 = spend30 > 0 ? rev30 / spend30 : 0;
 
       return {
         id: c.id,
@@ -306,6 +320,8 @@ export async function POST(request: NextRequest) {
         frequency_30d: freq30 > 0 ? Math.round(freq30 * 100) / 100 : null,
         ctr_7d: ctr7 > 0 ? Math.round(ctr7 * 100) / 100 : null,
         ctr_30d: ctr30 > 0 ? Math.round(ctr30 * 100) / 100 : null,
+        roas_7d: roas7 > 0 ? Math.round(roas7 * 100) / 100 : null,
+        roas_30d: roas30 > 0 ? Math.round(roas30 * 100) / 100 : null,
         impressions_7d: imp7,
         impressions_30d: imp30,
         fatigue: fatigueFromFrequency(freq30 > 0 ? freq30 : null),
