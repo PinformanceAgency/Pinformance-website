@@ -197,51 +197,35 @@ export async function POST(request: NextRequest) {
         intervals.reduce((s, x) => s + x, 0) / intervals.length;
     }
 
-    // Fetch campaign-level analytics in two windows. Pinterest rejects the
-    // entire call if ANY requested column is unsupported for the account,
-    // so we try the rich set first (gives us frequency) and fall back to a
-    // minimal set (CTR + impressions only) if the rich call errors. That
-    // way at least CTR and impression counts always render.
-    const richCols = ["IMPRESSION_1", "IMPRESSION_USER", "CLICKTHROUGH_1", "CTR"];
-    const minCols = ["IMPRESSION_1", "CLICKTHROUGH_1", "CTR"];
+    // Pinterest's campaign analytics endpoint exposes frequency under the
+    // name TOTAL_IMPRESSION_FREQUENCY (NOT "FREQUENCY" or "IMPRESSION_USER",
+    // both of which it rejects for campaigns). We also pull IMPRESSION_1 and
+    // CLICKTHROUGH_1 so we can compute CTR ourselves — Pinterest's bundled
+    // CTR column has format inconsistencies, the existing media-buying code
+    // computes clicks/impressions*100 for the same reason.
+    const cols = ["IMPRESSION_1", "CLICKTHROUGH_1", "TOTAL_IMPRESSION_FREQUENCY"];
     const analyticsErrors: string[] = [];
 
     async function fetchCampaignWindow(start: string) {
       const out = new Map<string, Record<string, number | string>>();
       for (let i = 0; i < campaigns.length; i += 100) {
         const batch = campaigns.slice(i, i + 100).map((c) => c.id);
-        let rows: Array<Record<string, number | string>> | null = null;
         try {
-          rows = await client.getCampaignAnalytics(
+          const rows = await client.getCampaignAnalytics(
             adAccountId,
             batch,
             start,
             todayIso,
-            { columns: richCols, granularity: "TOTAL" }
+            { columns: cols, granularity: "TOTAL" }
           );
+          for (const r of rows || []) {
+            const cid = String(r["CAMPAIGN_ID"] ?? "");
+            if (cid) out.set(cid, r);
+          }
         } catch (e) {
           analyticsErrors.push(
-            `${start} rich batch ${i}: ${e instanceof Error ? e.message : String(e)}`
+            `${start} batch ${i}: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`
           );
-        }
-        if (!rows) {
-          try {
-            rows = await client.getCampaignAnalytics(
-              adAccountId,
-              batch,
-              start,
-              todayIso,
-              { columns: minCols, granularity: "TOTAL" }
-            );
-          } catch (e) {
-            analyticsErrors.push(
-              `${start} min batch ${i}: ${e instanceof Error ? e.message : String(e)}`
-            );
-          }
-        }
-        for (const r of rows || []) {
-          const cid = String(r["CAMPAIGN_ID"] ?? "");
-          if (cid) out.set(cid, r);
         }
       }
       return out;
@@ -259,39 +243,20 @@ export async function POST(request: NextRequest) {
     async function fetchAccountFrequency(start: string): Promise<number | null> {
       try {
         const res = await client.getAdAccountAnalytics(adAccountId, start, todayIso, {
-          columns: ["IMPRESSION_1", "IMPRESSION_USER"],
+          columns: ["TOTAL_IMPRESSION_FREQUENCY"],
           granularity: "TOTAL",
         });
-        // Pinterest's TOTAL response shape varies — array of one row,
-        // { summary_metrics: {...} }, top-level fields, or { all: { daily_metrics } }.
-        let imp = 0,
-          reach = 0;
-        if (Array.isArray(res) && res[0]) {
-          const r = res[0] as Record<string, unknown>;
-          imp = num(r["IMPRESSION_1"]);
-          reach = num(r["IMPRESSION_USER"]);
-        } else if (res && typeof res === "object") {
+        let row: Record<string, unknown> | null = null;
+        if (Array.isArray(res) && res[0]) row = res[0] as Record<string, unknown>;
+        else if (res && typeof res === "object") {
           const obj = res as Record<string, unknown>;
-          const src =
+          row =
             (obj.summary_metrics as Record<string, unknown> | undefined) ||
-            (("IMPRESSION_1" in obj) ? obj : undefined);
-          if (src) {
-            imp = num(src["IMPRESSION_1"]);
-            reach = num(src["IMPRESSION_USER"]);
-          } else if (
-            obj.all &&
-            typeof obj.all === "object" &&
-            Array.isArray((obj.all as Record<string, unknown>).daily_metrics)
-          ) {
-            const days = (obj.all as { daily_metrics: Array<{ metrics?: Record<string, number> }> })
-              .daily_metrics;
-            for (const d of days) {
-              imp += num(d.metrics?.IMPRESSION_1);
-              reach += num(d.metrics?.IMPRESSION_USER);
-            }
-          }
+            (("TOTAL_IMPRESSION_FREQUENCY" in obj) ? obj : null);
         }
-        return reach > 0 ? imp / reach : null;
+        if (!row) return null;
+        const f = num(row["TOTAL_IMPRESSION_FREQUENCY"]);
+        return f > 0 ? f : null;
       } catch {
         return null;
       }
@@ -326,12 +291,14 @@ export async function POST(request: NextRequest) {
       const a30 = cmp30.get(c.id);
       const imp7 = a7 ? num(a7["IMPRESSION_1"]) : 0;
       const imp30 = a30 ? num(a30["IMPRESSION_1"]) : 0;
-      const reach7 = a7 ? num(a7["IMPRESSION_USER"]) : 0;
-      const reach30 = a30 ? num(a30["IMPRESSION_USER"]) : 0;
-      const freq7 = reach7 > 0 ? imp7 / reach7 : 0;
-      const freq30 = reach30 > 0 ? imp30 / reach30 : 0;
-      const ctr7 = a7 ? num(a7["CTR"]) : 0;
-      const ctr30 = a30 ? num(a30["CTR"]) : 0;
+      const clicks7 = a7 ? num(a7["CLICKTHROUGH_1"]) : 0;
+      const clicks30 = a30 ? num(a30["CLICKTHROUGH_1"]) : 0;
+      const freq7 = a7 ? num(a7["TOTAL_IMPRESSION_FREQUENCY"]) : 0;
+      const freq30 = a30 ? num(a30["TOTAL_IMPRESSION_FREQUENCY"]) : 0;
+      // Compute CTR ourselves — matches media-buying route which avoids
+      // Pinterest's CTR column due to format inconsistencies.
+      const ctr7 = imp7 > 0 ? (clicks7 / imp7) * 100 : 0;
+      const ctr30 = imp30 > 0 ? (clicks30 / imp30) * 100 : 0;
 
       return {
         id: c.id,

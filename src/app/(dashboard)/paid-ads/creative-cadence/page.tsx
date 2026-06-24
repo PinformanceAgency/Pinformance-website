@@ -182,37 +182,14 @@ export default function CreativeCadencePage() {
         </div>
       )}
 
-      {data?.diag && (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs p-3 font-mono">
-          <div className="font-sans font-semibold text-sm mb-1">
-            Pinterest API diagnostics
+      {data?.diag?.analytics_errors && data.diag.analytics_errors.length > 0 && (
+        <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs p-3 font-mono">
+          <div className="font-sans font-semibold mb-1">
+            {data.diag.analytics_errors.length} analytics call(s) failed
           </div>
-          <div>Total ads fetched: <b>{data.diag.total_ads_fetched}</b></div>
-          <div>Ads with campaign_id directly: <b>{data.diag.ads_with_campaign_id_direct}</b></div>
-          <div>Ads with ad_group_id: <b>{data.diag.ads_with_ad_group_id}</b></div>
-          <div>Ads attributed to a campaign (direct + lookup): <b>{data.diag.ads_attributed_to_campaign}</b></div>
-          <div>Ad groups fetched: <b>{data.diag.ad_groups_fetched}</b> · Campaigns: <b>{data.diag.campaigns_fetched}</b></div>
-          <div className="mt-1">
-            Campaigns that received ≥1 ad in <b>7d</b>: <b>{data.diag.campaigns_receiving_ads_7d}</b>
-            {" — "}status breakdown:{" "}
-            {Object.entries(data.diag.campaigns_with_ads_7d_by_status).map(([s, n]) => `${s}:${n}`).join(", ") || "(none)"}
-          </div>
-          <div>
-            Campaigns that received ≥1 ad in <b>30d</b>: <b>{data.diag.campaigns_receiving_ads_30d}</b>
-            {" — "}status breakdown:{" "}
-            {Object.entries(data.diag.campaigns_with_ads_30d_by_status).map(([s, n]) => `${s}:${n}`).join(", ") || "(none)"}
-          </div>
-          {data.diag.sample_analytics_row_keys && data.diag.sample_analytics_row_keys.length > 0 && (
-            <div className="mt-1 text-amber-700">
-              Analytics row keys returned: {data.diag.sample_analytics_row_keys.join(", ")}
-            </div>
-          )}
-          {data.diag.analytics_errors && data.diag.analytics_errors.length > 0 && (
-            <div className="mt-1 text-red-700">
-              Analytics errors ({data.diag.analytics_errors.length}):{" "}
-              {data.diag.analytics_errors.join(" | ")}
-            </div>
-          )}
+          {data.diag.analytics_errors.map((e, i) => (
+            <div key={i}>{e}</div>
+          ))}
         </div>
       )}
 
