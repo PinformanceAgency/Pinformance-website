@@ -63,6 +63,15 @@ interface Response {
     campaigns_aging: number;
   };
   campaigns: CampaignRow[];
+  diag?: {
+    total_ads_fetched: number;
+    ads_with_campaign_id_direct: number;
+    ads_with_ad_group_id: number;
+    ads_attributed_to_campaign: number;
+    ad_groups_fetched: number;
+    campaigns_fetched: number;
+    sample_ad_keys: string[];
+  };
 }
 
 const FATIGUE_META = {
@@ -164,6 +173,20 @@ export default function CreativeCadencePage() {
       {error && (
         <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm p-3">
           {error}
+        </div>
+      )}
+
+      {data?.diag && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs p-3 font-mono">
+          <div className="font-sans font-semibold text-sm mb-1">
+            Pinterest API diagnostics
+          </div>
+          <div>Total ads fetched: <b>{data.diag.total_ads_fetched}</b></div>
+          <div>Ads with campaign_id directly: <b>{data.diag.ads_with_campaign_id_direct}</b></div>
+          <div>Ads with ad_group_id: <b>{data.diag.ads_with_ad_group_id}</b></div>
+          <div>Ads attributed to a campaign (direct + lookup): <b>{data.diag.ads_attributed_to_campaign}</b></div>
+          <div>Ad groups fetched: <b>{data.diag.ad_groups_fetched}</b> · Campaigns: <b>{data.diag.campaigns_fetched}</b></div>
+          <div className="mt-1 text-amber-700">Ad object keys: {data.diag.sample_ad_keys.join(", ")}</div>
         </div>
       )}
 
