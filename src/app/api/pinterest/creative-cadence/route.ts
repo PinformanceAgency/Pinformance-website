@@ -355,6 +355,28 @@ export async function POST(request: NextRequest) {
     const adsWithCampaignDirect = ads.filter((a) => !!a.campaign_id).length;
     const adsWithAdGroup = ads.filter((a) => !!a.ad_group_id).length;
     const adsAttributed = ads.filter((a) => !!resolveCampaignId(a)).length;
+    // How many campaigns ACTUALLY received an ad in last 7d/30d, broken
+    // down by campaign status — answers "where did the 779 new ads go?"
+    const campStatusById = new Map<string, string>();
+    for (const c of campaigns) campStatusById.set(c.id, (c.status || "UNKNOWN").toUpperCase());
+    const campAdds7 = new Set<string>();
+    const campAdds30 = new Set<string>();
+    for (const a of ads) {
+      const cid = resolveCampaignId(a);
+      const t = typeof a.created_time === "number" ? a.created_time : null;
+      if (!cid || t == null) continue;
+      if (t >= sec7) campAdds7.add(cid);
+      if (t >= sec30) campAdds30.add(cid);
+    }
+    function statusBreakdown(ids: Set<string>): Record<string, number> {
+      const out: Record<string, number> = {};
+      for (const id of ids) {
+        const s = campStatusById.get(id) || "UNKNOWN";
+        out[s] = (out[s] || 0) + 1;
+      }
+      return out;
+    }
+
     const diag = {
       total_ads_fetched: totalAds,
       ads_with_campaign_id_direct: adsWithCampaignDirect,
@@ -362,6 +384,10 @@ export async function POST(request: NextRequest) {
       ads_attributed_to_campaign: adsAttributed,
       ad_groups_fetched: adGroups.length,
       campaigns_fetched: campaigns.length,
+      campaigns_receiving_ads_7d: campAdds7.size,
+      campaigns_receiving_ads_30d: campAdds30.size,
+      campaigns_with_ads_7d_by_status: statusBreakdown(campAdds7),
+      campaigns_with_ads_30d_by_status: statusBreakdown(campAdds30),
       sample_ad_keys: ads[0] ? Object.keys(ads[0]) : [],
     };
 

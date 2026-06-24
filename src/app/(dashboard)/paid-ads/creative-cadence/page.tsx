@@ -70,6 +70,10 @@ interface Response {
     ads_attributed_to_campaign: number;
     ad_groups_fetched: number;
     campaigns_fetched: number;
+    campaigns_receiving_ads_7d: number;
+    campaigns_receiving_ads_30d: number;
+    campaigns_with_ads_7d_by_status: Record<string, number>;
+    campaigns_with_ads_30d_by_status: Record<string, number>;
     sample_ad_keys: string[];
   };
 }
@@ -115,7 +119,7 @@ export default function CreativeCadencePage() {
   const [sortBy, setSortBy] = useState<"recent" | "impressions" | "fatigue" | "days_since">(
     "recent"
   );
-  const [statusFilter, setStatusFilter] = useState<"active" | "all">("active");
+  const [statusFilter, setStatusFilter] = useState<"active" | "all">("all");
 
   useEffect(() => {
     setLoading(true);
@@ -186,7 +190,16 @@ export default function CreativeCadencePage() {
           <div>Ads with ad_group_id: <b>{data.diag.ads_with_ad_group_id}</b></div>
           <div>Ads attributed to a campaign (direct + lookup): <b>{data.diag.ads_attributed_to_campaign}</b></div>
           <div>Ad groups fetched: <b>{data.diag.ad_groups_fetched}</b> · Campaigns: <b>{data.diag.campaigns_fetched}</b></div>
-          <div className="mt-1 text-amber-700">Ad object keys: {data.diag.sample_ad_keys.join(", ")}</div>
+          <div className="mt-1">
+            Campaigns that received ≥1 ad in <b>7d</b>: <b>{data.diag.campaigns_receiving_ads_7d}</b>
+            {" — "}status breakdown:{" "}
+            {Object.entries(data.diag.campaigns_with_ads_7d_by_status).map(([s, n]) => `${s}:${n}`).join(", ") || "(none)"}
+          </div>
+          <div>
+            Campaigns that received ≥1 ad in <b>30d</b>: <b>{data.diag.campaigns_receiving_ads_30d}</b>
+            {" — "}status breakdown:{" "}
+            {Object.entries(data.diag.campaigns_with_ads_30d_by_status).map(([s, n]) => `${s}:${n}`).join(", ") || "(none)"}
+          </div>
         </div>
       )}
 
