@@ -31,8 +31,8 @@ interface CampaignCadenceRow {
   last_ad_created_at: number | null;
   /** Days since the most recent ad was created in this campaign. */
   days_since_last_ad: number | null;
-  /** Average days between the last 10 ad additions (or all if fewer). */
-  avg_interval_days: number | null;
+  /** Campaign daily spend cap in account currency (Pinterest returns dollars). */
+  daily_spend_cap: number | null;
   frequency_7d: number | null;
   frequency_30d: number | null;
   ctr_7d: number | null;
@@ -276,17 +276,6 @@ export async function POST(request: NextRequest) {
       const last = total ? times[total - 1] : null;
       const daysSince = last != null ? Math.round(((nowSec - last) / 86400) * 10) / 10 : null;
 
-      let avgInterval: number | null = null;
-      if (total >= 2) {
-        const window = times.slice(-10);
-        const intervals: number[] = [];
-        for (let i = 1; i < window.length; i++) {
-          intervals.push((window[i] - window[i - 1]) / 86400);
-        }
-        avgInterval =
-          Math.round((intervals.reduce((s, x) => s + x, 0) / intervals.length) * 10) / 10;
-      }
-
       const a7 = cmp7.get(c.id);
       const a30 = cmp30.get(c.id);
       const imp7 = a7 ? num(a7["IMPRESSION_1"]) : 0;
@@ -309,7 +298,10 @@ export async function POST(request: NextRequest) {
         ads_added_30d: added30d,
         last_ad_created_at: last,
         days_since_last_ad: daysSince,
-        avg_interval_days: avgInterval,
+        daily_spend_cap:
+          typeof c.daily_spend_cap === "number" && c.daily_spend_cap > 0
+            ? c.daily_spend_cap
+            : null,
         frequency_7d: freq7 > 0 ? Math.round(freq7 * 100) / 100 : null,
         frequency_30d: freq30 > 0 ? Math.round(freq30 * 100) / 100 : null,
         ctr_7d: ctr7 > 0 ? Math.round(ctr7 * 100) / 100 : null,

@@ -38,7 +38,7 @@ interface CampaignRow {
   ads_added_30d: number;
   last_ad_created_at: number | null;
   days_since_last_ad: number | null;
-  avg_interval_days: number | null;
+  daily_spend_cap: number | null;
   frequency_7d: number | null;
   frequency_30d: number | null;
   ctr_7d: number | null;
@@ -92,6 +92,17 @@ function fmtFreq(v: number | null): string {
 }
 function fmtPct(v: number | null): string {
   return v == null ? "—" : `${v.toFixed(2)}%`;
+}
+function fmtMoney(v: number, currency: string): string {
+  try {
+    return v.toLocaleString(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: v >= 100 ? 0 : 2,
+    });
+  } catch {
+    return `${v.toFixed(2)} ${currency}`;
+  }
 }
 function fmtDays(v: number | null): string {
   if (v == null) return "—";
@@ -325,7 +336,7 @@ export default function CreativeCadencePage() {
                 <th className="text-right px-3 py-2 font-medium">+7d</th>
                 <th className="text-right px-3 py-2 font-medium">+30d</th>
                 <th className="text-right px-3 py-2 font-medium">Last add</th>
-                <th className="text-right px-3 py-2 font-medium">Avg interval</th>
+                <th className="text-right px-3 py-2 font-medium">Daily budget</th>
                 <th className="text-right px-3 py-2 font-medium">Freq 7d</th>
                 <th className="text-right px-3 py-2 font-medium">Freq 30d</th>
                 <th className="text-right px-3 py-2 font-medium">CTR 7d / 30d</th>
@@ -395,8 +406,10 @@ export default function CreativeCadencePage() {
                           {fmtDays(c.days_since_last_ad)}
                         </span>
                       </td>
-                      <td className="text-right px-3 py-2.5 tabular-nums text-muted-foreground">
-                        {fmtDays(c.avg_interval_days)}
+                      <td className="text-right px-3 py-2.5 tabular-nums">
+                        {c.daily_spend_cap == null
+                          ? <span className="text-muted-foreground">—</span>
+                          : fmtMoney(c.daily_spend_cap, data?.currency || "USD")}
                       </td>
                       <td className={cn("text-right px-3 py-2.5 tabular-nums", freqAccent(c.frequency_7d))}>
                         {fmtFreq(c.frequency_7d)}
