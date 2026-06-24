@@ -31,7 +31,7 @@ interface CampaignCadenceRow {
   last_ad_created_at: number | null;
   /** Days since the most recent ad was created in this campaign. */
   days_since_last_ad: number | null;
-  /** Campaign daily spend cap in account currency (Pinterest returns dollars). */
+  /** Campaign daily spend cap in account currency (converted from Pinterest's micros). */
   daily_spend_cap: number | null;
   frequency_7d: number | null;
   frequency_30d: number | null;
@@ -300,7 +300,7 @@ export async function POST(request: NextRequest) {
         days_since_last_ad: daysSince,
         daily_spend_cap:
           typeof c.daily_spend_cap === "number" && c.daily_spend_cap > 0
-            ? c.daily_spend_cap
+            ? c.daily_spend_cap / 1_000_000
             : null,
         frequency_7d: freq7 > 0 ? Math.round(freq7 * 100) / 100 : null,
         frequency_30d: freq30 > 0 ? Math.round(freq30 * 100) / 100 : null,
