@@ -75,6 +75,8 @@ interface Response {
     campaigns_with_ads_7d_by_status: Record<string, number>;
     campaigns_with_ads_30d_by_status: Record<string, number>;
     sample_ad_keys: string[];
+    analytics_errors?: string[];
+    sample_analytics_row_keys?: string[];
   };
 }
 
@@ -200,6 +202,17 @@ export default function CreativeCadencePage() {
             {" — "}status breakdown:{" "}
             {Object.entries(data.diag.campaigns_with_ads_30d_by_status).map(([s, n]) => `${s}:${n}`).join(", ") || "(none)"}
           </div>
+          {data.diag.sample_analytics_row_keys && data.diag.sample_analytics_row_keys.length > 0 && (
+            <div className="mt-1 text-amber-700">
+              Analytics row keys returned: {data.diag.sample_analytics_row_keys.join(", ")}
+            </div>
+          )}
+          {data.diag.analytics_errors && data.diag.analytics_errors.length > 0 && (
+            <div className="mt-1 text-red-700">
+              Analytics errors ({data.diag.analytics_errors.length}):{" "}
+              {data.diag.analytics_errors.join(" | ")}
+            </div>
+          )}
         </div>
       )}
 

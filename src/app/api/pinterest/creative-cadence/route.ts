@@ -197,28 +197,51 @@ export async function POST(request: NextRequest) {
         intervals.reduce((s, x) => s + x, 0) / intervals.length;
     }
 
-    // Fetch campaign-level analytics in two windows. We compute frequency
-    // ourselves (IMPRESSION_1 / IMPRESSION_USER) — Pinterest's bundled
-    // FREQUENCY column is inconsistently returned per account.
-    const cols = ["IMPRESSION_1", "IMPRESSION_USER", "CLICKTHROUGH_1", "CTR"];
+    // Fetch campaign-level analytics in two windows. Pinterest rejects the
+    // entire call if ANY requested column is unsupported for the account,
+    // so we try the rich set first (gives us frequency) and fall back to a
+    // minimal set (CTR + impressions only) if the rich call errors. That
+    // way at least CTR and impression counts always render.
+    const richCols = ["IMPRESSION_1", "IMPRESSION_USER", "CLICKTHROUGH_1", "CTR"];
+    const minCols = ["IMPRESSION_1", "CLICKTHROUGH_1", "CTR"];
+    const analyticsErrors: string[] = [];
+
     async function fetchCampaignWindow(start: string) {
       const out = new Map<string, Record<string, number | string>>();
       for (let i = 0; i < campaigns.length; i += 100) {
         const batch = campaigns.slice(i, i + 100).map((c) => c.id);
+        let rows: Array<Record<string, number | string>> | null = null;
         try {
-          const rows = await client.getCampaignAnalytics(
+          rows = await client.getCampaignAnalytics(
             adAccountId,
             batch,
             start,
             todayIso,
-            { columns: cols, granularity: "TOTAL" }
+            { columns: richCols, granularity: "TOTAL" }
           );
-          for (const r of rows || []) {
-            const cid = String(r["CAMPAIGN_ID"] ?? "");
-            if (cid) out.set(cid, r);
+        } catch (e) {
+          analyticsErrors.push(
+            `${start} rich batch ${i}: ${e instanceof Error ? e.message : String(e)}`
+          );
+        }
+        if (!rows) {
+          try {
+            rows = await client.getCampaignAnalytics(
+              adAccountId,
+              batch,
+              start,
+              todayIso,
+              { columns: minCols, granularity: "TOTAL" }
+            );
+          } catch (e) {
+            analyticsErrors.push(
+              `${start} min batch ${i}: ${e instanceof Error ? e.message : String(e)}`
+            );
           }
-        } catch {
-          // One bad batch shouldn't tank the whole report.
+        }
+        for (const r of rows || []) {
+          const cid = String(r["CAMPAIGN_ID"] ?? "");
+          if (cid) out.set(cid, r);
         }
       }
       return out;
@@ -389,6 +412,11 @@ export async function POST(request: NextRequest) {
       campaigns_with_ads_7d_by_status: statusBreakdown(campAdds7),
       campaigns_with_ads_30d_by_status: statusBreakdown(campAdds30),
       sample_ad_keys: ads[0] ? Object.keys(ads[0]) : [],
+      analytics_errors: analyticsErrors.slice(0, 5),
+      sample_analytics_row_keys: (() => {
+        const sample = cmp7.values().next().value as Record<string, unknown> | undefined;
+        return sample ? Object.keys(sample) : [];
+      })(),
     };
 
     return NextResponse.json({
