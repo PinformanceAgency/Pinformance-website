@@ -17,11 +17,11 @@ function ArrowIcon() {
 export default function StepWelcome({ onDone, config }: Props) {
   return (
     <>
-      <VideoEmbed url={config.videos.welcome} title="Welkom bij Pinformance" caption="Video 1 · Tristan's intro" />
+      <VideoEmbed url={config.videos.welcome} title="Welcome to Pinformance" caption="Video 1 · Tristan's intro" />
 
       <div className="ob-actions">
         <button className="ob-cta" onClick={onDone} type="button">
-          <span>Door naar stap 2</span>
+          <span>Continue to step 2</span>
           <ArrowIcon />
         </button>
       </div>

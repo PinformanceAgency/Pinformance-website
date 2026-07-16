@@ -25,7 +25,7 @@ export const ONBOARDING_CONFIG = {
       photoUrl: "" as string,
     },
     // Media buyer is shown generically since onboarding is anonymous (no per-client data)
-    mediaBuyerNote: "Je persoonlijke media buyer wordt tijdens de kickoff aan je gekoppeld.",
+    mediaBuyerNote: "Your personal media buyer will be assigned during the kickoff call.",
   },
 
   // ---------- Videos (Loom embed URLs) ----------
@@ -50,12 +50,12 @@ export const ONBOARDING_CONFIG = {
     formResponseUrl: "" as string,     // e.g. "https://docs.google.com/forms/d/e/XXXXX/formResponse"
     questions: [
       // Placeholder questions — REPLACE with your real Google Form fields + entry IDs
-      { id: "brand",   label: "Naam van je merk",         type: "text",     entryId: "entry.0000000001", required: true, placeholder: "Bijv. Celestia" },
-      { id: "website", label: "Website URL",              type: "url",      entryId: "entry.0000000002", required: true, placeholder: "https://" },
-      { id: "email",   label: "Contact e-mail",           type: "email",    entryId: "entry.0000000003", required: true },
-      { id: "revenue", label: "Huidige maandelijkse omzet", type: "text",   entryId: "entry.0000000004", required: true, placeholder: "€ …" },
-      { id: "adspend", label: "Huidig maandelijks adbudget", type: "text",  entryId: "entry.0000000005", required: true, placeholder: "€ …" },
-      { id: "goal",    label: "Wat is je belangrijkste doel?", type: "textarea", entryId: "entry.0000000006", required: true },
+      { id: "brand",   label: "Brand name",              type: "text",     entryId: "entry.0000000001", required: true, placeholder: "e.g. Celestia" },
+      { id: "website", label: "Website URL",             type: "url",      entryId: "entry.0000000002", required: true, placeholder: "https://" },
+      { id: "email",   label: "Contact email",           type: "email",    entryId: "entry.0000000003", required: true },
+      { id: "revenue", label: "Current monthly revenue", type: "text",     entryId: "entry.0000000004", required: true, placeholder: "€ …" },
+      { id: "adspend", label: "Current monthly ad spend",type: "text",     entryId: "entry.0000000005", required: true, placeholder: "€ …" },
+      { id: "goal",    label: "What is your main goal?", type: "textarea", entryId: "entry.0000000006", required: true },
     ] as IntakeQuestion[],
   },
 

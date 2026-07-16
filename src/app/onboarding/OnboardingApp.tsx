@@ -85,7 +85,7 @@ export default function OnboardingApp() {
   };
 
   const reset = () => {
-    if (typeof window !== "undefined" && confirm("Weet je zeker dat je opnieuw wil beginnen? Je huidige voortgang gaat verloren.")) {
+    if (typeof window !== "undefined" && confirm("Are you sure you want to start over? Your current progress will be lost.")) {
       localStorage.removeItem(STORAGE_KEY);
       setProgress(DEFAULT_PROGRESS);
     }
@@ -94,7 +94,7 @@ export default function OnboardingApp() {
   if (!hydrated) {
     return (
       <div style={{ padding: "120px 20px", textAlign: "center", color: "#8a8e93", fontSize: 14 }}>
-        Laden…
+        Loading…
       </div>
     );
   }
@@ -414,7 +414,7 @@ export default function OnboardingApp() {
             <img src="/onboarding/logo-dark.svg" alt="Pinformance" />
           </a>
           <span className="ob-step-counter">
-            Stap {currentIdx + 1} / {totalSteps}
+            Step {currentIdx + 1} / {totalSteps}
           </span>
         </div>
       </header>
@@ -432,11 +432,11 @@ export default function OnboardingApp() {
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
-              Terug
+              Back
             </button>
           )}
 
-          <div className="ob-pill">Stap {currentStep.number} · {currentStep.short}</div>
+          <div className="ob-pill">Step {currentStep.number} · {currentStep.short}</div>
 
           <h1 className="ob-headline">
             {currentStep.title}<span className="ob-headline-num">.</span>
@@ -452,8 +452,8 @@ export default function OnboardingApp() {
       <footer className="ob-footer">
         <div className="ob-footer-inner">
           <p className="ob-footer-copy">© 2026 Pinformance Agency</p>
-          <button className="ob-footer-step" onClick={reset} type="button" title="Opnieuw beginnen">
-            Onboarding · {currentIdx + 1} van {totalSteps}
+          <button className="ob-footer-step" onClick={reset} type="button" title="Start over">
+            Onboarding · {currentIdx + 1} of {totalSteps}
           </button>
         </div>
       </footer>

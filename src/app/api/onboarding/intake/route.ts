@@ -57,23 +57,23 @@ export async function POST(req: Request) {
   } else {
     try {
       const lines = Object.entries(labelled ?? {})
-        .map(([label, value]) => `*${label}:* ${value || "_(leeg)_"}`)
+        .map(([label, value]) => `*${label}:* ${value || "_(empty)_"}`)
         .join("\n");
       const slackPayload = {
-        text: "📥 Nieuwe onboarding intake ingevuld",
+        text: "📥 New onboarding intake submitted",
         blocks: [
           {
             type: "header",
-            text: { type: "plain_text", text: "📥 Nieuwe onboarding intake" },
+            text: { type: "plain_text", text: "📥 New onboarding intake" },
           },
           {
             type: "section",
-            text: { type: "mrkdwn", text: lines || "(geen data)" },
+            text: { type: "mrkdwn", text: lines || "(no data)" },
           },
           {
             type: "context",
             elements: [
-              { type: "mrkdwn", text: `Ingediend via typage.pinformance-agency.com/onboarding · ${new Date().toISOString()}` },
+              { type: "mrkdwn", text: `Submitted via onboarding.pinformance-agency.com · ${new Date().toISOString()}` },
             ],
           },
         ],

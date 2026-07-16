@@ -22,7 +22,7 @@ export default function VideoEmbed({ url, title = "Onboarding video", caption }:
             </svg>
           </button>
           <p className="ob-video-caption">
-            {caption ?? "Video slot · plak Loom embed URL in config.ts"}
+            {caption ?? "Video slot · paste Loom embed URL in config.ts"}
           </p>
         </div>
       )}

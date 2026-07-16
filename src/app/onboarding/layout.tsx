@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Onboarding — Pinformance Agency",
-  description: "Doorloop de onboarding zodat we snel live kunnen.",
+  description: "Complete your onboarding so we can go live fast.",
   robots: { index: false, follow: false },
   icons: {
     icon: [

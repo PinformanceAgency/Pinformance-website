@@ -24,7 +24,7 @@ export default function StepAdmin({ onDone, config }: Props) {
 
   return (
     <>
-      <VideoEmbed url={config.videos.admin} title="Administratie & facturering" caption="Video · Administratie" />
+      <VideoEmbed url={config.videos.admin} title="Administration & billing" caption="Video · Administration" />
 
       <div className="ob-card">
         <div className="ob-card-title">
@@ -33,18 +33,18 @@ export default function StepAdmin({ onDone, config }: Props) {
             className="ob-check"
             data-checked={readContract}
             onClick={() => setReadContract((v) => !v)}
-            aria-label="Contract gelezen"
+            aria-label="Contract read"
           >
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </button>
-          <span style={{ flex: 1 }}>1. {config.links.contractPdfUrl ? "Contract doorlezen" : "Intro over administratie & facturering bekijken"}</span>
+          <span style={{ flex: 1 }}>1. {config.links.contractPdfUrl ? "Read the contract" : "Watch the admin & billing intro"}</span>
         </div>
         <p className="ob-card-desc" style={{ marginLeft: 34 }}>
           {config.links.contractPdfUrl
-            ? "Neem het contract vooraf goed door. We bespreken 'm ook op de kickoff, maar het is handig om alvast met de inhoud bekend te zijn."
-            : "Bekijk de video hierboven zodat je weet hoe onze facturering werkt."}
+            ? "Read the contract carefully. We'll cover it on the kickoff too, but it helps to be familiar with the content."
+            : "Watch the video above to understand how our billing works."}
         </p>
         {config.links.contractPdfUrl && (
           <div style={{ marginTop: 14, marginLeft: 34 }}>
@@ -62,16 +62,16 @@ export default function StepAdmin({ onDone, config }: Props) {
             className="ob-check"
             data-checked={signed}
             onClick={() => setSigned((v) => !v)}
-            aria-label="Contract getekend"
+            aria-label="Contract signed"
           >
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </button>
-          <span style={{ flex: 1 }}>2. Contract tekenen via DocuSign</span>
+          <span style={{ flex: 1 }}>2. Sign the contract via DocuSign</span>
         </div>
         <p className="ob-card-desc" style={{ marginLeft: 34 }}>
-          Open DocuSign, teken digitaal en krijg automatisch een kopie in je mail. Vink dit blok af zodra je klaar bent.
+          Open DocuSign, sign digitally and you'll receive a copy in your email automatically. Check this off once you're done.
         </p>
         <div style={{ marginTop: 14, marginLeft: 34 }}>
           {config.links.docusignContract ? (
@@ -80,7 +80,7 @@ export default function StepAdmin({ onDone, config }: Props) {
             </a>
           ) : (
             <div className="ob-warn">
-              DocuSign PowerForm URL nog niet ingesteld — zet 'm in <code>src/app/onboarding/config.ts</code>.
+              DocuSign PowerForm URL not set — configure it in <code>src/app/onboarding/config.ts</code>.
             </div>
           )}
         </div>
@@ -88,7 +88,7 @@ export default function StepAdmin({ onDone, config }: Props) {
 
       <div className="ob-actions">
         <button className="ob-cta" onClick={onDone} disabled={!canProceed} type="button">
-          <span>{canProceed ? "Door naar de kickoff call" : "Vink beide af om verder te gaan"}</span>
+          <span>{canProceed ? "Continue to the kickoff call" : "Check both to continue"}</span>
           <ArrowIcon />
         </button>
       </div>

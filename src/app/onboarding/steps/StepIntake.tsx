@@ -58,11 +58,11 @@ export default function StepIntake({ onDone, config }: Props) {
       });
       if (!res.ok) {
         const body = await res.text();
-        throw new Error(body || `Fout (${res.status})`);
+        throw new Error(body || `Error (${res.status})`);
       }
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Onbekende fout bij versturen");
+      setError(e instanceof Error ? e.message : "Unknown error while submitting");
       setSubmitting(false);
     }
   };
@@ -70,9 +70,9 @@ export default function StepIntake({ onDone, config }: Props) {
   if (!config.intake.formResponseUrl) {
     return (
       <div className="ob-warn">
-        <strong>Intake nog niet geconfigureerd.</strong>
+        <strong>Intake not yet configured.</strong>
         <br />
-        Zet in <code>src/app/onboarding/config.ts</code> de <code>intake.formResponseUrl</code> en de <code>entryId</code> per vraag.
+        Set <code>intake.formResponseUrl</code> and the <code>entryId</code> for each question in <code>src/app/onboarding/config.ts</code>.
       </div>
     );
   }
@@ -103,7 +103,7 @@ export default function StepIntake({ onDone, config }: Props) {
                 onChange={(e) => setValue(q.id, e.target.value)}
                 onBlur={() => setTouched((t) => ({ ...t, [q.id]: true }))}
               >
-                <option value="">Kies…</option>
+                <option value="">Choose…</option>
                 {q.options?.map((opt) => (
                   <option key={opt} value={opt}>{opt}</option>
                 ))}
@@ -118,7 +118,7 @@ export default function StepIntake({ onDone, config }: Props) {
                 placeholder={q.placeholder}
               />
             )}
-            {showError && <div className="ob-error">Dit veld is verplicht.</div>}
+            {showError && <div className="ob-error">This field is required.</div>}
           </div>
         );
       })}
@@ -131,7 +131,7 @@ export default function StepIntake({ onDone, config }: Props) {
 
       <div className="ob-actions">
         <button className="ob-cta" onClick={submit} disabled={!canSubmit} type="button">
-          <span>{submitting ? "Versturen…" : "Verstuur intake"}</span>
+          <span>{submitting ? "Submitting…" : "Submit intake"}</span>
           <ArrowIcon />
         </button>
       </div>

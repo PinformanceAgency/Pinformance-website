@@ -29,31 +29,31 @@ export default function StepPinterest({ onDone, config }: Props) {
   const subs: Sub[] = [
     {
       id: "business",
-      title: "Pinterest Business account opzetten",
-      desc: "Maak (of upgrade naar) een Pinterest Business account. De video laat stap-voor-stap zien hoe je dat doet.",
+      title: "Set up your Pinterest Business account",
+      desc: "Create (or upgrade to) a Pinterest Business account. The video walks you through it step by step.",
       video: config.videos.pinterestBusiness,
       link: config.links.pinterestBusinessSignup
-        ? { label: "Naar Pinterest Business", url: config.links.pinterestBusinessSignup }
+        ? { label: "Go to Pinterest Business", url: config.links.pinterestBusinessSignup }
         : undefined,
     },
     {
       id: "access",
-      title: "Geef ons toegang tot je account",
-      desc: "Voeg ons als admin toe in je Business Manager zodat wij campagnes kunnen bouwen en optimaliseren.",
+      title: "Grant us access to your account",
+      desc: "Add us as an admin in your Business Manager so we can build and optimize campaigns.",
       video: config.videos.pinterestAccess,
     },
     {
       id: "tracking",
-      title: "Verbind je tracking",
-      desc: "Installeer de Pinterest Tag en verbind conversion tracking, zodat we op echte events optimaliseren.",
+      title: "Connect your tracking",
+      desc: "Install the Pinterest Tag and connect conversion tracking so we optimize on real events.",
       video: config.videos.pinterestTracking,
     },
     {
       id: "creatives",
-      title: "Upload je creatives in Trello",
+      title: "Upload your creatives in Trello",
       desc: config.links.trelloCreativesBoard
-        ? "Ga naar het Trello board en drop je creatives in de juiste kolom."
-        : "Je krijgt een Trello board toegewezen na de intake — link volgt in Slack.",
+        ? "Go to the Trello board and drop your creatives in the right column."
+        : "You'll be assigned a Trello board after intake — link follows in Slack.",
       video: "",
       link: config.links.trelloCreativesBoard
         ? { label: "Open Trello board", url: config.links.trelloCreativesBoard }
@@ -79,7 +79,7 @@ export default function StepPinterest({ onDone, config }: Props) {
               className="ob-check"
               data-checked={checked[s.id] ?? false}
               onClick={() => toggle(s.id)}
-              aria-label={`Markeer ${s.title} als klaar`}
+              aria-label={`Mark ${s.title} as done`}
             >
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
@@ -105,7 +105,7 @@ export default function StepPinterest({ onDone, config }: Props) {
 
       <div className="ob-actions">
         <button className="ob-cta" onClick={onDone} disabled={!allChecked} type="button">
-          <span>{allChecked ? "Door naar administratie" : "Vink alle stappen af"}</span>
+          <span>{allChecked ? "Continue to admin" : "Check off all steps to continue"}</span>
           <ArrowIcon />
         </button>
       </div>

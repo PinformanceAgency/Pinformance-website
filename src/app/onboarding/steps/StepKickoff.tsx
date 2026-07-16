@@ -23,11 +23,11 @@ export default function StepKickoff({ onDone, config }: Props) {
     return (
       <>
         <div className="ob-warn">
-          Calendly URL voor kickoff nog niet ingesteld — zet <code>links.calendlyKickoff</code> in <code>src/app/onboarding/config.ts</code>.
+          Kickoff Calendly URL not set — configure <code>links.calendlyKickoff</code> in <code>src/app/onboarding/config.ts</code>.
         </div>
         <div className="ob-actions">
           <button className="ob-cta" disabled type="button">
-            <span>Bevestig eerst je call</span>
+            <span>Confirm your call first</span>
             <ArrowIcon />
           </button>
         </div>
@@ -43,7 +43,7 @@ export default function StepKickoff({ onDone, config }: Props) {
           width="100%"
           height="100%"
           frameBorder={0}
-          title="Kickoff call inplannen"
+          title="Book your kickoff call"
         />
       </div>
 
@@ -54,22 +54,22 @@ export default function StepKickoff({ onDone, config }: Props) {
             className="ob-check"
             data-checked={confirmed}
             onClick={() => setConfirmed((v) => !v)}
-            aria-label="Kickoff call ingepland"
+            aria-label="Kickoff call booked"
           >
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </button>
-          <span style={{ flex: 1 }}>Ik heb mijn kickoff call ingepland</span>
+          <span style={{ flex: 1 }}>I've booked my kickoff call</span>
         </div>
         <p className="ob-card-desc" style={{ marginLeft: 34 }}>
-          Bevestig hier zodra je een moment hebt gekozen. Je krijgt automatisch een agenda-uitnodiging in je mail.
+          Confirm here once you've picked a slot. You'll receive a calendar invite in your email automatically.
         </p>
       </div>
 
       <div className="ob-actions">
         <button className="ob-cta" onClick={onDone} disabled={!confirmed} type="button">
-          <span>Afronden</span>
+          <span>Finish</span>
           <ArrowIcon />
         </button>
       </div>
