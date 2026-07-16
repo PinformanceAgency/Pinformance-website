@@ -8,27 +8,36 @@ interface Props {
   config: OnboardingConfig;
 }
 
+function ArrowIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14M13 5l7 7-7 7" />
+    </svg>
+  );
+}
+
 export default function StepKickoff({ onDone, config }: Props) {
   const [confirmed, setConfirmed] = useState(false);
 
   if (!config.links.calendlyKickoff) {
     return (
-      <div>
+      <>
         <div className="ob-warn">
           Calendly URL voor kickoff nog niet ingesteld — zet <code>links.calendlyKickoff</code> in <code>src/app/onboarding/config.ts</code>.
         </div>
         <div className="ob-actions">
-          <button className="ob-btn ob-btn-primary" onClick={onDone} disabled>
-            Bevestig eerst je call
+          <button className="ob-cta" disabled type="button">
+            <span>Bevestig eerst je call</span>
+            <ArrowIcon />
           </button>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div>
-      <div style={{ width: "100%", height: 720, borderRadius: 14, overflow: "hidden", border: "1px solid #ececec", marginBottom: 20 }}>
+    <>
+      <div style={{ width: "100%", height: 720, borderRadius: 20, overflow: "hidden", border: "1px solid #f0f0f1", marginBottom: 20 }}>
         <iframe
           src={config.links.calendlyKickoff}
           width="100%"
@@ -51,18 +60,19 @@ export default function StepKickoff({ onDone, config }: Props) {
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </button>
-          Ik heb mijn kickoff call ingepland
+          <span style={{ flex: 1 }}>Ik heb mijn kickoff call ingepland</span>
         </div>
-        <p className="ob-card-desc" style={{ marginLeft: 32 }}>
-          Bevestig hier zodra je een moment hebt gekozen. Je krijgt automatisch een agenda-uitnodiging en bevestiging in je mail.
+        <p className="ob-card-desc" style={{ marginLeft: 34 }}>
+          Bevestig hier zodra je een moment hebt gekozen. Je krijgt automatisch een agenda-uitnodiging in je mail.
         </p>
       </div>
 
       <div className="ob-actions">
-        <button className="ob-btn ob-btn-primary" onClick={onDone} disabled={!confirmed}>
-          Afronden →
+        <button className="ob-cta" onClick={onDone} disabled={!confirmed} type="button">
+          <span>Afronden</span>
+          <ArrowIcon />
         </button>
       </div>
-    </div>
+    </>
   );
 }

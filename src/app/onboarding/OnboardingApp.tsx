@@ -14,8 +14,8 @@ const STORAGE_KEY = "pinformance.onboarding.v1";
 
 interface Progress {
   currentStep: string;
-  completed: string[];        // step ids
-  intakeSubmittedAt?: string; // ISO
+  completed: string[];
+  intakeSubmittedAt?: string;
 }
 
 const DEFAULT_PROGRESS: Progress = {
@@ -59,19 +59,8 @@ export default function OnboardingApp() {
     [progress.currentStep]
   );
   const currentStep = STEPS[currentIdx];
-
-  const isUnlocked = (idx: number) => {
-    if (idx === 0) return true;
-    // A step is unlocked if all preceding steps are completed
-    return STEPS.slice(0, idx).every((s) => progress.completed.includes(s.id));
-  };
-
-  const goToStep = (idx: number) => {
-    if (idx < 0 || idx >= STEPS.length) return;
-    if (!isUnlocked(idx)) return;
-    setProgress((p) => ({ ...p, currentStep: STEPS[idx].id }));
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  const totalSteps = STEPS.length;
+  const progressPct = ((currentIdx + 1) / totalSteps) * 100;
 
   const completeCurrent = (extra?: Partial<Progress>) => {
     setProgress((p) => {
@@ -89,6 +78,12 @@ export default function OnboardingApp() {
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const goBack = () => {
+    if (currentIdx === 0) return;
+    setProgress((p) => ({ ...p, currentStep: STEPS[currentIdx - 1].id }));
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const reset = () => {
     if (typeof window !== "undefined" && confirm("Weet je zeker dat je opnieuw wil beginnen? Je huidige voortgang gaat verloren.")) {
       localStorage.removeItem(STORAGE_KEY);
@@ -96,10 +91,9 @@ export default function OnboardingApp() {
     }
   };
 
-  // Don't render step content until hydrated (avoids flash of wrong step + SSR mismatch)
   if (!hydrated) {
     return (
-      <div style={{ padding: "80px 20px", textAlign: "center", color: "#6b7075", fontSize: 14 }}>
+      <div style={{ padding: "120px 20px", textAlign: "center", color: "#8a8e93", fontSize: 14 }}>
         Laden…
       </div>
     );
@@ -118,174 +112,351 @@ export default function OnboardingApp() {
   })();
 
   return (
-    <div className="ob-shell">
+    <div className="ob-root">
       <style>{`
-        .ob-shell { display: grid; grid-template-columns: 1fr; gap: 0; }
-        @media (min-width: 960px) {
-          .ob-shell { grid-template-columns: 300px 1fr; }
+        /* =============================================
+           Layout — Implement-style, centered single column
+           ============================================= */
+        .ob-root {
+          background: #fff;
+          color: #111315;
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
-        .ob-sidebar {
-          background: #111315;
-          color: #fff;
-          padding: 32px 24px;
+
+        /* Header */
+        .ob-header { width: 100%; border-bottom: 1px solid #f0f0f1; background: #fff; }
+        .ob-header-inner {
+          max-width: 1080px; margin: 0 auto;
+          padding: 0 24px;
+          height: 64px;
+          display: flex; align-items: center; justify-content: space-between;
         }
-        @media (min-width: 960px) {
-          .ob-sidebar {
-            min-height: calc(100vh - 74px);
-            position: sticky;
-            top: 74px;
-            height: calc(100vh - 74px);
-            overflow-y: auto;
-          }
+        .ob-header-logo img { height: 26px; display: block; }
+        .ob-step-counter {
+          font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+          font-size: 11px;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          color: #8a8e93;
         }
-        .ob-sidebar-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(255,255,255,0.5); font-weight: 600; margin-bottom: 20px; }
-        .ob-step-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-        .ob-step {
-          display: flex; align-items: flex-start; gap: 14px;
-          padding: 12px 14px;
-          border-radius: 10px;
-          cursor: pointer;
-          background: transparent;
-          border: 1px solid transparent;
-          text-align: left;
+
+        /* Progress bar */
+        .ob-progress-track { width: 100%; height: 4px; background: #f0f0f1; }
+        .ob-progress-fill {
+          height: 100%;
+          background: #F0021A;
+          transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Main */
+        .ob-main { flex: 1; display: flex; align-items: flex-start; padding: 48px 0 40px; }
+        @media (min-width: 720px) { .ob-main { padding: 72px 0 60px; align-items: center; } }
+
+        .ob-container {
           width: 100%;
-          color: rgba(255,255,255,0.75);
-          font-size: 14px;
-          transition: background .15s ease, color .15s ease, border-color .15s ease;
+          max-width: 900px;
+          margin: 0 auto;
+          padding: 0 24px;
+          text-align: center;
         }
-        .ob-step:hover:not(:disabled) { background: rgba(255,255,255,0.04); color: #fff; }
-        .ob-step[data-active="true"] { background: rgba(240,2,26,0.08); border-color: rgba(240,2,26,0.3); color: #fff; }
-        .ob-step:disabled { cursor: not-allowed; opacity: 0.45; }
-        .ob-badge {
-          flex-shrink: 0;
-          width: 28px; height: 28px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.08);
-          display: grid; place-items: center;
-          font-size: 12px; font-weight: 700;
+
+        /* Pill badge above headline */
+        .ob-pill {
+          display: inline-flex; align-items: center;
+          padding: 8px 18px;
+          border-radius: 999px;
+          background: #F0021A;
           color: #fff;
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 11px;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          font-weight: 700;
+          margin-bottom: 28px;
         }
-        .ob-step[data-active="true"] .ob-badge { background: #F0021A; }
-        .ob-step[data-done="true"] .ob-badge { background: #16a34a; }
-        .ob-step-title { font-weight: 600; line-height: 1.35; }
-        .ob-step-sub { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px; }
 
-        .ob-content { padding: 40px 24px 80px; max-width: 820px; }
-        @media (min-width: 960px) { .ob-content { padding: 56px 48px 96px; } }
+        /* Headline */
+        .ob-headline {
+          font-size: clamp(38px, 8vw, 88px);
+          font-weight: 800;
+          letter-spacing: -0.035em;
+          line-height: 0.95;
+          margin: 0 0 24px;
+          color: #111315;
+        }
+        .ob-headline .ob-headline-num { color: #F0021A; }
 
-        .ob-content h1 { font-size: clamp(26px, 4.4vw, 36px); font-weight: 800; letter-spacing: -0.02em; margin: 0 0 8px; line-height: 1.15; }
-        .ob-eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: #F0021A; font-weight: 700; margin-bottom: 10px; }
-        .ob-lead { color: #6b7075; margin: 0 0 32px; font-size: 15.5px; line-height: 1.55; max-width: 640px; }
+        /* Lead paragraph */
+        .ob-lead {
+          font-size: clamp(16px, 2.2vw, 20px);
+          color: #6b7075;
+          max-width: 620px;
+          margin: 0 auto 44px;
+          line-height: 1.5;
+        }
 
-        .ob-video { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #f5f5f5; border-radius: 14px; overflow: hidden; margin-bottom: 24px; box-shadow: 0 1px 2px rgba(17,19,21,0.04), 0 6px 20px rgba(17,19,21,0.06); }
+        /* Step body */
+        .ob-step-body { margin: 0 auto; max-width: 780px; text-align: left; }
+        .ob-step-body-center { text-align: center; }
+
+        /* Video slot */
+        .ob-video {
+          position: relative;
+          width: 100%;
+          max-width: 780px;
+          margin: 0 auto 40px;
+          aspect-ratio: 16 / 9;
+          background: #faf9f6;
+          border-radius: 20px;
+          border: 1px solid #f0f0f1;
+          overflow: hidden;
+        }
         .ob-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-        .ob-video-placeholder { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #6b7075; font-size: 14px; padding: 20px; }
+        .ob-video-placeholder {
+          position: absolute; inset: 0;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: 16px; color: #8a8e93; padding: 20px; text-align: center;
+        }
+        .ob-video-play-btn {
+          width: 78px; height: 78px;
+          border-radius: 50%;
+          background: #111315;
+          display: grid; place-items: center;
+          border: 0;
+          box-shadow: 0 20px 40px rgba(17,19,21,0.15);
+          cursor: pointer;
+          transition: transform .2s ease, background .2s ease;
+        }
+        .ob-video-play-btn:hover { transform: scale(1.05); background: #F0021A; }
+        .ob-video-play-btn svg { width: 26px; height: 26px; color: #fff; margin-left: 4px; }
+        .ob-video-caption {
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 10px;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: #8a8e93;
+        }
 
-        .ob-actions { display: flex; align-items: center; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
-        .ob-btn { display: inline-flex; align-items: center; gap: 8px; padding: 13px 22px; border-radius: 999px; font-weight: 700; font-size: 15px; text-decoration: none; border: 0; cursor: pointer; transition: transform .15s ease, background .15s ease, opacity .15s ease; }
-        .ob-btn-primary { background: #F0021A; color: #fff; }
-        .ob-btn-primary:hover:not(:disabled) { background: #c80216; transform: translateY(-1px); }
-        .ob-btn-primary:disabled { background: #f5f5f5; color: #999; cursor: not-allowed; }
-        .ob-btn-ghost { background: transparent; color: #111315; border: 1px solid #ececec; }
-        .ob-btn-ghost:hover { background: #f5f5f5; }
-        .ob-btn-dark { background: #111315; color: #fff; }
-        .ob-btn-dark:hover { background: #000; transform: translateY(-1px); }
+        /* Primary CTA button — big pill */
+        .ob-cta {
+          display: inline-flex; align-items: center; gap: 12px;
+          padding: 18px 34px;
+          border-radius: 999px;
+          background: #F0021A;
+          color: #fff;
+          font-weight: 700;
+          font-size: 16px;
+          text-decoration: none;
+          border: 0;
+          cursor: pointer;
+          transition: background .15s ease, transform .15s ease, opacity .15s ease;
+          font-family: inherit;
+        }
+        .ob-cta:hover:not(:disabled) { background: #c80216; transform: translateY(-1px); }
+        .ob-cta:disabled { background: #e0e2e5; color: #8a8e93; cursor: not-allowed; }
+        .ob-cta svg { width: 18px; height: 18px; transition: transform .2s ease; }
+        .ob-cta:hover:not(:disabled) svg { transform: translateX(4px); }
 
-        .ob-card { background: #fff; border: 1px solid #ececec; border-radius: 14px; padding: 22px; margin-bottom: 18px; }
-        .ob-card-title { font-weight: 700; font-size: 16px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+        .ob-cta-secondary {
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 14px 26px;
+          border-radius: 999px;
+          background: transparent;
+          color: #111315;
+          font-weight: 600;
+          font-size: 15px;
+          text-decoration: none;
+          border: 1px solid #ececec;
+          cursor: pointer;
+          transition: background .15s ease;
+          font-family: inherit;
+        }
+        .ob-cta-secondary:hover { background: #f5f5f5; }
+
+        .ob-back-link {
+          background: transparent;
+          border: 0;
+          color: #8a8e93;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 500;
+          padding: 10px 16px;
+          border-radius: 8px;
+          margin-bottom: 24px;
+          display: inline-flex; align-items: center; gap: 6px;
+          font-family: inherit;
+        }
+        .ob-back-link:hover { color: #111315; }
+
+        .ob-actions {
+          display: flex; flex-wrap: wrap; gap: 12px;
+          justify-content: center;
+          margin-top: 32px;
+        }
+
+        /* Cards used inside steps */
+        .ob-card {
+          background: #fff;
+          border: 1px solid #f0f0f1;
+          border-radius: 16px;
+          padding: 22px;
+          margin-bottom: 14px;
+          text-align: left;
+        }
+        .ob-card-title {
+          font-weight: 700; font-size: 16px; margin: 0 0 6px;
+          display: flex; align-items: flex-start; gap: 12px;
+        }
         .ob-card-desc { color: #6b7075; font-size: 14.5px; line-height: 1.55; margin: 0; }
         .ob-check {
-          width: 20px; height: 20px; flex-shrink: 0;
-          border-radius: 50%; border: 2px solid #ececec; cursor: pointer;
+          width: 22px; height: 22px; flex-shrink: 0;
+          border-radius: 50%; border: 2px solid #e0e2e5; cursor: pointer;
           display: grid; place-items: center;
           background: #fff;
+          margin-top: 1px;
+          transition: background .15s ease, border-color .15s ease;
         }
-        .ob-check[data-checked="true"] { background: #16a34a; border-color: #16a34a; }
+        .ob-check[data-checked="true"] { background: #F0021A; border-color: #F0021A; }
         .ob-check[data-checked="true"] svg { display: block; }
         .ob-check svg { display: none; color: #fff; }
 
-        .ob-team { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 24px; }
+        /* Team cards */
+        .ob-team { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 0 auto 32px; max-width: 780px; text-align: left; }
         @media (min-width: 640px) { .ob-team { grid-template-columns: 1fr 1fr; } }
-        .ob-team-card { background: #f8f9fb; border: 1px solid #ececec; border-radius: 14px; padding: 18px; }
-        .ob-team-name { font-weight: 700; font-size: 15px; margin: 0 0 4px; }
-        .ob-team-role { font-size: 12px; color: #F0021A; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin-bottom: 8px; }
-        .ob-team-desc { font-size: 13.5px; color: #6b7075; margin: 0; line-height: 1.5; }
+        .ob-team-card {
+          background: #faf9f6;
+          border: 1px solid #f0f0f1;
+          border-radius: 16px;
+          padding: 22px;
+        }
+        .ob-team-role {
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.18em;
+          color: #F0021A;
+          font-weight: 700;
+          margin-bottom: 10px;
+        }
+        .ob-team-name { font-weight: 700; font-size: 16px; margin: 0 0 6px; }
+        .ob-team-desc { color: #6b7075; font-size: 13.5px; line-height: 1.55; margin: 0; }
 
-        .ob-field { margin-bottom: 18px; }
+        /* Form fields */
+        .ob-field { margin-bottom: 20px; text-align: left; }
         .ob-field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; color: #111315; }
-        .ob-field .ob-helper { font-size: 13px; color: #6b7075; margin: 0 0 8px; }
+        .ob-field .ob-helper { font-size: 13px; color: #8a8e93; margin: 0 0 8px; }
         .ob-field input, .ob-field textarea, .ob-field select {
           width: 100%; box-sizing: border-box;
-          padding: 12px 14px;
-          border: 1px solid #ececec;
-          border-radius: 10px;
+          padding: 14px 16px;
+          border: 1px solid #e0e2e5;
+          border-radius: 12px;
           font-family: inherit;
           font-size: 15px;
           background: #fff;
           color: #111315;
-          transition: border-color .15s ease;
+          transition: border-color .15s ease, box-shadow .15s ease;
         }
-        .ob-field input:focus, .ob-field textarea:focus, .ob-field select:focus { outline: none; border-color: #F0021A; }
-        .ob-field textarea { resize: vertical; min-height: 100px; }
+        .ob-field input:focus, .ob-field textarea:focus, .ob-field select:focus {
+          outline: none;
+          border-color: #F0021A;
+          box-shadow: 0 0 0 3px rgba(240,2,26,0.1);
+        }
+        .ob-field textarea { resize: vertical; min-height: 110px; }
         .ob-field .ob-error { color: #F0021A; font-size: 13px; margin-top: 6px; }
 
-        .ob-warn { background: #fff8e6; border: 1px solid #fce4a2; color: #7a5c00; padding: 14px 18px; border-radius: 12px; font-size: 14px; margin-bottom: 20px; }
+        .ob-warn {
+          background: #fff8e6;
+          border: 1px solid #fce4a2;
+          color: #7a5c00;
+          padding: 14px 18px;
+          border-radius: 12px;
+          font-size: 14px;
+          margin-bottom: 20px;
+          text-align: left;
+        }
 
-        .ob-reset { margin-top: 24px; font-size: 12px; color: rgba(255,255,255,0.4); background: transparent; border: 0; cursor: pointer; text-decoration: underline; padding: 0; }
-        .ob-reset:hover { color: rgba(255,255,255,0.7); }
+        /* Footer */
+        .ob-footer {
+          border-top: 1px solid #f0f0f1;
+          padding: 20px 0;
+          background: #fff;
+        }
+        .ob-footer-inner {
+          max-width: 1080px; margin: 0 auto;
+          padding: 0 24px;
+          display: flex; flex-direction: column; gap: 8px;
+          align-items: center;
+        }
+        @media (min-width: 720px) {
+          .ob-footer-inner { flex-direction: row; justify-content: space-between; }
+        }
+        .ob-footer-copy { font-size: 12px; color: #8a8e93; margin: 0; }
+        .ob-footer-step {
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 10px;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: #8a8e93;
+          background: transparent; border: 0; cursor: pointer;
+          padding: 0;
+        }
+        .ob-footer-step:hover { color: #111315; }
       `}</style>
 
-      {/* SIDEBAR / STEPPER */}
-      <aside className="ob-sidebar">
-        <div className="ob-sidebar-title">Onboarding · {progress.completed.length}/{STEPS.length - 1} klaar</div>
-        <ul className="ob-step-list">
-          {STEPS.map((s, idx) => {
-            const done = progress.completed.includes(s.id);
-            const active = idx === currentIdx;
-            const unlocked = isUnlocked(idx);
-            return (
-              <li key={s.id}>
-                <button
-                  className="ob-step"
-                  data-active={active}
-                  data-done={done}
-                  disabled={!unlocked}
-                  onClick={() => goToStep(idx)}
-                  aria-current={active ? "step" : undefined}
-                >
-                  <span className="ob-badge">
-                    {done ? (
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    ) : unlocked ? (
-                      s.number
-                    ) : (
-                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="5" y="11" width="14" height="10" rx="2" />
-                        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                      </svg>
-                    )}
-                  </span>
-                  <span style={{ display: "flex", flexDirection: "column" }}>
-                    <span className="ob-step-title">{s.short}</span>
-                    <span className="ob-step-sub">Stap {s.number}</span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        <button className="ob-reset" onClick={reset}>Opnieuw beginnen</button>
-      </aside>
+      {/* HEADER */}
+      <header className="ob-header">
+        <div className="ob-header-inner">
+          <a href="https://pinformance-agency.com" className="ob-header-logo" aria-label="Pinformance">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/onboarding/logo-dark.svg" alt="Pinformance" />
+          </a>
+          <span className="ob-step-counter">
+            Stap {currentIdx + 1} / {totalSteps}
+          </span>
+        </div>
+      </header>
 
-      {/* MAIN CONTENT */}
-      <section className="ob-content">
-        <div className="ob-eyebrow">Stap {currentStep.number} van {STEPS.length}</div>
-        <h1>{currentStep.title}</h1>
-        <p className="ob-lead">{currentStep.desc}</p>
-        {stepBody}
-      </section>
+      {/* PROGRESS BAR */}
+      <div className="ob-progress-track" role="progressbar" aria-valuenow={currentIdx + 1} aria-valuemin={1} aria-valuemax={totalSteps}>
+        <div className="ob-progress-fill" style={{ width: `${progressPct}%` }} />
+      </div>
+
+      {/* MAIN — centered single column */}
+      <main className="ob-main">
+        <div className="ob-container">
+          {currentIdx > 0 && (
+            <button className="ob-back-link" onClick={goBack} type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+              Terug
+            </button>
+          )}
+
+          <div className="ob-pill">Stap {currentStep.number} · {currentStep.short}</div>
+
+          <h1 className="ob-headline">
+            {currentStep.title}<span className="ob-headline-num">.</span>
+          </h1>
+
+          <p className="ob-lead">{currentStep.desc}</p>
+
+          <div className="ob-step-body">{stepBody}</div>
+        </div>
+      </main>
+
+      {/* FOOTER */}
+      <footer className="ob-footer">
+        <div className="ob-footer-inner">
+          <p className="ob-footer-copy">© 2026 Pinformance Agency</p>
+          <button className="ob-footer-step" onClick={reset} type="button" title="Opnieuw beginnen">
+            Onboarding · {currentIdx + 1} van {totalSteps}
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }

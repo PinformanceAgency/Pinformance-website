@@ -9,6 +9,14 @@ interface Props {
   config: OnboardingConfig;
 }
 
+function ArrowIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14M13 5l7 7-7 7" />
+    </svg>
+  );
+}
+
 interface Sub {
   id: string;
   title: string;
@@ -22,7 +30,7 @@ export default function StepPinterest({ onDone, config }: Props) {
     {
       id: "business",
       title: "Pinterest Business account opzetten",
-      desc: "Maak (of upgrade naar) een Pinterest Business account. In de video zie je stap-voor-stap hoe je dat doet.",
+      desc: "Maak (of upgrade naar) een Pinterest Business account. De video laat stap-voor-stap zien hoe je dat doet.",
       video: config.videos.pinterestBusiness,
       link: config.links.pinterestBusinessSignup
         ? { label: "Naar Pinterest Business", url: config.links.pinterestBusinessSignup }
@@ -37,15 +45,15 @@ export default function StepPinterest({ onDone, config }: Props) {
     {
       id: "tracking",
       title: "Verbind je tracking",
-      desc: "Installeer de Pinterest Tag en verbind conversion tracking, zodat we optimaliseren op echte events.",
+      desc: "Installeer de Pinterest Tag en verbind conversion tracking, zodat we op echte events optimaliseren.",
       video: config.videos.pinterestTracking,
     },
     {
       id: "creatives",
       title: "Upload je creatives in Trello",
       desc: config.links.trelloCreativesBoard
-        ? "Ga naar het Trello board en drop je creatives in de juiste kolom. Meer instructies staan op het board zelf."
-        : "Je krijgt een Trello board toegewezen na de intake — daar upload je je creatives. Link volgt in Slack.",
+        ? "Ga naar het Trello board en drop je creatives in de juiste kolom."
+        : "Je krijgt een Trello board toegewezen na de intake — link volgt in Slack.",
       video: "",
       link: config.links.trelloCreativesBoard
         ? { label: "Open Trello board", url: config.links.trelloCreativesBoard }
@@ -58,12 +66,12 @@ export default function StepPinterest({ onDone, config }: Props) {
   const toggle = (id: string) => setChecked((c) => ({ ...c, [id]: !c[id] }));
 
   return (
-    <div>
+    <>
       {config.videos.pinterestSetup && (
-        <VideoEmbed url={config.videos.pinterestSetup} title="Pinterest setup overview" />
+        <VideoEmbed url={config.videos.pinterestSetup} title="Pinterest setup overview" caption="Video 2 · Setup overview" />
       )}
 
-      {subs.map((s) => (
+      {subs.map((s, i) => (
         <div key={s.id} className="ob-card">
           <div className="ob-card-title">
             <button
@@ -77,17 +85,17 @@ export default function StepPinterest({ onDone, config }: Props) {
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </button>
-            {s.title}
+            <span style={{ flex: 1 }}>{i + 1}. {s.title}</span>
           </div>
-          <p className="ob-card-desc" style={{ marginLeft: 32 }}>{s.desc}</p>
+          <p className="ob-card-desc" style={{ marginLeft: 34 }}>{s.desc}</p>
           {s.video && (
-            <div style={{ marginTop: 14, marginLeft: 32 }}>
+            <div style={{ marginTop: 14, marginLeft: 34 }}>
               <VideoEmbed url={s.video} title={s.title} />
             </div>
           )}
           {s.link && (
-            <div style={{ marginTop: 14, marginLeft: 32 }}>
-              <a href={s.link.url} target="_blank" rel="noopener noreferrer" className="ob-btn ob-btn-ghost">
+            <div style={{ marginTop: 14, marginLeft: 34 }}>
+              <a href={s.link.url} target="_blank" rel="noopener noreferrer" className="ob-cta-secondary">
                 {s.link.label} ↗
               </a>
             </div>
@@ -96,10 +104,11 @@ export default function StepPinterest({ onDone, config }: Props) {
       ))}
 
       <div className="ob-actions">
-        <button className="ob-btn ob-btn-primary" onClick={onDone} disabled={!allChecked}>
-          {allChecked ? "Verder naar administratie →" : "Vink alle stappen af om verder te gaan"}
+        <button className="ob-cta" onClick={onDone} disabled={!allChecked} type="button">
+          <span>{allChecked ? "Door naar administratie" : "Vink alle stappen af"}</span>
+          <ArrowIcon />
         </button>
       </div>
-    </div>
+    </>
   );
 }

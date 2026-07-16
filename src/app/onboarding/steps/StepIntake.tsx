@@ -8,6 +8,14 @@ interface Props {
   config: OnboardingConfig;
 }
 
+function ArrowIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14M13 5l7 7-7 7" />
+    </svg>
+  );
+}
+
 export default function StepIntake({ onDone, config }: Props) {
   const questions = config.intake.questions;
   const [values, setValues] = useState<Record<string, string>>({});
@@ -23,9 +31,7 @@ export default function StepIntake({ onDone, config }: Props) {
 
   const canSubmit = missing.length === 0 && !submitting;
 
-  const setValue = (id: string, v: string) => {
-    setValues((prev) => ({ ...prev, [id]: v }));
-  };
+  const setValue = (id: string, v: string) => setValues((prev) => ({ ...prev, [id]: v }));
 
   const submit = async () => {
     if (!canSubmit) {
@@ -35,16 +41,10 @@ export default function StepIntake({ onDone, config }: Props) {
     setSubmitting(true);
     setError(null);
 
-    // Map answers to Google Form entry IDs
     const answers: Record<string, string> = {};
-    for (const q of questions) {
-      answers[q.entryId] = values[q.id] ?? "";
-    }
-    // Also send a labelled copy for Slack
+    for (const q of questions) answers[q.entryId] = values[q.id] ?? "";
     const labelled: Record<string, string> = {};
-    for (const q of questions) {
-      labelled[q.label] = values[q.id] ?? "";
-    }
+    for (const q of questions) labelled[q.label] = values[q.id] ?? "";
 
     try {
       const res = await fetch("/api/onboarding/intake", {
@@ -72,14 +72,13 @@ export default function StepIntake({ onDone, config }: Props) {
       <div className="ob-warn">
         <strong>Intake nog niet geconfigureerd.</strong>
         <br />
-        Zet in <code>src/app/onboarding/config.ts</code> de <code>intake.formResponseUrl</code>
-        en de <code>entryId</code> per vraag. Instructies staan in de comments van dat bestand.
+        Zet in <code>src/app/onboarding/config.ts</code> de <code>intake.formResponseUrl</code> en de <code>entryId</code> per vraag.
       </div>
     );
   }
 
   return (
-    <div>
+    <>
       {questions.map((q) => {
         const showError = (touched[q.id] ?? false) && missing.includes(q.id);
         return (
@@ -96,7 +95,6 @@ export default function StepIntake({ onDone, config }: Props) {
                 onChange={(e) => setValue(q.id, e.target.value)}
                 onBlur={() => setTouched((t) => ({ ...t, [q.id]: true }))}
                 placeholder={q.placeholder}
-                required={q.required ?? true}
               />
             ) : q.type === "select" ? (
               <select
@@ -104,13 +102,10 @@ export default function StepIntake({ onDone, config }: Props) {
                 value={values[q.id] ?? ""}
                 onChange={(e) => setValue(q.id, e.target.value)}
                 onBlur={() => setTouched((t) => ({ ...t, [q.id]: true }))}
-                required={q.required ?? true}
               >
                 <option value="">Kies…</option>
                 {q.options?.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
+                  <option key={opt} value={opt}>{opt}</option>
                 ))}
               </select>
             ) : (
@@ -121,7 +116,6 @@ export default function StepIntake({ onDone, config }: Props) {
                 onChange={(e) => setValue(q.id, e.target.value)}
                 onBlur={() => setTouched((t) => ({ ...t, [q.id]: true }))}
                 placeholder={q.placeholder}
-                required={q.required ?? true}
               />
             )}
             {showError && <div className="ob-error">Dit veld is verplicht.</div>}
@@ -129,13 +123,18 @@ export default function StepIntake({ onDone, config }: Props) {
         );
       })}
 
-      {error && <div className="ob-warn" style={{ background: "#ffe6e6", borderColor: "#f5c2c2", color: "#7a0000" }}>{error}</div>}
+      {error && (
+        <div className="ob-warn" style={{ background: "#ffe6e6", borderColor: "#f5c2c2", color: "#7a0000" }}>
+          {error}
+        </div>
+      )}
 
       <div className="ob-actions">
-        <button className="ob-btn ob-btn-primary" onClick={submit} disabled={!canSubmit}>
-          {submitting ? "Versturen…" : "Verstuur intake →"}
+        <button className="ob-cta" onClick={submit} disabled={!canSubmit} type="button">
+          <span>{submitting ? "Versturen…" : "Verstuur intake"}</span>
+          <ArrowIcon />
         </button>
       </div>
-    </div>
+    </>
   );
 }

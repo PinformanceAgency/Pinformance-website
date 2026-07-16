@@ -1,13 +1,10 @@
 interface Props {
   url: string;
   title?: string;
+  caption?: string;
 }
 
-/**
- * Renders a Loom embed (or any iframe embed URL).
- * Falls back to a friendly placeholder if the URL is empty.
- */
-export default function VideoEmbed({ url, title = "Onboarding video" }: Props) {
+export default function VideoEmbed({ url, title = "Onboarding video", caption }: Props) {
   return (
     <div className="ob-video">
       {url ? (
@@ -19,7 +16,14 @@ export default function VideoEmbed({ url, title = "Onboarding video" }: Props) {
         />
       ) : (
         <div className="ob-video-placeholder">
-          Video-slot — plak de Loom-embed URL in <code style={{ background: "#fff", padding: "2px 6px", borderRadius: 4, border: "1px solid #ececec" }}>src/app/onboarding/config.ts</code>
+          <button type="button" className="ob-video-play-btn" aria-label="Video placeholder">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5,3 19,12 5,21" />
+            </svg>
+          </button>
+          <p className="ob-video-caption">
+            {caption ?? "Video slot · plak Loom embed URL in config.ts"}
+          </p>
         </div>
       )}
     </div>

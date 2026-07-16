@@ -7,8 +7,8 @@ interface Props {
 
 export default function StepDone({ config }: Props) {
   return (
-    <div>
-      <VideoEmbed url={config.videos.thanks} title="Welkom aan boord" />
+    <>
+      <VideoEmbed url={config.videos.thanks} title="Welkom aan boord" caption="Video · Wat er nu gebeurt" />
 
       <div className="ob-card">
         <div className="ob-card-title">🎉 Alles staat</div>
@@ -29,10 +29,10 @@ export default function StepDone({ config }: Props) {
       </div>
 
       <div className="ob-actions">
-        <a href="https://pinformance-agency.com" className="ob-btn ob-btn-ghost">
+        <a href="https://pinformance-agency.com" className="ob-cta-secondary">
           Terug naar de site
         </a>
       </div>
-    </div>
+    </>
   );
 }
