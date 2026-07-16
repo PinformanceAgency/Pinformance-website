@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL("/onboarding?error=pinterest_missing_params", request.url)
+      new URL("/settings?error=pinterest_missing_params", request.url)
     );
   }
 
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     orgId = decrypt(state);
   } catch {
     return NextResponse.redirect(
-      new URL("/onboarding?error=pinterest_invalid_state", request.url)
+      new URL("/settings?error=pinterest_invalid_state", request.url)
     );
   }
 
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       return NextResponse.redirect(
-        new URL("/onboarding?error=pinterest_save_failed", request.url)
+        new URL("/settings?error=pinterest_save_failed", request.url)
       );
     }
 
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     );
   } catch {
     return NextResponse.redirect(
-      new URL("/onboarding?error=pinterest_exchange_failed", request.url)
+      new URL("/settings?error=pinterest_exchange_failed", request.url)
     );
   }
 }
