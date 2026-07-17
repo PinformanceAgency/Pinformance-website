@@ -43,8 +43,6 @@ export default function StepIntake({ onDone, config }: Props) {
 
     const answers: Record<string, string> = {};
     for (const q of questions) answers[q.entryId] = values[q.id] ?? "";
-    const labelled: Record<string, string> = {};
-    for (const q of questions) labelled[q.label] = values[q.id] ?? "";
 
     try {
       const res = await fetch("/api/onboarding/intake", {
@@ -52,7 +50,6 @@ export default function StepIntake({ onDone, config }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           entries: answers,
-          labelled,
           formResponseUrl: config.intake.formResponseUrl,
         }),
       });

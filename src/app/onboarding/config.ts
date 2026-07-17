@@ -64,14 +64,9 @@ export const ONBOARDING_CONFIG = {
     ] as IntakeQuestion[],
   },
 
-  // ---------- Slack notification ----------
-  // Create an Incoming Webhook in Slack (api.slack.com/messaging/webhooks), point it at your internal channel,
-  // and paste the full URL here. It stays on the server — never shipped to client.
-  //
-  // IMPORTANT: this env var must be set in Vercel (NOT public):
-  //   SLACK_ONBOARDING_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../..."
-  //
-  // The webhook is read from process.env inside the /api/onboarding/intake route.
+  // ---------- Slack ----------
+  // Handled by an existing Zapier zap that watches the Google Sheet for new rows
+  // and posts them into the internal Slack channel. Nothing to configure here.
 
   // ---------- External links ----------
   links: {
