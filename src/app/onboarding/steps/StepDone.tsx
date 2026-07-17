@@ -39,7 +39,7 @@ export default function StepDone({ config }: Props) {
 
       <VideoEmbed url={config.videos.thanks} title="Welcome on board" caption="Video · A quick word from Tristan" />
 
-      {/* Personal message */}
+      {/* Message from the team */}
       <div
         className="ob-card"
         style={{
@@ -50,47 +50,14 @@ export default function StepDone({ config }: Props) {
       >
         <div style={{ color: "#111315", fontSize: 15.5, lineHeight: 1.7 }}>
           <p style={{ margin: "0 0 14px" }}>
-            We've got everything we need on our end, and you'll hear from me shortly to confirm your kick-off call.
+            We've got everything we need on our end, and you'll hear from us shortly to confirm your kick-off call.
           </p>
           <p style={{ margin: "0 0 14px" }}>
-            If anything comes up in the meantime, you know where to find me — just drop a message in our Slack channel.
+            If anything comes up in the meantime, you know where to find us — just drop a message in our Slack channel.
           </p>
           <p style={{ margin: 0, fontWeight: 600 }}>
             Looking forward to working with you. Let's build something great together.
           </p>
-        </div>
-
-        <div
-          style={{
-            marginTop: 24,
-            paddingTop: 20,
-            borderTop: "1px solid #f0f0f1",
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: "50%",
-              background: "#111315",
-              color: "#fff",
-              display: "grid",
-              placeItems: "center",
-              fontWeight: 700,
-              fontSize: 14,
-              letterSpacing: "0.04em",
-            }}
-            aria-hidden
-          >
-            T
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 14, color: "#111315" }}>Tristan</div>
-            <div style={{ fontSize: 12.5, color: "#8a8e93" }}>Project Manager · Pinformance</div>
-          </div>
         </div>
       </div>
 
