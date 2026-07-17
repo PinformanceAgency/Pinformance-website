@@ -45,9 +45,9 @@ export const STEPS: StepDef[] = [
   {
     id: "done",
     number: 6,
-    title: "You're on board",
+    title: "Welcome aboard",
     short: "Done",
-    desc: "Everything is set. Here's what happens next.",
+    desc: "That's it — you've completed the onboarding. Nicely done.",
   },
 ];
 
