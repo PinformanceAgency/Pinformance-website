@@ -65,9 +65,14 @@ export default function StepPinterest({ onDone, config }: Props) {
 
   return (
     <>
-      {config.videos.pinterestSetup && (
-        <VideoEmbed url={config.videos.pinterestSetup} title="Pinterest setup overview" caption="Video 2 · Setup overview" />
-      )}
+      <VideoEmbed
+        url={config.videos.pinterestSetup}
+        title="Pinterest setup overview"
+        caption="Video · Full Pinterest setup walkthrough"
+      />
+      <p style={{ color: "#6b7075", fontSize: 14.5, lineHeight: 1.55, textAlign: "center", margin: "-24px auto 32px", maxWidth: 560 }}>
+        Watch the full walkthrough first — it covers all four steps below. Then work through the checklist at your own pace.
+      </p>
 
       {simpleSubs.map((s, i) => (
         <div key={s.id} className="ob-card">
