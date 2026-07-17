@@ -13,6 +13,9 @@ export interface IntakeQuestion {
   required?: boolean;                  // defaults to true
   placeholder?: string;
   options?: string[];                  // only for type: "select"
+  allowOther?: boolean;                // select: add "Other" option that reveals a text input.
+                                       // Requires "Other" to be enabled on the actual Google Form field.
+  otherPlaceholder?: string;           // placeholder for the "Other" text input
 }
 
 export const ONBOARDING_CONFIG = {
@@ -61,7 +64,8 @@ export const ONBOARDING_CONFIG = {
       { id: "shopify",  label: "What is your Shopify Domain + Collab Code?",                      type: "text",  entryId: "entry.1256718213", required: true, placeholder: "e.g. brand.myshopify.com + 1234" },
       { id: "roas",     label: "What is your Target ROAS + Break Even ROAS?",                     type: "text",  entryId: "entry.908320573",  required: true, placeholder: "Target / Break-even" },
       { id: "tracking", label: "What Tracking Provider are you using?",                           type: "select", entryId: "entry.1587285175", required: true,
-        options: ["Wetracked", "Trackbee", "Elevar", "Triplewhale", "Its a new store, its not installed yet"] },
+        options: ["Wetracked", "Trackbee", "Elevar", "Triplewhale", "Its a new store, its not installed yet"],
+        allowOther: true, otherPlaceholder: "Which tracking provider?" },
     ] as IntakeQuestion[],
   },
 
