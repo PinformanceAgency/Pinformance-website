@@ -47,17 +47,18 @@ export default function StepAdmin({ onDone, config }: Props) {
 
         <div style={{ marginLeft: 34, color: "#6b7075", fontSize: 14.5, lineHeight: 1.65 }}>
           <p style={{ margin: "0 0 10px" }}>
-            Once you've completed the intake in the previous step, you'll receive two documents in your email:
-            an <strong>NDA</strong> and a <strong>Service Agreement</strong>.
+            Once you've finished the full onboarding, we prepare two <strong>custom-made</strong> documents
+            for your brand: an <strong>NDA</strong> and a <strong>Service Agreement</strong>. You'll receive both
+            in your email so you can read through them at your own pace.
           </p>
           <p style={{ margin: "0 0 10px" }}>
-            <strong>No need to sign anything beforehand</strong> — we go through both documents together on the
-            kickoff call and you sign them then. Just make sure you've read through them so you know what's in there
-            before we get on the call.
+            <strong>Nothing needs to be filled in or signed beforehand</strong> — we go through both documents
+            together on the kickoff call and fill them in live. Just make sure you've read them so you know what's
+            in there before we hop on the call.
           </p>
           <p style={{ margin: 0 }}>
             The NDA covers confidentiality on both sides. The Service Agreement outlines exactly what we do,
-            how we work, and what you can expect. Questions before the call? Just drop a message in Slack.
+            how we work, and what you can expect from us. Questions before the call? Drop a message in Slack.
           </p>
         </div>
       </div>
