@@ -47,15 +47,20 @@ export const ONBOARDING_CONFIG = {
   // 3) For each question, use the browser inspector on the fill page to find <input name="entry.NNN">
   //    and paste that into `entryId` below.
   intake: {
-    formResponseUrl: "" as string,     // e.g. "https://docs.google.com/forms/d/e/XXXXX/formResponse"
+    // Mirror of "🚀 Pinformance Onboarding Form" (Google Form).
+    // Responses POST here → the linked Google Sheet auto-populates.
+    formResponseUrl: "https://docs.google.com/forms/d/e/1FAIpQLScikiDgy9ZEsi56TiR8qi-Bqrk_YPyScbHHwC8AzzU3Ygscqw/formResponse",
     questions: [
-      // Placeholder questions — REPLACE with your real Google Form fields + entry IDs
-      { id: "brand",   label: "Brand name",              type: "text",     entryId: "entry.0000000001", required: true, placeholder: "e.g. Celestia" },
-      { id: "website", label: "Website URL",             type: "url",      entryId: "entry.0000000002", required: true, placeholder: "https://" },
-      { id: "email",   label: "Contact email",           type: "email",    entryId: "entry.0000000003", required: true },
-      { id: "revenue", label: "Current monthly revenue", type: "text",     entryId: "entry.0000000004", required: true, placeholder: "€ …" },
-      { id: "adspend", label: "Current monthly ad spend",type: "text",     entryId: "entry.0000000005", required: true, placeholder: "€ …" },
-      { id: "goal",    label: "What is your main goal?", type: "textarea", entryId: "entry.0000000006", required: true },
+      { id: "name",     label: "What is your name?",                                              type: "text",  entryId: "entry.1695730296", required: true },
+      { id: "email",    label: "What is your email address where we can send invoices & agreements?", type: "email", entryId: "entry.1076078538", required: true },
+      { id: "company",  label: "What is your company name?",                                      type: "text",  entryId: "entry.1044323071", required: true },
+      { id: "street",   label: "What is your company's street name + number?",                    type: "text",  entryId: "entry.327172809",  required: true },
+      { id: "postal",   label: "What is your company's postal code + city?",                      type: "text",  entryId: "entry.1074038984", required: true },
+      { id: "country",  label: "In what country is your company based?",                          type: "text",  entryId: "entry.1373366830", required: true },
+      { id: "shopify",  label: "What is your Shopify Domain + Collab Code?",                      type: "text",  entryId: "entry.1256718213", required: true, placeholder: "e.g. brand.myshopify.com + 1234" },
+      { id: "roas",     label: "What is your Target ROAS + Break Even ROAS?",                     type: "text",  entryId: "entry.908320573",  required: true, placeholder: "Target / Break-even" },
+      { id: "tracking", label: "What Tracking Provider are you using?",                           type: "select", entryId: "entry.1587285175", required: true,
+        options: ["Wetracked", "Trackbee", "Elevar", "Triplewhale", "Its a new store, its not installed yet"] },
     ] as IntakeQuestion[],
   },
 
