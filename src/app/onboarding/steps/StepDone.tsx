@@ -17,20 +17,16 @@ export default function StepDone({ config }: Props) {
           color: #F0021A;
           font-weight: 700;
         }
-        .ob-done-serif {
-          font-family: 'Playfair Display', Georgia, serif;
-          font-style: italic;
-          font-weight: 500;
-          letter-spacing: -0.005em;
-        }
         .ob-done-ornament {
           display: flex; align-items: center; gap: 14px;
           color: rgba(255,255,255,0.35);
-          font-size: 12px;
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 10px;
           letter-spacing: 0.3em;
           text-transform: uppercase;
-          margin: 0 auto 22px;
+          margin: 0 auto 24px;
           justify-content: center;
+          font-weight: 600;
         }
         .ob-done-ornament::before, .ob-done-ornament::after {
           content: "";
@@ -53,39 +49,46 @@ export default function StepDone({ config }: Props) {
           position: absolute;
           inset: 0;
           background:
-            radial-gradient(circle at 15% 20%, rgba(240,2,26,0.12), transparent 45%),
-            radial-gradient(circle at 85% 90%, rgba(240,2,26,0.08), transparent 45%);
+            radial-gradient(circle at 15% 20%, rgba(240,2,26,0.18), transparent 45%),
+            radial-gradient(circle at 85% 90%, rgba(240,2,26,0.10), transparent 45%);
           pointer-events: none;
         }
         .ob-done-hero-inner { position: relative; }
         .ob-done-quote {
-          font-family: 'Playfair Display', Georgia, serif;
-          font-size: clamp(28px, 4.6vw, 44px);
-          line-height: 1.15;
-          font-weight: 500;
-          font-style: italic;
+          font-size: clamp(24px, 3.8vw, 36px);
+          line-height: 1.2;
+          font-weight: 700;
+          letter-spacing: -0.02em;
           margin: 0 0 28px;
-          letter-spacing: -0.005em;
           max-width: 640px;
           margin-left: auto; margin-right: auto;
         }
-        .ob-done-quote .accent { color: #F0021A; font-style: italic; }
+        .ob-done-quote .accent { color: #F0021A; }
         .ob-done-body { color: rgba(255,255,255,0.72); font-size: 15.5px; line-height: 1.7; max-width: 520px; margin: 0 auto 32px; text-align: left; }
         .ob-done-body p { margin: 0 0 12px; }
-        .ob-done-signature { display: flex; align-items: center; gap: 14px; justify-content: center; margin-top: 28px; }
-        .ob-done-signature-mark {
-          font-family: 'Playfair Display', Georgia, serif;
-          font-style: italic;
-          font-weight: 500;
-          font-size: 22px;
-          color: rgba(255,255,255,0.8);
+        .ob-done-signature {
+          display: inline-flex; align-items: center; gap: 12px;
+          padding: 10px 20px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+        .ob-done-signature-name {
+          font-weight: 700;
+          font-size: 13px;
+          color: #fff;
+          letter-spacing: 0.02em;
+        }
+        .ob-done-signature-dot {
+          width: 6px; height: 6px; border-radius: 50%; background: #F0021A;
         }
         .ob-done-signature-tag {
           font-family: 'JetBrains Mono', ui-monospace, monospace;
           font-size: 10px;
-          letter-spacing: 0.3em;
+          letter-spacing: 0.28em;
           text-transform: uppercase;
-          color: rgba(255,255,255,0.4);
+          color: rgba(255,255,255,0.5);
+          font-weight: 600;
         }
 
         .ob-done-check-badge {
@@ -103,21 +106,27 @@ export default function StepDone({ config }: Props) {
           border-radius: 50%;
           border: 1px solid rgba(240,2,26,0.15);
         }
-        .ob-done-tagline {
-          font-family: 'Playfair Display', Georgia, serif;
-          font-style: italic;
-          font-weight: 500;
-          color: #111315;
-          font-size: clamp(22px, 3.6vw, 30px);
+
+        .ob-done-tagline-card {
+          background: #faf9f6;
+          border: 1px solid #f0f0f1;
+          border-radius: 20px;
+          padding: 36px 32px;
           text-align: center;
-          margin: 40px auto 8px;
-          max-width: 560px;
-          line-height: 1.35;
+          margin-top: 20px;
+        }
+        .ob-done-tagline {
+          font-weight: 700;
+          color: #111315;
+          font-size: clamp(20px, 3vw, 26px);
+          margin: 0;
+          line-height: 1.3;
+          letter-spacing: -0.015em;
         }
         .ob-done-tagline .accent { color: #F0021A; }
 
         .ob-done-brandmark {
-          text-align: center;
+          display: flex; flex-direction: column; align-items: center; gap: 8px;
           margin-top: 40px;
           padding-top: 24px;
           border-top: 1px solid #f0f0f1;
@@ -131,12 +140,11 @@ export default function StepDone({ config }: Props) {
           font-weight: 700;
         }
         .ob-done-brandmark-tag {
-          font-family: 'Playfair Display', Georgia, serif;
-          font-style: italic;
           color: #8a8e93;
-          font-size: 14px;
-          margin-top: 6px;
+          font-size: 13.5px;
+          font-weight: 500;
         }
+        .ob-done-brandmark-tag .accent { color: #F0021A; font-weight: 700; }
       `}</style>
 
       {/* Celebration moment */}
@@ -149,7 +157,7 @@ export default function StepDone({ config }: Props) {
         <div className="ob-done-eyebrow" style={{ marginBottom: 10 }}>
           Onboarding complete
         </div>
-        <p className="ob-done-serif" style={{ fontSize: 22, color: "#6b7075", margin: 0 }}>
+        <p style={{ fontSize: 20, fontWeight: 700, color: "#111315", margin: 0, letterSpacing: "-0.015em" }}>
           You&apos;re all set.
         </p>
       </div>
@@ -179,20 +187,26 @@ export default function StepDone({ config }: Props) {
           </div>
 
           <div className="ob-done-signature">
-            <span className="ob-done-signature-mark">— Team Pinformance</span>
+            <span className="ob-done-signature-tag">Team</span>
+            <span className="ob-done-signature-dot" />
+            <span className="ob-done-signature-name">Pinformance Agency</span>
           </div>
         </div>
       </div>
 
-      {/* Closing tagline */}
-      <p className="ob-done-tagline">
-        We&apos;re looking forward to seeing you on the <span className="accent">kick-off call</span>.
-      </p>
+      {/* Closing tagline — light off-white card for color contrast */}
+      <div className="ob-done-tagline-card">
+        <p className="ob-done-tagline">
+          We&apos;re looking forward to seeing you on the <span className="accent">kick-off call</span>.
+        </p>
+      </div>
 
       {/* Brandmark */}
       <div className="ob-done-brandmark">
         <div className="ob-done-brandmark-name">Pinformance · Agency</div>
-        <div className="ob-done-brandmark-tag">We win when you win.</div>
+        <div className="ob-done-brandmark-tag">
+          We win <span className="accent">when you win</span>.
+        </div>
       </div>
 
       <div className="ob-actions">
