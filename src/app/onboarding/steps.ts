@@ -31,9 +31,9 @@ export const STEPS: StepDef[] = [
   {
     id: "admin",
     number: 4,
-    title: "Administration & contract",
+    title: "Contracts & billing",
     short: "Admin",
-    desc: "Read through the contract and sign via DocuSign. Quick intro on billing.",
+    desc: "Two quick videos so you know what's coming: how our contracts work and how billing is handled.",
   },
   {
     id: "kickoff",

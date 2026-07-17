@@ -37,7 +37,8 @@ export const ONBOARDING_CONFIG = {
     pinterestBusiness: "",  // Sub-loom: create Pinterest Business account
     pinterestAccess: "",    // Sub-loom: grant us access
     pinterestTracking: "",  // Sub-loom: connect tracking
-    admin: "",              // Contract + billing explanation
+    contracts: "",          // Loom 3 — Contracts (NDA + Service Agreement explainer)
+    billing: "",            // Loom 4 — Billing (monthly invoice, 7-day payment terms, etc.)
     thanks: "",             // Final thanks video
   },
 
@@ -71,8 +72,6 @@ export const ONBOARDING_CONFIG = {
   // ---------- External links ----------
   links: {
     calendlyKickoff: "https://calendly.com/d/cysr-qwj-w5f/pinformance-kick-off-call",
-    docusignContract: "" as string,     // DocuSign PowerForm URL — client signs directly there
-    contractPdfUrl: "" as string,       // Optional: link to a PDF preview if you want them to read first
     pinterestBusinessSignup: "https://business.pinterest.com/",
     trelloCreativesBoard: "" as string, // Optional: Trello board URL for creative uploads
   },

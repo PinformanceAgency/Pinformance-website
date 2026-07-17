@@ -18,77 +18,89 @@ function ArrowIcon() {
 }
 
 export default function StepAdmin({ onDone, config }: Props) {
-  const [readContract, setReadContract] = useState(false);
-  const [signed, setSigned] = useState(false);
-  const canProceed = readContract && signed;
+  const [contractsWatched, setContractsWatched] = useState(false);
+  const [billingWatched, setBillingWatched] = useState(false);
+  const canProceed = contractsWatched && billingWatched;
 
   return (
     <>
-      <VideoEmbed url={config.videos.admin} title="Administration & billing" caption="Video · Administration" />
-
+      {/* CONTRACTS */}
       <div className="ob-card">
         <div className="ob-card-title">
           <button
             type="button"
             className="ob-check"
-            data-checked={readContract}
-            onClick={() => setReadContract((v) => !v)}
-            aria-label="Contract read"
+            data-checked={contractsWatched}
+            onClick={() => setContractsWatched((v) => !v)}
+            aria-label="Contracts video watched"
           >
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </button>
-          <span style={{ flex: 1 }}>1. {config.links.contractPdfUrl ? "Read the contract" : "Watch the admin & billing intro"}</span>
+          <span style={{ flex: 1 }}>1. Contracts</span>
         </div>
-        <p className="ob-card-desc" style={{ marginLeft: 34 }}>
-          {config.links.contractPdfUrl
-            ? "Read the contract carefully. We'll cover it on the kickoff too, but it helps to be familiar with the content."
-            : "Watch the video above to understand how our billing works."}
-        </p>
-        {config.links.contractPdfUrl && (
-          <div style={{ marginTop: 14, marginLeft: 34 }}>
-            <a href={config.links.contractPdfUrl} target="_blank" rel="noopener noreferrer" className="ob-cta-secondary">
-              Download contract PDF ↗
-            </a>
-          </div>
-        )}
+
+        <div style={{ marginLeft: 34, marginBottom: 16 }}>
+          <VideoEmbed url={config.videos.contracts} title="Contracts — NDA + Service Agreement" caption="Loom 3 · Contracts" />
+        </div>
+
+        <div style={{ marginLeft: 34, color: "#6b7075", fontSize: 14.5, lineHeight: 1.65 }}>
+          <p style={{ margin: "0 0 10px" }}>
+            Once you've completed the intake in the previous step, you'll receive two documents in your email:
+            an <strong>NDA</strong> and a <strong>Service Agreement</strong>.
+          </p>
+          <p style={{ margin: "0 0 10px" }}>
+            <strong>No need to sign anything beforehand</strong> — we go through both documents together on the
+            kickoff call and you sign them then. Just make sure you've read through them so you know what's in there
+            before we get on the call.
+          </p>
+          <p style={{ margin: 0 }}>
+            The NDA covers confidentiality on both sides. The Service Agreement outlines exactly what we do,
+            how we work, and what you can expect. Questions before the call? Just drop a message in Slack.
+          </p>
+        </div>
       </div>
 
+      {/* BILLING */}
       <div className="ob-card">
         <div className="ob-card-title">
           <button
             type="button"
             className="ob-check"
-            data-checked={signed}
-            onClick={() => setSigned((v) => !v)}
-            aria-label="Contract signed"
+            data-checked={billingWatched}
+            onClick={() => setBillingWatched((v) => !v)}
+            aria-label="Billing video watched"
           >
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </button>
-          <span style={{ flex: 1 }}>2. Sign the contract via DocuSign</span>
+          <span style={{ flex: 1 }}>2. Billing</span>
         </div>
-        <p className="ob-card-desc" style={{ marginLeft: 34 }}>
-          Open DocuSign, sign digitally and you'll receive a copy in your email automatically. Check this off once you're done.
-        </p>
-        <div style={{ marginTop: 14, marginLeft: 34 }}>
-          {config.links.docusignContract ? (
-            <a href={config.links.docusignContract} target="_blank" rel="noopener noreferrer" className="ob-cta-secondary">
-              Open DocuSign ↗
-            </a>
-          ) : (
-            <div className="ob-warn">
-              DocuSign PowerForm URL not set — configure it in <code>src/app/onboarding/config.ts</code>.
-            </div>
-          )}
+
+        <div style={{ marginLeft: 34, marginBottom: 16 }}>
+          <VideoEmbed url={config.videos.billing} title="Billing — how invoicing works" caption="Loom 4 · Billing" />
+        </div>
+
+        <div style={{ marginLeft: 34, color: "#6b7075", fontSize: 14.5, lineHeight: 1.65 }}>
+          <p style={{ margin: "0 0 10px" }}>
+            Quick walkthrough of how billing works at Pinformance.
+          </p>
+          <p style={{ margin: "0 0 10px" }}>
+            You'll receive your invoice <strong>once a month</strong>, sent directly to your email.
+            Once received, you have <strong>7 days</strong> to complete the payment. You'll always get a
+            clear breakdown of exactly what's included — no surprises.
+          </p>
+          <p style={{ margin: 0 }}>
+            Any question about an invoice? Reach out in Slack and we'll sort it for you.
+          </p>
         </div>
       </div>
 
       <div className="ob-actions">
         <button className="ob-cta" onClick={onDone} disabled={!canProceed} type="button">
-          <span>{canProceed ? "Continue to the kickoff call" : "Check both to continue"}</span>
+          <span>{canProceed ? "Continue to kickoff call" : "Watch both videos to continue"}</span>
           <ArrowIcon />
         </button>
       </div>
