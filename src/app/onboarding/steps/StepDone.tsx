@@ -32,11 +32,8 @@ export default function StepDone({ config }: Props) {
             <polyline points="20 6 9 17 4 12" />
           </svg>
         </div>
-        <p style={{ fontSize: 20, fontWeight: 700, color: "#111315", margin: "0 0 6px" }}>
+        <p style={{ fontSize: 20, fontWeight: 700, color: "#111315", margin: 0 }}>
           🎉 Onboarding complete
-        </p>
-        <p style={{ color: "#6b7075", fontSize: 15, margin: 0 }}>
-          You're officially part of the Pinformance family.
         </p>
       </div>
 
