@@ -61,19 +61,18 @@ export default function StepDone({ config }: Props) {
         </div>
       </div>
 
-      {/* What's next */}
-      <div className="ob-card">
-        <div className="ob-card-title">
-          <span style={{ flex: 1 }}>What happens next</span>
-        </div>
-        <ul style={{ margin: "8px 0 0 20px", color: "#6b7075", fontSize: 14.5, lineHeight: 1.7 }}>
-          <li>Your custom NDA and Service Agreement will land in your inbox</li>
-          <li>Your media buyer starts reviewing your account and creatives</li>
-          <li>On the kickoff we go through the docs, sign live, and align on your break-even + target ROAS</li>
-          <li>We lock the gameplan for your first 30 days</li>
-          <li>Ideally we're live within 24 hours after the kickoff</li>
-        </ul>
-      </div>
+      <p
+        style={{
+          textAlign: "center",
+          fontSize: 17,
+          fontWeight: 600,
+          color: "#111315",
+          margin: "8px auto 8px",
+          maxWidth: 560,
+        }}
+      >
+        We're looking forward to seeing you on the kick-off call.
+      </p>
 
       <div className="ob-actions">
         <a href="https://pinformance-agency.com" className="ob-cta-secondary">
