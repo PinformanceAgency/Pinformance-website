@@ -70,7 +70,7 @@ export const ONBOARDING_CONFIG = {
 
   // ---------- External links ----------
   links: {
-    calendlyKickoff: "" as string,      // Full Calendly URL for the kickoff call
+    calendlyKickoff: "https://calendly.com/d/cysr-qwj-w5f/pinformance-kick-off-call",
     docusignContract: "" as string,     // DocuSign PowerForm URL — client signs directly there
     contractPdfUrl: "" as string,       // Optional: link to a PDF preview if you want them to read first
     pinterestBusinessSignup: "https://business.pinterest.com/",
