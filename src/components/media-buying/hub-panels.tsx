@@ -13,7 +13,7 @@ import {
   Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { StoreZoneRow, CampaignZoneRow } from "@/lib/media-buying/zones";
+import type { StoreZoneRow } from "@/lib/media-buying/zones";
 import type { HubResponse } from "@/lib/media-buying/hub-types";
 import type { Exception } from "@/lib/media-buying/exceptions";
 import type { Mover } from "@/lib/media-buying/history";
@@ -50,12 +50,7 @@ export function ZoneOverview({
 }) {
   const [expanded, setExpanded] = useState<Zone | null>("red");
   const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
-  const filteredCampaigns = useMemo(
-    () => filterCampaigns(hub.campaigns, filters, filteredStores),
-    [hub.campaigns, filters, filteredStores]
-  );
   const storeTally = tallyByZone(filteredStores);
-  const campaignTally = tallyByZone(filteredCampaigns);
 
   return (
     <section className="bg-card border border-border rounded-2xl p-5">
@@ -63,8 +58,8 @@ export function ZoneOverview({
         <div>
           <h2 className="text-base font-semibold">Zones</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Red / orange / green per store &amp; campaign, based on ROAS ÷ breakeven ROAS
-            over the last {hub.meta.window_days} days.
+            Stores by health over the last {hub.meta.window_days} days. Red = below BER,
+            green = above invoice ROAS &amp; at scale, orange in between.
           </p>
         </div>
         <HubFilterBar hub={hub} filters={filters} onChange={onFiltersChange} />
@@ -76,7 +71,6 @@ export function ZoneOverview({
             key={z}
             zone={z}
             storesCount={storeTally[z]}
-            campaignsCount={campaignTally[z]}
             expanded={expanded === z}
             onClick={() => setExpanded(expanded === z ? null : z)}
           />
@@ -97,13 +91,11 @@ export function ZoneOverview({
 function ZoneCard({
   zone,
   storesCount,
-  campaignsCount,
   expanded,
   onClick,
 }: {
   zone: Zone;
   storesCount: number;
-  campaignsCount: number;
   expanded: boolean;
   onClick: () => void;
 }) {
@@ -121,14 +113,9 @@ function ZoneCard({
         {zoneLabel[zone]}
       </div>
       <div className="mt-1 flex items-baseline gap-3">
-        <div>
-          <div className="text-2xl font-semibold tabular-nums">{storesCount}</div>
-          <div className="text-[11px] text-muted-foreground">stores</div>
-        </div>
-        <div className="opacity-60">•</div>
-        <div>
-          <div className="text-2xl font-semibold tabular-nums">{campaignsCount}</div>
-          <div className="text-[11px] text-muted-foreground">campaigns</div>
+        <div className="text-3xl font-semibold tabular-nums">{storesCount}</div>
+        <div className="text-[11px] text-muted-foreground">
+          {storesCount === 1 ? "store" : "stores"}
         </div>
         <div className="ml-auto">
           {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -199,15 +186,6 @@ function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
     if (f.buyer && s.media_buyer !== f.buyer) return false;
     return true;
   });
-}
-
-function filterCampaigns(
-  campaigns: CampaignZoneRow[],
-  _f: HubFilters,
-  filteredStores: StoreZoneRow[]
-): CampaignZoneRow[] {
-  const okOrgs = new Set(filteredStores.map((s) => s.org_id));
-  return campaigns.filter((c) => okOrgs.has(c.org_id));
 }
 
 function HubFilterBar({
