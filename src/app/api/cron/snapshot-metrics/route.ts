@@ -322,6 +322,8 @@ async function run(request: NextRequest) {
             conversions: d.conversions,
             impressions: d.impressions,
             clicks: d.clicks,
+            add_to_carts: d.add_to_carts,
+            add_to_cart_value: d.add_to_cart_value,
             roas: d.roas,
             cpm: d.cpm,
             cpc: d.cpc,
