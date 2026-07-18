@@ -11,12 +11,18 @@ import {
   ArrowDownRight,
   Users,
   Activity,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StoreZoneRow } from "@/lib/media-buying/zones";
 import type { HubResponse } from "@/lib/media-buying/hub-types";
 import type { Exception } from "@/lib/media-buying/exceptions";
 import type { Mover } from "@/lib/media-buying/history";
+import {
+  computeBuyerScorecard,
+  computeDepartmentBreakdown,
+  computePortfolioHealth,
+} from "@/lib/media-buying/rollups";
 import { benchmarksFor } from "@/lib/media-buying/benchmarks";
 import type { Zone } from "@/lib/media-buying/config";
 import { DEPARTMENT_LABELS, COUNTRY_OPTIONS } from "@/lib/media-buying/config";
@@ -41,12 +47,10 @@ export function ZoneOverview({
   hub,
   onStoreClick,
   filters,
-  onFiltersChange,
 }: {
   hub: HubResponse;
   onStoreClick: (orgId: string) => void;
   filters: HubFilters;
-  onFiltersChange: (f: HubFilters) => void;
 }) {
   const [expanded, setExpanded] = useState<Zone | null>("red");
   const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
@@ -54,15 +58,12 @@ export function ZoneOverview({
 
   return (
     <section className="bg-card border border-border rounded-2xl p-5">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">Zones</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Stores by health over the last {hub.meta.window_days} days. Red = below BER,
-            green = above invoice ROAS &amp; at scale, orange in between.
-          </p>
-        </div>
-        <HubFilterBar hub={hub} filters={filters} onChange={onFiltersChange} />
+      <div className="mb-4">
+        <h2 className="text-base font-semibold">Zones</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Stores by health over the last {hub.meta.window_days} days. Red = below BER,
+          green = above invoice ROAS &amp; at scale, orange in between.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -188,6 +189,30 @@ function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
   });
 }
 
+/** Global filter bar rendered at the top of the hub page — filters flow
+ *  through to every downstream section so the whole page tells the same
+ *  story. */
+export function GlobalFilterBar({
+  hub,
+  filters,
+  onChange,
+}: {
+  hub: HubResponse;
+  filters: HubFilters;
+  onChange: (f: HubFilters) => void;
+}) {
+  return (
+    <section className="bg-card border border-border rounded-2xl px-5 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium mr-2">
+          Filter
+        </div>
+        <HubFilterBar hub={hub} filters={filters} onChange={onChange} />
+      </div>
+    </section>
+  );
+}
+
 function HubFilterBar({
   hub,
   filters,
@@ -289,52 +314,79 @@ function tallyByZone<T extends { zone: Zone | null }>(rows: T[]) {
 }
 
 // ─── Portfolio health ───────────────────────────────────────────────────────
-export function PortfolioHealthCard({ hub }: { hub: HubResponse }) {
-  const ph = hub.portfolio_health;
-  const w = hub.wow.agency;
-  const color =
-    ph.verdict === "healthy"
-      ? "text-emerald-600 dark:text-emerald-400"
-      : ph.verdict === "watch"
-      ? "text-lime-600 dark:text-lime-400"
-      : ph.verdict === "concerning"
-      ? "text-amber-600 dark:text-amber-400"
-      : ph.verdict === "critical"
-      ? "text-red-600 dark:text-red-400"
-      : "text-muted-foreground";
+/** Agency-wide roll-up — the top-of-page snapshot. Recomputed client-side
+ *  from the filtered store list so the numbers always match what the rest of
+ *  the page is showing for the same filter. */
+export function CompanyOverviewCard({
+  hub,
+  filters,
+}: {
+  hub: HubResponse;
+  filters: HubFilters;
+}) {
+  const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
+  const filteredWow = useMemo(() => {
+    const ok = new Set(filteredStores.map((s) => s.org_id));
+    return hub.wow.byStore.filter((w) => ok.has(w.org_id));
+  }, [hub.wow.byStore, filteredStores]);
+  const ph = useMemo(
+    () => computePortfolioHealth(filteredStores, filteredWow),
+    [filteredStores, filteredWow]
+  );
   return (
     <section className="bg-card border border-border rounded-2xl p-5">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-base font-semibold">Portfolio health</h2>
+          <h2 className="text-base font-semibold">Company overview</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Spend-weighted score across every configured store — how the book is doing overall.
+            Aggregate for the current filter (spend-weighted). {filteredStores.length}{" "}
+            {filteredStores.length === 1 ? "store" : "stores"} in scope.
           </p>
         </div>
-        <div className={cn("text-xs uppercase tracking-widest font-semibold", color)}>
-          {ph.verdict}
-        </div>
+        <ZoneBadge zone={ph.zone} large />
       </div>
       <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Health score" value={ph.score != null ? `${ph.score}/100` : "—"} big color={color} />
-        <Stat label="Total spend (7d)" value={fmtCurrency(ph.total_spend, "USD")} />
-        <Stat label="Total revenue (7d)" value={fmtCurrency(ph.total_revenue, "USD")} />
-        <Stat label="Overall ROAS" value={fmtRoas(ph.overall_roas)} sub={`vs ${fmtRoas(ph.weighted_ber)} BER`} />
+        <Stat label="Total spend (7d)" value={fmtCurrency(ph.spend, "USD")} big />
+        <Stat label="Total revenue (7d)" value={fmtCurrency(ph.revenue, "USD")} big />
+        <Stat
+          label="Overall ROAS"
+          value={fmtRoas(ph.roas)}
+          big
+          sub={ph.weighted_ber != null ? `vs ${fmtRoas(ph.weighted_ber)} BER` : undefined}
+        />
+        <Stat
+          label="Invoice ROAS target"
+          value={fmtRoas(ph.weighted_invoice_roas)}
+          big
+          sub={ph.zones ? `${ph.zones.red}R · ${ph.zones.orange}O · ${ph.zones.green}G` : undefined}
+        />
       </div>
       <div className="mt-3 border-t border-border pt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-        <WoWLine label="Spend WoW" prev={w.spend_prev} curr={w.spend_curr} pct={w.spend_delta_pct} currency="USD" />
-        <WoWLine label="Revenue WoW" prev={w.revenue_prev} curr={w.revenue_curr} pct={w.revenue_delta_pct} currency="USD" />
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground">ROAS WoW</span>
-          <span className="font-medium tabular-nums">{fmtRoas(w.roas_prev)}</span>
-          <span className="text-muted-foreground">→</span>
-          <span className="font-medium tabular-nums">{fmtRoas(w.roas_curr)}</span>
-          <VerdictBadge verdict={w.verdict} />
-        </div>
+        <WoWDelta label="Spend WoW" pct={ph.wow_spend_delta_pct} />
+        <WoWDelta label="Revenue WoW" pct={ph.wow_revenue_delta_pct} />
+        <WoWDelta label="ROAS WoW" pct={ph.wow_roas_delta_pct} />
       </div>
     </section>
   );
 }
+
+function WoWDelta({ label, pct }: { label: string; pct: number | null }) {
+  const trendClass =
+    pct == null ? "text-muted-foreground" : pct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
+  const Icon = pct != null && pct >= 0 ? ArrowUpRight : ArrowDownRight;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("inline-flex items-center gap-0.5 font-medium tabular-nums", trendClass)}>
+        <Icon className="w-3 h-3" />
+        {fmtPct(pct)}
+      </span>
+    </div>
+  );
+}
+
+/** @deprecated alias kept so the page can import either name mid-refactor. */
+export const PortfolioHealthCard = CompanyOverviewCard;
 
 function Stat({
   label,
@@ -358,99 +410,220 @@ function Stat({
   );
 }
 
-function WoWLine({
-  label,
-  prev,
-  curr,
-  pct,
-  currency,
+// ─── Department breakdown ───────────────────────────────────────────────────
+export function DepartmentBreakdown({
+  hub,
+  filters,
 }: {
-  label: string;
-  prev: number;
-  curr: number;
-  pct: number | null;
-  currency: string;
+  hub: HubResponse;
+  filters: HubFilters;
 }) {
-  const trendClass = pct == null ? "text-muted-foreground" : pct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
-  const Icon = pct != null && pct >= 0 ? ArrowUpRight : ArrowDownRight;
+  // Deliberately ignore the top-level department filter — this panel is the
+  // department split, so it always shows every department. Other filters
+  // (niche/country/buyer) still apply.
+  const filteredStores = useMemo(
+    () => filterStores(hub.stores, { ...filters, department: "" }),
+    [hub.stores, filters]
+  );
+  const filteredWow = useMemo(() => {
+    const ok = new Set(filteredStores.map((s) => s.org_id));
+    return hub.wow.byStore.filter((w) => ok.has(w.org_id));
+  }, [hub.wow.byStore, filteredStores]);
+  const rows = useMemo(
+    () => computeDepartmentBreakdown(filteredStores, filteredWow),
+    [filteredStores, filteredWow]
+  );
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium tabular-nums">{fmtCurrency(prev, currency)}</span>
-      <span className="text-muted-foreground">→</span>
-      <span className="font-medium tabular-nums">{fmtCurrency(curr, currency)}</span>
-      <span className={cn("inline-flex items-center gap-0.5 font-medium tabular-nums", trendClass)}>
-        <Icon className="w-3 h-3" />
-        {fmtPct(pct)}
-      </span>
-    </div>
+    <section className="bg-card border border-border rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <Layers className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">By department</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Spend-weighted roll-up per department. Zone is derived from the aggregate
+        ROAS vs the aggregate breakeven / invoice target for that department.
+      </p>
+      <ScorecardTable
+        rows={rows.map((r) => ({
+          key: r.key,
+          label: DEPARTMENT_LABEL_MAP[r.key] ?? capitalize(r.key),
+          stores: r.stores,
+          spend: r.spend,
+          revenue: r.revenue,
+          roas: r.roas,
+          weighted_ber: r.weighted_ber,
+          zone: r.zone,
+          zones: r.zones,
+          wow_spend_delta_pct: r.wow_spend_delta_pct,
+          wow_roas_delta_pct: r.wow_roas_delta_pct,
+        }))}
+        firstColLabel="Department"
+        emptyLabel="No configured stores in this filter."
+      />
+    </section>
   );
 }
 
-function VerdictBadge({ verdict }: { verdict: "good" | "flat" | "bad" }) {
-  const cls =
-    verdict === "good"
-      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-      : verdict === "bad"
-      ? "bg-red-500/15 text-red-700 dark:text-red-400"
-      : "bg-muted text-muted-foreground";
-  return <span className={cn("ml-auto text-[10px] uppercase tracking-widest font-semibold rounded-full px-2 py-0.5", cls)}>{verdict === "good" ? "Good week" : verdict === "bad" ? "Weak week" : "Flat"}</span>;
+const DEPARTMENT_LABEL_MAP: Record<string, string> = {
+  ...DEPARTMENT_LABELS,
+  "(no department)": "No department",
+};
+
+function capitalize(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
 // ─── Media buyer scorecard ──────────────────────────────────────────────────
-export function BuyerScorecard({ hub }: { hub: HubResponse }) {
-  const rows = hub.buyer_scorecard;
+export function BuyerScorecard({
+  hub,
+  filters,
+}: {
+  hub: HubResponse;
+  filters: HubFilters;
+}) {
+  // Deliberately ignore the top-level buyer filter (same rationale as
+  // DepartmentBreakdown above).
+  const filteredStores = useMemo(
+    () => filterStores(hub.stores, { ...filters, buyer: "" }),
+    [hub.stores, filters]
+  );
+  const filteredWow = useMemo(() => {
+    const ok = new Set(filteredStores.map((s) => s.org_id));
+    return hub.wow.byStore.filter((w) => ok.has(w.org_id));
+  }, [hub.wow.byStore, filteredStores]);
+  const rows = useMemo(
+    () => computeBuyerScorecard(filteredStores, filteredWow),
+    [filteredStores, filteredWow]
+  );
   return (
     <section className="bg-card border border-border rounded-2xl p-5">
       <div className="flex items-center gap-2 mb-3">
         <Users className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-base font-semibold">Media buyer scorecard</h2>
+        <h2 className="text-base font-semibold">By media buyer</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-3">
-        Zone distribution and week-over-week movement per buyer — surfaces who&apos;s carrying red stores.
+        Same aggregate per media buyer — surfaces who&apos;s carrying red stores and
+        who&apos;s scaling green ones.
       </p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-b border-border text-muted-foreground text-xs">
-            <tr>
-              <th className="text-left font-medium py-2">Buyer</th>
-              <th className="text-right font-medium py-2">Stores</th>
-              <th className="text-right font-medium py-2">Spend (7d)</th>
-              <th className="text-right font-medium py-2">ROAS</th>
-              <th className="text-left font-medium py-2 pl-3">Zones</th>
-              <th className="text-right font-medium py-2">Spend WoW</th>
-              <th className="text-right font-medium py-2">ROAS WoW</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.media_buyer} className="border-b border-border/60 last:border-b-0">
-                <td className="py-2 font-medium">{r.media_buyer}</td>
-                <td className="py-2 text-right tabular-nums">{r.stores}</td>
-                <td className="py-2 text-right tabular-nums">{fmtCurrency(r.spend, "USD")}</td>
-                <td className="py-2 text-right tabular-nums">{fmtRoas(r.roas)}</td>
-                <td className="py-2 pl-3">
-                  <ZoneBars red={r.zones.red} orange={r.zones.orange} green={r.zones.green} />
-                </td>
-                <td className="py-2 text-right tabular-nums">
-                  <DeltaPct v={r.wow_spend_delta_pct} />
-                </td>
-                <td className="py-2 text-right tabular-nums">
-                  <DeltaPct v={r.wow_roas_delta_pct} />
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={7} className="py-6 text-center text-muted-foreground text-sm">
-                  No configured stores yet. Fill in buyers on the Store Settings page.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <ScorecardTable
+        rows={rows.map((r) => ({
+          key: r.key,
+          label: r.media_buyer,
+          stores: r.stores,
+          spend: r.spend,
+          revenue: r.revenue,
+          roas: r.roas,
+          weighted_ber: r.weighted_ber,
+          zone: r.zone,
+          zones: r.zones,
+          wow_spend_delta_pct: r.wow_spend_delta_pct,
+          wow_roas_delta_pct: r.wow_roas_delta_pct,
+        }))}
+        firstColLabel="Media buyer"
+        emptyLabel="No configured stores in this filter."
+      />
     </section>
+  );
+}
+
+interface ScorecardTableRow {
+  key: string;
+  label: string;
+  stores: number;
+  spend: number;
+  revenue: number;
+  roas: number | null;
+  weighted_ber: number | null;
+  zone: Zone | null;
+  zones: { red: number; orange: number; green: number };
+  wow_spend_delta_pct: number | null;
+  wow_roas_delta_pct: number | null;
+}
+
+function ScorecardTable({
+  rows,
+  firstColLabel,
+  emptyLabel,
+}: {
+  rows: ScorecardTableRow[];
+  firstColLabel: string;
+  emptyLabel: string;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="border-b border-border text-muted-foreground text-xs">
+          <tr>
+            <th className="text-left font-medium py-2">{firstColLabel}</th>
+            <th className="text-left font-medium py-2 pl-3">Zone</th>
+            <th className="text-right font-medium py-2">Stores</th>
+            <th className="text-right font-medium py-2">Spend (7d)</th>
+            <th className="text-right font-medium py-2">Revenue (7d)</th>
+            <th className="text-right font-medium py-2">ROAS</th>
+            <th className="text-right font-medium py-2">vs BER</th>
+            <th className="text-left font-medium py-2 pl-3">Zone mix</th>
+            <th className="text-right font-medium py-2">Spend WoW</th>
+            <th className="text-right font-medium py-2">ROAS WoW</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} className="border-b border-border/60 last:border-b-0">
+              <td className="py-2 font-medium">{r.label}</td>
+              <td className="py-2 pl-3">
+                <ZoneBadge zone={r.zone} />
+              </td>
+              <td className="py-2 text-right tabular-nums">{r.stores}</td>
+              <td className="py-2 text-right tabular-nums">{fmtCurrency(r.spend, "USD")}</td>
+              <td className="py-2 text-right tabular-nums">{fmtCurrency(r.revenue, "USD")}</td>
+              <td className="py-2 text-right tabular-nums font-medium">{fmtRoas(r.roas)}</td>
+              <td className="py-2 text-right tabular-nums text-muted-foreground">
+                {fmtRoas(r.weighted_ber)}
+              </td>
+              <td className="py-2 pl-3">
+                <ZoneBars red={r.zones.red} orange={r.zones.orange} green={r.zones.green} />
+              </td>
+              <td className="py-2 text-right tabular-nums">
+                <DeltaPct v={r.wow_spend_delta_pct} />
+              </td>
+              <td className="py-2 text-right tabular-nums">
+                <DeltaPct v={r.wow_roas_delta_pct} />
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={10} className="py-6 text-center text-muted-foreground text-sm">
+                {emptyLabel}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Zone chip with dot + label. `large` variant used at the top of the page. */
+function ZoneBadge({ zone, large }: { zone: Zone | null; large?: boolean }) {
+  if (!zone) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+        Unclassified
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border font-semibold",
+        zoneBg[zone],
+        large ? "px-3 py-1 text-xs uppercase tracking-widest" : "px-2 py-0.5 text-[11px]"
+      )}
+    >
+      <span className={cn("rounded-full", zoneDot[zone], large ? "w-2 h-2" : "w-1.5 h-1.5")} />
+      {zoneLabel[zone]}
+    </span>
   );
 }
 

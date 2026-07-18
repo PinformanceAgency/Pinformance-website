@@ -6,7 +6,11 @@ import type { StoreZoneRow, CampaignZoneRow } from "./zones";
 import type { Benchmarks } from "./benchmarks";
 import type { WoWStore, WoWAgency, Mover } from "./history";
 import type { Exception } from "./exceptions";
-import type { BuyerScorecardRow, PortfolioHealth } from "./rollups";
+import type {
+  BuyerScorecardRow,
+  DepartmentRow,
+  PortfolioHealth,
+} from "./rollups";
 import type { ZoneThresholds } from "./config";
 
 export interface HubResponse {
@@ -17,6 +21,7 @@ export interface HubResponse {
     campaigns: { red: number; orange: number; green: number; unclassified: number };
   };
   buyer_scorecard: BuyerScorecardRow[];
+  department_breakdown: DepartmentRow[];
   portfolio_health: PortfolioHealth;
   benchmarks: Benchmarks;
   movers: Mover[];

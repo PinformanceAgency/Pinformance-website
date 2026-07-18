@@ -6,10 +6,12 @@ import type { HubResponse } from "@/lib/media-buying/hub-types";
 import {
   ZoneOverview,
   BuyerScorecard,
+  DepartmentBreakdown,
   ExceptionsPanel,
   MoversPanel,
-  PortfolioHealthCard,
+  CompanyOverviewCard,
   StoresTable,
+  GlobalFilterBar,
   EMPTY_FILTERS,
   type HubFilters,
 } from "@/components/media-buying/hub-panels";
@@ -70,21 +72,25 @@ export default function MediaBuyingHubPage() {
 
       {hub && (
         <>
-          <PortfolioHealthCard hub={hub} />
+          <GlobalFilterBar hub={hub} filters={filters} onChange={setFilters} />
 
-          <ZoneOverview
-            hub={hub}
-            filters={filters}
-            onFiltersChange={setFilters}
-            onStoreClick={openStore}
-          />
+          {/* 1. Company-wide */}
+          <CompanyOverviewCard hub={hub} filters={filters} />
+
+          {/* 2. Per department */}
+          <DepartmentBreakdown hub={hub} filters={filters} />
+
+          {/* 3. Per media buyer */}
+          <BuyerScorecard hub={hub} filters={filters} />
+
+          {/* Zone drilldown + actionable panels */}
+          <ZoneOverview hub={hub} filters={filters} onStoreClick={openStore} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ExceptionsPanel hub={hub} onStoreClick={openStore} />
             <MoversPanel hub={hub} onStoreClick={openStore} />
           </div>
 
-          <BuyerScorecard hub={hub} />
           <StoresTable hub={hub} filters={filters} onStoreClick={openStore} />
         </>
       )}

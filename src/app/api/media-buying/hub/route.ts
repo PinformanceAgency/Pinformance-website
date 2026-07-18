@@ -32,7 +32,11 @@ import {
 import { computeBenchmarks } from "@/lib/media-buying/benchmarks";
 import { computeMovers, computeWeekOverWeek } from "@/lib/media-buying/history";
 import { computeExceptions } from "@/lib/media-buying/exceptions";
-import { computeBuyerScorecard, computePortfolioHealth } from "@/lib/media-buying/rollups";
+import {
+  computeBuyerScorecard,
+  computeDepartmentBreakdown,
+  computePortfolioHealth,
+} from "@/lib/media-buying/rollups";
 
 export async function GET(_req: NextRequest) {
   const supabase = await createClient();
@@ -54,7 +58,14 @@ export async function GET(_req: NextRequest) {
       computeExceptions(supabase, activeConfiguredStores),
     ]);
     const buyer_scorecard = computeBuyerScorecard(activeConfiguredStores, wow.byStore);
-    const portfolio_health = computePortfolioHealth(activeConfiguredStores);
+    const department_breakdown = computeDepartmentBreakdown(
+      activeConfiguredStores,
+      wow.byStore
+    );
+    const portfolio_health = computePortfolioHealth(
+      activeConfiguredStores,
+      wow.byStore
+    );
 
     return NextResponse.json({
       stores,
@@ -64,6 +75,7 @@ export async function GET(_req: NextRequest) {
         campaigns: tallyZones(campaigns),
       },
       buyer_scorecard,
+      department_breakdown,
       portfolio_health,
       benchmarks,
       movers,
