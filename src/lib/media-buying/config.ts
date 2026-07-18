@@ -96,9 +96,11 @@ export type Department = (typeof DEPARTMENTS)[number];
  *  values as new verticals show up. */
 export const NICHE_SUGGESTIONS = [
   "home",
+  "home decor",
   "beauty",
   "fashion",
   "sports",
+  "health",
   "wellness",
   "kids",
   "pets",
