@@ -8,6 +8,10 @@ import {
   NICHE_SUGGESTIONS,
   COUNTRY_OPTIONS,
   DEFAULT_ZONE_THRESHOLDS,
+  DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR,
+  DEFAULT_ATTRIBUTION_SETTING,
+  ATTRIBUTION_OPTIONS,
+  type AttributionWindow,
   type Department,
 } from "@/lib/media-buying/config";
 import type {
@@ -37,8 +41,16 @@ export function StoreSettingsModal({
   const [breakevenRoas, setBreakevenRoas] = useState<string>(
     s?.breakeven_roas != null ? String(s.breakeven_roas) : ""
   );
-  const [orangeRatio, setOrangeRatio] = useState<string>(
-    s?.zone_thresholds?.orange_ratio != null ? String(s.zone_thresholds.orange_ratio) : ""
+  const [invoiceRoas, setInvoiceRoas] = useState<string>(
+    s?.invoice_roas != null ? String(s.invoice_roas) : ""
+  );
+  const [attribution, setAttribution] = useState<AttributionWindow>(
+    (s?.attribution_setting as AttributionWindow) ?? DEFAULT_ATTRIBUTION_SETTING
+  );
+  const [minWeeklyRevenue, setMinWeeklyRevenue] = useState<string>(
+    s?.zone_thresholds?.min_weekly_revenue != null
+      ? String(s.zone_thresholds.min_weekly_revenue)
+      : ""
   );
   const [greenRatio, setGreenRatio] = useState<string>(
     s?.zone_thresholds?.green_ratio != null ? String(s.zone_thresholds.green_ratio) : ""
@@ -46,7 +58,8 @@ export function StoreSettingsModal({
   const [isActive, setIsActive] = useState<boolean>(s?.is_active ?? true);
   const [notes, setNotes] = useState(s?.notes ?? "");
   const [showAdvanced, setShowAdvanced] = useState(
-    (s?.zone_thresholds?.orange_ratio != null || s?.zone_thresholds?.green_ratio != null)
+    s?.zone_thresholds?.green_ratio != null ||
+      s?.zone_thresholds?.min_weekly_revenue != null
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +78,17 @@ export function StoreSettingsModal({
     const n = Number(breakevenRoas);
     return isFinite(n) && n > 0 ? n : NaN;
   }, [breakevenRoas]);
+  const invoiceRoasNumber = useMemo(() => {
+    if (invoiceRoas === "") return null;
+    const n = Number(invoiceRoas);
+    return isFinite(n) && n > 0 ? n : NaN;
+  }, [invoiceRoas]);
 
-  const canSave = department !== "" && berNumber !== null && !Number.isNaN(berNumber);
+  const canSave =
+    department !== "" &&
+    berNumber !== null &&
+    !Number.isNaN(berNumber) &&
+    (invoiceRoasNumber === null || !Number.isNaN(invoiceRoasNumber));
 
   async function handleSave() {
     setSaving(true);
@@ -80,20 +102,34 @@ export function StoreSettingsModal({
       country: country || null,
       media_buyer: mediaBuyer.trim() || null,
       breakeven_roas: berNumber,
+      invoice_roas: invoiceRoasNumber,
+      attribution_setting: attribution,
       is_active: isActive,
       notes: notes.trim() || null,
     };
-    const hasOrange = orangeRatio.trim() !== "";
-    const hasGreen = greenRatio.trim() !== "";
-    if (hasOrange || hasGreen) {
-      const o = hasOrange ? Number(orangeRatio) : DEFAULT_ZONE_THRESHOLDS.orange_ratio;
-      const g = hasGreen ? Number(greenRatio) : DEFAULT_ZONE_THRESHOLDS.green_ratio;
-      if (!(isFinite(o) && o > 0) || !(isFinite(g) && g > o)) {
-        setError("Zone thresholds must be positive and green > orange.");
-        setSaving(false);
-        return;
+    const hasGreenRatio = greenRatio.trim() !== "";
+    const hasMinWeeklyRev = minWeeklyRevenue.trim() !== "";
+    if (hasGreenRatio || hasMinWeeklyRev) {
+      const overrides: Partial<import("@/lib/media-buying/config").ZoneThresholds> = {};
+      if (hasGreenRatio) {
+        const g = Number(greenRatio);
+        if (!(isFinite(g) && g > 1)) {
+          setError("Green fallback ratio must be > 1.");
+          setSaving(false);
+          return;
+        }
+        overrides.green_ratio = g;
       }
-      payload.zone_thresholds = { orange_ratio: o, green_ratio: g };
+      if (hasMinWeeklyRev) {
+        const r = Number(minWeeklyRevenue);
+        if (!(isFinite(r) && r >= 0)) {
+          setError("Minimum weekly revenue must be a non-negative number.");
+          setSaving(false);
+          return;
+        }
+        overrides.min_weekly_revenue = r;
+      }
+      payload.zone_thresholds = overrides;
     } else {
       payload.zone_thresholds = null;
     }
@@ -159,22 +195,63 @@ export function StoreSettingsModal({
             </select>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-foreground">
+                Breakeven ROAS <span className="text-primary">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={breakevenRoas}
+                onChange={(e) => setBreakevenRoas(e.target.value)}
+                placeholder="e.g. 2.5"
+                className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                ROAS below this &rarr; <strong>red</strong> (losing money).
+              </p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-foreground">Invoice ROAS</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={invoiceRoas}
+                onChange={(e) => setInvoiceRoas(e.target.value)}
+                placeholder="e.g. 3.5"
+                className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                ROAS at &ge; this <em>and</em> &ge; €
+                {DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR.toLocaleString("en-US")} weekly
+                revenue &rarr; <strong>green</strong>. Leave empty to fall back to
+                BER &times; green ratio.
+              </p>
+            </div>
+          </div>
+
           <div>
             <label className="text-xs font-medium text-foreground">
-              Breakeven ROAS <span className="text-primary">*</span>
+              Pinterest attribution setting
             </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={breakevenRoas}
-              onChange={(e) => setBreakevenRoas(e.target.value)}
-              placeholder="e.g. 2.5"
+            <select
+              value={attribution}
+              onChange={(e) => setAttribution(e.target.value as AttributionWindow)}
               className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
+            >
+              {ATTRIBUTION_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.value} — {o.label}
+                </option>
+              ))}
+            </select>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              ROAS at which this store breaks even. Feeds the zone engine
-              (red / orange / green).
+              Click / view window used when this store&apos;s numbers are pulled from
+              Pinterest. Change if this store reports on a non-default window in
+              Campaign Manager.
             </p>
           </div>
 
@@ -265,26 +342,26 @@ export function StoreSettingsModal({
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-medium text-foreground">
-                    Orange ratio
+                    Min weekly revenue (green gate)
                   </label>
                   <input
                     type="number"
-                    step="0.05"
-                    min="0.05"
-                    value={orangeRatio}
-                    onChange={(e) => setOrangeRatio(e.target.value)}
-                    placeholder={String(DEFAULT_ZONE_THRESHOLDS.orange_ratio)}
+                    step="100"
+                    min="0"
+                    value={minWeeklyRevenue}
+                    onChange={(e) => setMinWeeklyRevenue(e.target.value)}
+                    placeholder={String(DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR)}
                     className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
                   />
                 </div>
                 <div>
                   <label className="text-[11px] font-medium text-foreground">
-                    Green ratio
+                    Green fallback ratio (BER ×)
                   </label>
                   <input
                     type="number"
                     step="0.05"
-                    min="0.05"
+                    min="1.01"
                     value={greenRatio}
                     onChange={(e) => setGreenRatio(e.target.value)}
                     placeholder={String(DEFAULT_ZONE_THRESHOLDS.green_ratio)}
@@ -292,10 +369,10 @@ export function StoreSettingsModal({
                   />
                 </div>
                 <p className="col-span-2 text-[11px] text-muted-foreground">
-                  Multipliers of BER. Ratio = live ROAS ÷ BER. Below orange = red,
-                  between orange and green = orange, above green = green.
-                  Leave both empty to use the global default (
-                  {DEFAULT_ZONE_THRESHOLDS.orange_ratio} /{" "}
+                  <strong>Min weekly revenue</strong> — override the default €
+                  {DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR.toLocaleString("en-US")} scale
+                  gate. <strong>Green fallback ratio</strong> — only used when
+                  Invoice ROAS is empty (green target ≈ BER × ratio; default{" "}
                   {DEFAULT_ZONE_THRESHOLDS.green_ratio}).
                 </p>
               </div>

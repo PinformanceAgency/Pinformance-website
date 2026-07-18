@@ -28,6 +28,8 @@ export interface StoreZoneRow {
   country: string | null;
   media_buyer: string | null;
   breakeven_roas: number | null;
+  invoice_roas: number | null;
+  attribution_setting: string | null;
   zone_thresholds: Partial<ZoneThresholds> | null;
   is_active: boolean;
   configured: boolean;
@@ -224,7 +226,14 @@ export async function computeStoreZones(
       const ctr = tot && tot.impressions > 0 ? (tot.clicks / tot.impressions) * 100 : null;
       const cpa = tot && tot.conversions > 0 ? spend / tot.conversions : null;
       const zone = configured
-        ? classifyZone(roas, s?.breakeven_roas ?? null, spend, s?.zone_thresholds)
+        ? classifyZone({
+            liveRoas: roas,
+            breakevenRoas: s?.breakeven_roas ?? null,
+            invoiceRoas: s?.invoice_roas ?? null,
+            spend,
+            windowRevenue: revenue,
+            overrides: s?.zone_thresholds,
+          })
         : null;
       const ber = s?.breakeven_roas ?? null;
       const ratio = ber && ber > 0 && roas != null ? roas / ber : null;
@@ -242,6 +251,8 @@ export async function computeStoreZones(
         country: s?.country ?? null,
         media_buyer: s?.media_buyer ?? null,
         breakeven_roas: s?.breakeven_roas ?? null,
+        invoice_roas: s?.invoice_roas ?? null,
+        attribution_setting: s?.attribution_setting ?? null,
         zone_thresholds: s?.zone_thresholds ?? null,
         is_active: s?.is_active ?? true,
         configured,
@@ -356,7 +367,17 @@ export async function computeCampaignZones(
     const spend = tot.spend;
     const revenue = tot.revenue;
     const roas = spend > 0 ? revenue / spend : null;
-    const zone = classifyZone(roas, s?.breakeven_roas ?? null, spend, s?.zone_thresholds);
+    // Campaigns skip the revenue-floor gate — a smaller winning campaign
+    // inside a healthy store shouldn't be dragged to orange just because it
+    // alone doesn't do €5k/week.
+    const zone = classifyZone({
+      liveRoas: roas,
+      breakevenRoas: s?.breakeven_roas ?? null,
+      invoiceRoas: s?.invoice_roas ?? null,
+      spend,
+      requireRevenueFloor: false,
+      overrides: s?.zone_thresholds,
+    });
     const ber = s?.breakeven_roas ?? null;
     const ratio = ber && ber > 0 && roas != null ? roas / ber : null;
     rows.push({

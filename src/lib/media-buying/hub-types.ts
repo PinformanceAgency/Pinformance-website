@@ -28,5 +28,6 @@ export interface HubResponse {
     benchmark_windows: { short: number; long: number };
     benchmark_min_stores: number;
     default_zone_thresholds: ZoneThresholds;
+    default_green_revenue_weekly_floor: number;
   };
 }

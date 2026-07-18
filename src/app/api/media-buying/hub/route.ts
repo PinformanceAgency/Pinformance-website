@@ -21,6 +21,7 @@ import {
   BENCHMARK_WINDOW_DAYS_LONG,
   BENCHMARK_MIN_STORES,
   DEFAULT_ZONE_THRESHOLDS,
+  DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR,
 } from "@/lib/media-buying/config";
 import {
   computeStoreZones,
@@ -77,6 +78,7 @@ export async function GET(_req: NextRequest) {
         },
         benchmark_min_stores: BENCHMARK_MIN_STORES,
         default_zone_thresholds: DEFAULT_ZONE_THRESHOLDS,
+        default_green_revenue_weekly_floor: DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR,
       },
     });
   } catch (e) {

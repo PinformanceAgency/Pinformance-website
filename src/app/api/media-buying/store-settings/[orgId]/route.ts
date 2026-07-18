@@ -13,6 +13,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   DEPARTMENTS,
+  ATTRIBUTION_OPTIONS,
+  type AttributionWindow,
   type Department,
   type ZoneThresholds,
 } from "@/lib/media-buying/config";
@@ -28,8 +30,12 @@ function parseZoneThresholds(
   const out: Partial<ZoneThresholds> = {};
   if (typeof obj.orange_ratio === "number") out.orange_ratio = obj.orange_ratio;
   if (typeof obj.green_ratio === "number") out.green_ratio = obj.green_ratio;
+  if (typeof obj.min_weekly_revenue === "number")
+    out.min_weekly_revenue = obj.min_weekly_revenue;
   return Object.keys(out).length ? out : null;
 }
+
+const ATTRIBUTION_VALUES = new Set(ATTRIBUTION_OPTIONS.map((o) => o.value as string));
 
 function parseInput(body: unknown): StoreSettingsUpsertInput | { error: string } {
   if (!body || typeof body !== "object") return { error: "Invalid body" };
@@ -57,6 +63,24 @@ function parseInput(body: unknown): StoreSettingsUpsertInput | { error: string }
       const n = Number(v);
       if (!isFinite(n) || n <= 0) return { error: "breakeven_roas must be > 0" };
       out.breakeven_roas = n;
+    }
+  }
+  if ("invoice_roas" in b) {
+    const v = b.invoice_roas;
+    if (v === null || v === "") out.invoice_roas = null;
+    else {
+      const n = Number(v);
+      if (!isFinite(n) || n <= 0) return { error: "invoice_roas must be > 0" };
+      out.invoice_roas = n;
+    }
+  }
+  if ("attribution_setting" in b) {
+    const v = b.attribution_setting;
+    if (v === null || v === "") out.attribution_setting = null;
+    else if (typeof v === "string" && ATTRIBUTION_VALUES.has(v)) {
+      out.attribution_setting = v as AttributionWindow;
+    } else {
+      return { error: `Invalid attribution_setting: ${String(v)}` };
     }
   }
   if ("zone_thresholds" in b) {

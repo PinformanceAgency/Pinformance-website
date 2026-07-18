@@ -192,8 +192,22 @@ export async function computeMovers(
     if (!p && !c) continue;
     const roasPrev = p && p.spend > 0 ? p.revenue / p.spend : null;
     const roasCurr = c && c.spend > 0 ? c.revenue / c.spend : null;
-    const zonePrev = classifyZone(roasPrev, s.breakeven_roas, p?.spend ?? 0, s.zone_thresholds);
-    const zoneCurr = classifyZone(roasCurr, s.breakeven_roas, c?.spend ?? 0, s.zone_thresholds);
+    const zonePrev = classifyZone({
+      liveRoas: roasPrev,
+      breakevenRoas: s.breakeven_roas,
+      invoiceRoas: s.invoice_roas,
+      spend: p?.spend ?? 0,
+      windowRevenue: p?.revenue ?? 0,
+      overrides: s.zone_thresholds,
+    });
+    const zoneCurr = classifyZone({
+      liveRoas: roasCurr,
+      breakevenRoas: s.breakeven_roas,
+      invoiceRoas: s.invoice_roas,
+      spend: c?.spend ?? 0,
+      windowRevenue: c?.revenue ?? 0,
+      overrides: s.zone_thresholds,
+    });
     if (zonePrev === zoneCurr) continue;
 
     // Categorize: red→orange/green = recovery, orange→red / green→red = alarm,

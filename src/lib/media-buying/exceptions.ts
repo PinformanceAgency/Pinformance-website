@@ -94,7 +94,16 @@ export async function computeExceptions(
     let streak = 0;
     for (const d of days.slice(0, EXCEPTION_THRESHOLDS.RED_STREAK_DAYS + 1)) {
       const roas = d.spend > 0 ? d.revenue / d.spend : null;
-      const z = classifyZone(roas, store.breakeven_roas, d.spend, store.zone_thresholds);
+      // Red streak is a "losing money" signal — only the profitability gate
+      // matters, so skip the revenue-floor check.
+      const z = classifyZone({
+        liveRoas: roas,
+        breakevenRoas: store.breakeven_roas,
+        invoiceRoas: store.invoice_roas,
+        spend: d.spend,
+        requireRevenueFloor: false,
+        overrides: store.zone_thresholds,
+      });
       if (z === "red") streak++;
       else break;
     }

@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient, MAX_PINTEREST_FETCH } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
+import { attributionToDays, DEFAULT_ATTRIBUTION_SETTING } from "@/lib/media-buying/config";
 
 export const maxDuration = 300;
 
@@ -107,6 +108,16 @@ async function run(request: NextRequest) {
     .select("id, name, pinterest_access_token_encrypted, settings")
     .not("pinterest_access_token_encrypted", "is", null);
 
+  // Pull per-store attribution overrides once. Absent = default 30/1.
+  const { data: settingsRows } = await admin
+    .from("store_settings")
+    .select("org_id, attribution_setting");
+  const attrByOrg = new Map<string, string>(
+    (settingsRows ?? [])
+      .filter((r) => r.attribution_setting)
+      .map((r) => [r.org_id as string, r.attribution_setting as string])
+  );
+
   const results: Array<{
     org_id: string;
     org_name: string;
@@ -143,12 +154,22 @@ async function run(request: NextRequest) {
       }
       const currency = adAccount.currency ?? null;
 
+      // Use this store's Pinterest attribution setting so the numbers we
+      // snapshot match what Campaign Manager shows for that account.
+      const attrKey = attrByOrg.get(org.id as string) ?? DEFAULT_ATTRIBUTION_SETTING;
+      const attr = attributionToDays(attrKey);
+      const analyticsOpts = {
+        granularity: "DAY" as const,
+        clickWindowDays: attr.click,
+        viewWindowDays: attr.view,
+      };
+
       // ── 1. Account-level daily ──────────────────────────────────────────
       const accountResp = (await client.getAdAccountAnalytics(
         adAccount.id,
         startISO,
         endISO,
-        { granularity: "DAY" }
+        analyticsOpts
       )) as unknown;
       // Pinterest returns either an object with .all.daily_metrics OR a plain
       // array of daily rows depending on granularity — normalize both.
@@ -203,19 +224,13 @@ async function run(request: NextRequest) {
 
       const [campRows, agRows, adRows] = await Promise.all([
         batchAnalytics(campaigns.map((c) => c.id), (b) =>
-          client.getCampaignAnalytics(adAccount.id, b, startISO, endISO, {
-            granularity: "DAY",
-          })
+          client.getCampaignAnalytics(adAccount.id, b, startISO, endISO, analyticsOpts)
         ),
         batchAnalytics(adGroups.map((g) => g.id), (b) =>
-          client.getAdGroupAnalytics(adAccount.id, b, startISO, endISO, {
-            granularity: "DAY",
-          })
+          client.getAdGroupAnalytics(adAccount.id, b, startISO, endISO, analyticsOpts)
         ),
         batchAnalytics(ads.map((a) => a.id), (b) =>
-          client.getAdAnalytics(adAccount.id, b, startISO, endISO, {
-            granularity: "DAY",
-          })
+          client.getAdAnalytics(adAccount.id, b, startISO, endISO, analyticsOpts)
         ),
       ]);
 

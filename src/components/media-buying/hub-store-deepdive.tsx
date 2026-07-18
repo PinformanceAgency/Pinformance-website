@@ -78,6 +78,10 @@ export function StoreDeepDive({
           <Chip label="Country" value={store.country ? COUNTRY_LABEL[store.country] ?? store.country : "—"} />
           <Chip label="Buyer" value={store.media_buyer ?? "—"} />
           <Chip label="BER" value={fmtRoas(store.breakeven_roas)} />
+          <Chip label="Invoice ROAS" value={fmtRoas(store.invoice_roas)} />
+          {store.attribution_setting && (
+            <Chip label="Attribution" value={store.attribution_setting} />
+          )}
         </div>
 
         {/* KPI strip */}
@@ -146,13 +150,40 @@ export function StoreDeepDive({
         </div>
 
         {/* Notes */}
-        <div className="text-xs text-muted-foreground">
-          Zone thresholds: below <strong>{fmtRoas(store.breakeven_roas)}</strong> = red,{" "}
-          below <strong>{fmtRoas((store.breakeven_roas ?? 0) * (store.zone_thresholds?.green_ratio ?? hub.meta.default_zone_thresholds.green_ratio))}</strong> = orange,{" "}
-          otherwise green.
-        </div>
+        <ZoneRulesFootnote store={store} hub={hub} />
       </div>
     </ModalShell>
+  );
+}
+
+function ZoneRulesFootnote({
+  store,
+  hub,
+}: {
+  store: import("@/lib/media-buying/zones").StoreZoneRow;
+  hub: HubResponse;
+}) {
+  const ber = store.breakeven_roas;
+  const invoice =
+    store.invoice_roas ??
+    (ber != null
+      ? ber *
+        (store.zone_thresholds?.green_ratio ?? hub.meta.default_zone_thresholds.green_ratio)
+      : null);
+  const floor =
+    store.zone_thresholds?.min_weekly_revenue ??
+    hub.meta.default_green_revenue_weekly_floor;
+  return (
+    <div className="text-xs text-muted-foreground border-t border-border pt-3">
+      <strong>Zone rules for this store:</strong>{" "}
+      ROAS &lt; <strong>{fmtRoas(ber)}</strong> = red · ROAS &ge;{" "}
+      <strong>{fmtRoas(invoice)}</strong> AND weekly revenue &ge;{" "}
+      <strong>{fmtCurrency(floor, store.currency ?? "USD")}</strong> = green ·
+      everything else = orange.
+      {store.invoice_roas == null && (
+        <span className="italic"> (Invoice ROAS not set; using BER &times; green fallback ratio.)</span>
+      )}
+    </div>
   );
 }
 

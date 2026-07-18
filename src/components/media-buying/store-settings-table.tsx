@@ -20,7 +20,7 @@ interface Props {
   onRowSaved: (orgId: string, updated: StoreSettings) => void;
 }
 
-type SortKey = "name" | "department" | "country" | "buyer" | "ber" | "status";
+type SortKey = "name" | "department" | "country" | "buyer" | "ber" | "invoice" | "status";
 
 const COUNTRY_LABEL: Record<string, string> = COUNTRY_OPTIONS.reduce(
   (acc, c) => ({ ...acc, [c.code]: c.label }),
@@ -88,6 +88,10 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
             return r.settings?.media_buyer ?? "";
           case "ber":
             return r.settings?.breakeven_roas ?? -1;
+          case "invoice":
+            return r.settings?.invoice_roas ?? -1;
+          default:
+            return "";
         }
       };
       const av = getVal(a);
@@ -173,6 +177,7 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
             <option value="country">Country</option>
             <option value="buyer">Media buyer</option>
             <option value="ber">Breakeven ROAS (high → low)</option>
+            <option value="invoice">Invoice ROAS (high → low)</option>
           </select>
         </div>
       </div>
@@ -204,6 +209,10 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
                 <Th onClick={() => setSortKey("ber")} align="right">
                   BER
                 </Th>
+                <Th onClick={() => setSortKey("invoice")} align="right">
+                  Invoice
+                </Th>
+                <th className="text-left font-medium px-3 py-2">Attribution</th>
                 <Th onClick={() => setSortKey("status")}>Status</Th>
                 {canEdit && <th className="px-3 py-2" />}
               </tr>
@@ -212,7 +221,7 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
               {sorted.length === 0 && (
                 <tr>
                   <td
-                    colSpan={canEdit ? 8 : 7}
+                    colSpan={canEdit ? 10 : 9}
                     className="px-3 py-8 text-center text-muted-foreground"
                   >
                     No stores match these filters.
@@ -247,6 +256,14 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
                       {s?.breakeven_roas != null
                         ? `${Number(s.breakeven_roas).toFixed(2)}x`
                         : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {s?.invoice_roas != null
+                        ? `${Number(s.invoice_roas).toFixed(2)}x`
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground text-xs tabular-nums">
+                      {s?.attribution_setting ?? "—"}
                     </td>
                     <td className="px-3 py-2">
                       <StatusBadge configured={r.configured} inactive={inactive} />

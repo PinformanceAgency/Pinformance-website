@@ -1,4 +1,4 @@
-import type { Department, ZoneThresholds } from "./config";
+import type { AttributionWindow, Department, ZoneThresholds } from "./config";
 
 /** The store_settings row as it lives in the DB (nullable everywhere except id). */
 export interface StoreSettings {
@@ -9,6 +9,12 @@ export interface StoreSettings {
   country: string | null;
   media_buyer: string | null;
   breakeven_roas: number | null;
+  /** ROAS at which the store is "green" (usually higher than BER because it
+   *  covers COGS/fees, not just ad spend). Null → falls back to
+   *  BER × green_ratio for backwards compatibility. */
+  invoice_roas: number | null;
+  /** Pinterest attribution setting this store's numbers are measured with. */
+  attribution_setting: AttributionWindow | null;
   zone_thresholds: Partial<ZoneThresholds> | null;
   is_active: boolean;
   notes: string | null;
@@ -37,6 +43,8 @@ export interface StoreSettingsUpsertInput {
   country?: string | null;
   media_buyer?: string | null;
   breakeven_roas?: number | null;
+  invoice_roas?: number | null;
+  attribution_setting?: AttributionWindow | null;
   zone_thresholds?: Partial<ZoneThresholds> | null;
   is_active?: boolean;
   notes?: string | null;
