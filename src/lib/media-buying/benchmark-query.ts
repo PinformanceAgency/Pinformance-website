@@ -15,7 +15,6 @@ export type BenchmarkKpi =
   | "ctr"
   | "cpa"
   | "atc_cpa"
-  | "atc_roas"
   | "spend"
   | "revenue"
   | "conversions"
@@ -32,8 +31,7 @@ export const BENCHMARK_KPIS: {
   { key: "cpc",          label: "CPC",          format: "currency", description: "Cost per click." },
   { key: "ctr",          label: "CTR",          format: "percent",  description: "Clicks ÷ impressions." },
   { key: "cpa",          label: "CPA",          format: "currency", description: "Cost per conversion (checkout)." },
-  { key: "atc_cpa",      label: "ATC CPA",      format: "currency", description: "Cost per add-to-cart." },
-  { key: "atc_roas",     label: "ATC ROAS",     format: "ratio",    description: "Add-to-cart value ÷ spend." },
+  { key: "atc_cpa",      label: "ATC CPA",      format: "currency", description: "Cost per add-to-cart (click + view attributed)." },
   { key: "spend",        label: "Spend",        format: "currency", description: "Total ad spend in the window." },
   { key: "revenue",      label: "Revenue",      format: "currency", description: "Total checkout value in the window." },
   { key: "conversions",  label: "Conversions",  format: "count",    description: "Total checkouts in the window." },
@@ -121,7 +119,6 @@ function kpiValueFromTotals(
     impressions,
     clicks,
     add_to_carts,
-    add_to_cart_value,
   } = totals;
   switch (kpi) {
     case "roas":
@@ -136,8 +133,6 @@ function kpiValueFromTotals(
       return conversions > 0 ? spend / conversions : null;
     case "atc_cpa":
       return add_to_carts > 0 ? spend / add_to_carts : null;
-    case "atc_roas":
-      return spend > 0 && add_to_cart_value > 0 ? add_to_cart_value / spend : null;
     case "spend":
       return spend;
     case "revenue":
@@ -387,14 +382,12 @@ export async function buildAiContextTable(
     impressions: number;
     clicks: number;
     add_to_carts: number;
-    add_to_cart_value: number;
     roas: number | null;
     cpm: number | null;
     cpc: number | null;
     ctr: number | null;
     cpa: number | null;
     atc_cpa: number | null;
-    atc_roas: number | null;
   }[];
 }> {
   const start = isoDaysAgo(days);
@@ -458,14 +451,12 @@ export async function buildAiContextTable(
       impressions: t.impressions,
       clicks: t.clicks,
       add_to_carts: t.add_to_carts,
-      add_to_cart_value: t.add_to_cart_value,
       roas: t.spend > 0 ? t.revenue / t.spend : null,
       cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : null,
       cpc: t.clicks > 0 ? t.spend / t.clicks : null,
       ctr: t.impressions > 0 ? (t.clicks / t.impressions) * 100 : null,
       cpa: t.conversions > 0 ? t.spend / t.conversions : null,
       atc_cpa: t.add_to_carts > 0 ? t.spend / t.add_to_carts : null,
-      atc_roas: t.spend > 0 && t.add_to_cart_value > 0 ? t.add_to_cart_value / t.spend : null,
     };
   });
   return { window: { start, end, days }, rows };

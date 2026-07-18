@@ -54,7 +54,6 @@ function formatTable(rows: Awaited<ReturnType<typeof buildAiContextTable>>["rows
         `cpa=$${fmt(r.cpa, 2)}`,
         `atc=${fmtInt(r.add_to_carts)}`,
         `atc_cpa=$${fmt(r.atc_cpa, 2)}`,
-        `atc_roas=${fmt(r.atc_roas, 2)}x`,
       ].join(" ");
     })
     .join("\n");

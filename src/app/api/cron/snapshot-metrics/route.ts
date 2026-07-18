@@ -54,7 +54,12 @@ interface DailyMetric {
 
 /** Columns we ask Pinterest for on every analytics call in this cron. Extending
  *  the default list here (rather than overriding it in the client) so future
- *  cron additions stay in one place. */
+ *  cron additions stay in one place.
+ *
+ *  Pinterest does NOT expose an aggregate TOTAL_ADD_TO_CART column (unlike
+ *  TOTAL_CHECKOUT). We pull click + view ATCs separately and sum them in
+ *  toDaily(). There's also no ATC value column — so ATC ROAS is not
+ *  available and we don't expose it as a KPI. */
 const ANALYTICS_COLUMNS = [
   "SPEND_IN_DOLLAR",
   "IMPRESSION_1",
@@ -65,8 +70,8 @@ const ANALYTICS_COLUMNS = [
   "TOTAL_CHECKOUT",
   "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
   "CHECKOUT_ROAS",
-  "TOTAL_ADD_TO_CART",
-  "TOTAL_ADD_TO_CART_VALUE_IN_MICRO_DOLLAR",
+  "TOTAL_CLICK_ADD_TO_CART",
+  "TOTAL_VIEW_ADD_TO_CART",
 ];
 
 function num(v: unknown): number {
@@ -83,8 +88,13 @@ function toDaily(m: Record<string, number | string>): DailyMetric {
   const conversions = Math.round(num(m["TOTAL_CHECKOUT"]));
   const impressions = Math.round(num(m["IMPRESSION_1"]));
   const clicks = Math.round(num(m["CLICKTHROUGH_1"]));
-  const addToCarts = Math.round(num(m["TOTAL_ADD_TO_CART"]));
-  const addToCartValue = num(m["TOTAL_ADD_TO_CART_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
+  // Pinterest returns click + view attributed ATCs separately; sum them
+  // to get the total the user cares about.
+  const addToCarts =
+    Math.round(num(m["TOTAL_CLICK_ADD_TO_CART"])) +
+    Math.round(num(m["TOTAL_VIEW_ADD_TO_CART"]));
+  // Pinterest doesn't expose an ATC-value column, so this stays 0.
+  const addToCartValue = 0;
   let roas = num(m["CHECKOUT_ROAS"]);
   if (!roas && spend > 0) roas = revenue / spend;
   const cpm = num(m["CPM_IN_DOLLAR"]) || (impressions > 0 ? (spend / impressions) * 1000 : null);
