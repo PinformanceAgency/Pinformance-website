@@ -87,7 +87,6 @@ export function ZoneOverview({
         <ZoneDrilldown
           zone={expanded}
           stores={filteredStores.filter((s) => s.zone === expanded)}
-          campaigns={filteredCampaigns.filter((c) => c.zone === expanded)}
           onStoreClick={onStoreClick}
         />
       )}
@@ -142,74 +141,42 @@ function ZoneCard({
 function ZoneDrilldown({
   zone,
   stores,
-  campaigns,
   onStoreClick,
 }: {
   zone: Zone;
   stores: StoreZoneRow[];
-  campaigns: CampaignZoneRow[];
   onStoreClick: (orgId: string) => void;
 }) {
+  // Store-level only. Per-campaign detail lives in the Store Deep-Dive so
+  // the overview stays about "which stores need attention" instead of a wall
+  // of campaign names from otherwise-healthy stores.
   return (
-    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-          Stores in {zoneLabel[zone]}
-        </div>
-        {stores.length === 0 ? (
-          <div className="text-xs text-muted-foreground italic">None</div>
-        ) : (
-          <ul className="space-y-1">
-            {stores
-              .slice()
-              .sort((a, b) => (a.ratio ?? 0) - (b.ratio ?? 0))
-              .map((s) => (
-                <li key={s.org_id}>
-                  <button
-                    onClick={() => onStoreClick(s.org_id)}
-                    className="w-full text-left flex items-center justify-between rounded-lg border border-border/50 bg-background hover:bg-muted px-3 py-1.5"
-                  >
-                    <span className="text-sm font-medium truncate">{s.store_name}</span>
-                    <span className="text-xs tabular-nums text-muted-foreground ml-2">
-                      {fmtRoas(s.roas)} / {fmtRoas(s.breakeven_roas)} BER
-                    </span>
-                  </button>
-                </li>
-              ))}
-          </ul>
-        )}
+    <div className="mt-4">
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+        Stores in {zoneLabel[zone]}
       </div>
-      <div>
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-          Campaigns in {zoneLabel[zone]} <span className="text-muted-foreground/60">(top 12 by spend)</span>
-        </div>
-        {campaigns.length === 0 ? (
-          <div className="text-xs text-muted-foreground italic">None</div>
-        ) : (
-          <ul className="space-y-1">
-            {campaigns
-              .slice()
-              .sort((a, b) => b.spend - a.spend)
-              .slice(0, 12)
-              .map((c) => (
-                <li
-                  key={`${c.org_id}-${c.entity_id}`}
-                  className="flex items-center justify-between rounded-lg border border-border/50 bg-background px-3 py-1.5"
+      {stores.length === 0 ? (
+        <div className="text-xs text-muted-foreground italic">None</div>
+      ) : (
+        <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1.5">
+          {stores
+            .slice()
+            .sort((a, b) => (a.ratio ?? 0) - (b.ratio ?? 0))
+            .map((s) => (
+              <li key={s.org_id}>
+                <button
+                  onClick={() => onStoreClick(s.org_id)}
+                  className="w-full text-left flex items-center justify-between rounded-lg border border-border/50 bg-background hover:bg-muted px-3 py-1.5"
                 >
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{c.name ?? c.entity_id}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      {c.store_name}
-                    </div>
-                  </div>
-                  <div className="text-xs tabular-nums text-muted-foreground ml-2 flex-shrink-0">
-                    {fmtCurrency(c.spend, "USD")} · {fmtRoas(c.roas)}
-                  </div>
-                </li>
-              ))}
-          </ul>
-        )}
-      </div>
+                  <span className="text-sm font-medium truncate">{s.store_name}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground ml-2 flex-shrink-0">
+                    {fmtRoas(s.roas)} / {fmtRoas(s.breakeven_roas)} BER
+                  </span>
+                </button>
+              </li>
+            ))}
+        </ul>
+      )}
     </div>
   );
 }
