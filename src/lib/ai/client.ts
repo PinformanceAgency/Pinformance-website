@@ -7,9 +7,14 @@ export function getAnthropicClient(apiKey?: string): Anthropic {
   if (apiKey) {
     return new Anthropic({ apiKey });
   }
-  // Otherwise use the global singleton backed by env var
+  // Otherwise use the global singleton backed by env var. Falls back to the
+  // typo'd ANTHROPHIC_API_KEY spelling because that's what the initial
+  // `.env.local` shipped with; without the fallback every AI feature would
+  // 500 on any Vercel env that still has the typo.
   if (!client) {
-    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const key =
+      process.env.ANTHROPIC_API_KEY || process.env.ANTHROPHIC_API_KEY;
+    client = new Anthropic({ apiKey: key });
   }
   return client;
 }
