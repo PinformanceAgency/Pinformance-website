@@ -1,69 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
   Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { LineChart as LineChartIcon, PieChart as PieChartIcon, BarChart2 } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HubResponse } from "@/lib/media-buying/hub-types";
-import type { DailyPoint, HubSeries } from "@/lib/media-buying/hub-series";
 import type { StoreZoneRow } from "@/lib/media-buying/zones";
+import type { DailyPoint, HubSeries } from "@/lib/media-buying/hub-series";
+import { classifyZone, DEPARTMENT_LABELS, type Zone } from "@/lib/media-buying/config";
 import type { HubFilters } from "./hub-panels";
-import { fmtCurrency, fmtRoas, fmtPct, zoneDot, zoneLabel } from "./hub-format";
-import { DEPARTMENT_LABELS } from "@/lib/media-buying/config";
-import type { Zone } from "@/lib/media-buying/config";
+import { fmtCurrency, fmtRoas, zoneBg, zoneDot, zoneLabel } from "./hub-format";
 
-// ─── Window selector ────────────────────────────────────────────────────────
-export const WINDOW_OPTIONS: { value: 7 | 14 | 30; label: string }[] = [
-  { value: 7, label: "7d" },
-  { value: 14, label: "14d" },
-  { value: 30, label: "30d" },
-];
-
-export function WindowSelector({
-  value,
-  onChange,
-}: {
-  value: 7 | 14 | 30;
-  onChange: (v: 7 | 14 | 30) => void;
-}) {
-  return (
-    <div className="inline-flex rounded-lg border border-border bg-card overflow-hidden">
-      {WINDOW_OPTIONS.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            "px-3 py-1.5 text-xs font-medium transition-colors",
-            value === o.value
-              ? "bg-primary text-white"
-              : "text-muted-foreground hover:bg-muted"
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ─── Shared client-side filter helper (must mirror hub-panels) ──────────────
+// ─── Shared filter helper — mirrors filterStores() in hub-panels.tsx ────────
 function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
   return stores.filter((s) => {
     if (!s.configured || !s.is_active) return false;
@@ -75,36 +33,181 @@ function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
   });
 }
 
-/** Sum an arbitrary set of daily points across the current filter set.
- *  Series come from the server bucketed per store's dept + buyer, so we
- *  re-sum on the client using whichever dept/buyer buckets survive the
- *  filter. */
-function sumSeriesForFilter(
-  series: HubSeries,
-  filteredStores: StoreZoneRow[]
-): DailyPoint[] {
-  // Fast-path: no filter → agency series already matches.
-  if (
-    filteredStores.length === 0 &&
-    (Object.keys(series.byDepartment).length === 0 && Object.keys(series.byBuyer).length === 0)
-  ) {
-    return series.agency;
+// ─── Weekly bucketing ───────────────────────────────────────────────────────
+/** Convert a series of daily points into 4 rolling 7-day buckets, newest last.
+ *  Bucket 0 covers the oldest week; bucket 3 covers the most recent 7 days. */
+interface WeekBucket {
+  index: number;
+  label: string; // "3w ago", "2w ago", "Last week", "This week"
+  start: string;
+  end: string;
+  spend: number;
+  revenue: number;
+  conversions: number;
+}
+
+const WEEK_LABELS = ["3w ago", "2w ago", "Last week", "This week"];
+
+function bucketToWeeks(daily: DailyPoint[]): WeekBucket[] {
+  // Take last 28 days; if fewer, pad by not filling missing weeks.
+  const last28 = daily.slice(-28);
+  const weeks: WeekBucket[] = [];
+  for (let i = 0; i < 4; i++) {
+    const slice = last28.slice(i * 7, i * 7 + 7);
+    if (slice.length === 0) continue;
+    let spend = 0,
+      revenue = 0,
+      conversions = 0;
+    for (const p of slice) {
+      spend += p.spend;
+      revenue += p.revenue;
+      conversions += p.conversions;
+    }
+    weeks.push({
+      index: i,
+      label: WEEK_LABELS[i] ?? `W-${3 - i}`,
+      start: slice[0].date,
+      end: slice[slice.length - 1].date,
+      spend,
+      revenue,
+      conversions,
+    });
   }
-  const depts = new Set(filteredStores.map((s) => s.department ?? "(no department)"));
-  const buyers = new Set(filteredStores.map((s) => s.media_buyer ?? "(unassigned)"));
-  // Prefer summing dept series (fewer keys), fall back to buyer series if
-  // both would collapse to the whole book.
-  const useDept = depts.size > 0 && depts.size <= Object.keys(series.byDepartment).length;
+  return weeks;
+}
+
+function weekRoas(w: WeekBucket): number | null {
+  return w.spend > 0 ? w.revenue / w.spend : null;
+}
+
+/** Weighted BER for a subset of stores. Same math as computePortfolioHealth. */
+function weightedBer(stores: StoreZoneRow[]): number | null {
+  let num = 0,
+    den = 0;
+  for (const s of stores) {
+    if (s.spend > 0 && s.breakeven_roas != null) {
+      num += s.spend * s.breakeven_roas;
+      den += s.spend;
+    }
+  }
+  return den > 0 ? num / den : null;
+}
+
+/** Weighted invoice ROAS (falls back to BER × green_ratio per store — same
+ *  behaviour as rollups.ts). Needed so weekly zone classification lines up
+ *  with the current-period zone shown elsewhere. */
+function weightedInvoice(stores: StoreZoneRow[]): number | null {
+  let num = 0,
+    den = 0;
+  for (const s of stores) {
+    if (s.spend > 0 && s.breakeven_roas != null) {
+      const eff =
+        s.invoice_roas != null && s.invoice_roas > 0
+          ? s.invoice_roas
+          : s.breakeven_roas * 1.3;
+      num += s.spend * eff;
+      den += s.spend;
+    }
+  }
+  return den > 0 ? num / den : null;
+}
+
+function weekZone(
+  w: WeekBucket,
+  ber: number | null,
+  invoice: number | null
+): Zone | null {
+  return classifyZone({
+    liveRoas: weekRoas(w),
+    breakevenRoas: ber,
+    invoiceRoas: invoice,
+    spend: w.spend,
+    windowRevenue: w.revenue,
+  });
+}
+
+// ─── Entity aggregation ─────────────────────────────────────────────────────
+interface EntityWeekly {
+  key: string;
+  label: string;
+  stores: StoreZoneRow[];
+  weeks: WeekBucket[];
+  ber: number | null;
+}
+
+/** Given the daily hub series and a filtered store list, produce the three
+ *  buckets (company / per-department / per-buyer), each with 4 weekly totals
+ *  plus a weighted BER used for zone classification. */
+function buildEntities(
+  series: HubSeries,
+  stores: StoreZoneRow[]
+): {
+  company: EntityWeekly;
+  departments: EntityWeekly[];
+  buyers: EntityWeekly[];
+} {
+  // Company = the whole filtered set.
+  const company: EntityWeekly = {
+    key: "company",
+    label: "Company",
+    stores,
+    weeks: bucketToWeeks(sumSeriesForStores(series, stores)),
+    ber: weightedBer(stores),
+  };
+
+  // Per department.
+  const deptMap = new Map<string, StoreZoneRow[]>();
+  for (const s of stores) {
+    const k = s.department ?? "(no department)";
+    (deptMap.get(k) ?? deptMap.set(k, []).get(k)!).push(s);
+  }
+  const departments: EntityWeekly[] = [];
+  for (const [key, list] of deptMap) {
+    departments.push({
+      key: `dept:${key}`,
+      label: DEPARTMENT_LABELS[key as keyof typeof DEPARTMENT_LABELS] ?? capitalize(key),
+      stores: list,
+      weeks: bucketToWeeks(sumSeriesForStores(series, list)),
+      ber: weightedBer(list),
+    });
+  }
+  departments.sort((a, b) => b.stores.reduce((x, s) => x + s.spend, 0) - a.stores.reduce((x, s) => x + s.spend, 0));
+
+  // Per buyer.
+  const buyerMap = new Map<string, StoreZoneRow[]>();
+  for (const s of stores) {
+    const k = s.media_buyer ?? "(unassigned)";
+    (buyerMap.get(k) ?? buyerMap.set(k, []).get(k)!).push(s);
+  }
+  const buyers: EntityWeekly[] = [];
+  for (const [key, list] of buyerMap) {
+    buyers.push({
+      key: `buyer:${key}`,
+      label: key,
+      stores: list,
+      weeks: bucketToWeeks(sumSeriesForStores(series, list)),
+      ber: weightedBer(list),
+    });
+  }
+  buyers.sort((a, b) => b.stores.reduce((x, s) => x + s.spend, 0) - a.stores.reduce((x, s) => x + s.spend, 0));
+
+  return { company, departments, buyers };
+}
+
+/** Sum the department/buyer daily series buckets for the given store subset,
+ *  keeping the same date grid as series.agency. */
+function sumSeriesForStores(series: HubSeries, stores: StoreZoneRow[]): DailyPoint[] {
+  if (stores.length === 0) return series.agency.map((p) => zeroPoint(p.date));
+  // Match by (department, buyer) union so we sum only the requested slice.
+  const wantDept = new Set(stores.map((s) => s.department ?? "(no department)"));
+  const wantBuyer = new Set(stores.map((s) => s.media_buyer ?? "(unassigned)"));
+  // Prefer the smaller pool of buckets.
+  const useDept =
+    Object.keys(series.byDepartment).length > 0 &&
+    Object.keys(series.byDepartment).length <= Object.keys(series.byBuyer).length;
   const source = useDept ? series.byDepartment : series.byBuyer;
-  const wanted = useDept ? depts : buyers;
-  const byDate = new Map<string, {
-    spend: number;
-    revenue: number;
-    conversions: number;
-    impressions: number;
-    clicks: number;
-    add_to_carts: number;
-  }>();
+  const wanted = useDept ? wantDept : wantBuyer;
+  const byDate = new Map<string, { spend: number; revenue: number; conversions: number; impressions: number; clicks: number; add_to_carts: number }>();
   for (const [key, points] of Object.entries(source)) {
     if (!wanted.has(key)) continue;
     for (const p of points) {
@@ -118,7 +221,6 @@ function sumSeriesForFilter(
       byDate.set(p.date, cur);
     }
   }
-  // Re-derive per-day rates from summed base values so ratios stay correct.
   return series.agency.map((a) => {
     const b = byDate.get(a.date) ?? { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0, add_to_carts: 0 };
     return {
@@ -139,148 +241,31 @@ function sumSeriesForFilter(
   });
 }
 
-// ─── Trends: spend + revenue over time ──────────────────────────────────────
-export function TrendsSection({
-  hub,
-  filters,
-}: {
-  hub: HubResponse;
-  filters: HubFilters;
-}) {
-  const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
-  const series = useMemo(() => sumSeriesForFilter(hub.series, filteredStores), [hub.series, filteredStores]);
-  const weightedBer = useMemo(() => {
-    let num = 0, den = 0;
-    for (const s of filteredStores) {
-      if (s.spend > 0 && s.breakeven_roas != null) {
-        num += s.spend * s.breakeven_roas;
-        den += s.spend;
-      }
-    }
-    return den > 0 ? num / den : null;
-  }, [filteredStores]);
-
-  const chartData = series.map((p) => ({
-    date: p.date.slice(5),
-    spend: Math.round(p.spend),
-    revenue: Math.round(p.revenue),
-    roas: p.roas,
-    add_to_carts: p.add_to_carts,
-    conversions: p.conversions,
-  }));
-
-  return (
-    <section className="bg-card border border-border rounded-2xl p-5 space-y-6">
-      <div className="flex items-center gap-2">
-        <LineChartIcon className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-base font-semibold">Trends</h2>
-        <span className="text-xs text-muted-foreground">
-          Last {hub.meta.window_days} days &middot; {filteredStores.length}{" "}
-          {filteredStores.length === 1 ? "store" : "stores"} in scope
-        </span>
-      </div>
-
-      {/* Spend + revenue */}
-      <div>
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-          Spend &amp; revenue
-        </div>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="grad-rev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
-                </linearGradient>
-                <linearGradient id="grad-spend" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#E30613" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="#E30613" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="currentColor" />
-              <YAxis tick={{ fontSize: 11 }} stroke="currentColor" tickFormatter={(v) => fmtCurrency(v as number, "USD")} />
-              <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                formatter={(v, name) => [fmtCurrency(v as number, "USD"), name]}
-              />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Area type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} fill="url(#grad-rev)" isAnimationActive={false} />
-              <Area type="monotone" dataKey="spend" stroke="#E30613" strokeWidth={2} fill="url(#grad-spend)" isAnimationActive={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* ROAS */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-            ROAS
-          </div>
-          {weightedBer != null && (
-            <div className="text-[11px] text-muted-foreground">
-              Reference line = weighted BER (<strong>{fmtRoas(weightedBer)}</strong>)
-            </div>
-          )}
-        </div>
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="currentColor" />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                stroke="currentColor"
-                tickFormatter={(v) => `${(v as number).toFixed(1)}x`}
-              />
-              <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                formatter={(v) => fmtRoas(v as number)}
-              />
-              {weightedBer != null && (
-                <ReferenceLine y={weightedBer} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: "BER", fontSize: 10, fill: "#f59e0b", position: "right" }} />
-              )}
-              <Line type="monotone" dataKey="roas" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Conversions + ATC */}
-      <div>
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-          Conversions vs add-to-carts
-        </div>
-        <div className="h-52">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="currentColor" />
-              <YAxis tick={{ fontSize: 11 }} stroke="currentColor" />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="add_to_carts" fill="#f59e0b" isAnimationActive={false} />
-              <Bar dataKey="conversions" fill="#10b981" isAnimationActive={false} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    </section>
-  );
+function zeroPoint(date: string): DailyPoint {
+  return {
+    date,
+    spend: 0,
+    revenue: 0,
+    conversions: 0,
+    impressions: 0,
+    clicks: 0,
+    add_to_carts: 0,
+    roas: null,
+    cpm: null,
+    cpc: null,
+    ctr: null,
+    cpa: null,
+    atc_cpa: null,
+  };
 }
 
-// ─── Share breakdowns (donut + horizontal bars) ─────────────────────────────
-const ZONE_COLORS: Record<Zone, string> = {
-  red: "#ef4444",
-  orange: "#f59e0b",
-  green: "#10b981",
-};
+function capitalize(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
 
-const CHART_PALETTE = [
+// ─── Line chart palette ────────────────────────────────────────────────────
+const LINE_COLORS = [
   "#3b82f6",
-  "#10b981",
   "#f59e0b",
   "#8b5cf6",
   "#ec4899",
@@ -288,10 +273,10 @@ const CHART_PALETTE = [
   "#f97316",
   "#84cc16",
   "#a855f7",
-  "#22d3ee",
 ];
 
-export function ShareBreakdownSection({
+// ─── Weekly comparison — line chart + table ────────────────────────────────
+export function WeeklyComparisonSection({
   hub,
   filters,
 }: {
@@ -299,305 +284,154 @@ export function ShareBreakdownSection({
   filters: HubFilters;
 }) {
   const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
+  const entities = useMemo(() => buildEntities(hub.series, filteredStores), [hub.series, filteredStores]);
+  const companyInvoice = useMemo(() => weightedInvoice(filteredStores), [filteredStores]);
 
-  const zoneData = useMemo(() => {
-    const t = { red: 0, orange: 0, green: 0 };
-    for (const s of filteredStores) {
-      if (s.zone) t[s.zone]++;
+  // Weeks common to all entities (they all use the same 4-bucket layout).
+  const weeks = entities.company.weeks;
+
+  // Build one row per week for the chart, one column per entity.
+  const chartData = weeks.map((w, i) => {
+    const row: Record<string, number | string | null> = { week: w.label };
+    row["Company"] = weekRoas(w);
+    for (const d of entities.departments) {
+      row[d.label] = weekRoas(d.weeks[i]);
     }
-    return (["green", "orange", "red"] as const)
-      .map((z) => ({ name: zoneLabel[z], value: t[z], key: z }))
-      .filter((d) => d.value > 0);
-  }, [filteredStores]);
-
-  const deptData = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of filteredStores) {
-      const k = s.department ?? "(no department)";
-      map.set(k, (map.get(k) ?? 0) + s.spend);
+    for (const b of entities.buyers) {
+      row[b.label] = weekRoas(b.weeks[i]);
     }
-    return Array.from(map)
-      .map(([k, spend]) => ({
-        name: DEPARTMENT_LABELS[k as keyof typeof DEPARTMENT_LABELS] ?? capitalize(k),
-        spend,
-      }))
-      .sort((a, b) => b.spend - a.spend);
-  }, [filteredStores]);
+    return row;
+  });
 
-  const buyerData = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of filteredStores) {
-      const k = s.media_buyer ?? "(unassigned)";
-      map.set(k, (map.get(k) ?? 0) + s.spend);
-    }
-    return Array.from(map)
-      .map(([k, spend]) => ({ name: k, spend }))
-      .sort((a, b) => b.spend - a.spend);
-  }, [filteredStores]);
+  // Line-series list for the chart.
+  const chartLines: { key: string; color: string; strokeWidth: number }[] = [
+    { key: "Company", color: "#111827", strokeWidth: 3 },
+    ...entities.departments.map((d, i) => ({
+      key: d.label,
+      color: LINE_COLORS[i % LINE_COLORS.length],
+      strokeWidth: 2,
+    })),
+    ...entities.buyers.map((b, i) => ({
+      key: b.label,
+      color: LINE_COLORS[(i + entities.departments.length) % LINE_COLORS.length],
+      strokeWidth: 1.5,
+    })),
+  ];
 
-  const nicheData = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of filteredStores) {
-      const k = s.niche ?? "(no niche)";
-      map.set(k, (map.get(k) ?? 0) + s.revenue);
-    }
-    return Array.from(map)
-      .map(([k, revenue]) => ({ name: k, revenue }))
-      .sort((a, b) => b.revenue - a.revenue);
-  }, [filteredStores]);
-
-  const totalSpend = filteredStores.reduce((a, s) => a + s.spend, 0);
-  const totalRevenue = filteredStores.reduce((a, s) => a + s.revenue, 0);
+  const companyBer = entities.company.ber;
 
   return (
-    <section className="bg-card border border-border rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <PieChartIcon className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-base font-semibold">Proportions</h2>
-        <span className="text-xs text-muted-foreground">How the book splits by zone, department, buyer &amp; niche</span>
+    <section className="bg-card border border-border rounded-2xl p-5 space-y-5">
+      <div className="flex items-center gap-2">
+        <CalendarDays className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Weekly comparison</h2>
+        <span className="text-xs text-muted-foreground">
+          Last 4 rolling weeks &middot; company &rarr; department &rarr; media buyer
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Zone donut */}
-        <div>
-          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-            Stores by zone
+      {/* Chart: one line per entity, weekly ROAS. */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+            Weekly ROAS
           </div>
-          {zoneData.length === 0 ? (
-            <div className="text-xs text-muted-foreground italic h-48 flex items-center">
-              No classified stores in this filter.
-            </div>
-          ) : (
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={zoneData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius="55%"
-                    outerRadius="90%"
-                    paddingAngle={2}
-                    isAnimationActive={false}
-                    label={(entry: { name?: string; value?: number }) =>
-                      entry.value != null ? `${entry.name} ${entry.value}` : ""
-                    }
-                    labelLine={false}
-                  >
-                    {zoneData.map((d) => (
-                      <Cell key={d.key} fill={ZONE_COLORS[d.key]} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                </PieChart>
-              </ResponsiveContainer>
+          {companyBer != null && (
+            <div className="text-[11px] text-muted-foreground">
+              Reference = weighted BER (<strong>{fmtRoas(companyBer)}</strong>)
             </div>
           )}
         </div>
-
-        {/* Spend share by department */}
-        <ShareBars
-          title="Spend share by department"
-          data={deptData.map((d, i) => ({
-            label: d.name,
-            value: d.spend,
-            pct: totalSpend > 0 ? (d.spend / totalSpend) * 100 : 0,
-            color: CHART_PALETTE[i % CHART_PALETTE.length],
-          }))}
-          total={totalSpend}
-          format="currency"
-        />
-
-        {/* Spend share by media buyer */}
-        <ShareBars
-          title="Spend share by media buyer"
-          data={buyerData.map((d, i) => ({
-            label: d.name,
-            value: d.spend,
-            pct: totalSpend > 0 ? (d.spend / totalSpend) * 100 : 0,
-            color: CHART_PALETTE[(i + 2) % CHART_PALETTE.length],
-          }))}
-          total={totalSpend}
-          format="currency"
-        />
-
-        {/* Revenue share by niche */}
-        <ShareBars
-          title="Revenue share by niche"
-          data={nicheData.map((d, i) => ({
-            label: d.name,
-            value: d.revenue,
-            pct: totalRevenue > 0 ? (d.revenue / totalRevenue) * 100 : 0,
-            color: CHART_PALETTE[(i + 4) % CHART_PALETTE.length],
-          }))}
-          total={totalRevenue}
-          format="currency"
-        />
-      </div>
-    </section>
-  );
-}
-
-function ShareBars({
-  title,
-  data,
-  total,
-  format,
-}: {
-  title: string;
-  data: { label: string; value: number; pct: number; color: string }[];
-  total: number;
-  format: "currency" | "count";
-}) {
-  const fmt = (v: number) =>
-    format === "currency" ? fmtCurrency(v, "USD") : Math.round(v).toLocaleString("en-US");
-  return (
-    <div>
-      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-        {title}
-      </div>
-      {data.length === 0 ? (
-        <div className="text-xs text-muted-foreground italic">No data.</div>
-      ) : (
-        <ul className="space-y-2">
-          {data.map((d) => (
-            <li key={d.label}>
-              <div className="flex items-center justify-between text-xs mb-0.5">
-                <span className="font-medium truncate max-w-[60%]">{d.label}</span>
-                <span className="tabular-nums text-muted-foreground">
-                  {fmt(d.value)} <span className="text-foreground/60">({d.pct.toFixed(0)}%)</span>
-                </span>
-              </div>
-              <div className="h-2 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${d.pct}%`, backgroundColor: d.color }}
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+              <XAxis dataKey="week" tick={{ fontSize: 11 }} stroke="currentColor" />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                stroke="currentColor"
+                tickFormatter={(v) => `${(v as number).toFixed(1)}x`}
+              />
+              <Tooltip
+                contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                formatter={(v) => (v == null ? "—" : fmtRoas(v as number))}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {companyBer != null && (
+                <ReferenceLine
+                  y={companyBer}
+                  stroke="#f59e0b"
+                  strokeDasharray="4 4"
+                  label={{ value: "BER", fontSize: 10, fill: "#f59e0b", position: "right" }}
                 />
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      {total > 0 && (
-        <div className="mt-2 text-[11px] text-muted-foreground">Total: {fmt(total)}</div>
-      )}
-    </div>
-  );
-}
-
-function capitalize(s: string): string {
-  return s ? s[0].toUpperCase() + s.slice(1) : s;
-}
-
-// ─── Growth heatmap: per-store spend + ROAS change last window vs prior ────
-export function GrowthHeatmap({
-  hub,
-  filters,
-}: {
-  hub: HubResponse;
-  filters: HubFilters;
-}) {
-  const [sortKey, setSortKey] = useState<"roas_delta" | "spend_delta" | "spend">("roas_delta");
-  const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
-  const wowByOrg = useMemo(
-    () => new Map(hub.wow.byStore.map((w) => [w.org_id, w])),
-    [hub.wow.byStore]
-  );
-  const rows = useMemo(() => {
-    const merged = filteredStores.map((s) => {
-      const w = wowByOrg.get(s.org_id);
-      return {
-        org_id: s.org_id,
-        store_name: s.store_name,
-        zone: s.zone,
-        currency: s.currency ?? "USD",
-        spend: s.spend,
-        roas: s.roas,
-        spend_delta: w?.spend_delta_pct ?? null,
-        roas_delta:
-          w?.roas_prev && w?.roas_curr
-            ? ((w.roas_curr - w.roas_prev) / w.roas_prev) * 100
-            : null,
-      };
-    });
-    const sortFn =
-      sortKey === "spend"
-        ? (a: (typeof merged)[number], b: (typeof merged)[number]) => b.spend - a.spend
-        : sortKey === "spend_delta"
-        ? (a: (typeof merged)[number], b: (typeof merged)[number]) =>
-            (b.spend_delta ?? -Infinity) - (a.spend_delta ?? -Infinity)
-        : (a: (typeof merged)[number], b: (typeof merged)[number]) =>
-            (b.roas_delta ?? -Infinity) - (a.roas_delta ?? -Infinity);
-    return merged.slice().sort(sortFn);
-  }, [filteredStores, wowByOrg, sortKey]);
-
-  return (
-    <section className="bg-card border border-border rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <BarChart2 className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-base font-semibold">Growth vs prior period</h2>
-        <span className="text-xs text-muted-foreground">
-          Last {hub.meta.window_days}d vs prior {hub.meta.window_days}d, per store
-        </span>
-        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Sort:</span>
-          <select
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
-            className="text-xs rounded-lg border border-border bg-card px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40"
-          >
-            <option value="roas_delta">ROAS growth</option>
-            <option value="spend_delta">Spend growth</option>
-            <option value="spend">Spend size</option>
-          </select>
+              )}
+              {chartLines.map((line) => (
+                <Line
+                  key={line.key}
+                  type="monotone"
+                  dataKey={line.key}
+                  stroke={line.color}
+                  strokeWidth={line.strokeWidth}
+                  dot={{ r: 3 }}
+                  isAnimationActive={false}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
+      {/* Table: rows = entities grouped, cols = 4 weeks (zone-colored cells). */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm border-collapse">
           <thead className="border-b border-border text-muted-foreground text-xs">
             <tr>
-              <th className="text-left font-medium py-2">Store</th>
-              <th className="text-left font-medium py-2">Zone</th>
-              <th className="text-right font-medium py-2">Spend</th>
-              <th className="text-right font-medium py-2">ROAS</th>
-              <th className="text-left font-medium py-2 pl-3">Spend growth</th>
-              <th className="text-left font-medium py-2 pl-3">ROAS growth</th>
+              <th className="text-left font-medium py-2 pr-3 sticky left-0 bg-card">Level</th>
+              <th className="text-left font-medium py-2 pr-3">BER</th>
+              {weeks.map((w) => (
+                <th key={w.index} className="text-left font-medium py-2 pl-3 min-w-[200px]">
+                  <div>{w.label}</div>
+                  <div className="text-[10px] font-normal text-muted-foreground/70">
+                    {w.start.slice(5)} – {w.end.slice(5)}
+                  </div>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.org_id} className="border-b border-border/60 last:border-b-0">
-                <td className="py-1.5 font-medium">{r.store_name}</td>
-                <td className="py-1.5">
-                  {r.zone ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                      <span className={cn("w-2 h-2 rounded-full", zoneDot[r.zone])} />
-                      {zoneLabel[r.zone]}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="py-1.5 text-right tabular-nums">{fmtCurrency(r.spend, r.currency)}</td>
-                <td className="py-1.5 text-right tabular-nums">{fmtRoas(r.roas)}</td>
-                <td className="py-1.5 pl-3">
-                  <DeltaBar pct={r.spend_delta} />
-                </td>
-                <td className="py-1.5 pl-3">
-                  <DeltaBar pct={r.roas_delta} />
-                </td>
-              </tr>
+            {/* Company */}
+            <SectionHeader label="Company" cols={weeks.length + 2} />
+            <EntityRow
+              entity={entities.company}
+              weeks={weeks}
+              invoice={companyInvoice}
+              indent={false}
+            />
+
+            {/* Departments */}
+            <SectionHeader label="By department" cols={weeks.length + 2} />
+            {entities.departments.map((d) => (
+              <EntityRow
+                key={d.key}
+                entity={d}
+                weeks={weeks}
+                invoice={weightedInvoice(d.stores)}
+                indent
+              />
             ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="py-6 text-center text-muted-foreground text-sm">
-                  No configured stores in this filter.
-                </td>
-              </tr>
-            )}
+
+            {/* Media buyers */}
+            <SectionHeader label="By media buyer" cols={weeks.length + 2} />
+            {entities.buyers.map((b) => (
+              <EntityRow
+                key={b.key}
+                entity={b}
+                weeks={weeks}
+                invoice={weightedInvoice(b.stores)}
+                indent
+              />
+            ))}
           </tbody>
         </table>
       </div>
@@ -605,31 +439,88 @@ export function GrowthHeatmap({
   );
 }
 
-function DeltaBar({ pct }: { pct: number | null }) {
-  if (pct == null) return <span className="text-xs text-muted-foreground">—</span>;
-  // Clamp visual bar to [-100, +100]% so extreme values don't blow the layout.
-  const clamped = Math.max(-100, Math.min(100, pct));
-  const positive = clamped >= 0;
-  const width = Math.abs(clamped);
+function SectionHeader({ label, cols }: { label: string; cols: number }) {
   return (
-    <div className="flex items-center gap-2 min-w-[160px]">
-      <div className="flex items-center flex-1 h-4">
-        <div className="flex-1 flex justify-end pr-[1px]">
-          {!positive && (
-            <div className="h-2 rounded-l-sm bg-red-500" style={{ width: `${width}%` }} />
-          )}
-        </div>
-        <div className="w-px h-3 bg-border" />
-        <div className="flex-1 pl-[1px]">
-          {positive && (
-            <div className="h-2 rounded-r-sm bg-emerald-500" style={{ width: `${width}%` }} />
-          )}
-        </div>
-      </div>
-      <span className={cn("text-xs tabular-nums w-14 text-right", positive ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
-        {fmtPct(pct)}
-      </span>
-    </div>
+    <tr>
+      <td
+        colSpan={cols}
+        className="pt-4 pb-1 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground sticky left-0 bg-card"
+      >
+        {label}
+      </td>
+    </tr>
   );
 }
 
+function EntityRow({
+  entity,
+  weeks,
+  invoice,
+  indent,
+}: {
+  entity: EntityWeekly;
+  weeks: WeekBucket[];
+  invoice: number | null;
+  indent: boolean;
+}) {
+  return (
+    <tr className="border-b border-border/60 last:border-b-0">
+      <td className={cn("py-2 pr-3 font-medium sticky left-0 bg-card whitespace-nowrap", indent && "pl-4")}>
+        {entity.label}
+        <div className="text-[10px] font-normal text-muted-foreground">
+          {entity.stores.length} {entity.stores.length === 1 ? "store" : "stores"}
+        </div>
+      </td>
+      <td className="py-2 pr-3 text-xs text-muted-foreground tabular-nums">
+        {fmtRoas(entity.ber)}
+      </td>
+      {weeks.map((_, i) => {
+        const w = entity.weeks[i];
+        const zone = weekZone(w, entity.ber, invoice);
+        const roas = weekRoas(w);
+        return (
+          <td key={i} className="py-2 pl-3 align-top">
+            <WeekCell w={w} zone={zone} roas={roas} />
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+function WeekCell({
+  w,
+  zone,
+  roas,
+}: {
+  w: WeekBucket;
+  zone: Zone | null;
+  roas: number | null;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border px-2.5 py-2",
+        zone ? zoneBg[zone] : "border-border bg-muted/30 text-muted-foreground"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest">
+          {zone ? (
+            <>
+              <span className={cn("w-1.5 h-1.5 rounded-full", zoneDot[zone])} />
+              {zoneLabel[zone]}
+            </>
+          ) : (
+            "—"
+          )}
+        </div>
+        <div className="text-sm font-semibold tabular-nums">{fmtRoas(roas)}</div>
+      </div>
+      <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+        <span>Spend {fmtCurrency(w.spend, "USD")}</span>
+        <span>Rev {fmtCurrency(w.revenue, "USD")}</span>
+      </div>
+    </div>
+  );
+}

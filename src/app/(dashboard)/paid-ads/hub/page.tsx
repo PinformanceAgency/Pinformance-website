@@ -5,8 +5,6 @@ import { Loader2 } from "lucide-react";
 import type { HubResponse } from "@/lib/media-buying/hub-types";
 import {
   ZoneOverview,
-  BuyerScorecard,
-  DepartmentBreakdown,
   ExceptionsPanel,
   MoversPanel,
   CompanyOverviewCard,
@@ -15,24 +13,18 @@ import {
   EMPTY_FILTERS,
   type HubFilters,
 } from "@/components/media-buying/hub-panels";
-import {
-  TrendsSection,
-  ShareBreakdownSection,
-  GrowthHeatmap,
-  WindowSelector,
-} from "@/components/media-buying/hub-charts";
+import { WeeklyComparisonSection } from "@/components/media-buying/hub-charts";
 import { StoreDeepDive } from "@/components/media-buying/hub-store-deepdive";
 
 export default function MediaBuyingHubPage() {
   const [hub, setHub] = useState<HubResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<HubFilters>(EMPTY_FILTERS);
-  const [windowDays, setWindowDays] = useState<7 | 14 | 30>(7);
   const [deepDiveOrgId, setDeepDiveOrgId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/media-buying/hub?window=${windowDays}`);
+      const res = await fetch("/api/media-buying/hub");
       const data = await res.json();
       if (!res.ok) {
         setError(data?.error ?? "Failed to load hub");
@@ -42,7 +34,7 @@ export default function MediaBuyingHubPage() {
     } catch (e) {
       setError(String(e));
     }
-  }, [windowDays]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -79,30 +71,15 @@ export default function MediaBuyingHubPage() {
 
       {hub && (
         <>
-          <GlobalFilterBar
-            hub={hub}
-            filters={filters}
-            onChange={setFilters}
-            windowSlot={<WindowSelector value={windowDays} onChange={setWindowDays} />}
-          />
+          <GlobalFilterBar hub={hub} filters={filters} onChange={setFilters} />
 
-          {/* 1. Company-wide */}
+          {/* Current-week snapshot */}
           <CompanyOverviewCard hub={hub} filters={filters} />
 
-          {/* 2. Trends over the selected window */}
-          <TrendsSection hub={hub} filters={filters} />
-
-          {/* 3. How the book splits: zones / dept / buyer / niche */}
-          <ShareBreakdownSection hub={hub} filters={filters} />
-
-          {/* 4. Per department */}
-          <DepartmentBreakdown hub={hub} filters={filters} />
-
-          {/* 5. Per media buyer */}
-          <BuyerScorecard hub={hub} filters={filters} />
-
-          {/* 6. Per-store growth heatmap */}
-          <GrowthHeatmap hub={hub} filters={filters} />
+          {/* Weekly progression, company → department → buyer.
+              Single chart type (line chart) + single table type — everything
+              on this page follows the same two shapes for consistency. */}
+          <WeeklyComparisonSection hub={hub} filters={filters} />
 
           {/* Zone drilldown + actionable panels */}
           <ZoneOverview hub={hub} filters={filters} onStoreClick={openStore} />
