@@ -10,7 +10,6 @@ import {
   MoversPanel,
   PortfolioHealthCard,
   StoresTable,
-  NamingExplorer,
   EMPTY_FILTERS,
   type HubFilters,
 } from "@/components/media-buying/hub-panels";
@@ -87,7 +86,6 @@ export default function MediaBuyingHubPage() {
 
           <BuyerScorecard hub={hub} />
           <StoresTable hub={hub} filters={filters} onStoreClick={openStore} />
-          <NamingExplorer hub={hub} />
         </>
       )}
 
