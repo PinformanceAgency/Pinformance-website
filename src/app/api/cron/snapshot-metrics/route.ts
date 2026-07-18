@@ -42,6 +42,8 @@ interface DailyMetric {
   conversions: number;
   impressions: number;
   clicks: number;
+  add_to_carts: number;
+  add_to_cart_value: number;
   roas: number | null;
   cpm: number | null;
   cpc: number | null;
@@ -49,6 +51,23 @@ interface DailyMetric {
   cpa: number | null;
   raw: Record<string, unknown>;
 }
+
+/** Columns we ask Pinterest for on every analytics call in this cron. Extending
+ *  the default list here (rather than overriding it in the client) so future
+ *  cron additions stay in one place. */
+const ANALYTICS_COLUMNS = [
+  "SPEND_IN_DOLLAR",
+  "IMPRESSION_1",
+  "CLICKTHROUGH_1",
+  "CTR",
+  "CPM_IN_DOLLAR",
+  "ECPC_IN_DOLLAR",
+  "TOTAL_CHECKOUT",
+  "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+  "CHECKOUT_ROAS",
+  "TOTAL_ADD_TO_CART",
+  "TOTAL_ADD_TO_CART_VALUE_IN_MICRO_DOLLAR",
+];
 
 function num(v: unknown): number {
   if (v == null || v === "") return 0;
@@ -64,6 +83,8 @@ function toDaily(m: Record<string, number | string>): DailyMetric {
   const conversions = Math.round(num(m["TOTAL_CHECKOUT"]));
   const impressions = Math.round(num(m["IMPRESSION_1"]));
   const clicks = Math.round(num(m["CLICKTHROUGH_1"]));
+  const addToCarts = Math.round(num(m["TOTAL_ADD_TO_CART"]));
+  const addToCartValue = num(m["TOTAL_ADD_TO_CART_VALUE_IN_MICRO_DOLLAR"]) / 1_000_000;
   let roas = num(m["CHECKOUT_ROAS"]);
   if (!roas && spend > 0) roas = revenue / spend;
   const cpm = num(m["CPM_IN_DOLLAR"]) || (impressions > 0 ? (spend / impressions) * 1000 : null);
@@ -77,6 +98,8 @@ function toDaily(m: Record<string, number | string>): DailyMetric {
     conversions,
     impressions,
     clicks,
+    add_to_carts: addToCarts,
+    add_to_cart_value: addToCartValue,
     roas: roas || null,
     cpm: cpm || null,
     cpc: cpc || null,
@@ -162,6 +185,7 @@ async function run(request: NextRequest) {
         granularity: "DAY" as const,
         clickWindowDays: attr.click,
         viewWindowDays: attr.view,
+        columns: ANALYTICS_COLUMNS,
       };
 
       // ── 1. Account-level daily ──────────────────────────────────────────
@@ -253,6 +277,8 @@ async function run(request: NextRequest) {
           conversions: d.conversions,
           impressions: d.impressions,
           clicks: d.clicks,
+          add_to_carts: d.add_to_carts,
+          add_to_cart_value: d.add_to_cart_value,
           roas: d.roas,
           cpm: d.cpm,
           cpc: d.cpc,

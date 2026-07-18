@@ -14,9 +14,12 @@ export type BenchmarkKpi =
   | "cpc"
   | "ctr"
   | "cpa"
+  | "atc_cpa"
+  | "atc_roas"
   | "spend"
   | "revenue"
-  | "conversions";
+  | "conversions"
+  | "add_to_carts";
 
 export const BENCHMARK_KPIS: {
   key: BenchmarkKpi;
@@ -24,14 +27,17 @@ export const BENCHMARK_KPIS: {
   format: "currency" | "ratio" | "percent" | "count";
   description: string;
 }[] = [
-  { key: "roas",        label: "ROAS",         format: "ratio",    description: "Revenue ÷ spend (return on ad spend)." },
-  { key: "cpm",         label: "CPM",          format: "currency", description: "Cost per 1,000 impressions." },
-  { key: "cpc",         label: "CPC",          format: "currency", description: "Cost per click." },
-  { key: "ctr",         label: "CTR",          format: "percent",  description: "Clicks ÷ impressions." },
-  { key: "cpa",         label: "CPA",          format: "currency", description: "Cost per conversion (checkout)." },
-  { key: "spend",       label: "Spend",        format: "currency", description: "Total ad spend in the window." },
-  { key: "revenue",     label: "Revenue",      format: "currency", description: "Total checkout value in the window." },
-  { key: "conversions", label: "Conversions",  format: "count",    description: "Total checkouts in the window." },
+  { key: "roas",         label: "ROAS",         format: "ratio",    description: "Revenue ÷ spend (return on ad spend)." },
+  { key: "cpm",          label: "CPM",          format: "currency", description: "Cost per 1,000 impressions." },
+  { key: "cpc",          label: "CPC",          format: "currency", description: "Cost per click." },
+  { key: "ctr",          label: "CTR",          format: "percent",  description: "Clicks ÷ impressions." },
+  { key: "cpa",          label: "CPA",          format: "currency", description: "Cost per conversion (checkout)." },
+  { key: "atc_cpa",      label: "ATC CPA",      format: "currency", description: "Cost per add-to-cart." },
+  { key: "atc_roas",     label: "ATC ROAS",     format: "ratio",    description: "Add-to-cart value ÷ spend." },
+  { key: "spend",        label: "Spend",        format: "currency", description: "Total ad spend in the window." },
+  { key: "revenue",      label: "Revenue",      format: "currency", description: "Total checkout value in the window." },
+  { key: "conversions",  label: "Conversions",  format: "count",    description: "Total checkouts in the window." },
+  { key: "add_to_carts", label: "Add-to-carts", format: "count",    description: "Total add-to-cart events in the window." },
 ];
 
 export interface BenchmarkFilter {
@@ -54,6 +60,8 @@ export interface StoreContribution {
   conversions: number;
   impressions: number;
   clicks: number;
+  add_to_carts: number;
+  add_to_cart_value: number;
   value: number | null; // for the selected KPI
 }
 
@@ -75,6 +83,8 @@ export interface BenchmarkResult {
     conversions: number;
     impressions: number;
     clicks: number;
+    add_to_carts: number;
+    add_to_cart_value: number;
   };
   distribution: {
     min: number | null;
@@ -94,9 +104,25 @@ function num(v: unknown): number {
 
 function kpiValueFromTotals(
   kpi: BenchmarkKpi,
-  totals: { spend: number; revenue: number; conversions: number; impressions: number; clicks: number }
+  totals: {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    impressions: number;
+    clicks: number;
+    add_to_carts: number;
+    add_to_cart_value: number;
+  }
 ): number | null {
-  const { spend, revenue, conversions, impressions, clicks } = totals;
+  const {
+    spend,
+    revenue,
+    conversions,
+    impressions,
+    clicks,
+    add_to_carts,
+    add_to_cart_value,
+  } = totals;
   switch (kpi) {
     case "roas":
       return spend > 0 ? revenue / spend : null;
@@ -108,12 +134,18 @@ function kpiValueFromTotals(
       return impressions > 0 ? (clicks / impressions) * 100 : null;
     case "cpa":
       return conversions > 0 ? spend / conversions : null;
+    case "atc_cpa":
+      return add_to_carts > 0 ? spend / add_to_carts : null;
+    case "atc_roas":
+      return spend > 0 && add_to_cart_value > 0 ? add_to_cart_value / spend : null;
     case "spend":
       return spend;
     case "revenue":
       return revenue;
     case "conversions":
       return conversions;
+    case "add_to_carts":
+      return add_to_carts;
   }
 }
 
@@ -182,7 +214,7 @@ export async function computeBenchmark(
     n_stores: 0,
     sufficient: false,
     headline: null,
-    totals: { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0 },
+    totals: { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0, add_to_carts: 0, add_to_cart_value: 0 },
     distribution: { min: null, p25: null, median: null, p75: null, max: null },
     daily: [],
     stores: [],
@@ -193,24 +225,39 @@ export async function computeBenchmark(
   const orgIds = eligibleStores.map((s) => s.org_id);
   const { data: metrics, error: mErr } = await supabase
     .from("pinterest_metrics_snapshots")
-    .select("org_id, spend, revenue, conversions, impressions, clicks, snapshot_date")
+    .select(
+      "org_id, spend, revenue, conversions, impressions, clicks, add_to_carts, add_to_cart_value, snapshot_date"
+    )
     .eq("entity_type", "account")
     .in("org_id", orgIds)
     .gte("snapshot_date", start)
     .lte("snapshot_date", end);
   if (mErr) throw new Error(mErr.message);
 
+  type Bucket = {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    impressions: number;
+    clicks: number;
+    add_to_carts: number;
+    add_to_cart_value: number;
+  };
+  const emptyBucket = (): Bucket => ({
+    spend: 0,
+    revenue: 0,
+    conversions: 0,
+    impressions: 0,
+    clicks: 0,
+    add_to_carts: 0,
+    add_to_cart_value: 0,
+  });
+
   // Group per store to build totals + contribution rows.
-  const perStore = new Map<
-    string,
-    { spend: number; revenue: number; conversions: number; impressions: number; clicks: number }
-  >();
+  const perStore = new Map<string, Bucket>();
   // Group per day (across all stores in the filter) for the trend chart.
-  const perDay = new Map<
-    string,
-    { spend: number; revenue: number; conversions: number; impressions: number; clicks: number }
-  >();
-  const totals = { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0 };
+  const perDay = new Map<string, Bucket>();
+  const totals: Bucket = emptyBucket();
 
   for (const r of metrics ?? []) {
     const rowSpend = num(r.spend);
@@ -218,22 +265,28 @@ export async function computeBenchmark(
     const rowConv = num(r.conversions);
     const rowImp = num(r.impressions);
     const rowClk = num(r.clicks);
+    const rowAtc = num(r.add_to_carts);
+    const rowAtcVal = num(r.add_to_cart_value);
 
-    const cur = perStore.get(r.org_id as string) ?? { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0 };
+    const cur = perStore.get(r.org_id as string) ?? emptyBucket();
     cur.spend += rowSpend;
     cur.revenue += rowRev;
     cur.conversions += rowConv;
     cur.impressions += rowImp;
     cur.clicks += rowClk;
+    cur.add_to_carts += rowAtc;
+    cur.add_to_cart_value += rowAtcVal;
     perStore.set(r.org_id as string, cur);
 
     const day = r.snapshot_date as string;
-    const dCur = perDay.get(day) ?? { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0 };
+    const dCur = perDay.get(day) ?? emptyBucket();
     dCur.spend += rowSpend;
     dCur.revenue += rowRev;
     dCur.conversions += rowConv;
     dCur.impressions += rowImp;
     dCur.clicks += rowClk;
+    dCur.add_to_carts += rowAtc;
+    dCur.add_to_cart_value += rowAtcVal;
     perDay.set(day, dCur);
 
     totals.spend += rowSpend;
@@ -241,10 +294,12 @@ export async function computeBenchmark(
     totals.conversions += rowConv;
     totals.impressions += rowImp;
     totals.clicks += rowClk;
+    totals.add_to_carts += rowAtc;
+    totals.add_to_cart_value += rowAtcVal;
   }
 
   const stores: StoreContribution[] = eligibleStores.map((s) => {
-    const t = perStore.get(s.org_id) ?? { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0 };
+    const t = perStore.get(s.org_id) ?? emptyBucket();
     return {
       org_id: s.org_id,
       store_name: orgNameById.get(s.org_id) ?? "(unknown)",
@@ -257,6 +312,8 @@ export async function computeBenchmark(
       conversions: t.conversions,
       impressions: t.impressions,
       clicks: t.clicks,
+      add_to_carts: t.add_to_carts,
+      add_to_cart_value: t.add_to_cart_value,
       value: kpiValueFromTotals(kpi, t),
     };
   });
@@ -329,11 +386,15 @@ export async function buildAiContextTable(
     conversions: number;
     impressions: number;
     clicks: number;
+    add_to_carts: number;
+    add_to_cart_value: number;
     roas: number | null;
     cpm: number | null;
     cpc: number | null;
     ctr: number | null;
     cpa: number | null;
+    atc_cpa: number | null;
+    atc_roas: number | null;
   }[];
 }> {
   const start = isoDaysAgo(days);
@@ -350,26 +411,39 @@ export async function buildAiContextTable(
   const orgIds = eligible.map((s: StoreSettings) => s.org_id);
   const { data: metrics } = await supabase
     .from("pinterest_metrics_snapshots")
-    .select("org_id, spend, revenue, conversions, impressions, clicks")
+    .select(
+      "org_id, spend, revenue, conversions, impressions, clicks, add_to_carts, add_to_cart_value"
+    )
     .eq("entity_type", "account")
     .in("org_id", orgIds)
     .gte("snapshot_date", start)
     .lte("snapshot_date", end);
-  const perStore = new Map<
-    string,
-    { spend: number; revenue: number; conversions: number; impressions: number; clicks: number }
-  >();
+  type Bucket = {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    impressions: number;
+    clicks: number;
+    add_to_carts: number;
+    add_to_cart_value: number;
+  };
+  const empty = (): Bucket => ({
+    spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0, add_to_carts: 0, add_to_cart_value: 0,
+  });
+  const perStore = new Map<string, Bucket>();
   for (const r of metrics ?? []) {
-    const cur = perStore.get(r.org_id as string) ?? { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0 };
+    const cur = perStore.get(r.org_id as string) ?? empty();
     cur.spend += num(r.spend);
     cur.revenue += num(r.revenue);
     cur.conversions += num(r.conversions);
     cur.impressions += num(r.impressions);
     cur.clicks += num(r.clicks);
+    cur.add_to_carts += num(r.add_to_carts);
+    cur.add_to_cart_value += num(r.add_to_cart_value);
     perStore.set(r.org_id as string, cur);
   }
   const rows = eligible.map((s: StoreSettings) => {
-    const t = perStore.get(s.org_id) ?? { spend: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0 };
+    const t = perStore.get(s.org_id) ?? empty();
     return {
       store: orgNameById.get(s.org_id) ?? "(unknown)",
       department: s.department,
@@ -383,11 +457,15 @@ export async function buildAiContextTable(
       conversions: t.conversions,
       impressions: t.impressions,
       clicks: t.clicks,
+      add_to_carts: t.add_to_carts,
+      add_to_cart_value: t.add_to_cart_value,
       roas: t.spend > 0 ? t.revenue / t.spend : null,
       cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : null,
       cpc: t.clicks > 0 ? t.spend / t.clicks : null,
       ctr: t.impressions > 0 ? (t.clicks / t.impressions) * 100 : null,
       cpa: t.conversions > 0 ? t.spend / t.conversions : null,
+      atc_cpa: t.add_to_carts > 0 ? t.spend / t.add_to_carts : null,
+      atc_roas: t.spend > 0 && t.add_to_cart_value > 0 ? t.add_to_cart_value / t.spend : null,
     };
   });
   return { window: { start, end, days }, rows };
