@@ -101,9 +101,9 @@ async function fetchAccountWindow(
 
 export async function computeWeekOverWeek(
   supabase: SupabaseClient,
-  stores: StoreZoneRow[]
+  stores: StoreZoneRow[],
+  days = 7
 ): Promise<{ byStore: WoWStore[]; agency: WoWAgency }> {
-  const days = 7;
   const currEnd = isoDaysAgo(1);
   const currStart = isoDaysAgo(days);
   const prevEnd = isoDaysAgo(days + 1);

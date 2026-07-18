@@ -191,15 +191,18 @@ function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
 
 /** Global filter bar rendered at the top of the hub page — filters flow
  *  through to every downstream section so the whole page tells the same
- *  story. */
+ *  story. The window selector is passed in from the page so its value can
+ *  round-trip to the API. */
 export function GlobalFilterBar({
   hub,
   filters,
   onChange,
+  windowSlot,
 }: {
   hub: HubResponse;
   filters: HubFilters;
   onChange: (f: HubFilters) => void;
+  windowSlot?: React.ReactNode;
 }) {
   return (
     <section className="bg-card border border-border rounded-2xl px-5 py-3">
@@ -208,6 +211,12 @@ export function GlobalFilterBar({
           Filter
         </div>
         <HubFilterBar hub={hub} filters={filters} onChange={onChange} />
+        {windowSlot && (
+          <div className="ml-auto flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
+            Window
+            <div className="normal-case tracking-normal">{windowSlot}</div>
+          </div>
+        )}
       </div>
     </section>
   );

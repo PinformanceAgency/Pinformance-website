@@ -11,6 +11,7 @@ import type {
   DepartmentRow,
   PortfolioHealth,
 } from "./rollups";
+import type { HubSeries } from "./hub-series";
 import type { ZoneThresholds } from "./config";
 
 export interface HubResponse {
@@ -27,6 +28,7 @@ export interface HubResponse {
   movers: Mover[];
   exceptions: Exception[];
   wow: { byStore: WoWStore[]; agency: WoWAgency };
+  series: HubSeries;
   meta: {
     window: { start: string; end: string };
     window_days: number;

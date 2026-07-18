@@ -37,25 +37,33 @@ import {
   computeDepartmentBreakdown,
   computePortfolioHealth,
 } from "@/lib/media-buying/rollups";
+import { computeHubSeries } from "@/lib/media-buying/hub-series";
 
-export async function GET(_req: NextRequest) {
+const VALID_WINDOWS = new Set([7, 14, 30]);
+
+export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
+  const url = new URL(req.url);
+  const winParam = Number(url.searchParams.get("window") ?? ZONE_ROAS_WINDOW_DAYS);
+  const windowDays = VALID_WINDOWS.has(winParam) ? winParam : ZONE_ROAS_WINDOW_DAYS;
+
   try {
     const [stores, campaigns] = await Promise.all([
-      computeStoreZones(supabase),
-      computeCampaignZones(supabase),
+      computeStoreZones(supabase, windowDays),
+      computeCampaignZones(supabase, { days: windowDays }),
     ]);
     const activeConfiguredStores = stores.filter((s) => s.configured && s.is_active);
     const benchmarks = computeBenchmarks(activeConfiguredStores);
-    const [movers, wow, exceptions] = await Promise.all([
+    const [movers, wow, exceptions, series] = await Promise.all([
       computeMovers(supabase, activeConfiguredStores),
-      computeWeekOverWeek(supabase, activeConfiguredStores),
+      computeWeekOverWeek(supabase, activeConfiguredStores, windowDays),
       computeExceptions(supabase, activeConfiguredStores),
+      computeHubSeries(supabase, activeConfiguredStores, windowDays),
     ]);
     const buyer_scorecard = computeBuyerScorecard(activeConfiguredStores, wow.byStore);
     const department_breakdown = computeDepartmentBreakdown(
@@ -81,9 +89,10 @@ export async function GET(_req: NextRequest) {
       movers,
       exceptions,
       wow,
+      series,
       meta: {
-        window: zoneWindow(),
-        window_days: ZONE_ROAS_WINDOW_DAYS,
+        window: zoneWindow(windowDays),
+        window_days: windowDays,
         benchmark_windows: {
           short: BENCHMARK_WINDOW_DAYS_SHORT,
           long: BENCHMARK_WINDOW_DAYS_LONG,

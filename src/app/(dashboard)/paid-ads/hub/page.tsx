@@ -15,17 +15,24 @@ import {
   EMPTY_FILTERS,
   type HubFilters,
 } from "@/components/media-buying/hub-panels";
+import {
+  TrendsSection,
+  ShareBreakdownSection,
+  GrowthHeatmap,
+  WindowSelector,
+} from "@/components/media-buying/hub-charts";
 import { StoreDeepDive } from "@/components/media-buying/hub-store-deepdive";
 
 export default function MediaBuyingHubPage() {
   const [hub, setHub] = useState<HubResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<HubFilters>(EMPTY_FILTERS);
+  const [windowDays, setWindowDays] = useState<7 | 14 | 30>(7);
   const [deepDiveOrgId, setDeepDiveOrgId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/media-buying/hub");
+      const res = await fetch(`/api/media-buying/hub?window=${windowDays}`);
       const data = await res.json();
       if (!res.ok) {
         setError(data?.error ?? "Failed to load hub");
@@ -35,7 +42,7 @@ export default function MediaBuyingHubPage() {
     } catch (e) {
       setError(String(e));
     }
-  }, []);
+  }, [windowDays]);
 
   useEffect(() => {
     load();
@@ -72,16 +79,30 @@ export default function MediaBuyingHubPage() {
 
       {hub && (
         <>
-          <GlobalFilterBar hub={hub} filters={filters} onChange={setFilters} />
+          <GlobalFilterBar
+            hub={hub}
+            filters={filters}
+            onChange={setFilters}
+            windowSlot={<WindowSelector value={windowDays} onChange={setWindowDays} />}
+          />
 
           {/* 1. Company-wide */}
           <CompanyOverviewCard hub={hub} filters={filters} />
 
-          {/* 2. Per department */}
+          {/* 2. Trends over the selected window */}
+          <TrendsSection hub={hub} filters={filters} />
+
+          {/* 3. How the book splits: zones / dept / buyer / niche */}
+          <ShareBreakdownSection hub={hub} filters={filters} />
+
+          {/* 4. Per department */}
           <DepartmentBreakdown hub={hub} filters={filters} />
 
-          {/* 3. Per media buyer */}
+          {/* 5. Per media buyer */}
           <BuyerScorecard hub={hub} filters={filters} />
+
+          {/* 6. Per-store growth heatmap */}
+          <GrowthHeatmap hub={hub} filters={filters} />
 
           {/* Zone drilldown + actionable panels */}
           <ZoneOverview hub={hub} filters={filters} onStoreClick={openStore} />
