@@ -22,6 +22,8 @@ import {
   LifeBuoy,
   Activity,
   Gauge,
+  Store,
+  Radar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -45,9 +47,11 @@ const organicNav = [
 ];
 
 const paidAdsNav = [
+  { href: "/paid-ads/hub", label: "Media Buying Hub", icon: Radar },
   { href: "/paid-ads/creatives", label: "Creatives", icon: Sparkles },
   { href: "/paid-ads/media-buying", label: "Mediabuying", icon: BarChart3 },
   { href: "/paid-ads/creative-cadence", label: "Creative Cadence", icon: Gauge },
+  { href: "/paid-ads/store-settings", label: "Store Settings", icon: Store },
 ];
 
 const adminSharedNav = [

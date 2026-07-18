@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient, MAX_PINTEREST_FETCH } from "@/lib/pinterest/client";
 import { selectAdAccount } from "@/lib/pinterest/select-ad-account";
+import { parseCampaignName } from "@/lib/pinterest/naming-conventions";
 
 export const maxDuration = 300;
 
@@ -109,6 +110,9 @@ async function run(request: NextRequest) {
 
       const rows: Array<Record<string, unknown>> = [];
       for (const c of campaigns) {
+        // Parse the naming convention so the hub can filter across all stores
+        // by country / funnel / P+ / etc. without re-parsing on every request.
+        const parsed = c.name ? parseCampaignName(c.name) : null;
         rows.push({
           org_id: org.id,
           ad_account_id: adAccount.id,
@@ -127,6 +131,13 @@ async function run(request: NextRequest) {
           creative_type: null,
           created_time: c.created_time ?? null,
           raw: c as unknown,
+          parsed_country: parsed?.country ?? null,
+          parsed_funnel: parsed?.funnel ?? null,
+          parsed_performance_plus: parsed?.performancePlus ?? null,
+          parsed_strategy: parsed?.strategy ?? null,
+          parsed_strategy_category: parsed?.strategyCategory ?? null,
+          parsed_catalog: parsed?.catalog ?? null,
+          parsed_objective: parsed?.objective ?? null,
         });
       }
       for (const g of adGroups) {
