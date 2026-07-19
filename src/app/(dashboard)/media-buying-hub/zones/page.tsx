@@ -5,11 +5,10 @@ import { Loader2 } from "lucide-react";
 import { useHubData } from "@/hooks/use-hub-data";
 import {
   GlobalFilterBar,
-  ZoneOverview,
   EMPTY_FILTERS,
   type HubFilters,
 } from "@/components/media-buying/hub-panels";
-import { ZoneMatrix } from "@/components/media-buying/hub-charts";
+import { ZoneBlocksSection } from "@/components/media-buying/hub-charts";
 import { StoreDeepDive } from "@/components/media-buying/hub-store-deepdive";
 
 export default function ZonesPage() {
@@ -43,8 +42,7 @@ export default function ZonesPage() {
       {hub && (
         <>
           <GlobalFilterBar hub={hub} filters={filters} onChange={setFilters} />
-          <ZoneMatrix hub={hub} filters={filters} />
-          <ZoneOverview hub={hub} filters={filters} onStoreClick={openStore} />
+          <ZoneBlocksSection hub={hub} filters={filters} onStoreClick={openStore} />
         </>
       )}
 

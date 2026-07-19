@@ -491,10 +491,294 @@ function WeekBars({ weeks, ber }: { weeks: WeekBucket[]; ber: number | null }) {
   );
 }
 
-// ─── Zone matrix ────────────────────────────────────────────────────────────
-/** Grid view of the last 4 weekly zones for Company / each department / each
- *  buyer. Big colored cells so week-to-week shifts are visible at a glance
- *  without reading a single number. */
+// ─── Zone blocks (large per-entity view) ───────────────────────────────────
+/** Big-block view of zone composition per entity — one card per Company /
+ *  Department / Media buyer. Each card has a stacked bar chart of store
+ *  counts per zone over the last 4 weeks, then a three-column list of the
+ *  stores currently in each zone. Rewired to focus on "how many stores are
+ *  in each zone" rather than showing ROAS numbers. */
+export function ZoneBlocksSection({
+  hub,
+  filters,
+  onStoreClick,
+}: {
+  hub: HubResponse;
+  filters: HubFilters;
+  onStoreClick?: (orgId: string) => void;
+}) {
+  const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
+  const groups = useMemo(() => {
+    const byDept = new Map<string, StoreZoneRow[]>();
+    const byBuyer = new Map<string, StoreZoneRow[]>();
+    for (const s of filteredStores) {
+      const d = s.department ?? "(no department)";
+      (byDept.get(d) ?? byDept.set(d, []).get(d)!).push(s);
+      const b = s.media_buyer ?? "(unassigned)";
+      (byBuyer.get(b) ?? byBuyer.set(b, []).get(b)!).push(s);
+    }
+    const departments = Array.from(byDept.entries())
+      .map(([k, list]) => ({
+        key: `dept:${k}`,
+        label: DEPARTMENT_LABELS[k as keyof typeof DEPARTMENT_LABELS] ?? capitalize(k),
+        stores: list,
+      }))
+      .sort((a, b) => b.stores.length - a.stores.length);
+    const buyers = Array.from(byBuyer.entries())
+      .map(([k, list]) => ({ key: `buyer:${k}`, label: k, stores: list }))
+      .sort((a, b) => b.stores.length - a.stores.length);
+    return { departments, buyers };
+  }, [filteredStores]);
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle label="Company" description="Zone composition for the whole filtered book." />
+      <ZoneBlock
+        title="Company"
+        stores={filteredStores}
+        onStoreClick={onStoreClick}
+      />
+      <SectionTitle label="By department" description="Same view per department." />
+      <div className="space-y-4">
+        {groups.departments.map((g) => (
+          <ZoneBlock key={g.key} title={g.label} stores={g.stores} onStoreClick={onStoreClick} />
+        ))}
+      </div>
+      <SectionTitle label="By media buyer" description="Same view per buyer." />
+      <div className="space-y-4">
+        {groups.buyers.map((g) => (
+          <ZoneBlock key={g.key} title={g.label} stores={g.stores} onStoreClick={onStoreClick} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface ZoneCounts {
+  red: number;
+  orange: number;
+  green: number;
+  unclassified: number;
+}
+
+const WEEK_LABELS_FULL = ["3w ago", "2w ago", "Last week", "This week"];
+
+function countZonesForWeek(stores: StoreZoneRow[], weekIndex: number): ZoneCounts {
+  const c: ZoneCounts = { red: 0, orange: 0, green: 0, unclassified: 0 };
+  for (const s of stores) {
+    const z = s.weekly_zones?.[weekIndex] ?? null;
+    if (z === "red") c.red++;
+    else if (z === "orange") c.orange++;
+    else if (z === "green") c.green++;
+    else c.unclassified++;
+  }
+  return c;
+}
+
+function ZoneBlock({
+  title,
+  stores,
+  onStoreClick,
+}: {
+  title: string;
+  stores: StoreZoneRow[];
+  onStoreClick?: (orgId: string) => void;
+}) {
+  // Build 4 weekly rows of {week, red, orange, green} for the stacked bar chart.
+  const chartData = [0, 1, 2, 3].map((i) => {
+    const c = countZonesForWeek(stores, i);
+    return {
+      week: WEEK_LABELS_FULL[i],
+      Red: c.red,
+      Orange: c.orange,
+      Green: c.green,
+    };
+  });
+  // Delta text: current vs prior week per zone.
+  const current = countZonesForWeek(stores, 3);
+  const prior = countZonesForWeek(stores, 2);
+  const currentZoneByStore = new Map<string, Zone | null>(
+    stores.map((s) => [s.org_id, (s.weekly_zones?.[3] ?? s.zone) as Zone | null])
+  );
+  const red = stores.filter((s) => currentZoneByStore.get(s.org_id) === "red");
+  const orange = stores.filter((s) => currentZoneByStore.get(s.org_id) === "orange");
+  const green = stores.filter((s) => currentZoneByStore.get(s.org_id) === "green");
+  const unclassified = stores.filter((s) => {
+    const z = currentZoneByStore.get(s.org_id);
+    return z !== "red" && z !== "orange" && z !== "green";
+  });
+
+  return (
+    <section className="bg-card border border-border rounded-2xl p-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-5">
+        <div>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <div className="text-xs text-muted-foreground">
+            {stores.length} {stores.length === 1 ? "store" : "stores"}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <ZoneTally label="Red" count={current.red} delta={current.red - prior.red} kind="red" />
+          <ZoneTally label="Orange" count={current.orange} delta={current.orange - prior.orange} kind="orange" />
+          <ZoneTally label="Green" count={current.green} delta={current.green - prior.green} kind="green" />
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div className="h-56 md:h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 12, right: 12, bottom: 4, left: 4 }} barCategoryGap={"20%"}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
+            <XAxis
+              dataKey="week"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fontSize: 11, fill: "currentColor", opacity: 0.65 }}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              allowDecimals={false}
+              tick={{ fontSize: 10, fill: "currentColor", opacity: 0.6 }}
+              width={30}
+            />
+            <Tooltip
+              cursor={{ fill: "currentColor", opacity: 0.05 }}
+              contentStyle={{ fontSize: 12, borderRadius: 8 }}
+            />
+            <Bar dataKey="Red" stackId="zones" fill="#ef4444" radius={[0, 0, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="Orange" stackId="zones" fill="#f59e0b" radius={[0, 0, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="Green" stackId="zones" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Store lists per zone */}
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-border pt-4">
+        <ZoneColumn kind="red" stores={red} onStoreClick={onStoreClick} />
+        <ZoneColumn kind="orange" stores={orange} onStoreClick={onStoreClick} />
+        <ZoneColumn kind="green" stores={green} onStoreClick={onStoreClick} />
+      </div>
+      {unclassified.length > 0 && (
+        <div className="mt-2 text-[11px] text-muted-foreground italic">
+          {unclassified.length} store{unclassified.length === 1 ? "" : "s"} not classified this
+          week (no spend).
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ZoneTally({
+  label,
+  count,
+  delta,
+  kind,
+}: {
+  label: string;
+  count: number;
+  delta: number;
+  kind: "red" | "orange" | "green";
+}) {
+  const color =
+    kind === "red"
+      ? "text-red-600 dark:text-red-400"
+      : kind === "orange"
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-emerald-600 dark:text-emerald-400";
+  const border =
+    kind === "red"
+      ? "border-red-500/40"
+      : kind === "orange"
+      ? "border-amber-500/40"
+      : "border-emerald-500/40";
+  return (
+    <div className={cn("rounded-lg border px-3 py-1.5 min-w-[74px] text-center", border)}>
+      <div className={cn("text-[10px] uppercase tracking-widest font-semibold", color)}>{label}</div>
+      <div className="text-lg font-semibold tabular-nums leading-none mt-0.5">{count}</div>
+      {delta !== 0 && (
+        <div
+          className={cn(
+            "text-[10px] tabular-nums font-medium mt-0.5",
+            delta > 0 ? color : "text-muted-foreground"
+          )}
+        >
+          {delta > 0 ? "+" : ""}
+          {delta} wk/wk
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ZoneColumn({
+  kind,
+  stores,
+  onStoreClick,
+}: {
+  kind: "red" | "orange" | "green";
+  stores: StoreZoneRow[];
+  onStoreClick?: (orgId: string) => void;
+}) {
+  const styles = {
+    red: {
+      header: "text-red-600 dark:text-red-400",
+      border: "border-red-500/40",
+      bg: "bg-red-500/5 hover:bg-red-500/10",
+      dot: "bg-red-500",
+    },
+    orange: {
+      header: "text-amber-600 dark:text-amber-400",
+      border: "border-amber-500/40",
+      bg: "bg-amber-500/5 hover:bg-amber-500/10",
+      dot: "bg-amber-500",
+    },
+    green: {
+      header: "text-emerald-600 dark:text-emerald-400",
+      border: "border-emerald-500/40",
+      bg: "bg-emerald-500/5 hover:bg-emerald-500/10",
+      dot: "bg-emerald-500",
+    },
+  }[kind];
+  const label = kind === "red" ? "Red" : kind === "orange" ? "Orange" : "Green";
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className={cn("w-2 h-2 rounded-full", styles.dot)} />
+        <span className={cn("text-[10px] uppercase tracking-widest font-semibold", styles.header)}>
+          {label} — {stores.length}
+        </span>
+      </div>
+      {stores.length === 0 ? (
+        <div className="text-xs text-muted-foreground italic">No stores</div>
+      ) : (
+        <ul className="space-y-1">
+          {stores.map((s) => (
+            <li key={s.org_id}>
+              <button
+                onClick={() => onStoreClick?.(s.org_id)}
+                className={cn(
+                  "w-full text-left rounded-lg border px-2.5 py-1.5",
+                  styles.border,
+                  styles.bg,
+                  !onStoreClick && "cursor-default"
+                )}
+              >
+                <div className="text-sm font-medium truncate">{s.store_name}</div>
+                {s.media_buyer && (
+                  <div className="text-[11px] text-muted-foreground truncate">{s.media_buyer}</div>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Zone matrix (kept for now; deprecated in favour of ZoneBlocksSection) ─
+/** @deprecated Use ZoneBlocksSection. */
 export function ZoneMatrix({
   hub,
   filters,

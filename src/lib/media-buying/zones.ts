@@ -49,6 +49,11 @@ export interface StoreZoneRow {
   zone: Zone | null;
   /** Ratio = roas / ber, or null if either is missing. Handy for sorting. */
   ratio: number | null;
+  /** Per-week zone for the last 4 rolling weeks, oldest first. Populated from
+   *  28 days of account-level snapshots. Null entries mean "no data / no
+   *  spend that week" — the UI shows those as dashes rather than a false
+   *  green. */
+  weekly_zones: (Zone | null)[];
 }
 
 export interface CampaignZoneRow {
@@ -168,7 +173,10 @@ export async function computeStoreZones(
   supabase: SupabaseClient,
   days = ZONE_ROAS_WINDOW_DAYS
 ): Promise<StoreZoneRow[]> {
-  const { start, end } = zoneWindow(days);
+  const { start: currentStart, end } = zoneWindow(days);
+  // Pull 28 days so the Zones page can bucket each store into 4 rolling
+  // weekly buckets. The extra 21 days are cheap (~800 rows total).
+  const { start: historyStart } = zoneWindow(28);
 
   const { data: orgs, error: orgsErr } = await supabase
     .from("organizations")
@@ -190,12 +198,41 @@ export async function computeStoreZones(
       "org_id, entity_id, entity_name, ad_account_id, currency, spend, revenue, conversions, impressions, clicks, snapshot_date"
     )
     .eq("entity_type", "account")
-    .gte("snapshot_date", start)
+    .gte("snapshot_date", historyStart)
     .lte("snapshot_date", end)
     .in("org_id", orgIds);
   if (mErr) throw new Error(mErr.message);
 
-  const totals = sumWindow(metrics as MetricRow[]);
+  const allMetrics = (metrics ?? []) as MetricRow[];
+  // Existing behaviour: sum only rows within the current N-day window.
+  const currentMetrics = allMetrics.filter((r) => r.snapshot_date >= currentStart);
+  const totals = sumWindow(currentMetrics);
+
+  // Weekly bucketing for the 4-week zone matrix. Bucket 0 = oldest (3w ago),
+  // bucket 3 = most recent 7 days.
+  const weeklyByOrg = new Map<
+    string,
+    Array<{ spend: number; revenue: number }>
+  >();
+  const emptyBucket = () => ({ spend: 0, revenue: 0 });
+  for (const orgId of orgIds) {
+    weeklyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket(), emptyBucket()]);
+  }
+  const endDate = new Date(end + "T00:00:00Z");
+  for (const r of allMetrics) {
+    const d = new Date(r.snapshot_date + "T00:00:00Z");
+    const daysBack = Math.floor(
+      (endDate.getTime() - d.getTime()) / (24 * 3600 * 1000)
+    );
+    if (daysBack < 0 || daysBack >= 28) continue;
+    // 0 days back → most recent week (bucket 3); 21+ days back → oldest week (bucket 0).
+    const weekIndex = 3 - Math.floor(daysBack / 7);
+    if (weekIndex < 0 || weekIndex > 3) continue;
+    const bucket = weeklyByOrg.get(r.org_id);
+    if (!bucket) continue;
+    bucket[weekIndex].spend += n(r.spend);
+    bucket[weekIndex].revenue += n(r.revenue);
+  }
 
   const rows: StoreZoneRow[] = (orgs ?? [])
     .filter((o) => o.pinterest_user_id)
@@ -239,6 +276,23 @@ export async function computeStoreZones(
         : null;
       const ber = s?.breakeven_roas ?? null;
       const ratio = ber && ber > 0 && roas != null ? roas / ber : null;
+      // Weekly zones for this store using its own BER / invoice / thresholds.
+      const buckets = weeklyByOrg.get(o.id as string) ?? [
+        emptyBucket(), emptyBucket(), emptyBucket(), emptyBucket(),
+      ];
+      const weekly_zones: (Zone | null)[] = configured
+        ? buckets.map((b) => {
+            const wr = b.spend > 0 ? b.revenue / b.spend : null;
+            return classifyZone({
+              liveRoas: wr,
+              breakevenRoas: s?.breakeven_roas ?? null,
+              invoiceRoas: s?.invoice_roas ?? null,
+              spend: b.spend,
+              windowRevenue: b.revenue,
+              overrides: s?.zone_thresholds,
+            });
+          })
+        : [null, null, null, null];
       return {
         org_id: o.id as string,
         store_name: (o.name as string) || "(unnamed)",
@@ -276,6 +330,7 @@ export async function computeStoreZones(
         cpa,
         zone,
         ratio,
+        weekly_zones,
       };
     });
   return rows;
