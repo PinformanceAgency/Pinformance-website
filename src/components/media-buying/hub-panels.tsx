@@ -25,7 +25,8 @@ import {
 } from "@/lib/media-buying/rollups";
 import { benchmarksFor } from "@/lib/media-buying/benchmarks";
 import type { Zone } from "@/lib/media-buying/config";
-import { DEPARTMENT_LABELS, COUNTRY_OPTIONS } from "@/lib/media-buying/config";
+import { DEPARTMENT_LABELS, COUNTRY_OPTIONS, DEFAULT_ZONE_THRESHOLDS, classifyZone } from "@/lib/media-buying/config";
+import type { DailyPoint, HubSeries } from "@/lib/media-buying/hub-series";
 import {
   fmtCurrency,
   fmtRoas,
@@ -323,6 +324,89 @@ function tallyByZone<T extends { zone: Zone | null }>(rows: T[]) {
 }
 
 // ─── Portfolio health ───────────────────────────────────────────────────────
+type OverviewWindow = 7 | 14 | 30;
+const OVERVIEW_WINDOW_OPTIONS: OverviewWindow[] = [7, 14, 30];
+
+/** Sum spend + revenue from the (already filter-summed) daily series over
+ *  the last `days` days. Used to recompute the company overview when the
+ *  user toggles L7 / L14 / L30. */
+function sumSeriesTail(series: DailyPoint[], days: number): { spend: number; revenue: number } {
+  const slice = series.slice(-days);
+  let spend = 0,
+    revenue = 0;
+  for (const p of slice) {
+    spend += p.spend;
+    revenue += p.revenue;
+  }
+  return { spend, revenue };
+}
+
+/** Sum the department/buyer daily series buckets for a store subset, keeping
+ *  the same date grid as series.agency. Mirrors the helper in hub-charts.tsx
+ *  — duplicated here to avoid a cross-import. */
+function sumSeriesForStoresLocal(series: HubSeries, stores: StoreZoneRow[]): DailyPoint[] {
+  if (stores.length === 0) {
+    return series.agency.map((p) => ({ ...p, spend: 0, revenue: 0 }));
+  }
+  const wantDept = new Set(stores.map((s) => s.department ?? "(no department)"));
+  const wantBuyer = new Set(stores.map((s) => s.media_buyer ?? "(unassigned)"));
+  const useDept =
+    Object.keys(series.byDepartment).length > 0 &&
+    Object.keys(series.byDepartment).length <= Object.keys(series.byBuyer).length;
+  const source = useDept ? series.byDepartment : series.byBuyer;
+  const wanted = useDept ? wantDept : wantBuyer;
+  const byDate = new Map<string, { spend: number; revenue: number }>();
+  for (const [key, points] of Object.entries(source)) {
+    if (!wanted.has(key)) continue;
+    for (const p of points) {
+      const cur = byDate.get(p.date) ?? { spend: 0, revenue: 0 };
+      cur.spend += p.spend;
+      cur.revenue += p.revenue;
+      byDate.set(p.date, cur);
+    }
+  }
+  return series.agency.map((a) => {
+    const b = byDate.get(a.date) ?? { spend: 0, revenue: 0 };
+    return { ...a, spend: b.spend, revenue: b.revenue };
+  });
+}
+
+/** Weighted BER + invoice ROAS across a store subset — needed to classify the
+ *  aggregate zone. Both weight by each store's current-7d spend, since that's
+ *  what StoreZoneRow.spend is; BER doesn't change with the display window, so
+ *  the weighting stays representative. */
+function weightedBerLocal(stores: StoreZoneRow[]): number | null {
+  let num = 0,
+    den = 0;
+  for (const s of stores) {
+    if (s.spend > 0 && s.breakeven_roas != null) {
+      num += s.spend * s.breakeven_roas;
+      den += s.spend;
+    }
+  }
+  return den > 0 ? num / den : null;
+}
+function weightedInvoiceLocal(stores: StoreZoneRow[]): number | null {
+  let num = 0,
+    den = 0;
+  for (const s of stores) {
+    if (s.spend > 0 && s.breakeven_roas != null) {
+      const eff =
+        s.invoice_roas != null && s.invoice_roas > 0
+          ? s.invoice_roas
+          : s.breakeven_roas * DEFAULT_ZONE_THRESHOLDS.green_ratio;
+      num += s.spend * eff;
+      den += s.spend;
+    }
+  }
+  return den > 0 ? num / den : null;
+}
+
+function pctDelta(prev: number, curr: number): number | null {
+  if (prev <= 0) return null;
+  return ((curr - prev) / prev) * 100;
+}
+
 /** Agency-wide roll-up — the top-of-page snapshot. Recomputed client-side
  *  from the filtered store list so the numbers always match what the rest of
  *  the page is showing for the same filter. */
@@ -333,15 +417,51 @@ export function CompanyOverviewCard({
   hub: HubResponse;
   filters: HubFilters;
 }) {
+  const [windowDays, setWindowDays] = useState<OverviewWindow>(7);
   const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
-  const filteredWow = useMemo(() => {
-    const ok = new Set(filteredStores.map((s) => s.org_id));
-    return hub.wow.byStore.filter((w) => ok.has(w.org_id));
-  }, [hub.wow.byStore, filteredStores]);
-  const ph = useMemo(
-    () => computePortfolioHealth(filteredStores, filteredWow),
-    [filteredStores, filteredWow]
+  const filteredSeries = useMemo(
+    () => sumSeriesForStoresLocal(hub.series, filteredStores),
+    [hub.series, filteredStores]
   );
+
+  const totals = useMemo(() => {
+    const curr = sumSeriesTail(filteredSeries, windowDays);
+    // Prior period sits one full window back. When we don't have enough
+    // series history the deltas come out null and the UI shows an em-dash.
+    const priorSlice = filteredSeries.slice(-2 * windowDays, -windowDays);
+    let prevSpend = 0,
+      prevRev = 0;
+    for (const p of priorSlice) {
+      prevSpend += p.spend;
+      prevRev += p.revenue;
+    }
+    const ber = weightedBerLocal(filteredStores);
+    const invoice = weightedInvoiceLocal(filteredStores);
+    const roas = curr.spend > 0 ? curr.revenue / curr.spend : null;
+    const prevRoas = prevSpend > 0 ? prevRev / prevSpend : null;
+    const zone = classifyZone({
+      liveRoas: roas,
+      breakevenRoas: ber,
+      invoiceRoas: invoice,
+      spend: curr.spend,
+      windowRevenue: curr.revenue,
+    });
+    const hasPriorData = priorSlice.length >= windowDays && prevSpend > 0;
+    return {
+      spend: curr.spend,
+      revenue: curr.revenue,
+      roas,
+      ber,
+      zone,
+      spend_delta_pct: hasPriorData ? pctDelta(prevSpend, curr.spend) : null,
+      revenue_delta_pct: hasPriorData ? pctDelta(prevRev, curr.revenue) : null,
+      roas_delta_pct:
+        hasPriorData && prevRoas != null && roas != null ? pctDelta(prevRoas, roas) : null,
+    };
+  }, [filteredSeries, filteredStores, windowDays]);
+
+  const priorLabel = windowDays === 7 ? "WoW" : windowDays === 14 ? "vs prior 14d" : "vs prior 30d";
+
   return (
     <section className="bg-card border border-border rounded-2xl p-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -352,24 +472,52 @@ export function CompanyOverviewCard({
             {filteredStores.length === 1 ? "store" : "stores"} in scope.
           </p>
         </div>
-        <ZoneBadge zone={ph.zone} large />
+        <div className="flex items-center gap-3">
+          <WindowToggle value={windowDays} onChange={setWindowDays} />
+          <ZoneBadge zone={totals.zone} large />
+        </div>
       </div>
       <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Stat label="Total spend (7d)" value={fmtCurrency(ph.spend, "USD")} big />
-        <Stat label="Total revenue (7d)" value={fmtCurrency(ph.revenue, "USD")} big />
+        <Stat label={`Total spend (L${windowDays})`} value={fmtCurrency(totals.spend, "USD")} big />
+        <Stat label={`Total revenue (L${windowDays})`} value={fmtCurrency(totals.revenue, "USD")} big />
         <Stat
           label="Overall ROAS"
-          value={fmtRoas(ph.roas)}
+          value={fmtRoas(totals.roas)}
           big
-          sub={ph.weighted_ber != null ? `vs ${fmtRoas(ph.weighted_ber)} BER` : undefined}
+          sub={totals.ber != null ? `vs ${fmtRoas(totals.ber)} BER` : undefined}
         />
       </div>
       <div className="mt-3 border-t border-border pt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-        <WoWDelta label="Spend WoW" pct={ph.wow_spend_delta_pct} />
-        <WoWDelta label="Revenue WoW" pct={ph.wow_revenue_delta_pct} />
-        <WoWDelta label="ROAS WoW" pct={ph.wow_roas_delta_pct} />
+        <WoWDelta label={`Spend ${priorLabel}`} pct={totals.spend_delta_pct} />
+        <WoWDelta label={`Revenue ${priorLabel}`} pct={totals.revenue_delta_pct} />
+        <WoWDelta label={`ROAS ${priorLabel}`} pct={totals.roas_delta_pct} />
       </div>
     </section>
+  );
+}
+
+function WindowToggle({
+  value,
+  onChange,
+}: {
+  value: OverviewWindow;
+  onChange: (v: OverviewWindow) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-border bg-card overflow-hidden">
+      {OVERVIEW_WINDOW_OPTIONS.map((d) => (
+        <button
+          key={d}
+          onClick={() => onChange(d)}
+          className={cn(
+            "px-2.5 py-1 text-[11px] font-medium transition-colors",
+            value === d ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted"
+          )}
+        >
+          L{d}
+        </button>
+      ))}
+    </div>
   );
 }
 

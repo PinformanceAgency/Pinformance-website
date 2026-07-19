@@ -63,7 +63,10 @@ export async function GET(req: NextRequest) {
       computeMovers(supabase, activeConfiguredStores),
       computeWeekOverWeek(supabase, activeConfiguredStores, windowDays),
       computeExceptions(supabase, activeConfiguredStores),
-      computeHubSeries(supabase, activeConfiguredStores, windowDays),
+      // Always pull 30 days for the analytics layer (weekly comparison and
+      // the L7/L14/L30 window switcher on the company overview). The zone
+      // engine still uses ZONE_ROAS_WINDOW_DAYS via computeStoreZones.
+      computeHubSeries(supabase, activeConfiguredStores, 30),
     ]);
     const buyer_scorecard = computeBuyerScorecard(activeConfiguredStores, wow.byStore);
     const department_breakdown = computeDepartmentBreakdown(
