@@ -627,7 +627,7 @@ function ZoneBlock({
       {/* Chart */}
       <div className="h-56 md:h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 12, right: 12, bottom: 4, left: 4 }} barCategoryGap={"20%"}>
+          <BarChart data={chartData} margin={{ top: 12, right: 12, bottom: 4, left: 4 }} barCategoryGap={"20%"} barGap={4}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
             <XAxis
               dataKey="week"
@@ -646,9 +646,11 @@ function ZoneBlock({
               cursor={{ fill: "currentColor", opacity: 0.05 }}
               contentStyle={{ fontSize: 12, borderRadius: 8 }}
             />
-            <Bar dataKey="Red" stackId="zones" fill="#ef4444" radius={[0, 0, 0, 0]} isAnimationActive={false} />
-            <Bar dataKey="Orange" stackId="zones" fill="#f59e0b" radius={[0, 0, 0, 0]} isAnimationActive={false} />
-            <Bar dataKey="Green" stackId="zones" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            {/* Grouped side-by-side (no stackId) so red / orange / green sit next
+                to each other per week rather than stacking on top of each other. */}
+            <Bar dataKey="Red" fill="#ef4444" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="Orange" fill="#f59e0b" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="Green" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>
