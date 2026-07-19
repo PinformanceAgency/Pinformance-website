@@ -60,7 +60,13 @@ export function computeBenchmarks(stores: StoreZoneRow[]): Benchmarks {
   for (const s of stores) {
     if (!s.spend) continue; // no signal, skip so it doesn't drag averages
     if (s.niche) (byNiche[s.niche] ??= []).push(s);
-    if (s.country) (byCountry[s.country] ??= []).push(s);
+    // Multi-country stores contribute to each country's peer average — a
+    // store running in both NL and BE lifts both benchmarks equally.
+    const countryList =
+      s.countries && s.countries.length > 0 ? s.countries : s.country ? [s.country] : [];
+    for (const c of countryList) {
+      (byCountry[c] ??= []).push(s);
+    }
   }
   const nicheStats: Record<string, BenchmarkStats> = {};
   for (const k of Object.keys(byNiche)) nicheStats[k] = averageStats(byNiche[k]);
@@ -86,7 +92,11 @@ export function benchmarksFor(
   roasVsCountryPct: number | null;
 } {
   const niche = store.niche ? b.byNiche[store.niche] ?? null : null;
-  const country = store.country ? b.byCountry[store.country] ?? null : null;
+  // For multi-country stores show the peer average of the primary market
+  // (first in the countries list) so the deep-dive stays a single number.
+  const primaryCountry =
+    store.countries && store.countries.length > 0 ? store.countries[0] : store.country;
+  const country = primaryCountry ? b.byCountry[primaryCountry] ?? null : null;
   const roasVsNichePct =
     niche?.roas && store.roas ? ((store.roas - niche.roas) / niche.roas) * 100 : null;
   const roasVsCountryPct =

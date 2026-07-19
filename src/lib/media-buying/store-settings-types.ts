@@ -6,7 +6,11 @@ export interface StoreSettings {
   ad_account_id: string | null;
   department: Department | null;
   niche: string | null;
+  /** @deprecated Use `countries` (multi). Kept as a mirror of `countries[0]`
+   *  for backwards compatibility with older filter code paths. */
   country: string | null;
+  /** All countries this store runs in — source of truth going forward. */
+  countries: string[] | null;
   media_buyer: string | null;
   breakeven_roas: number | null;
   /** ROAS at which the store is "green" (usually higher than BER because it
@@ -40,7 +44,10 @@ export interface StoreSettingsRow {
 export interface StoreSettingsUpsertInput {
   department?: Department | null;
   niche?: string | null;
+  /** @deprecated single-country writes are still accepted but callers should
+   *  prefer `countries` for stores that run in multiple markets. */
   country?: string | null;
+  countries?: string[] | null;
   media_buyer?: string | null;
   breakeven_roas?: number | null;
   invoice_roas?: number | null;

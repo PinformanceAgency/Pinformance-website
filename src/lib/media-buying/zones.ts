@@ -25,7 +25,9 @@ export interface StoreZoneRow {
   // Metadata (may be null if store isn't configured yet — those are excluded).
   department: Department | null;
   niche: string | null;
+  /** @deprecated Kept for legacy readers. Prefer `countries`. */
   country: string | null;
+  countries: string[] | null;
   media_buyer: string | null;
   breakeven_roas: number | null;
   invoice_roas: number | null;
@@ -249,6 +251,12 @@ export async function computeStoreZones(
         department: s?.department ?? null,
         niche: s?.niche ?? null,
         country: s?.country ?? null,
+        countries:
+          s?.countries && s.countries.length > 0
+            ? s.countries
+            : s?.country
+            ? [s.country]
+            : null,
         media_buyer: s?.media_buyer ?? null,
         breakeven_roas: s?.breakeven_roas ?? null,
         invoice_roas: s?.invoice_roas ?? null,

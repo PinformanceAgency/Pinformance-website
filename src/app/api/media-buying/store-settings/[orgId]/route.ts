@@ -14,6 +14,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   DEPARTMENTS,
   ATTRIBUTION_OPTIONS,
+  COUNTRY_OPTIONS,
   type AttributionWindow,
   type Department,
   type ZoneThresholds,
@@ -36,6 +37,7 @@ function parseZoneThresholds(
 }
 
 const ATTRIBUTION_VALUES = new Set(ATTRIBUTION_OPTIONS.map((o) => o.value as string));
+const COUNTRY_CODES = new Set(COUNTRY_OPTIONS.map((c) => c.code));
 
 function parseInput(body: unknown): StoreSettingsUpsertInput | { error: string } {
   if (!body || typeof body !== "object") return { error: "Invalid body" };
@@ -52,6 +54,30 @@ function parseInput(body: unknown): StoreSettingsUpsertInput | { error: string }
     }
   }
   if ("niche" in b) out.niche = b.niche == null || b.niche === "" ? null : String(b.niche);
+  // `countries` is the source of truth; a plain `country` write is still
+  // accepted for backwards compatibility and becomes a one-element array.
+  if ("countries" in b) {
+    const raw = b.countries;
+    if (raw === null) {
+      out.countries = null;
+    } else if (Array.isArray(raw)) {
+      const cleaned: string[] = [];
+      const seen = new Set<string>();
+      for (const item of raw) {
+        if (typeof item !== "string") continue;
+        const code = item.trim().toUpperCase();
+        if (!code || seen.has(code)) continue;
+        if (!COUNTRY_CODES.has(code)) {
+          return { error: `Invalid country code: ${item}` };
+        }
+        seen.add(code);
+        cleaned.push(code);
+      }
+      out.countries = cleaned.length ? cleaned : null;
+    } else {
+      return { error: "countries must be an array of country codes" };
+    }
+  }
   if ("country" in b) out.country = b.country == null || b.country === "" ? null : String(b.country);
   if ("media_buyer" in b) {
     out.media_buyer = b.media_buyer == null || b.media_buyer === "" ? null : String(b.media_buyer);
@@ -139,11 +165,18 @@ export async function PUT(
     (org.settings as { pinterest_ad_account_id?: string | null } | null)
       ?.pinterest_ad_account_id ?? null;
 
+  // Keep the singular `country` column in sync with countries[0] so older
+  // code paths (deep-dive modal, existing filters) don't need to change in
+  // one atomic go. If the caller sent both, `countries` wins.
   const upsertRow: Record<string, unknown> = {
     org_id: orgId,
     ad_account_id: cachedAdAccountId,
     ...parsed,
   };
+  if ("countries" in parsed) {
+    const arr = parsed.countries;
+    upsertRow.country = arr && arr.length > 0 ? arr[0] : null;
+  }
 
   const { data: row, error: upErr } = await admin
     .from("store_settings")

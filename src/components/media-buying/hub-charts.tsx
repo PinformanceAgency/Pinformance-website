@@ -25,7 +25,10 @@ function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
     if (!s.configured || !s.is_active) return false;
     if (f.department && s.department !== f.department) return false;
     if (f.niche && s.niche !== f.niche) return false;
-    if (f.country && s.country !== f.country) return false;
+    if (f.country) {
+      const list = s.countries && s.countries.length > 0 ? s.countries : s.country ? [s.country] : [];
+      if (!list.includes(f.country)) return false;
+    }
     if (f.buyer && s.media_buyer !== f.buyer) return false;
     return true;
   });

@@ -192,7 +192,10 @@ export async function computeBenchmark(
     if (s.is_active === false) return false;
     if (filter.department && s.department !== filter.department) return false;
     if (filter.niche && s.niche !== filter.niche) return false;
-    if (filter.country && s.country !== filter.country) return false;
+    if (filter.country) {
+      const list = s.countries && s.countries.length > 0 ? s.countries : s.country ? [s.country] : [];
+      if (!list.includes(filter.country)) return false;
+    }
     if (filter.media_buyer && s.media_buyer !== filter.media_buyer) return false;
     return true;
   });
@@ -295,12 +298,17 @@ export async function computeBenchmark(
 
   const stores: StoreContribution[] = eligibleStores.map((s) => {
     const t = perStore.get(s.org_id) ?? emptyBucket();
+    // Show the primary country in the table — the full list would blow up the
+    // column width for multi-country stores. Filter-matching happens above and
+    // already treats every country in the list equally.
+    const primaryCountry =
+      s.countries && s.countries.length > 0 ? s.countries[0] : s.country;
     return {
       org_id: s.org_id,
       store_name: orgNameById.get(s.org_id) ?? "(unknown)",
       department: s.department,
       niche: s.niche,
-      country: s.country,
+      country: primaryCountry,
       media_buyer: s.media_buyer,
       spend: t.spend,
       revenue: t.revenue,
@@ -437,11 +445,15 @@ export async function buildAiContextTable(
   }
   const rows = eligible.map((s: StoreSettings) => {
     const t = perStore.get(s.org_id) ?? empty();
+    // Give the AI the full country list — joined "US/NL/BE" style so a question
+    // like "what's Bella Bra's ROAS in NL vs US?" has enough context.
+    const countryDisplay =
+      s.countries && s.countries.length > 0 ? s.countries.join("/") : s.country;
     return {
       store: orgNameById.get(s.org_id) ?? "(unknown)",
       department: s.department,
       niche: s.niche,
-      country: s.country,
+      country: countryDisplay,
       media_buyer: s.media_buyer,
       ber: s.breakeven_roas != null ? Number(s.breakeven_roas) : null,
       invoice_roas: s.invoice_roas != null ? Number(s.invoice_roas) : null,

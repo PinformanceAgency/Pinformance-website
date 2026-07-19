@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { X, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   DEPARTMENTS,
   DEPARTMENT_LABELS,
@@ -36,7 +37,14 @@ export function StoreSettingsModal({
   const s = store.settings;
   const [department, setDepartment] = useState<Department | "">(s?.department ?? "");
   const [niche, setNiche] = useState(s?.niche ?? "");
-  const [country, setCountry] = useState(s?.country ?? "");
+  const [countries, setCountries] = useState<string[]>(() => {
+    // Prefer the new `countries` array; fall back to the singular `country`
+    // so stores configured before this feature still show their existing
+    // value pre-checked.
+    if (s?.countries && s.countries.length > 0) return s.countries;
+    if (s?.country) return [s.country];
+    return [];
+  });
   const [mediaBuyer, setMediaBuyer] = useState(s?.media_buyer ?? "");
   const [breakevenRoas, setBreakevenRoas] = useState<string>(
     s?.breakeven_roas != null ? String(s.breakeven_roas) : ""
@@ -99,7 +107,9 @@ export function StoreSettingsModal({
     const payload: StoreSettingsUpsertInput = {
       department: department === "" ? null : department,
       niche: niche.trim() || null,
-      country: country || null,
+      // `countries` is the source of truth; the API mirrors countries[0]
+      // into the legacy `country` column server-side.
+      countries: countries.length > 0 ? countries : null,
       media_buyer: mediaBuyer.trim() || null,
       breakeven_roas: berNumber,
       invoice_roas: invoiceRoasNumber,
@@ -273,19 +283,39 @@ export function StoreSettingsModal({
               </datalist>
             </div>
             <div>
-              <label className="text-xs font-medium text-foreground">Country</label>
-              <select
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              >
-                <option value="">— Select —</option>
-                {COUNTRY_OPTIONS.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
+              <label className="text-xs font-medium text-foreground">
+                Countries
+                <span className="text-muted-foreground font-normal ml-1">
+                  {countries.length > 0 ? `(${countries.length} selected)` : "(select one or more)"}
+                </span>
+              </label>
+              <div className="mt-1 grid grid-cols-4 gap-1.5">
+                {COUNTRY_OPTIONS.map((c) => {
+                  const selected = countries.includes(c.code);
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() =>
+                        setCountries((prev) =>
+                          prev.includes(c.code)
+                            ? prev.filter((x) => x !== c.code)
+                            : [...prev, c.code]
+                        )
+                      }
+                      title={c.label}
+                      className={cn(
+                        "px-2 py-1.5 text-xs rounded-lg border transition-colors font-medium",
+                        selected
+                          ? "bg-primary text-white border-primary"
+                          : "border-border bg-card hover:bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {c.code}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 

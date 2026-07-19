@@ -75,7 +75,20 @@ export function StoreDeepDive({
           )}
           <Chip label="Department" value={store.department ? DEPARTMENT_LABELS[store.department] : "—"} />
           <Chip label="Niche" value={store.niche ?? "—"} />
-          <Chip label="Country" value={store.country ? COUNTRY_LABEL[store.country] ?? store.country : "—"} />
+          <Chip
+            label={
+              (store.countries?.length ?? 0) > 1 || (store.countries?.length ?? 0) === 0
+                ? "Countries"
+                : "Country"
+            }
+            value={
+              store.countries && store.countries.length > 0
+                ? store.countries.map((c) => COUNTRY_LABEL[c] ?? c).join(", ")
+                : store.country
+                ? COUNTRY_LABEL[store.country] ?? store.country
+                : "—"
+            }
+          />
           <Chip label="Buyer" value={store.media_buyer ?? "—"} />
           <Chip label="BER" value={fmtRoas(store.breakeven_roas)} />
           <Chip label="Invoice ROAS" value={fmtRoas(store.invoice_roas)} />
@@ -103,7 +116,7 @@ export function StoreDeepDive({
               currency={currency}
             />
             <BenchmarkCard
-              label={`Country ${store.country ?? ""}`}
+              label={`Country ${(store.countries?.[0] ?? store.country) ?? ""}`}
               stats={bench.country}
               storeRoas={store.roas}
               currency={currency}

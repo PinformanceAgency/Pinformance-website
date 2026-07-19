@@ -51,7 +51,12 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
     return rows.filter((r) => {
       if (q && !r.store_name.toLowerCase().includes(q)) return false;
       if (departmentFilter && r.settings?.department !== departmentFilter) return false;
-      if (countryFilter && r.settings?.country !== countryFilter) return false;
+      if (countryFilter) {
+        // Match against the multi-country list; fall back to the legacy
+        // singular `country` for rows saved before the multi feature.
+        const list = r.settings?.countries ?? (r.settings?.country ? [r.settings.country] : []);
+        if (!list.includes(countryFilter)) return false;
+      }
       if (buyerFilter && r.settings?.media_buyer !== buyerFilter) return false;
       if (statusFilter === "needs_setup" && r.configured) return false;
       if (statusFilter === "configured" && !r.configured) return false;
@@ -83,7 +88,12 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
           case "department":
             return r.settings?.department ?? "";
           case "country":
-            return r.settings?.country ?? "";
+            // Sort by primary country (first in list); legacy fallback below.
+            return (
+              r.settings?.countries?.[0] ??
+              r.settings?.country ??
+              ""
+            );
           case "buyer":
             return r.settings?.media_buyer ?? "";
           case "ber":
@@ -247,7 +257,7 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
                       {s?.niche ?? "—"}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
-                      {s?.country ? COUNTRY_LABEL[s.country] ?? s.country : "—"}
+                      <CountryList settings={s} />
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {s?.media_buyer ?? "—"}
@@ -325,6 +335,26 @@ function Th({
         {onClick && <ArrowUpDown className="w-3 h-3 opacity-50" />}
       </span>
     </th>
+  );
+}
+
+function CountryList({ settings }: { settings: import("@/lib/media-buying/store-settings-types").StoreSettings | null }) {
+  const list =
+    settings?.countries && settings.countries.length > 0
+      ? settings.countries
+      : settings?.country
+      ? [settings.country]
+      : [];
+  if (list.length === 0) return <>—</>;
+  if (list.length === 1) {
+    const code = list[0];
+    return <>{COUNTRY_LABEL[code] ?? code}</>;
+  }
+  // 2+ countries: show codes joined by · so the row stays compact.
+  return (
+    <span title={list.map((c) => COUNTRY_LABEL[c] ?? c).join(", ")}>
+      {list.join(" · ")}
+    </span>
   );
 }
 
