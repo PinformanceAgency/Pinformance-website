@@ -20,7 +20,7 @@ import type { HubFilters } from "./hub-panels";
 import { fmtCurrency, fmtRoas, fmtPct, zoneBg, zoneDot, zoneLabel } from "./hub-format";
 
 // ─── Filter helper (mirrors filterStores in hub-panels) ─────────────────────
-function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
+export function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
   return stores.filter((s) => {
     if (!s.configured || !s.is_active) return false;
     if (f.department && s.department !== f.department) return false;
@@ -115,7 +115,7 @@ function weightedInvoice(stores: StoreZoneRow[]): number | null {
 }
 
 // ─── Entity aggregation ────────────────────────────────────────────────────
-interface EntityRow {
+export interface EntityRow {
   key: string;
   label: string;
   stores: StoreZoneRow[];
@@ -203,7 +203,7 @@ function buildEntity(
   };
 }
 
-function buildEntities(
+export function buildEntities(
   hub: HubResponse,
   stores: StoreZoneRow[]
 ): { company: EntityRow; departments: EntityRow[]; buyers: EntityRow[] } {
@@ -488,5 +488,123 @@ function WeekBars({ weeks, ber }: { weeks: WeekBucket[]; ber: number | null }) {
         <Bar dataKey="revenue" name="Revenue" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+// ─── Zone matrix ────────────────────────────────────────────────────────────
+/** Grid view of the last 4 weekly zones for Company / each department / each
+ *  buyer. Big colored cells so week-to-week shifts are visible at a glance
+ *  without reading a single number. */
+export function ZoneMatrix({
+  hub,
+  filters,
+}: {
+  hub: HubResponse;
+  filters: HubFilters;
+}) {
+  const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
+  const entities = useMemo(() => buildEntities(hub, filteredStores), [hub, filteredStores]);
+  const weekLabels = entities.company.weeks.map((w) => w.label);
+
+  return (
+    <section className="bg-card border border-border rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <CalendarDays className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Zone matrix</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Read each row left → right to see how the zone flipped week by week.
+        Company on top, then per department, then per media buyer.
+      </p>
+
+      {/* Header row */}
+      <div className="grid grid-cols-[minmax(180px,220px)_repeat(4,minmax(0,1fr))] gap-2 mb-2 pb-2 border-b border-border text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
+        <div>Level</div>
+        {weekLabels.map((l) => (
+          <div key={l} className="text-center">{l}</div>
+        ))}
+      </div>
+
+      <MatrixGroup label="Company" entities={[entities.company]} />
+      <MatrixGroup label="By department" entities={entities.departments} />
+      <MatrixGroup label="By media buyer" entities={entities.buyers} />
+    </section>
+  );
+}
+
+function MatrixGroup({ label, entities }: { label: string; entities: EntityRow[] }) {
+  if (entities.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground/70 font-semibold pt-1 pb-2">
+        {label}
+      </div>
+      <div className="space-y-1.5">
+        {entities.map((e) => (
+          <MatrixRow key={e.key} entity={e} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MatrixRow({ entity }: { entity: EntityRow }) {
+  return (
+    <div className="grid grid-cols-[minmax(180px,220px)_repeat(4,minmax(0,1fr))] gap-2 items-center">
+      <div className="min-w-0">
+        <div className="text-sm font-medium truncate">{entity.label}</div>
+        <div className="text-[11px] text-muted-foreground">
+          {entity.stores.length} {entity.stores.length === 1 ? "store" : "stores"}
+        </div>
+      </div>
+      {entity.weeks.map((w, i) => (
+        <ZoneCell key={i} zone={entity.weekZones[i]} roas={w.roas} hasData={w.spend > 0} />
+      ))}
+    </div>
+  );
+}
+
+function ZoneCell({ zone, roas, hasData }: { zone: Zone | null; roas: number | null; hasData: boolean }) {
+  if (!hasData) {
+    return (
+      <div className="rounded-lg border border-dashed border-border/50 h-14 flex items-center justify-center text-[11px] text-muted-foreground/50">
+        —
+      </div>
+    );
+  }
+  return (
+    <div
+      className={cn(
+        "rounded-lg border h-14 flex items-center justify-center gap-2 transition-colors",
+        zone
+          ? {
+              red: "bg-red-500/15 border-red-500/40 text-red-700 dark:text-red-400",
+              orange: "bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-400",
+              green: "bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
+            }[zone]
+          : "border-border text-muted-foreground"
+      )}
+    >
+      {zone && (
+        <span
+          className={cn(
+            "w-2 h-2 rounded-full flex-shrink-0",
+            {
+              red: "bg-red-500",
+              orange: "bg-amber-500",
+              green: "bg-emerald-500",
+            }[zone]
+          )}
+        />
+      )}
+      <div className="flex flex-col items-start leading-tight">
+        <span className="text-[10px] uppercase tracking-widest font-semibold">
+          {zone ?? "n/a"}
+        </span>
+        <span className="text-xs font-medium tabular-nums opacity-80">
+          {fmtRoas(roas)}
+        </span>
+      </div>
+    </div>
   );
 }

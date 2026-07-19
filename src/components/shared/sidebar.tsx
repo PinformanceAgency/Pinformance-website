@@ -25,6 +25,9 @@ import {
   Store,
   Radar,
   Scale,
+  LineChart,
+  AlertTriangle,
+  Grid3x3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -48,12 +51,17 @@ const organicNav = [
 ];
 
 const paidAdsNav = [
-  { href: "/paid-ads/hub", label: "Media Buying Hub", icon: Radar },
-  { href: "/paid-ads/benchmarks", label: "Benchmarks", icon: Scale },
   { href: "/paid-ads/creatives", label: "Creatives", icon: Sparkles },
   { href: "/paid-ads/media-buying", label: "Mediabuying", icon: BarChart3 },
   { href: "/paid-ads/creative-cadence", label: "Creative Cadence", icon: Gauge },
-  { href: "/paid-ads/store-settings", label: "Store Settings", icon: Store },
+];
+
+const mediaBuyingHubNav = [
+  { href: "/media-buying-hub/overview", label: "Analytic Overview", icon: LineChart },
+  { href: "/media-buying-hub/zones", label: "Zones", icon: Grid3x3 },
+  { href: "/media-buying-hub/critical", label: "Critical Attention", icon: AlertTriangle },
+  { href: "/media-buying-hub/benchmarks", label: "Benchmarks", icon: Scale },
+  { href: "/media-buying-hub/store-settings", label: "Store Settings", icon: Store },
 ];
 
 const adminSharedNav = [
@@ -78,6 +86,7 @@ export function Sidebar() {
   const role = user?.role;
   const visibleOrganic = organicNav.filter((i) => canAccessPath(role, i.href));
   const visiblePaidAds = paidAdsNav.filter((i) => canAccessPath(role, i.href));
+  const visibleHub = mediaBuyingHubNav.filter((i) => canAccessPath(role, i.href));
   const visibleAdminShared = adminSharedNav.filter((i) => canAccessPath(role, i.href));
 
   async function handleSignOut() {
@@ -174,6 +183,33 @@ export function Sidebar() {
           </div>
         )}
         {visiblePaidAds.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all relative",
+                isActive
+                  ? "sidebar-nav-active font-medium"
+                  : "text-white/50 sidebar-nav-item hover:text-white/80"
+              )}
+            >
+              <item.icon className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1">{item.label}</span>
+              {isActive && (
+                <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+              )}
+            </Link>
+          );
+        })}
+
+        {visibleHub.length > 0 && (
+          <div className="text-[10px] font-semibold text-white/30 px-3 pt-5 pb-2 uppercase tracking-[0.15em]">
+            Media Buying Hub
+          </div>
+        )}
+        {visibleHub.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
