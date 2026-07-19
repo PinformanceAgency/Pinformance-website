@@ -354,7 +354,7 @@ export function CompanyOverviewCard({
         </div>
         <ZoneBadge zone={ph.zone} large />
       </div>
-      <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
         <Stat label="Total spend (7d)" value={fmtCurrency(ph.spend, "USD")} big />
         <Stat label="Total revenue (7d)" value={fmtCurrency(ph.revenue, "USD")} big />
         <Stat
@@ -362,12 +362,6 @@ export function CompanyOverviewCard({
           value={fmtRoas(ph.roas)}
           big
           sub={ph.weighted_ber != null ? `vs ${fmtRoas(ph.weighted_ber)} BER` : undefined}
-        />
-        <Stat
-          label="Invoice ROAS target"
-          value={fmtRoas(ph.weighted_invoice_roas)}
-          big
-          sub={ph.zones ? `${ph.zones.red}R · ${ph.zones.orange}O · ${ph.zones.green}G` : undefined}
         />
       </div>
       <div className="mt-3 border-t border-border pt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
