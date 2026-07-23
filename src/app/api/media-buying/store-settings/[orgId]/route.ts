@@ -17,6 +17,7 @@ import {
   COUNTRY_OPTIONS,
   type AttributionWindow,
   type Department,
+  type InvoicingModel,
   type ZoneThresholds,
 } from "@/lib/media-buying/config";
 import type { StoreSettingsUpsertInput } from "@/lib/media-buying/store-settings-types";
@@ -98,6 +99,27 @@ function parseInput(body: unknown): StoreSettingsUpsertInput | { error: string }
       const n = Number(v);
       if (!isFinite(n) || n <= 0) return { error: "invoice_roas must be > 0" };
       out.invoice_roas = n;
+    }
+  }
+  if ("invoicing_model" in b) {
+    const v = b.invoicing_model;
+    if (v === "revenue_fee" || v === "spend_fee") {
+      out.invoicing_model = v as InvoicingModel;
+    } else if (v === null || v === "") {
+      out.invoicing_model = null;
+    } else {
+      return { error: `Invalid invoicing_model: ${String(v)}` };
+    }
+  }
+  if ("min_monthly_spend" in b) {
+    const v = b.min_monthly_spend;
+    if (v === null || v === "") out.min_monthly_spend = null;
+    else {
+      const n = Number(v);
+      if (!isFinite(n) || n < 0) {
+        return { error: "min_monthly_spend must be ≥ 0" };
+      }
+      out.min_monthly_spend = n;
     }
   }
   if ("attribution_setting" in b) {

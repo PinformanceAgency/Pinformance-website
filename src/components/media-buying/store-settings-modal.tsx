@@ -11,9 +11,13 @@ import {
   DEFAULT_ZONE_THRESHOLDS,
   DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR,
   DEFAULT_ATTRIBUTION_SETTING,
+  DEFAULT_MIN_MONTHLY_SPEND,
   ATTRIBUTION_OPTIONS,
+  INVOICING_MODEL_LABELS,
+  WEEKS_PER_MONTH,
   type AttributionWindow,
   type Department,
+  type InvoicingModel,
 } from "@/lib/media-buying/config";
 import type {
   StoreSettings,
@@ -51,6 +55,12 @@ export function StoreSettingsModal({
   );
   const [invoiceRoas, setInvoiceRoas] = useState<string>(
     s?.invoice_roas != null ? String(s.invoice_roas) : ""
+  );
+  const [invoicingModel, setInvoicingModel] = useState<InvoicingModel>(
+    (s?.invoicing_model as InvoicingModel) ?? "revenue_fee"
+  );
+  const [minMonthlySpend, setMinMonthlySpend] = useState<string>(
+    s?.min_monthly_spend != null ? String(s.min_monthly_spend) : ""
   );
   const [attribution, setAttribution] = useState<AttributionWindow>(
     (s?.attribution_setting as AttributionWindow) ?? DEFAULT_ATTRIBUTION_SETTING
@@ -104,6 +114,21 @@ export function StoreSettingsModal({
     // Build the payload — only send zone_thresholds when the advanced section
     // was actually filled; otherwise clear to null so the store falls back to
     // the global default.
+    // Spend-fee brands: parse the monthly floor (blank = fall back to server
+    // default 7,500). Revenue-fee brands ignore the field entirely.
+    let minMonthlySpendPayload: number | null = null;
+    if (invoicingModel === "spend_fee") {
+      const raw = minMonthlySpend.trim();
+      if (raw !== "") {
+        const n = Number(raw);
+        if (!isFinite(n) || n < 0) {
+          setError("Minimum monthly spend must be a non-negative number.");
+          setSaving(false);
+          return;
+        }
+        minMonthlySpendPayload = n;
+      }
+    }
     const payload: StoreSettingsUpsertInput = {
       department: department === "" ? null : department,
       niche: niche.trim() || null,
@@ -113,6 +138,8 @@ export function StoreSettingsModal({
       media_buyer: mediaBuyer.trim() || null,
       breakeven_roas: berNumber,
       invoice_roas: invoiceRoasNumber,
+      invoicing_model: invoicingModel,
+      min_monthly_spend: minMonthlySpendPayload,
       attribution_setting: attribution,
       is_active: isActive,
       notes: notes.trim() || null,
@@ -235,12 +262,82 @@ export function StoreSettingsModal({
                 className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
-                ROAS at &ge; this <em>and</em> &ge; €
-                {DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR.toLocaleString("en-US")} weekly
-                revenue &rarr; <strong>green</strong>. Leave empty to fall back to
-                BER &times; green ratio.
+                ROAS at or above this &rarr; passes the profitability gate.
+                Leave empty to fall back to BER &times; green ratio.
               </p>
             </div>
+          </div>
+
+          {/* Invoicing model — controls the scale gate (weekly revenue vs
+              derived weekly spend). Split the required knobs based on the
+              chosen model so the modal never shows the wrong field. */}
+          <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-3">
+            <div>
+              <label className="text-xs font-medium text-foreground">Invoicing model</label>
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
+                {(Object.keys(INVOICING_MODEL_LABELS) as InvoicingModel[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setInvoicingModel(m)}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-xs font-medium transition-colors text-left",
+                      invoicingModel === m
+                        ? "bg-primary text-white border-primary"
+                        : "border-border bg-card hover:bg-muted text-foreground"
+                    )}
+                  >
+                    <div className="font-semibold">{INVOICING_MODEL_LABELS[m]}</div>
+                    <div className="mt-0.5 text-[11px] font-normal opacity-80">
+                      {m === "revenue_fee"
+                        ? "Agency fee = % of revenue"
+                        : "Agency fee = % of spend"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {invoicingModel === "spend_fee" ? (
+              <div>
+                <label className="text-xs font-medium text-foreground">
+                  Min. monthly spend
+                </label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="100"
+                    min="0"
+                    value={minMonthlySpend}
+                    onChange={(e) => setMinMonthlySpend(e.target.value)}
+                    placeholder={String(DEFAULT_MIN_MONTHLY_SPEND)}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <span className="text-xs text-muted-foreground">/ month</span>
+                </div>
+                {(() => {
+                  const raw = Number(minMonthlySpend);
+                  const monthly =
+                    isFinite(raw) && raw > 0 ? raw : DEFAULT_MIN_MONTHLY_SPEND;
+                  const weekly = monthly / WEEKS_PER_MONTH;
+                  return (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Green = ROAS &ge; invoice ROAS AND weekly spend &ge;{" "}
+                      <strong>{weekly.toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong>
+                      {" "}(={monthly.toLocaleString("en-US")} / month).
+                      Default = {DEFAULT_MIN_MONTHLY_SPEND.toLocaleString("en-US")}.
+                    </p>
+                  );
+                })()}
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                Green = ROAS &ge; invoice ROAS AND weekly revenue &ge;{" "}
+                <strong>
+                  {DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR.toLocaleString("en-US")}
+                </strong>
+                . Change the revenue floor per store from the Advanced section below.
+              </p>
+            )}
           </div>
 
           <div>

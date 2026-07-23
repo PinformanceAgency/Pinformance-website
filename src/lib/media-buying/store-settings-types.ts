@@ -1,4 +1,4 @@
-import type { AttributionWindow, Department, ZoneThresholds } from "./config";
+import type { AttributionWindow, Department, InvoicingModel, ZoneThresholds } from "./config";
 
 /** The store_settings row as it lives in the DB (nullable everywhere except id). */
 export interface StoreSettings {
@@ -17,6 +17,11 @@ export interface StoreSettings {
    *  covers COGS/fees, not just ad spend). Null → falls back to
    *  BER × green_ratio for backwards compatibility. */
   invoice_roas: number | null;
+  /** How the agency bills this store — 'revenue_fee' (existing) or
+   *  'spend_fee' (weekly-spend floor gate instead of weekly-revenue floor). */
+  invoicing_model: InvoicingModel;
+  /** Only meaningful when invoicing_model = 'spend_fee'. Default 7500. */
+  min_monthly_spend: number | null;
   /** Pinterest attribution setting this store's numbers are measured with. */
   attribution_setting: AttributionWindow | null;
   zone_thresholds: Partial<ZoneThresholds> | null;
@@ -51,6 +56,8 @@ export interface StoreSettingsUpsertInput {
   media_buyer?: string | null;
   breakeven_roas?: number | null;
   invoice_roas?: number | null;
+  invoicing_model?: InvoicingModel | null;
+  min_monthly_spend?: number | null;
   attribution_setting?: AttributionWindow | null;
   zone_thresholds?: Partial<ZoneThresholds> | null;
   is_active?: boolean;

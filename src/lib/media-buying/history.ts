@@ -199,6 +199,8 @@ export async function computeMovers(
       spend: p?.spend ?? 0,
       windowRevenue: p?.revenue ?? 0,
       overrides: s.zone_thresholds,
+      invoicingModel: s.invoicing_model,
+      minMonthlySpend: s.min_monthly_spend,
     });
     const zoneCurr = classifyZone({
       liveRoas: roasCurr,
@@ -207,6 +209,8 @@ export async function computeMovers(
       spend: c?.spend ?? 0,
       windowRevenue: c?.revenue ?? 0,
       overrides: s.zone_thresholds,
+      invoicingModel: s.invoicing_model,
+      minMonthlySpend: s.min_monthly_spend,
     });
     if (zonePrev === zoneCurr) continue;
 

@@ -43,6 +43,26 @@ export const ZONE_ROAS_WINDOW_DAYS = 7;
  *  The 7-day window means the last-7-days revenue IS the weekly revenue. */
 export const DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR = 5000;
 
+// ─── Invoicing model (billing basis for the agency) ────────────────────────
+/** Two ways the agency invoices its clients — the zone engine flips its
+ *  scale-gate depending on which one a store is on.
+ *    revenue_fee — % of revenue. Green = above invoice ROAS + weekly revenue ≥ floor.
+ *    spend_fee   — % of spend. Green = above invoice ROAS + weekly spend ≥ derived floor. */
+export type InvoicingModel = "revenue_fee" | "spend_fee";
+
+export const INVOICING_MODEL_LABELS: Record<InvoicingModel, string> = {
+  revenue_fee: "Revenue fee",
+  spend_fee: "Spend fee",
+};
+
+/** Default monthly-spend floor for spend-fee brands (in the store's
+ *  currency). Divided by WEEKS_PER_MONTH at classify time so a partial week
+ *  isn't punished. */
+export const DEFAULT_MIN_MONTHLY_SPEND = 7500;
+
+/** Average number of weeks per month (30.42 days / 7). */
+export const WEEKS_PER_MONTH = 4.345;
+
 // ─── Attribution (Pinterest reporting window per store) ────────────────────
 /** Pinterest attribution window key used across the app. Mirrors the shape
  *  of ConversionWindow in components/shared/conversion-settings.tsx. */
@@ -146,10 +166,25 @@ export interface ClassifyInput {
   /** Set false for per-campaign classification: skip the revenue-floor gate. */
   requireRevenueFloor?: boolean;
   overrides?: Partial<ZoneThresholds> | null;
+  /** Billing basis for this store. Defaults to revenue_fee for backwards
+   *  compatibility so stores that haven't set the field yet keep classifying
+   *  the way they always did. */
+  invoicingModel?: InvoicingModel | null;
+  /** Only used when `invoicingModel === "spend_fee"`. */
+  minMonthlySpend?: number | null;
 }
 
 export function classifyZone(input: ClassifyInput): Zone | null {
-  const { liveRoas, breakevenRoas, invoiceRoas, spend, windowRevenue, overrides } = input;
+  const {
+    liveRoas,
+    breakevenRoas,
+    invoiceRoas,
+    spend,
+    windowRevenue,
+    overrides,
+    invoicingModel,
+    minMonthlySpend,
+  } = input;
   if (spend <= 0) return null; // no spend → no signal
   if (breakevenRoas == null || breakevenRoas <= 0) return null;
   if (liveRoas == null || !isFinite(liveRoas)) return null;
@@ -172,9 +207,25 @@ export function classifyZone(input: ClassifyInput): Zone | null {
     : breakevenRoas * th.green_ratio;
 
   const beatsInvoice = liveRoas >= effectiveInvoiceRoas;
-  const scaleOK = input.requireRevenueFloor === false
-    ? true
-    : (windowRevenue ?? 0) >= (th.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR);
+
+  // Scale gate: whether the store's at enough size for its billing model.
+  // For spend-fee brands the agency's fee kicks in only above a monthly
+  // spend floor; convert to weekly so a fresh 7d window can decide.
+  let scaleOK: boolean;
+  if (input.requireRevenueFloor === false) {
+    scaleOK = true;
+  } else if (invoicingModel === "spend_fee") {
+    const monthly = minMonthlySpend != null && minMonthlySpend > 0
+      ? minMonthlySpend
+      : DEFAULT_MIN_MONTHLY_SPEND;
+    const weeklyFloor = monthly / WEEKS_PER_MONTH;
+    scaleOK = spend >= weeklyFloor;
+  } else {
+    // revenue_fee (default): existing behaviour.
+    scaleOK =
+      (windowRevenue ?? 0) >=
+      (th.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR);
+  }
 
   if (beatsInvoice && scaleOK) return "green";
   return "orange";

@@ -103,6 +103,8 @@ export async function computeExceptions(
         spend: d.spend,
         requireRevenueFloor: false,
         overrides: store.zone_thresholds,
+        invoicingModel: store.invoicing_model,
+        minMonthlySpend: store.min_monthly_spend,
       });
       if (z === "red") streak++;
       else break;

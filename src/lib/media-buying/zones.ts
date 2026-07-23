@@ -11,6 +11,7 @@ import {
   DEFAULT_ZONE_THRESHOLDS,
   ZONE_ROAS_WINDOW_DAYS,
   classifyZone,
+  type InvoicingModel,
   type Zone,
   type ZoneThresholds,
 } from "./config";
@@ -31,6 +32,8 @@ export interface StoreZoneRow {
   media_buyer: string | null;
   breakeven_roas: number | null;
   invoice_roas: number | null;
+  invoicing_model: InvoicingModel;
+  min_monthly_spend: number | null;
   attribution_setting: string | null;
   zone_thresholds: Partial<ZoneThresholds> | null;
   is_active: boolean;
@@ -264,6 +267,9 @@ export async function computeStoreZones(
       const cpc = tot && tot.clicks > 0 ? spend / tot.clicks : null;
       const ctr = tot && tot.impressions > 0 ? (tot.clicks / tot.impressions) * 100 : null;
       const cpa = tot && tot.conversions > 0 ? spend / tot.conversions : null;
+      const invoicingModel: InvoicingModel =
+        (s?.invoicing_model as InvoicingModel | undefined) ?? "revenue_fee";
+      const minMonthlySpend = s?.min_monthly_spend ?? null;
       const zone = configured
         ? classifyZone({
             liveRoas: roas,
@@ -272,6 +278,8 @@ export async function computeStoreZones(
             spend,
             windowRevenue: revenue,
             overrides: s?.zone_thresholds,
+            invoicingModel,
+            minMonthlySpend,
           })
         : null;
       const ber = s?.breakeven_roas ?? null;
@@ -290,6 +298,8 @@ export async function computeStoreZones(
               spend: b.spend,
               windowRevenue: b.revenue,
               overrides: s?.zone_thresholds,
+              invoicingModel,
+              minMonthlySpend,
             });
           })
         : [null, null, null, null];
@@ -314,6 +324,8 @@ export async function computeStoreZones(
         media_buyer: s?.media_buyer ?? null,
         breakeven_roas: s?.breakeven_roas ?? null,
         invoice_roas: s?.invoice_roas ?? null,
+        invoicing_model: invoicingModel,
+        min_monthly_spend: minMonthlySpend,
         attribution_setting: s?.attribution_setting ?? null,
         zone_thresholds: s?.zone_thresholds ?? null,
         is_active: s?.is_active ?? true,

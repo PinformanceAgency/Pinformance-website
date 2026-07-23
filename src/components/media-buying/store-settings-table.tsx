@@ -239,6 +239,7 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
                 <Th onClick={() => setSortKey("invoice")} align="right">
                   Invoice
                 </Th>
+                <th className="text-left font-medium px-3 py-2">Billing</th>
                 <th className="text-left font-medium px-3 py-2">Attribution</th>
                 <Th onClick={() => setSortKey("status")}>Status</Th>
                 {canEdit && <th className="px-3 py-2" />}
@@ -248,7 +249,7 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
               {sorted.length === 0 && (
                 <tr>
                   <td
-                    colSpan={canEdit ? 10 : 9}
+                    colSpan={canEdit ? 11 : 10}
                     className="px-3 py-8 text-center text-muted-foreground"
                   >
                     No stores match these filters.
@@ -288,6 +289,9 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
                       {s?.invoice_roas != null
                         ? `${Number(s.invoice_roas).toFixed(2)}x`
                         : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground text-xs">
+                      <InvoicingCell settings={s} />
                     </td>
                     <td className="px-3 py-2 text-muted-foreground text-xs tabular-nums">
                       {s?.attribution_setting ?? "—"}
@@ -357,6 +361,25 @@ function Th({
       </span>
     </th>
   );
+}
+
+function InvoicingCell({ settings }: { settings: import("@/lib/media-buying/store-settings-types").StoreSettings | null }) {
+  if (!settings) return <>—</>;
+  const model = settings.invoicing_model ?? "revenue_fee";
+  if (model === "spend_fee") {
+    const monthly = settings.min_monthly_spend ?? null;
+    return (
+      <div className="flex flex-col leading-tight">
+        <span className="font-medium text-foreground">Spend fee</span>
+        {monthly != null && (
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            min {Math.round(monthly).toLocaleString("en-US")}/mo
+          </span>
+        )}
+      </div>
+    );
+  }
+  return <span className="font-medium text-foreground">Revenue fee</span>;
 }
 
 function CountryList({ settings }: { settings: import("@/lib/media-buying/store-settings-types").StoreSettings | null }) {
