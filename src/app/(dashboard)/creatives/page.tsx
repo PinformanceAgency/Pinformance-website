@@ -358,17 +358,28 @@ export default function CreativesPage() {
     }
   }
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || !org) return;
-    const fileArr = Array.from(files);
+  function isVideoFile(file: File): boolean {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    return file.type.startsWith("video/") || ["mov", "mp4", "avi", "webm", "mkv"].includes(ext);
+  }
+
+  /** Shared processing for anything that hands us File objects — the file
+   *  picker, paste from clipboard, and drag-and-drop all route through here so
+   *  overlay rotation + concurrency stay identical across entry points. */
+  async function processFiles(fileArr: File[]) {
+    if (!fileArr.length || !org) return;
+
+    // Filter to only files that match the current tab so pasting a screenshot
+    // while on the Videos tab (or vice versa) is silently ignored instead of
+    // creating an "error" card.
+    const wantVideo = activeTab === "video";
+    const filtered = fileArr.filter((f) => isVideoFile(f) === wantVideo);
+    if (filtered.length === 0) return;
 
     // Decide the overlay variant for each static up-front (deterministic
     // rotation), so concurrent processing doesn't race on staticCounterRef.
-    const variants = fileArr.map((file) => {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const isVideo = file.type.startsWith("video/") || ["mov", "mp4", "avi", "webm", "mkv"].includes(ext);
-      if (isVideo) return null;
+    const variants = filtered.map((file) => {
+      if (isVideoFile(file)) return null;
       const cycleSize = Math.max(1, rotation.full_overlay + rotation.logo_only + rotation.clean);
       const counter = staticCounterRef.current % cycleSize;
       staticCounterRef.current++;
@@ -381,16 +392,73 @@ export default function CreativesPage() {
     const CONCURRENCY = 3;
     let next = 0;
     async function worker() {
-      while (next < fileArr.length) {
+      while (next < filtered.length) {
         const i = next++;
-        await processFile(fileArr[i], variants[i]);
+        await processFile(filtered[i], variants[i]);
       }
     }
     await Promise.all(
-      Array.from({ length: Math.min(CONCURRENCY, fileArr.length) }, () => worker())
+      Array.from({ length: Math.min(CONCURRENCY, filtered.length) }, () => worker())
     );
+  }
 
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files) return;
+    await processFiles(Array.from(files));
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // Cmd/Ctrl+V from Finder or Windows Explorer drops File objects onto
+  // clipboard.items. Route them straight into processFiles so pasting has the
+  // same UX as picking a file. Skipped when the user is typing in a form so
+  // pasting text into the title / description fields keeps working.
+  useEffect(() => {
+    if (activeTab === "settings") return;
+    function onPaste(e: ClipboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("input, textarea, select, [contenteditable='true']")) return;
+      const items = e.clipboardData?.items;
+      if (!items || items.length === 0) return;
+      const files: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length === 0) return;
+      e.preventDefault();
+      processFiles(files);
+    }
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, org?.id, rotation.full_overlay, rotation.logo_only, rotation.clean]);
+
+  const [isDragging, setIsDragging] = useState(false);
+  function handleDragEnter(e: React.DragEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    // Only react to drags that actually carry files (not selected text, etc).
+    if (e.dataTransfer.types?.includes("Files")) setIsDragging(true);
+  }
+  function handleDragOver(e: React.DragEvent<HTMLButtonElement>) {
+    if (e.dataTransfer.types?.includes("Files")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  }
+  function handleDragLeave(e: React.DragEvent<HTMLButtonElement>) {
+    // dragleave fires when moving over child nodes too — check we've really left.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsDragging(false);
+  }
+  async function handleDrop(e: React.DragEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length === 0) return;
+    await processFiles(files);
   }
 
   function removeCreative(url: string) {
@@ -554,18 +622,37 @@ export default function CreativesPage() {
         />
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="w-full flex flex-col items-center justify-center gap-3 px-6 py-10 border-2 border-dashed border-border rounded-xl text-muted-foreground hover:text-foreground hover:border-muted-foreground/50 transition-colors bg-card"
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={cn(
+            "w-full flex flex-col items-center justify-center gap-3 px-6 py-10 border-2 border-dashed rounded-xl transition-colors bg-card",
+            isDragging
+              ? "border-primary text-primary bg-primary/5"
+              : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground/50"
+          )}
         >
           <Upload className="w-8 h-8" />
           <div className="text-center">
             <p className="text-sm font-medium">
-              Upload {activeTab === "video" ? "Videos" : "Photos"}
+              {isDragging
+                ? `Drop to upload ${activeTab === "video" ? "video" : "photo"}${activeTab === "video" ? "s" : "s"}`
+                : `Upload ${activeTab === "video" ? "Videos" : "Photos"}`}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {activeTab === "video"
                 ? "AI transcribes audio and generates Pinterest SEO. No edits to the video."
                 : "AI adds subtle text overlay + logo and generates Pinterest SEO."}
             </p>
+            {!isDragging && (
+              <p className="text-[11px] text-muted-foreground/70 mt-2">
+                Click to pick files &middot; drag &amp; drop from Finder / Explorer &middot; or paste with{" "}
+                <kbd className="px-1 py-0.5 rounded border border-border bg-muted text-[10px] font-medium">
+                  {typeof navigator !== "undefined" && navigator.platform?.toLowerCase().includes("mac") ? "⌘V" : "Ctrl+V"}
+                </kbd>
+              </p>
+            )}
           </div>
         </button>
       </div>

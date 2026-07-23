@@ -66,7 +66,14 @@ async function handlePostPins(request: NextRequest) {
   }
 
   let totalPosted = 0;
-  const results: { org: string; posted: number; errors: string[]; skip?: string }[] = [];
+  const results: {
+    org: string;
+    org_id?: string;
+    posted: number;
+    errors: string[];
+    skip?: string;
+    forced?: boolean;
+  }[] = [];
 
   for (const org of orgs) {
     const orgErrors: string[] = [];
