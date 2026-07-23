@@ -170,7 +170,14 @@ async function handlePostPins(request: NextRequest) {
         const timeSinceLastPost = Date.now() - new Date(lastPosted[0].posted_at).getTime();
         if (timeSinceLastPost < MIN_INTERVAL_MIN * 60_000) {
           skipReason = `rate_limit_${Math.round(timeSinceLastPost/60000)}min_of_${MIN_INTERVAL_MIN}min`;
-          results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
+          results.push({
+            org: org.name || org.id,
+            org_id: org.id,
+            posted: 0,
+            errors: orgErrors,
+            skip: skipReason,
+            forced,
+          });
           continue;
         }
       }
@@ -382,5 +389,9 @@ async function handlePostPins(request: NextRequest) {
     totalPosted += orgPosted;
   }
 
-  return NextResponse.json({ posted: totalPosted, results });
+  return NextResponse.json({
+    posted: totalPosted,
+    results,
+    forced_org_ids: Array.from(forcedOrgIds),
+  });
 }
