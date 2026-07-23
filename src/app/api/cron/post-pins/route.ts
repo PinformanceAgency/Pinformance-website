@@ -32,10 +32,26 @@ async function handlePostPins(request: NextRequest) {
     .eq("status", "posting")
     .lt("updated_at", stuckCutoff);
 
+  // Prefilter: only iterate orgs that actually have a due pin right now.
+  // Otherwise the loop pays 3-4 DB round-trips per org (token check, caps
+  // count, rate-limit check, due-pins query) just to discover there's nothing
+  // to do — with 30+ orgs the whole cron blows through Vercel's function
+  // timeout and every org's pins stall.
+  const { data: duePinOrgs } = await admin
+    .from("pins")
+    .select("org_id")
+    .in("status", ["approved", "scheduled"])
+    .lte("scheduled_at", now);
+  const orgsWithDuePins = new Set((duePinOrgs ?? []).map((p) => p.org_id as string));
+  if (orgsWithDuePins.size === 0) {
+    return NextResponse.json({ message: "No due pins", posted: 0 });
+  }
+
   const { data: orgs } = await admin
     .from("organizations")
     .select("id, name, pinterest_access_token_encrypted, pinterest_refresh_token_encrypted, pinterest_token_expires_at, pinterest_app_id, pinterest_app_secret_encrypted, settings")
-    .not("pinterest_access_token_encrypted", "is", null);
+    .not("pinterest_access_token_encrypted", "is", null)
+    .in("id", Array.from(orgsWithDuePins));
 
   if (!orgs || orgs.length === 0) {
     return NextResponse.json({ message: "No orgs to process", posted: 0 });
@@ -96,9 +112,13 @@ async function handlePostPins(request: NextRequest) {
       const isTrial = (orgSettings.pinterest_access_tier as string) === "trial";
       const pinterest = new PinterestClient(token, isTrial);
 
-      // CATEGORY-AWARE CAP: 2 swimwear/day + 2 non-swimwear/day (absolute ceilings)
+      // CATEGORY-AWARE CAP: swimwear still hard-capped at 2/day because
+      // Pinterest actively throttles bikini/swim posting; every other niche
+      // respects the org's `settings.max_pins_per_day` (default 5) so stores
+      // like Valerie Mason (jewelry, 22 pins in queue) aren't blocked at 2.
       const SWIMWEAR_CAP = 2;
-      const OTHER_CAP = 2;
+      const orgMaxPerDay = Number(orgSettings.max_pins_per_day);
+      const OTHER_CAP = isFinite(orgMaxPerDay) && orgMaxPerDay > 0 ? orgMaxPerDay : 5;
       const isSwimBoardName = (name: string | null | undefined) => {
         const n = (name || "").toLowerCase();
         return n.includes("bikini") || n.includes("swimwear");
@@ -120,7 +140,11 @@ async function handlePostPins(request: NextRequest) {
         continue;
       }
 
-      // Rate limit: min 30 min between posts
+      // Rate limit: respect the org's `settings.min_post_interval_minutes`
+      // (default 30). Some brands ship 3-hour intervals so they never look
+      // spammy to Pinterest; the previous hardcoded 30-min ignored that.
+      const orgMinInterval = Number(orgSettings.min_post_interval_minutes);
+      const MIN_INTERVAL_MIN = isFinite(orgMinInterval) && orgMinInterval > 0 ? orgMinInterval : 30;
       const { data: lastPosted } = await admin
         .from("pins")
         .select("posted_at")
@@ -131,8 +155,8 @@ async function handlePostPins(request: NextRequest) {
 
       if (lastPosted?.[0]?.posted_at) {
         const timeSinceLastPost = Date.now() - new Date(lastPosted[0].posted_at).getTime();
-        if (timeSinceLastPost < 30 * 60_000) {
-          skipReason = `rate_limit_${Math.round(timeSinceLastPost/60000)}min`;
+        if (timeSinceLastPost < MIN_INTERVAL_MIN * 60_000) {
+          skipReason = `rate_limit_${Math.round(timeSinceLastPost/60000)}min_of_${MIN_INTERVAL_MIN}min`;
           results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
           continue;
         }
@@ -150,6 +174,7 @@ async function handlePostPins(request: NextRequest) {
 
       let remainingSwim = SWIMWEAR_CAP - swimwearPostedToday;
       let remainingOther = OTHER_CAP - otherPostedToday;
+      const perRunCap = SWIMWEAR_CAP + OTHER_CAP;
       const duePins: typeof allDuePins = [];
       for (const pin of allDuePins || []) {
         const bn = (pin.boards as { name: string | null } | null)?.name;
@@ -158,7 +183,7 @@ async function handlePostPins(request: NextRequest) {
         } else {
           if (remainingOther > 0) { duePins.push(pin); remainingOther--; }
         }
-        if (duePins.length >= (SWIMWEAR_CAP + OTHER_CAP)) break;
+        if (duePins.length >= perRunCap) break;
       }
 
       if (!duePins || duePins.length === 0) {
