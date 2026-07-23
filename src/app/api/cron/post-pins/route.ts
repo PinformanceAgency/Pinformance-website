@@ -23,6 +23,14 @@ async function handlePostPins(request: NextRequest) {
 
   const admin = createAdminClient();
   const now = new Date().toISOString();
+  // `?force_org=<uuid>` (comma-separated for multiple) makes the cron ignore
+  // the daily cap + min-post-interval for that specific org. Set by the
+  // "Post Now" bulk action so a manual click actually means "now" instead
+  // of waiting for the next 15-min cron window + the org's rate limit.
+  const forceOrgParam = request.nextUrl.searchParams.get("force_org");
+  const forcedOrgIds = new Set(
+    (forceOrgParam ? forceOrgParam.split(",") : []).map((s) => s.trim()).filter(Boolean)
+  );
 
   // Self-heal: reset pins stuck in "posting" for > 10 minutes back to scheduled
   const stuckCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -134,7 +142,12 @@ async function handlePostPins(request: NextRequest) {
       const postedList = (postedToday || []) as unknown as Array<{ id: string; boards: { name: string | null } | null }>;
       const swimwearPostedToday = postedList.filter(p => isSwimBoardName(p.boards?.name)).length;
       const otherPostedToday = postedList.length - swimwearPostedToday;
-      if (swimwearPostedToday >= SWIMWEAR_CAP && otherPostedToday >= OTHER_CAP) {
+      const forced = forcedOrgIds.has(org.id as string);
+      if (
+        !forced &&
+        swimwearPostedToday >= SWIMWEAR_CAP &&
+        otherPostedToday >= OTHER_CAP
+      ) {
         skipReason = `daily_cap_reached_sw${swimwearPostedToday}/${SWIMWEAR_CAP}_other${otherPostedToday}/${OTHER_CAP}`;
         results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
         continue;
@@ -153,7 +166,7 @@ async function handlePostPins(request: NextRequest) {
         .order("posted_at", { ascending: false })
         .limit(1);
 
-      if (lastPosted?.[0]?.posted_at) {
+      if (!forced && lastPosted?.[0]?.posted_at) {
         const timeSinceLastPost = Date.now() - new Date(lastPosted[0].posted_at).getTime();
         if (timeSinceLastPost < MIN_INTERVAL_MIN * 60_000) {
           skipReason = `rate_limit_${Math.round(timeSinceLastPost/60000)}min_of_${MIN_INTERVAL_MIN}min`;
@@ -172,9 +185,11 @@ async function handlePostPins(request: NextRequest) {
         .order("scheduled_at", { ascending: true })
         .limit(10);
 
-      let remainingSwim = SWIMWEAR_CAP - swimwearPostedToday;
-      let remainingOther = OTHER_CAP - otherPostedToday;
-      const perRunCap = SWIMWEAR_CAP + OTHER_CAP;
+      let remainingSwim = forced ? Infinity : SWIMWEAR_CAP - swimwearPostedToday;
+      let remainingOther = forced ? Infinity : OTHER_CAP - otherPostedToday;
+      // Forced "Post Now" batches skip the daily caps but still cap at 10 per
+      // invocation so we don't blow the Vercel 300s function budget.
+      const perRunCap = forced ? 10 : SWIMWEAR_CAP + OTHER_CAP;
       const duePins: typeof allDuePins = [];
       for (const pin of allDuePins || []) {
         const bn = (pin.boards as { name: string | null } | null)?.name;

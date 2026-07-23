@@ -17,6 +17,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
+// The bulk API blocks while the post_now branch triggers the cron and waits
+// for its result; the cron itself does up to 10 posts × ~3s each = ~30s plus
+// Pinterest response time. Bump the Vercel function budget so the caller
+// sees a real success/failure count instead of a 504.
+export const maxDuration = 300;
+
 type Action =
   | "approve"
   | "reject"
@@ -108,8 +114,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "pin_ids required" }, { status: 400 });
       }
       const now = new Date().toISOString();
-      // Mark as approved + due now so the post-pins cron picks them up on its
-      // next run (every 15 min). Only touches non-terminal statuses.
+      // Mark as approved + due now so the post-pins cron picks them up.
       const { error, count } = await admin
         .from("pins")
         .update(
@@ -120,10 +125,57 @@ export async function POST(request: NextRequest) {
         .in("id", body.pin_ids)
         .in("status", ["generated", "approved", "scheduled", "rejected"]);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      // Trigger the post-pins cron RIGHT NOW with `force_org=<orgId>` so the
+      // caps + rate limit are ignored for this org only. The cron caps
+      // synchronous posts at 10 per invocation; any leftover pins stay in
+      // status='approved' with scheduled_at=now so the regular 15-min cron
+      // picks them up.
+      const cronSecret = process.env.CRON_SECRET || process.env.CRON_SET;
+      let posted = 0;
+      let cronError: string | undefined;
+      if (cronSecret) {
+        const origin = request.nextUrl.origin;
+        try {
+          const cronRes = await fetch(
+            `${origin}/api/cron/post-pins?force_org=${encodeURIComponent(orgId)}`,
+            {
+              method: "POST",
+              headers: { "x-cron-secret": cronSecret },
+              signal: AbortSignal.timeout(280_000),
+            }
+          );
+          if (cronRes.ok) {
+            const cronData = (await cronRes.json()) as {
+              posted?: number;
+              results?: { org: string; posted?: number }[];
+            };
+            posted = cronData.posted ?? 0;
+          } else {
+            cronError = `Cron returned ${cronRes.status}`;
+          }
+        } catch (e) {
+          cronError = e instanceof Error ? e.message : "cron trigger failed";
+        }
+      } else {
+        cronError = "CRON_SECRET not configured on server";
+      }
+
+      const queued = Math.max(0, (count ?? 0) - posted);
+      const note =
+        posted > 0 && queued === 0
+          ? `${posted} pin${posted === 1 ? "" : "s"} posted to Pinterest.`
+          : posted > 0
+          ? `${posted} posted now, ${queued} queued for the next cron run (≤15 min).`
+          : cronError
+          ? `Queued ${count ?? 0}; live-post trigger failed: ${cronError}. Cron will still pick them up within 15 min.`
+          : `Queued ${count ?? 0} for the next cron run (≤15 min).`;
       return NextResponse.json({
         ok: true,
         affected: count ?? 0,
-        note: "Pins queued for immediate posting on the next cron run (≤15 min).",
+        posted,
+        queued,
+        note,
       });
     }
 
