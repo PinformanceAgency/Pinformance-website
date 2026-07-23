@@ -33,7 +33,7 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
   const [countryFilter, setCountryFilter] = useState<string>("");
   const [buyerFilter, setBuyerFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<
-    "" | "needs_setup" | "configured" | "inactive"
+    "" | "not_connected" | "needs_setup" | "configured" | "inactive"
   >("");
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [editing, setEditing] = useState<StoreSettingsRow | null>(null);
@@ -58,7 +58,8 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
         if (!list.includes(countryFilter)) return false;
       }
       if (buyerFilter && r.settings?.media_buyer !== buyerFilter) return false;
-      if (statusFilter === "needs_setup" && r.configured) return false;
+      if (statusFilter === "not_connected" && r.pinterest_connected) return false;
+      if (statusFilter === "needs_setup" && (r.configured || !r.pinterest_connected)) return false;
       if (statusFilter === "configured" && !r.configured) return false;
       if (statusFilter === "inactive" && r.settings?.is_active !== false) return false;
       return true;
@@ -70,11 +71,14 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
     // "status" sort puts needs-setup rows first, then everything else.
     out.sort((a, b) => {
       if (sortKey === "status") {
-        // Needs-setup rows first (spec §1.3), then inactive, then configured.
+        // Order: not-connected first (needs Pinterest link), then needs-setup
+        // (Pinterest is there but metadata missing), then inactive, then
+        // configured. Newly-added stores surface at the top by default.
         const rank = (r: StoreSettingsRow) => {
-          if (!r.configured) return 0;
-          if (r.settings?.is_active === false) return 2;
-          return 1;
+          if (!r.pinterest_connected) return 0;
+          if (!r.configured) return 1;
+          if (r.settings?.is_active === false) return 3;
+          return 2;
         };
         const ra = rank(a);
         const rb = rank(b);
@@ -112,7 +116,8 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
     return out;
   }, [filtered, sortKey]);
 
-  const needsSetupCount = rows.filter((r) => !r.configured).length;
+  const notConnectedCount = rows.filter((r) => !r.pinterest_connected).length;
+  const needsSetupCount = rows.filter((r) => r.pinterest_connected && !r.configured).length;
 
   return (
     <>
@@ -170,6 +175,7 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
           className="text-xs rounded-lg border border-border bg-card px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40"
         >
           <option value="">All statuses</option>
+          <option value="not_connected">Not connected</option>
           <option value="needs_setup">Needs setup</option>
           <option value="configured">Configured</option>
           <option value="inactive">Inactive</option>
@@ -192,13 +198,24 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
         </div>
       </div>
 
-      {/* Needs-setup banner */}
+      {/* Status banners */}
+      {notConnectedCount > 0 && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-500/40 bg-slate-500/10 px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span>
+            <strong>{notConnectedCount}</strong>{" "}
+            {notConnectedCount === 1 ? "store is" : "stores are"} not yet linked to a
+            Pinterest account. You can pre-fill their department / BER / buyer here;
+            connect them via the Integrations page when the ad account is ready.
+          </span>
+        </div>
+      )}
       {needsSetupCount > 0 && (
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>
             <strong>{needsSetupCount}</strong>{" "}
-            {needsSetupCount === 1 ? "store still needs" : "stores still need"} setup.
+            {needsSetupCount === 1 ? "connected store still needs" : "connected stores still need"} setup.
             They&apos;re excluded from the zone engine and benchmarks until{" "}
             department and breakeven ROAS are filled in.
           </span>
@@ -276,7 +293,11 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
                       {s?.attribution_setting ?? "—"}
                     </td>
                     <td className="px-3 py-2">
-                      <StatusBadge configured={r.configured} inactive={inactive} />
+                      <StatusBadge
+                        configured={r.configured}
+                        inactive={inactive}
+                        pinterestConnected={r.pinterest_connected}
+                      />
                     </td>
                     {canEdit && (
                       <td className="px-3 py-2 text-right">
@@ -361,14 +382,25 @@ function CountryList({ settings }: { settings: import("@/lib/media-buying/store-
 function StatusBadge({
   configured,
   inactive,
+  pinterestConnected,
 }: {
   configured: boolean;
   inactive: boolean;
+  pinterestConnected: boolean;
 }) {
   if (inactive) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
         Inactive
+      </span>
+    );
+  }
+  if (!pinterestConnected) {
+    // Metadata can be pre-filled, but the zone engine / benchmarks won't have
+    // numbers to work with until Pinterest is wired up on the Integrations page.
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-slate-300">
+        Not connected
       </span>
     );
   }

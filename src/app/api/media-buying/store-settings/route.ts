@@ -1,13 +1,19 @@
 /**
  * GET /api/media-buying/store-settings
  *
- * Lists every "store" (= org) with a Pinterest connection, merged with its
- * store_settings row. Orgs that connected Pinterest but never had their
- * settings filled in come back with `settings = null` and `configured = false`
- * so the UI can surface them at the top as "Needs setup".
+ * Lists every "store" (= org) — Pinterest-connected or not — merged with its
+ * store_settings row. The UI shows a badge for each state:
+ *   - Not connected (no Pinterest link yet — newly added stores)
+ *   - Needs setup (Pinterest linked, but department/BER missing)
+ *   - Configured
+ *   - Inactive
+ *
+ * Non-Pinterest stores are still surfaced so the head of media buying can
+ * pre-fill department / BER / invoice ROAS / buyer before the Pinterest
+ * account is wired up on the Integrations page.
  *
  * Auth:
- *   - agency_admin sees every org with pinterest_user_id set.
+ *   - agency_admin sees every org.
  *   - Other roles see only their own org (via RLS).
  */
 import { NextResponse } from "next/server";
@@ -54,24 +60,20 @@ export async function GET() {
     (settingsRows ?? []).map((r) => [r.org_id, r as StoreSettings])
   );
 
-  const rows: StoreSettingsRow[] = (orgs as OrgRow[])
-    // Only surface orgs that have actually connected Pinterest — otherwise
-    // there's no ad account to attach settings to.
-    .filter((o) => o.pinterest_user_id != null)
-    .map((o) => {
-      const s = settingsByOrg.get(o.id) ?? null;
-      const configured =
-        s != null && s.department != null && s.breakeven_roas != null;
-      return {
-        org_id: o.id,
-        store_name: o.name,
-        ad_account_id:
-          s?.ad_account_id ?? o.settings?.pinterest_ad_account_id ?? null,
-        pinterest_connected: true,
-        settings: s,
-        configured,
-      };
-    });
+  const rows: StoreSettingsRow[] = (orgs as OrgRow[]).map((o) => {
+    const s = settingsByOrg.get(o.id) ?? null;
+    const configured =
+      s != null && s.department != null && s.breakeven_roas != null;
+    return {
+      org_id: o.id,
+      store_name: o.name,
+      ad_account_id:
+        s?.ad_account_id ?? o.settings?.pinterest_ad_account_id ?? null,
+      pinterest_connected: o.pinterest_user_id != null,
+      settings: s,
+      configured,
+    };
+  });
 
   return NextResponse.json({ stores: rows });
 }
