@@ -2,7 +2,7 @@
  * GET /api/media-buying/benchmarks
  *
  * Query params:
- *   department, niche, country, media_buyer — optional filters
+ *   department, niche, country, media_buyer, invoicing_model — optional filters
  *   kpi        — one of roas/cpm/cpc/ctr/cpa/spend/revenue/conversions
  *   days       — window size (default 30, max 90)
  *
@@ -34,6 +34,11 @@ export async function GET(req: NextRequest) {
   const days = Number(searchParams.get("days") ?? 30);
 
   try {
+    const rawInvoicing = searchParams.get("invoicing_model") || null;
+    const invoicing_model =
+      rawInvoicing === "revenue_fee" || rawInvoicing === "spend_fee"
+        ? rawInvoicing
+        : null;
     const result = await computeBenchmark(
       supabase,
       {
@@ -41,6 +46,7 @@ export async function GET(req: NextRequest) {
         niche: searchParams.get("niche") || null,
         country: searchParams.get("country") || null,
         media_buyer: searchParams.get("media_buyer") || null,
+        invoicing_model,
         days,
       },
       kpi

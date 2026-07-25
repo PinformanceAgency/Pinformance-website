@@ -43,6 +43,10 @@ export interface BenchmarkFilter {
   niche?: string | null;
   country?: string | null;
   media_buyer?: string | null;
+  /** Billing basis — 'revenue_fee' | 'spend_fee' | null. Mixing brands with
+   *  different fee structures skews benchmarks: spend-fee brands report
+   *  lower ROAS by design because more of the top-line stays inside spend. */
+  invoicing_model?: string | null;
   days?: number;
 }
 
@@ -69,6 +73,7 @@ export interface BenchmarkResult {
     niche: string | null;
     country: string | null;
     media_buyer: string | null;
+    invoicing_model: string | null;
     days: number;
   };
   kpi: BenchmarkKpi;
@@ -197,6 +202,10 @@ export async function computeBenchmark(
       if (!list.includes(filter.country)) return false;
     }
     if (filter.media_buyer && s.media_buyer !== filter.media_buyer) return false;
+    if (filter.invoicing_model) {
+      const model = s.invoicing_model ?? "revenue_fee";
+      if (model !== filter.invoicing_model) return false;
+    }
     return true;
   });
 
@@ -206,6 +215,7 @@ export async function computeBenchmark(
       niche: filter.niche ?? null,
       country: filter.country ?? null,
       media_buyer: filter.media_buyer ?? null,
+      invoicing_model: filter.invoicing_model ?? null,
       days,
     },
     kpi,
@@ -346,6 +356,7 @@ export async function computeBenchmark(
       niche: filter.niche ?? null,
       country: filter.country ?? null,
       media_buyer: filter.media_buyer ?? null,
+      invoicing_model: filter.invoicing_model ?? null,
       days,
     },
     kpi,

@@ -23,7 +23,7 @@ import {
   type BenchmarkKpi,
   type BenchmarkResult,
 } from "@/lib/media-buying/benchmark-query";
-import { DEPARTMENT_LABELS, COUNTRY_OPTIONS } from "@/lib/media-buying/config";
+import { DEPARTMENT_LABELS, COUNTRY_OPTIONS, INVOICING_MODEL_LABELS } from "@/lib/media-buying/config";
 
 const COUNTRY_LABEL: Record<string, string> = COUNTRY_OPTIONS.reduce(
   (acc, c) => ({ ...acc, [c.code]: c.label }),
@@ -35,6 +35,9 @@ interface Filter {
   niche: string;
   country: string;
   media_buyer: string;
+  /** "" | "revenue_fee" | "spend_fee" — mixing billing models skews the
+   *  benchmark since spend-fee brands report a lower ROAS by design. */
+  invoicing_model: string;
   kpi: BenchmarkKpi;
   days: number;
 }
@@ -44,6 +47,7 @@ const DEFAULT_FILTER: Filter = {
   niche: "",
   country: "",
   media_buyer: "",
+  invoicing_model: "",
   kpi: "roas",
   days: 30,
 };
@@ -76,6 +80,7 @@ export default function BenchmarksPage() {
       if (filter.niche) qs.set("niche", filter.niche);
       if (filter.country) qs.set("country", filter.country);
       if (filter.media_buyer) qs.set("media_buyer", filter.media_buyer);
+      if (filter.invoicing_model) qs.set("invoicing_model", filter.invoicing_model);
       const res = await fetch(`/api/media-buying/benchmarks?${qs}`);
       const json = await res.json();
       if (!res.ok) {
@@ -150,7 +155,7 @@ export default function BenchmarksPage() {
           <FilterIcon className="w-4 h-4 text-muted-foreground" />
           <h2 className="text-base font-semibold">Filters</h2>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
           <SelectField
             label="Department"
             value={filter.department}
@@ -188,6 +193,18 @@ export default function BenchmarksPage() {
             options={[
               { value: "", label: "All buyers" },
               ...buyerOptions.map((b) => ({ value: b, label: b })),
+            ]}
+          />
+          <SelectField
+            label="Billing"
+            value={filter.invoicing_model}
+            onChange={(v) => setFilter({ ...filter, invoicing_model: v })}
+            options={[
+              { value: "", label: "All billing" },
+              ...Object.entries(INVOICING_MODEL_LABELS).map(([v, l]) => ({
+                value: v,
+                label: l,
+              })),
             ]}
           />
           <SelectField
