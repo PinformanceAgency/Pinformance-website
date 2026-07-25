@@ -9,6 +9,8 @@ import type { Exception } from "@/lib/media-buying/exceptions";
 import type { Mover } from "@/lib/media-buying/history";
 import { fmtCurrency, fmtRoas } from "./hub-format";
 import { filterStores } from "./hub-charts";
+// The filterStores helper reads `invoicing_model` off HubFilters now, so no
+// additional call-site change needed here.
 import type { HubFilters } from "./hub-panels";
 
 /**

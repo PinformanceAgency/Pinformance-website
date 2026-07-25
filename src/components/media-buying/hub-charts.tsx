@@ -30,6 +30,7 @@ export function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRo
       if (!list.includes(f.country)) return false;
     }
     if (f.buyer && s.media_buyer !== f.buyer) return false;
+    if (f.invoicing_model && s.invoicing_model !== f.invoicing_model) return false;
     return true;
   });
 }
@@ -136,15 +137,32 @@ function zeroPoint(date: string): DailyPoint {
   };
 }
 
-function sumSeriesForStores(series: HubSeries, stores: StoreZoneRow[]): DailyPoint[] {
+/** How to slice the daily series for the requested store subset. Picking the
+ *  wrong axis was the root cause of "every buyer shows the same numbers as
+ *  their department" — for a buyer roll-up we MUST sum from series.byBuyer,
+ *  not from series.byDepartment, otherwise all buyers inside a single dept
+ *  end up sharing the department's totals. */
+type GroupBy = "company" | "department" | "buyer";
+
+function sumSeriesForStores(
+  series: HubSeries,
+  stores: StoreZoneRow[],
+  groupBy: GroupBy = "buyer"
+): DailyPoint[] {
   if (stores.length === 0) return series.agency.map((p) => zeroPoint(p.date));
-  const wantDept = new Set(stores.map((s) => s.department ?? "(no department)"));
-  const wantBuyer = new Set(stores.map((s) => s.media_buyer ?? "(unassigned)"));
-  const useDept =
-    Object.keys(series.byDepartment).length > 0 &&
-    Object.keys(series.byDepartment).length <= Object.keys(series.byBuyer).length;
-  const source = useDept ? series.byDepartment : series.byBuyer;
-  const wanted = useDept ? wantDept : wantBuyer;
+  if (groupBy === "company") {
+    // Whole book: agency series is already the sum of every store's daily
+    // total, so return it directly (respects the filtered store set only
+    // when the caller passed the filtered list — which is always the case).
+    return series.agency.map((p) => ({ ...p }));
+  }
+  const isBuyer = groupBy === "buyer";
+  const source = isBuyer ? series.byBuyer : series.byDepartment;
+  const wanted = new Set(
+    stores.map((s) =>
+      isBuyer ? s.media_buyer ?? "(unassigned)" : s.department ?? "(no department)"
+    )
+  );
   const byDate = new Map<string, { spend: number; revenue: number }>();
   for (const [key, points] of Object.entries(source)) {
     if (!wanted.has(key)) continue;
@@ -170,9 +188,10 @@ function buildEntity(
   label: string,
   stores: StoreZoneRow[],
   series: HubSeries,
-  keyPrefix: string
+  keyPrefix: string,
+  groupBy: GroupBy = "buyer"
 ): EntityRow {
-  const weeks = bucketToWeeks(sumSeriesForStores(series, stores));
+  const weeks = bucketToWeeks(sumSeriesForStores(series, stores, groupBy));
   const ber = weightedBer(stores);
   const invoice = weightedInvoice(stores);
   const weekZones = weeks.map((w) =>
@@ -208,7 +227,7 @@ export function buildEntities(
   stores: StoreZoneRow[]
 ): { company: EntityRow; departments: EntityRow[]; buyers: EntityRow[] } {
   const series = hub.series;
-  const company = buildEntity("Company", stores, series, "company");
+  const company = buildEntity("Company", stores, series, "company", "company");
 
   const deptMap = new Map<string, StoreZoneRow[]>();
   for (const s of stores) {
@@ -221,7 +240,8 @@ export function buildEntities(
         DEPARTMENT_LABELS[k as keyof typeof DEPARTMENT_LABELS] ?? capitalize(k),
         list,
         series,
-        `dept:${k}`
+        `dept:${k}`,
+        "department"
       )
     )
     .sort((a, b) => sumSpend(b.stores) - sumSpend(a.stores));
@@ -232,7 +252,7 @@ export function buildEntities(
     (buyerMap.get(k) ?? buyerMap.set(k, []).get(k)!).push(s);
   }
   const buyers = Array.from(buyerMap.entries())
-    .map(([k, list]) => buildEntity(k, list, series, `buyer:${k}`))
+    .map(([k, list]) => buildEntity(k, list, series, `buyer:${k}`, "buyer"))
     .sort((a, b) => sumSpend(b.stores) - sumSpend(a.stores));
 
   return { company, departments, buyers };

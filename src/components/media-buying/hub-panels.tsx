@@ -25,7 +25,7 @@ import {
 } from "@/lib/media-buying/rollups";
 import { benchmarksFor } from "@/lib/media-buying/benchmarks";
 import type { Zone } from "@/lib/media-buying/config";
-import { DEPARTMENT_LABELS, COUNTRY_OPTIONS, DEFAULT_ZONE_THRESHOLDS, classifyZone } from "@/lib/media-buying/config";
+import { DEPARTMENT_LABELS, COUNTRY_OPTIONS, DEFAULT_ZONE_THRESHOLDS, INVOICING_MODEL_LABELS, classifyZone } from "@/lib/media-buying/config";
 import type { DailyPoint, HubSeries } from "@/lib/media-buying/hub-series";
 import {
   fmtCurrency,
@@ -176,8 +176,18 @@ export interface HubFilters {
   niche: string;
   country: string;
   buyer: string;
+  /** "revenue_fee" | "spend_fee" | "" — Adspend fee ROAS runs lower than
+   *  Revenue fee ROAS because the fee itself is smaller, so the benchmarks
+   *  are misleading when you mix them. */
+  invoicing_model: string;
 }
-export const EMPTY_FILTERS: HubFilters = { department: "", niche: "", country: "", buyer: "" };
+export const EMPTY_FILTERS: HubFilters = {
+  department: "",
+  niche: "",
+  country: "",
+  buyer: "",
+  invoicing_model: "",
+};
 
 function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
   return stores.filter((s) => {
@@ -189,6 +199,7 @@ function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
       if (!list.includes(f.country)) return false;
     }
     if (f.buyer && s.media_buyer !== f.buyer) return false;
+    if (f.invoicing_model && s.invoicing_model !== f.invoicing_model) return false;
     return true;
   });
 }
@@ -280,7 +291,13 @@ function HubFilterBar({
         placeholder="All buyers"
         options={buyers.map((b) => ({ value: b, label: b }))}
       />
-      {(filters.department || filters.niche || filters.country || filters.buyer) && (
+      <Select
+        value={filters.invoicing_model}
+        onChange={(v) => onChange({ ...filters, invoicing_model: v })}
+        placeholder="All billing"
+        options={Object.entries(INVOICING_MODEL_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+      />
+      {(filters.department || filters.niche || filters.country || filters.buyer || filters.invoicing_model) && (
         <button
           onClick={() => onChange(EMPTY_FILTERS)}
           className="text-xs text-muted-foreground hover:text-foreground underline decoration-dotted"
