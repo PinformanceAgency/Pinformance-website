@@ -64,6 +64,9 @@ export interface OrgSettings {
   max_pins_per_day?: number;
   weekend_boost?: boolean;
   pillar_rotation?: boolean;
+  /** ISO 639-1 language code for all AI-generated pin copy (title, description,
+   *  alt_text, text_overlay, keywords). Defaults to "en" when unset. */
+  content_language?: "en" | "nl";
   /** Board-health thresholds (overrides DEFAULT_BOARD_HEALTH). */
   board_health?: {
     metric_window_days?: number;

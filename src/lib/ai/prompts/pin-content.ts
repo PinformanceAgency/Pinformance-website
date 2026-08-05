@@ -10,7 +10,14 @@ interface PinContentInput {
   feedbackRules: FeedbackRule[];
   recentTopPerformers?: { title: string; keywords: string[] }[];
   customPromptAdditions?: string;
+  /** ISO code — "en" (default) or "nl". */
+  contentLanguage?: "en" | "nl";
 }
+
+const LANGUAGE_LABELS: Record<"en" | "nl", string> = {
+  en: "English",
+  nl: "Dutch (Nederlands)",
+};
 
 export interface PinContentOutput {
   title: string;
@@ -50,8 +57,15 @@ export function pinContentPrompts(input: PinContentInput) {
   const month = now.getMonth();
   const seasonalContext = getSeasonalContext(month);
 
-  const systemPrompt = `You are an elite Pinterest content creator for e-commerce brands. Create pin content optimized for Pinterest's search algorithm and maximum engagement.
+  const lang = input.contentLanguage ?? "en";
+  const langLabel = LANGUAGE_LABELS[lang];
+  const languageBlock =
+    lang === "en"
+      ? ""
+      : `\nOUTPUT LANGUAGE: Write ALL pin copy — title, description, alt_text, text_overlay, and every keyword — in ${langLabel}. Do NOT mix languages. Product/brand names may stay in their original spelling. All Pinterest SEO rules below still apply, but in ${langLabel} phrasing.\n`;
 
+  const systemPrompt = `You are an elite Pinterest content creator for e-commerce brands. Create pin content optimized for Pinterest's search algorithm and maximum engagement.
+${languageBlock}
 CRITICAL Pinterest SEO rules (these directly impact distribution):
 1. TITLE (max 100 chars):
    - Front-load the PRIMARY keyword in the first 40 characters — Pinterest's search algorithm weights early words heavily

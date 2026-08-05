@@ -227,6 +227,7 @@ export async function runContentPipeline(orgId: string, days = 7, apiKey?: strin
             keywords: p.keywords || [],
           })),
           customPromptAdditions: customPrompts?.pin_content || undefined,
+          contentLanguage: settings.content_language ?? "en",
         });
 
         const pinContent = await generateJSON<PinContentOutput>(
