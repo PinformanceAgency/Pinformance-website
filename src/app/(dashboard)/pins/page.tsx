@@ -97,14 +97,26 @@ export default function PinsPage() {
           ...payload,
         }),
       });
-      const json = (await res.json()) as {
+      // Guard: server may return HTML (Vercel timeout / crash page) instead of
+      // JSON — parse safely so the user sees the real HTTP status + snippet.
+      const ct = res.headers.get("content-type") || "";
+      let json: {
         ok?: boolean;
         affected?: number;
         error?: string;
         note?: string;
         first_at?: string;
         last_at?: string;
-      };
+      } = {};
+      if (ct.includes("application/json")) {
+        json = await res.json();
+      } else {
+        const text = await res.text();
+        const snippet = text.replace(/\s+/g, " ").trim().slice(0, 140);
+        throw new Error(
+          `HTTP ${res.status} (non-JSON response)${snippet ? ` — ${snippet}` : ""}`
+        );
+      }
       if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
       let msg = `${action.replace(/_/g, " ")}: ${json.affected ?? 0} pin(s) updated`;
       if (json.note) msg += ` — ${json.note}`;

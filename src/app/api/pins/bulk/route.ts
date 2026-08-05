@@ -13,15 +13,14 @@
  *                            org settings.posting_hours; sets status='scheduled'
  */
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getOrgIdFromProfile } from "@/lib/auth/effective-org";
 
-// The bulk API blocks while the post_now branch triggers the cron and waits
-// for its result; the cron itself does up to 10 posts × ~3s each = ~30s plus
-// Pinterest response time. Bump the Vercel function budget so the caller
-// sees a real success/failure count instead of a 504.
-export const maxDuration = 300;
+// The handler itself only does DB updates now — the post_now branch fires
+// the cron in the background via `after()`, so 60s is plenty.
+export const maxDuration = 60;
 
 type Action =
   | "approve"
@@ -43,6 +42,18 @@ interface RequestBody {
 const DEFAULT_HOURS = [8, 12, 17, 20];
 
 export async function POST(request: NextRequest) {
+  try {
+    return await handle(request);
+  } catch (e) {
+    // Any thrown error would otherwise bubble to Next.js and produce an HTML
+    // error page — which the client can't parse as JSON. Force a JSON body.
+    const msg = e instanceof Error ? e.message : "Internal error";
+    console.error("[pins/bulk] unhandled error:", e);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+async function handle(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -126,56 +137,37 @@ export async function POST(request: NextRequest) {
         .in("status", ["generated", "approved", "scheduled", "rejected"]);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-      // Trigger the post-pins cron RIGHT NOW with `force_org=<orgId>` so the
-      // caps + rate limit are ignored for this org only. The cron caps
-      // synchronous posts at 10 per invocation; any leftover pins stay in
-      // status='approved' with scheduled_at=now so the regular 15-min cron
-      // picks them up.
+      // Kick the post-pins cron in the BACKGROUND via `after()` so we don't
+      // block the response. The cron runs as its own Vercel invocation with
+      // its own timeout budget; any leftover pins stay in status='approved'
+      // with scheduled_at=now so the 15-min cron sweeps them up.
       const cronSecret = process.env.CRON_SECRET || process.env.CRON_SET;
-      let posted = 0;
-      let cronError: string | undefined;
+      let triggerNote: string;
       if (cronSecret) {
         const origin = request.nextUrl.origin;
-        try {
-          const cronRes = await fetch(
-            `${origin}/api/cron/post-pins?force_org=${encodeURIComponent(orgId)}`,
-            {
-              method: "POST",
-              headers: { "x-cron-secret": cronSecret },
-              signal: AbortSignal.timeout(280_000),
-            }
-          );
-          if (cronRes.ok) {
-            const cronData = (await cronRes.json()) as {
-              posted?: number;
-              results?: { org: string; posted?: number }[];
-            };
-            posted = cronData.posted ?? 0;
-          } else {
-            cronError = `Cron returned ${cronRes.status}`;
+        after(async () => {
+          try {
+            await fetch(
+              `${origin}/api/cron/post-pins?force_org=${encodeURIComponent(orgId)}`,
+              {
+                method: "POST",
+                headers: { "x-cron-secret": cronSecret },
+                signal: AbortSignal.timeout(280_000),
+              }
+            );
+          } catch (e) {
+            console.error("[pins/bulk] background cron trigger failed:", e);
           }
-        } catch (e) {
-          cronError = e instanceof Error ? e.message : "cron trigger failed";
-        }
+        });
+        triggerNote = `Posting ${count ?? 0} pin${(count ?? 0) === 1 ? "" : "s"} to Pinterest in the background — refresh in ~30s to see them go live.`;
       } else {
-        cronError = "CRON_SECRET not configured on server";
+        triggerNote = `Queued ${count ?? 0} pin${(count ?? 0) === 1 ? "" : "s"} for the next cron run (≤15 min).`;
       }
 
-      const queued = Math.max(0, (count ?? 0) - posted);
-      const note =
-        posted > 0 && queued === 0
-          ? `${posted} pin${posted === 1 ? "" : "s"} posted to Pinterest.`
-          : posted > 0
-          ? `${posted} posted now, ${queued} queued for the next cron run (≤15 min).`
-          : cronError
-          ? `Queued ${count ?? 0}; live-post trigger failed: ${cronError}. Cron will still pick them up within 15 min.`
-          : `Queued ${count ?? 0} for the next cron run (≤15 min).`;
       return NextResponse.json({
         ok: true,
         affected: count ?? 0,
-        posted,
-        queued,
-        note,
+        note: triggerNote,
       });
     }
 
