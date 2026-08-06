@@ -7,7 +7,7 @@ import type { HubResponse } from "@/lib/media-buying/hub-types";
 import type { StoreZoneRow } from "@/lib/media-buying/zones";
 import type { Exception } from "@/lib/media-buying/exceptions";
 import type { Mover } from "@/lib/media-buying/history";
-import { fmtCurrency, fmtRoas } from "./hub-format";
+import { fmtRoas } from "./hub-format";
 import { filterStores } from "./hub-charts";
 // The filterStores helper reads `invoicing_model` off HubFilters now, so no
 // additional call-site change needed here.
@@ -144,12 +144,7 @@ function AlarmCard({
               onClick={() => onStoreClick(m.org_id)}
               className="w-full text-left rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 hover:bg-red-500/10"
             >
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium truncate">{m.store_name}</span>
-                <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0">
-                  {fmtCurrency(m.spend_curr, "USD")}
-                </span>
-              </div>
+              <div className="text-sm font-medium truncate">{m.store_name}</div>
               <div className="text-xs text-muted-foreground">
                 <span className="uppercase tracking-widest font-semibold text-red-600 dark:text-red-400">
                   {m.from ?? "—"} → {m.to ?? "—"}
@@ -193,22 +188,13 @@ function ExceptionsCard({
                 onClick={() => onStoreClick(e.org_id)}
                 className={cn("w-full text-left rounded-lg border px-3 py-2", sevBg)}
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {e.store_name}{" "}
-                      <span className="text-muted-foreground font-normal">
-                        — {RULE_LABEL[e.rule]}
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">{e.detail}</div>
-                  </div>
-                  {e.spend_context != null && (
-                    <div className="text-xs text-muted-foreground tabular-nums flex-shrink-0">
-                      {fmtCurrency(e.spend_context, "USD")}
-                    </div>
-                  )}
+                <div className="text-sm font-medium truncate">
+                  {e.store_name}{" "}
+                  <span className="text-muted-foreground font-normal">
+                    — {RULE_LABEL[e.rule]}
+                  </span>
                 </div>
+                <div className="text-xs text-muted-foreground">{e.detail}</div>
               </button>
             </li>
           );
@@ -260,12 +246,7 @@ function RecoveringCard({
               onClick={() => onStoreClick(m.org_id)}
               className="w-full text-left rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 hover:bg-emerald-500/10"
             >
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium truncate">{m.store_name}</span>
-                <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0">
-                  {fmtCurrency(m.spend_curr, "USD")}
-                </span>
-              </div>
+              <div className="text-sm font-medium truncate">{m.store_name}</div>
               <div className="text-xs text-muted-foreground">
                 <span className="uppercase tracking-widest font-semibold text-emerald-600 dark:text-emerald-400">
                   {m.from ?? "—"} → {m.to ?? "—"}
@@ -333,9 +314,6 @@ function StoreList({
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="text-sm font-semibold tabular-nums">{fmtRoas(s.roas)}</div>
-                <div className="text-[11px] text-muted-foreground tabular-nums">
-                  {fmtCurrency(s.spend, s.currency ?? "USD")}
-                </div>
               </div>
             </div>
           </button>
