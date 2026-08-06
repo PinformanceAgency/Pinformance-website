@@ -126,6 +126,17 @@ async function run(request: NextRequest) {
 
   const url = new URL(request.url);
   const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days") ?? 1)));
+  // Self-heal window: on every scheduled run, ALSO look back this many days
+  // and refetch any per-org dates that are missing (Vercel cron misses,
+  // transient 5xx, timeout, etc). Cheap when everything is healthy — the
+  // account-level query is one API call regardless of how many dates it
+  // covers — and prevents holes from becoming permanent.
+  // Override with ?heal_days=N (0 disables); default 7d covers typical
+  // "last 7 days" reporting windows the Media Buying Hub uses.
+  const healDays = Math.max(
+    0,
+    Math.min(30, Number(url.searchParams.get("heal_days") ?? 7))
+  );
   // Pinterest DAY granularity is inclusive on both ends; we always end at
   // "yesterday" so we don't capture a partial-day today.
   const endDate = new Date();
@@ -134,6 +145,11 @@ async function run(request: NextRequest) {
   startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
   const startISO = startDate.toISOString().slice(0, 10);
   const endISO = endDate.toISOString().slice(0, 10);
+  // Heal window is always [yesterday - healDays + 1, yesterday]. Used only to
+  // extend the fetch on a per-org basis if holes exist in that window.
+  const healStart = new Date(endDate);
+  healStart.setUTCDate(healStart.getUTCDate() - (healDays - 1));
+  const healStartISO = healStart.toISOString().slice(0, 10);
 
   const admin = createAdminClient();
   const { data: orgs } = await admin
@@ -158,6 +174,7 @@ async function run(request: NextRequest) {
     days?: number;
     row_count?: number;
     error?: string;
+    healed_from?: string;
   }> = [];
 
   for (const org of orgs || []) {
@@ -198,11 +215,45 @@ async function run(request: NextRequest) {
         columns: ANALYTICS_COLUMNS,
       };
 
+      // Self-heal: if any dates in [healStartISO, endISO] have no account
+      // snapshot for THIS org, extend the fetch back to the earliest hole
+      // so a single Pinterest call refills all missing days. When everything
+      // is already covered, the fetch stays at [startISO, endISO].
+      let fetchStartISO = startISO;
+      const fetchEndISO = endISO;
+      if (healDays > 0) {
+        const { data: existingRows } = await admin
+          .from("pinterest_metrics_snapshots")
+          .select("snapshot_date")
+          .eq("org_id", org.id as string)
+          .eq("entity_type", "account")
+          .gte("snapshot_date", healStartISO)
+          .lte("snapshot_date", endISO);
+        const present = new Set(
+          (existingRows ?? []).map((r) => String(r.snapshot_date).slice(0, 10))
+        );
+        // Walk healStart..end forward; the earliest missing date extends the
+        // fetch range. Any hole between it and endISO gets refilled too.
+        let earliestHole: string | null = null;
+        const cursor = new Date(healStart);
+        while (cursor <= endDate) {
+          const iso = cursor.toISOString().slice(0, 10);
+          if (!present.has(iso)) {
+            earliestHole = iso;
+            break;
+          }
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        if (earliestHole && earliestHole < fetchStartISO) {
+          fetchStartISO = earliestHole;
+        }
+      }
+
       // ── 1. Account-level daily ──────────────────────────────────────────
       const accountResp = (await client.getAdAccountAnalytics(
         adAccount.id,
-        startISO,
-        endISO,
+        fetchStartISO,
+        fetchEndISO,
         analyticsOpts
       )) as unknown;
       // Pinterest returns either an object with .all.daily_metrics OR a plain
@@ -256,15 +307,18 @@ async function run(request: NextRequest) {
         return out;
       }
 
+      // Per-entity calls use the same widened range as the account call so
+      // healed dates get campaign/ad_group/ad rows too. Same API-call count,
+      // just a wider date filter on each — no extra Pinterest quota.
       const [campRows, agRows, adRows] = await Promise.all([
         batchAnalytics(campaigns.map((c) => c.id), (b) =>
-          client.getCampaignAnalytics(adAccount.id, b, startISO, endISO, analyticsOpts)
+          client.getCampaignAnalytics(adAccount.id, b, fetchStartISO, fetchEndISO, analyticsOpts)
         ),
         batchAnalytics(adGroups.map((g) => g.id), (b) =>
-          client.getAdGroupAnalytics(adAccount.id, b, startISO, endISO, analyticsOpts)
+          client.getAdGroupAnalytics(adAccount.id, b, fetchStartISO, fetchEndISO, analyticsOpts)
         ),
         batchAnalytics(ads.map((a) => a.id), (b) =>
-          client.getAdAnalytics(adAccount.id, b, startISO, endISO, analyticsOpts)
+          client.getAdAnalytics(adAccount.id, b, fetchStartISO, fetchEndISO, analyticsOpts)
         ),
       ]);
 
@@ -353,6 +407,9 @@ async function run(request: NextRequest) {
         ok: true,
         days,
         row_count: rows.length,
+        // Was the range widened beyond the requested `days` because holes
+        // were detected? Surfaces silent self-heal activity in logs.
+        healed_from: fetchStartISO !== startISO ? fetchStartISO : undefined,
       });
     } catch (e) {
       results.push({
