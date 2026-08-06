@@ -57,10 +57,13 @@ export default function CreativesPage() {
   const [rotation, setRotation] = useState({ full_overlay: 3, logo_only: 1, clean: 1 });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeBoards, setActiveBoards] = useState<ActiveBoard[]>([]);
-  // Per-creative override: image_url → board_id chosen by the user.
-  const [boardOverrides, setBoardOverrides] = useState<Record<string, string>>({});
-  // Batch board assignment (Task 3): apply one board to all creatives at once,
-  // overriding the AI's per-creative board choice.
+  // Per-creative multi-select: image_url → set of board_ids that will each get
+  // one pin when queued. Seeded from the AI's matched boards; user can toggle
+  // any active board on/off. An empty array means "pin will not be queued for
+  // this creative until the user picks at least one board".
+  const [boardSelections, setBoardSelections] = useState<Record<string, string[]>>({});
+  // Batch board assignment: pick one board and add it to every currently-
+  // uploaded creative's selection (does NOT remove existing AI picks).
   const [batchBoardId, setBatchBoardId] = useState<string>("");
   const [batchCategoryFilter, setBatchCategoryFilter] = useState<string>("all");
   // Per-creative override: image_url → destination link URL.
@@ -133,23 +136,57 @@ export default function CreativesPage() {
     setActiveBoards(((data as ActiveBoard[]) || []));
   }
 
-  function setBoardOverride(creativeUrl: string, boardId: string) {
-    setBoardOverrides((prev) => ({ ...prev, [creativeUrl]: boardId }));
+  /**
+   * Toggle one board on/off for a single creative. If the creative doesn't
+   * have a selection yet, we seed from the AI's matched boards first so
+   * the AI picks aren't silently wiped when the user makes their first click.
+   */
+  function toggleBoard(creativeUrl: string, boardId: string) {
+    setBoardSelections((prev) => {
+      const current =
+        prev[creativeUrl] ??
+        (creatives
+          .find((c) => c.image_url === creativeUrl)
+          ?.analysis?.boards?.map((b) => b.id)
+          .filter((id): id is string => !!id) ??
+          []);
+      const set = new Set(current);
+      if (set.has(boardId)) set.delete(boardId);
+      else set.add(boardId);
+      return { ...prev, [creativeUrl]: Array.from(set) };
+    });
   }
 
   /**
-   * Apply the chosen batch board to every uploaded creative at once. This
-   * overrides the AI's per-creative board suggestion for all of them — used
-   * when the user already knows the destination board (e.g. seasonal boards
-   * the AI doesn't pick up).
+   * Add the chosen batch board to every uploaded creative's selection. Unlike
+   * the old "override all" behaviour, this UNIONs with the existing AI picks
+   * so the user can layer in a seasonal or campaign board on top of the AI's
+   * automatic matches with a single click.
    */
   function applyBatchBoard() {
     if (!batchBoardId) return;
-    setBoardOverrides((prev) => {
+    setBoardSelections((prev) => {
       const next = { ...prev };
-      for (const c of creatives) next[c.image_url] = batchBoardId;
+      for (const c of creatives) {
+        const current =
+          next[c.image_url] ??
+          (c.analysis?.boards?.map((b) => b.id).filter((id): id is string => !!id) ?? []);
+        const set = new Set(current);
+        set.add(batchBoardId);
+        next[c.image_url] = Array.from(set);
+      }
       return next;
     });
+  }
+
+  /** Effective board IDs for a creative — user selection if present, else the
+   *  AI's matched boards. Empty array = nothing to queue. */
+  function getSelectedBoardIds(creative: UploadedCreative): string[] {
+    const override = boardSelections[creative.image_url];
+    if (override) return override;
+    return (creative.analysis?.boards ?? [])
+      .map((b) => b.id)
+      .filter((id): id is string => !!id);
   }
 
   function setLinkOverride(creativeUrl: string, link: string) {
@@ -486,21 +523,33 @@ export default function CreativesPage() {
       const isVideo = creative.media_type === "video";
       const finalImageUrl = creative.overlay_url || creative.image_url;
 
-      // Resolve the chosen board: explicit user override > AI's first
-      // suggestion > AI's primary board_id.
-      const overrideId = boardOverrides[creative.image_url];
-      const aiPrimary = a.boards?.[0] || { id: a.board_id, name: a.board_name };
-      const chosenBoard = overrideId
-        ? activeBoards.find((b) => b.id === overrideId) || aiPrimary
-        : aiPrimary;
-
-      // Resolve link URL: per-creative override > brand default.
       const linkUrlOverride = linkOverrides[creative.image_url];
       const finalLinkUrl = (linkUrlOverride && linkUrlOverride.trim()) || defaultLinkUrl;
 
-      const { error } = await supabase.from("pins").insert({
+      // Resolve all boards the user (or AI, by default) selected for this
+      // creative — one pin gets inserted per board so a single upload can
+      // land on multiple boards with one click.
+      const selectedIds = getSelectedBoardIds(creative);
+      const boardsToUse: { id: string; name: string }[] = [];
+      for (const id of selectedIds) {
+        const known = activeBoards.find((b) => b.id === id);
+        if (known) {
+          boardsToUse.push({ id: known.id, name: known.name });
+        } else {
+          const aiMatch = a.boards?.find((b) => b.id === id);
+          if (aiMatch?.id) boardsToUse.push({ id: aiMatch.id, name: aiMatch.name });
+        }
+      }
+      // Nothing selected → fall back to the AI primary so the queue button
+      // never silently drops the creative.
+      if (boardsToUse.length === 0 && a.board_id) {
+        boardsToUse.push({ id: a.board_id, name: a.board_name });
+      }
+      if (boardsToUse.length === 0) continue;
+
+      const rows = boardsToUse.map((b) => ({
         org_id: org.id,
-        board_id: chosenBoard.id,
+        board_id: b.id,
         title: a.title,
         description: a.description,
         alt_text: a.alt_text,
@@ -511,7 +560,9 @@ export default function CreativesPage() {
         video_url: isVideo ? creative.image_url : null,
         status: "generated",
         scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      });
+      }));
+
+      const { error } = await supabase.from("pins").insert(rows);
 
       if (!error) {
         setCreatives((prev) =>
@@ -523,6 +574,18 @@ export default function CreativesPage() {
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
+  }
+
+  /** Total pins that Queue-All will create — sum of selected boards per ready
+   *  creative. Shown on the queue button so the user sees the multiplier. */
+  function computePinsToQueue(): number {
+    let total = 0;
+    for (const c of creatives) {
+      if (c.status !== "ready" || !c.analysis) continue;
+      const n = getSelectedBoardIds(c).length;
+      total += n > 0 ? n : c.analysis.board_id ? 1 : 0;
+    }
+    return total;
   }
 
   const tabCreatives = creatives.filter((c) =>
@@ -657,16 +720,16 @@ export default function CreativesPage() {
         </button>
       </div>
 
-      {/* Batch board assignment (Task 3) */}
+      {/* Batch: add a board to every uploaded creative in one click */}
       {tabCreatives.length > 0 && activeBoards.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
           <div className="flex items-center gap-2">
             <LayoutGrid className="w-4 h-4 text-primary" />
-            <h3 className="font-semibold text-sm">Assign all to one board</h3>
+            <h3 className="font-semibold text-sm">Add one board to all creatives</h3>
           </div>
           <p className="text-xs text-muted-foreground">
-            Override the AI&apos;s board choice for every uploaded creative at once — handy for
-            seasonal or lifestyle boards the AI doesn&apos;t pick up automatically.
+            Adds the chosen board to every uploaded creative&apos;s selection on top of the AI picks —
+            handy for seasonal or campaign boards. Existing selections stay intact.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -704,7 +767,7 @@ export default function CreativesPage() {
               disabled={!batchBoardId}
               className="bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
             >
-              Apply to all {tabCreatives.length}
+              Add to all {tabCreatives.length}
             </button>
           </div>
         </div>
@@ -814,53 +877,83 @@ export default function CreativesPage() {
                       </div>
                       <div>
                         <label className="text-xs font-medium text-muted-foreground">
-                          Board <span className="text-primary">(pick the Pinterest board this pin will go to)</span>
+                          Boards <span className="text-primary">(pick one or more — one pin gets created per board)</span>
                         </label>
                         {(() => {
-                          const aiPrimary =
-                            creative.analysis.boards?.[0] ||
-                            { id: creative.analysis.board_id, name: creative.analysis.board_name };
-                          const overrideId = boardOverrides[creative.image_url];
-                          const currentValue = overrideId || aiPrimary.id || "";
-                          const isOverridden = !!overrideId && overrideId !== aiPrimary.id;
+                          const aiIds = new Set(
+                            (creative.analysis.boards ?? [])
+                              .map((b) => b.id)
+                              .filter((id): id is string => !!id)
+                          );
+                          const selectedIds = new Set(getSelectedBoardIds(creative));
+                          const disabled = creative.status === "queued";
+                          if (activeBoards.length === 0) {
+                            return (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                No synced boards yet — run Sync from Pinterest on the Boards page.
+                              </p>
+                            );
+                          }
+                          // AI boards first (highlighted), then the rest alphabetically.
+                          const sorted = [...activeBoards].sort((a, b) => {
+                            const aAi = aiIds.has(a.id) ? 0 : 1;
+                            const bAi = aiIds.has(b.id) ? 0 : 1;
+                            if (aAi !== bAi) return aAi - bAi;
+                            return a.name.localeCompare(b.name);
+                          });
                           return (
                             <>
-                              <select
-                                value={currentValue}
-                                onChange={(e) => setBoardOverride(creative.image_url, e.target.value)}
-                                disabled={creative.status === "queued"}
-                                className="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                              >
-                                {/* Always include the AI primary, even if it
-                                    doesn't exist in active boards. */}
-                                {aiPrimary.id &&
-                                  !activeBoards.some((b) => b.id === aiPrimary.id) && (
-                                    <option value={aiPrimary.id}>
-                                      {aiPrimary.name} (AI suggestion · not synced)
-                                    </option>
-                                  )}
-                                {activeBoards.length === 0 && (
-                                  <option value="">— no synced boards (run Sync from Pinterest on Boards page) —</option>
-                                )}
-                                {activeBoards.map((b) => (
-                                  <option key={b.id} value={b.id}>
-                                    {b.name}
-                                    {b.id === aiPrimary.id ? " (AI pick)" : ""}
-                                    {!b.pinterest_board_id ? " ⚠ not on Pinterest" : ""}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="text-[11px] text-muted-foreground mt-1">
-                                {isOverridden
-                                  ? "Overridden manually — this is the board the pin will be saved to."
-                                  : "Auto-selected by AI. Change above to pick a different board."}
-                                {creative.analysis.boards && creative.analysis.boards.length > 1 && (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {sorted.map((b) => {
+                                  const isAi = aiIds.has(b.id);
+                                  const isOn = selectedIds.has(b.id);
+                                  return (
+                                    <button
+                                      key={b.id}
+                                      type="button"
+                                      onClick={() => toggleBoard(creative.image_url, b.id)}
+                                      disabled={disabled}
+                                      title={
+                                        (isAi ? "AI pick · " : "") +
+                                        b.name +
+                                        (b.category ? ` (${boardCategoryLabel(b.category)})` : "") +
+                                        (!b.pinterest_board_id ? " · not on Pinterest" : "")
+                                      }
+                                      className={cn(
+                                        "px-2 py-1 text-[11px] font-medium rounded-full border transition-colors inline-flex items-center gap-1",
+                                        isOn
+                                          ? isAi
+                                            ? "bg-primary text-primary-foreground border-primary"
+                                            : "bg-blue-500/15 text-blue-700 border-blue-500/40"
+                                          : isAi
+                                            ? "bg-primary/5 text-primary border-primary/40 hover:bg-primary/10"
+                                            : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
+                                        disabled && "opacity-60 cursor-not-allowed"
+                                      )}
+                                    >
+                                      {isOn && <Check className="w-3 h-3" />}
+                                      {b.name}
+                                      {isAi && <Sparkles className="w-3 h-3 opacity-70" />}
+                                      {!b.pinterest_board_id && <span title="Not on Pinterest">⚠</span>}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground mt-1.5">
+                                {selectedIds.size === 0 ? (
+                                  <span className="text-yellow-700">
+                                    No board selected — this creative will be skipped when you queue.
+                                  </span>
+                                ) : (
                                   <>
-                                    {" · "}AI also matched:{" "}
-                                    {creative.analysis.boards
-                                      .slice(1)
-                                      .map((b) => b.name)
-                                      .join(", ")}
+                                    {selectedIds.size} board{selectedIds.size === 1 ? "" : "s"} selected — {selectedIds.size} pin
+                                    {selectedIds.size === 1 ? "" : "s"} will be created.
+                                    {aiIds.size > 0 && (
+                                      <>
+                                        {" · "}
+                                        <Sparkles className="inline w-3 h-3 -mt-0.5" /> = AI pick
+                                      </>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -947,30 +1040,34 @@ export default function CreativesPage() {
       )}
 
       {/* Queue button */}
-      {readyCount > 0 && (
-        <button
-          onClick={handleQueueAll}
-          disabled={saving}
-          className={cn(
-            "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-all",
-            saved
-              ? "bg-green-600 text-white"
-              : "bg-primary text-primary-foreground hover:opacity-90"
-          )}
-        >
-          {saved ? (
-            <>
-              <Check className="w-4 h-4" /> {queuedCount} pins added to queue
-            </>
-          ) : saving ? (
-            "Adding to queue..."
-          ) : (
-            <>
-              <Send className="w-4 h-4" /> Add {readyCount} creative{readyCount !== 1 ? "s" : ""} to pin queue
-            </>
-          )}
-        </button>
-      )}
+      {readyCount > 0 && (() => {
+        const pinCount = computePinsToQueue();
+        return (
+          <button
+            onClick={handleQueueAll}
+            disabled={saving}
+            className={cn(
+              "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-all",
+              saved
+                ? "bg-green-600 text-white"
+                : "bg-primary text-primary-foreground hover:opacity-90"
+            )}
+          >
+            {saved ? (
+              <>
+                <Check className="w-4 h-4" /> {queuedCount} creative{queuedCount !== 1 ? "s" : ""} queued
+              </>
+            ) : saving ? (
+              "Adding to queue..."
+            ) : (
+              <>
+                <Send className="w-4 h-4" /> Add {readyCount} creative{readyCount !== 1 ? "s" : ""} → {pinCount} pin
+                {pinCount !== 1 ? "s" : ""} to queue
+              </>
+            )}
+          </button>
+        );
+      })()}
 
       {/* Stats */}
       {creatives.length > 0 && (
