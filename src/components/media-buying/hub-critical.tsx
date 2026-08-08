@@ -272,7 +272,7 @@ function WinnersCard({
     <CardShell
       icon={Trophy}
       iconClass="text-emerald-500"
-      title="Winners (green today)"
+      title="Winners"
       count={stores.length}
       emptyLabel="No stores currently in the green zone."
       full

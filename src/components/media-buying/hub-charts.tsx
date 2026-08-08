@@ -521,10 +521,12 @@ export function ZoneBlocksSection({
   hub,
   filters,
   onStoreClick,
+  mode = "weekly",
 }: {
   hub: HubResponse;
   filters: HubFilters;
   onStoreClick?: (orgId: string) => void;
+  mode?: "weekly" | "monthly";
 }) {
   const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
   const groups = useMemo(() => {
@@ -549,24 +551,26 @@ export function ZoneBlocksSection({
     return { departments, buyers };
   }, [filteredStores]);
 
+  const scope = mode === "monthly" ? "month" : "week";
   return (
     <div className="space-y-4">
-      <SectionTitle label="Company" description="Zone composition for the whole filtered book." />
+      <SectionTitle label="Company" description={`Zone composition for the whole filtered book — last 3 ${scope === "month" ? "months" : "weeks"} plus current.`} />
       <ZoneBlock
         title="Company"
         stores={filteredStores}
         onStoreClick={onStoreClick}
+        mode={mode}
       />
       <SectionTitle label="By department" description="Same view per department." />
       <div className="space-y-4">
         {groups.departments.map((g) => (
-          <ZoneBlock key={g.key} title={g.label} stores={g.stores} onStoreClick={onStoreClick} />
+          <ZoneBlock key={g.key} title={g.label} stores={g.stores} onStoreClick={onStoreClick} mode={mode} />
         ))}
       </div>
       <SectionTitle label="By media buyer" description="Same view per buyer." />
       <div className="space-y-4">
         {groups.buyers.map((g) => (
-          <ZoneBlock key={g.key} title={g.label} stores={g.stores} onStoreClick={onStoreClick} />
+          <ZoneBlock key={g.key} title={g.label} stores={g.stores} onStoreClick={onStoreClick} mode={mode} />
         ))}
       </div>
     </div>
@@ -581,11 +585,19 @@ interface ZoneCounts {
 }
 
 const WEEK_LABELS_FULL = ["3w ago", "2w ago", "Last week", "This week"];
+const MONTH_LABELS_FULL = ["2 months ago", "Last month", "This month"];
 
-function countZonesForWeek(stores: StoreZoneRow[], weekIndex: number): ZoneCounts {
+type ZoneBlockMode = "weekly" | "monthly";
+
+function countZonesAtIndex(
+  stores: StoreZoneRow[],
+  mode: ZoneBlockMode,
+  index: number
+): ZoneCounts {
   const c: ZoneCounts = { red: 0, orange: 0, green: 0, unclassified: 0 };
   for (const s of stores) {
-    const z = s.weekly_zones?.[weekIndex] ?? null;
+    const arr = mode === "weekly" ? s.weekly_zones : s.monthly_zones;
+    const z = arr?.[index] ?? null;
     if (z === "red") c.red++;
     else if (z === "orange") c.orange++;
     else if (z === "green") c.green++;
@@ -598,26 +610,31 @@ function ZoneBlock({
   title,
   stores,
   onStoreClick,
+  mode = "weekly",
 }: {
   title: string;
   stores: StoreZoneRow[];
   onStoreClick?: (orgId: string) => void;
+  mode?: ZoneBlockMode;
 }) {
-  // Build 4 weekly rows of {week, red, orange, green} for the stacked bar chart.
-  const chartData = [0, 1, 2, 3].map((i) => {
-    const c = countZonesForWeek(stores, i);
-    return {
-      week: WEEK_LABELS_FULL[i],
-      Red: c.red,
-      Orange: c.orange,
-      Green: c.green,
-    };
+  const labels = mode === "weekly" ? WEEK_LABELS_FULL : MONTH_LABELS_FULL;
+  const currentIdx = labels.length - 1;
+  const priorIdx = Math.max(0, currentIdx - 1);
+  const deltaSuffix = mode === "weekly" ? "wk/wk" : "mo/mo";
+  const noSpendLabel = mode === "weekly" ? "this week" : "this month";
+
+  // Build one row per bucket for the grouped bar chart.
+  const chartData = labels.map((label, i) => {
+    const c = countZonesAtIndex(stores, mode, i);
+    return { week: label, Red: c.red, Orange: c.orange, Green: c.green };
   });
-  // Delta text: current vs prior week per zone.
-  const current = countZonesForWeek(stores, 3);
-  const prior = countZonesForWeek(stores, 2);
+  const current = countZonesAtIndex(stores, mode, currentIdx);
+  const prior = countZonesAtIndex(stores, mode, priorIdx);
   const currentZoneByStore = new Map<string, Zone | null>(
-    stores.map((s) => [s.org_id, (s.weekly_zones?.[3] ?? s.zone) as Zone | null])
+    stores.map((s) => {
+      const arr = mode === "weekly" ? s.weekly_zones : s.monthly_zones;
+      return [s.org_id, (arr?.[currentIdx] ?? s.zone) as Zone | null];
+    })
   );
   const red = stores.filter((s) => currentZoneByStore.get(s.org_id) === "red");
   const orange = stores.filter((s) => currentZoneByStore.get(s.org_id) === "orange");
@@ -638,9 +655,9 @@ function ZoneBlock({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <ZoneTally label="Red" count={current.red} delta={current.red - prior.red} kind="red" />
-          <ZoneTally label="Orange" count={current.orange} delta={current.orange - prior.orange} kind="orange" />
-          <ZoneTally label="Green" count={current.green} delta={current.green - prior.green} kind="green" />
+          <ZoneTally label="Red" count={current.red} delta={current.red - prior.red} kind="red" suffix={deltaSuffix} />
+          <ZoneTally label="Orange" count={current.orange} delta={current.orange - prior.orange} kind="orange" suffix={deltaSuffix} />
+          <ZoneTally label="Green" count={current.green} delta={current.green - prior.green} kind="green" suffix={deltaSuffix} />
         </div>
       </div>
 
@@ -683,8 +700,7 @@ function ZoneBlock({
       </div>
       {unclassified.length > 0 && (
         <div className="mt-2 text-[11px] text-muted-foreground italic">
-          {unclassified.length} store{unclassified.length === 1 ? "" : "s"} not classified this
-          week (no spend).
+          {unclassified.length} store{unclassified.length === 1 ? "" : "s"} not classified {noSpendLabel} (no spend).
         </div>
       )}
     </section>
@@ -696,11 +712,13 @@ function ZoneTally({
   count,
   delta,
   kind,
+  suffix = "wk/wk",
 }: {
   label: string;
   count: number;
   delta: number;
   kind: "red" | "orange" | "green";
+  suffix?: string;
 }) {
   const color =
     kind === "red"
@@ -726,7 +744,7 @@ function ZoneTally({
           )}
         >
           {delta > 0 ? "+" : ""}
-          {delta} wk/wk
+          {delta} {suffix}
         </div>
       )}
     </div>

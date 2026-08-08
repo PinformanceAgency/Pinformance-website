@@ -10,10 +10,14 @@ import {
 } from "@/components/media-buying/hub-panels";
 import { ZoneBlocksSection } from "@/components/media-buying/hub-charts";
 import { StoreDeepDive } from "@/components/media-buying/hub-store-deepdive";
+import { cn } from "@/lib/utils";
+
+type ZoneScope = "weekly" | "monthly";
 
 export default function ZonesPage() {
   const { hub, error } = useHubData();
   const [filters, setFilters] = useState<HubFilters>(EMPTY_FILTERS);
+  const [scope, setScope] = useState<ZoneScope>("weekly");
   const [deepDiveOrgId, setDeepDiveOrgId] = useState<string | null>(null);
   const openStore = useCallback((orgId: string) => setDeepDiveOrgId(orgId), []);
   const closeStore = useCallback(() => setDeepDiveOrgId(null), []);
@@ -23,8 +27,9 @@ export default function ZonesPage() {
       <header>
         <h1 className="text-2xl font-semibold">Zones</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Red / orange / green at company, department and media-buyer level — with the
-          last four weeks side by side so you can see which weeks flipped and which held.
+          Red / orange / green at company, department and media-buyer level. Switch
+          between the last four weeks (short-term flips) and last three months
+          (which stores are green enough to invoice this month).
         </p>
       </header>
 
@@ -42,7 +47,23 @@ export default function ZonesPage() {
       {hub && (
         <>
           <GlobalFilterBar hub={hub} filters={filters} onChange={setFilters} />
-          <ZoneBlocksSection hub={hub} filters={filters} onStoreClick={openStore} />
+          <div className="inline-flex bg-muted rounded-lg p-1">
+            {(["weekly", "monthly"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setScope(s)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                  scope === s
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {s === "weekly" ? "Last 4 weeks" : "This month"}
+              </button>
+            ))}
+          </div>
+          <ZoneBlocksSection hub={hub} filters={filters} onStoreClick={openStore} mode={scope} />
         </>
       )}
 

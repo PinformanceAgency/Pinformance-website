@@ -57,6 +57,12 @@ export interface StoreZoneRow {
    *  spend that week" — the UI shows those as dashes rather than a false
    *  green. */
   weekly_zones: (Zone | null)[];
+  /** Per-month zone for the last 3 calendar months, oldest first:
+   *  [prev month, last month, this month MTD]. The current-month bucket is
+   *  partial by definition — the classifier still applies the invoicing-model
+   *  gate, so early-in-the-month stores may sit in orange even at healthy ROAS
+   *  until the spend/revenue floor is met. */
+  monthly_zones: (Zone | null)[];
 }
 
 export interface CampaignZoneRow {
@@ -177,9 +183,21 @@ export async function computeStoreZones(
   days = ZONE_ROAS_WINDOW_DAYS
 ): Promise<StoreZoneRow[]> {
   const { start: currentStart, end } = zoneWindow(days);
-  // Pull 28 days so the Zones page can bucket each store into 4 rolling
-  // weekly buckets. The extra 21 days are cheap (~800 rows total).
-  const { start: historyStart } = zoneWindow(28);
+  // Pull enough history for both the 4-week rolling weekly buckets AND the
+  // 3-calendar-month buckets. The month-boundary calculation picks the first
+  // day of "two months before end month" so we always cover the full oldest
+  // month regardless of what day of the current month we're on.
+  const endDate = new Date(end + "T00:00:00Z");
+  const monthStart = (yearOffset: number, monthOffset: number) => {
+    const d = new Date(Date.UTC(endDate.getUTCFullYear() + yearOffset, endDate.getUTCMonth() + monthOffset, 1));
+    return d.toISOString().slice(0, 10);
+  };
+  const thisMonthStart = monthStart(0, 0);
+  const lastMonthStart = monthStart(0, -1);
+  const prevMonthStart = monthStart(0, -2);
+  const { start: weeklyHistoryStart } = zoneWindow(28);
+  const historyStart =
+    prevMonthStart < weeklyHistoryStart ? prevMonthStart : weeklyHistoryStart;
 
   const { data: orgs, error: orgsErr } = await supabase
     .from("organizations")
@@ -213,28 +231,47 @@ export async function computeStoreZones(
 
   // Weekly bucketing for the 4-week zone matrix. Bucket 0 = oldest (3w ago),
   // bucket 3 = most recent 7 days.
-  const weeklyByOrg = new Map<
-    string,
-    Array<{ spend: number; revenue: number }>
-  >();
+  // Monthly bucketing for the 3-month view. Bucket 0 = 2 months ago,
+  // bucket 1 = last month, bucket 2 = this month MTD.
+  const weeklyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
+  const monthlyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
   const emptyBucket = () => ({ spend: 0, revenue: 0 });
   for (const orgId of orgIds) {
     weeklyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket(), emptyBucket()]);
+    monthlyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket()]);
   }
-  const endDate = new Date(end + "T00:00:00Z");
   for (const r of allMetrics) {
     const d = new Date(r.snapshot_date + "T00:00:00Z");
     const daysBack = Math.floor(
       (endDate.getTime() - d.getTime()) / (24 * 3600 * 1000)
     );
-    if (daysBack < 0 || daysBack >= 28) continue;
-    // 0 days back → most recent week (bucket 3); 21+ days back → oldest week (bucket 0).
-    const weekIndex = 3 - Math.floor(daysBack / 7);
-    if (weekIndex < 0 || weekIndex > 3) continue;
-    const bucket = weeklyByOrg.get(r.org_id);
-    if (!bucket) continue;
-    bucket[weekIndex].spend += n(r.spend);
-    bucket[weekIndex].revenue += n(r.revenue);
+    // Weekly bucket
+    if (daysBack >= 0 && daysBack < 28) {
+      // 0 days back → most recent week (bucket 3); 21+ days back → oldest week (bucket 0).
+      const weekIndex = 3 - Math.floor(daysBack / 7);
+      if (weekIndex >= 0 && weekIndex <= 3) {
+        const bucket = weeklyByOrg.get(r.org_id);
+        if (bucket) {
+          bucket[weekIndex].spend += n(r.spend);
+          bucket[weekIndex].revenue += n(r.revenue);
+        }
+      }
+    }
+    // Monthly bucket — YYYY-MM string compare is safe because all dates share
+    // the ISO YYYY-MM-DD prefix format.
+    if (r.snapshot_date >= prevMonthStart && r.snapshot_date <= end) {
+      const monthIndex =
+        r.snapshot_date >= thisMonthStart
+          ? 2
+          : r.snapshot_date >= lastMonthStart
+          ? 1
+          : 0;
+      const mb = monthlyByOrg.get(r.org_id);
+      if (mb) {
+        mb[monthIndex].spend += n(r.spend);
+        mb[monthIndex].revenue += n(r.revenue);
+      }
+    }
   }
 
   const rows: StoreZoneRow[] = (orgs ?? [])
@@ -288,21 +325,28 @@ export async function computeStoreZones(
       const buckets = weeklyByOrg.get(o.id as string) ?? [
         emptyBucket(), emptyBucket(), emptyBucket(), emptyBucket(),
       ];
+      const classifyBucket = (b: { spend: number; revenue: number }) => {
+        const wr = b.spend > 0 ? b.revenue / b.spend : null;
+        return classifyZone({
+          liveRoas: wr,
+          breakevenRoas: s?.breakeven_roas ?? null,
+          invoiceRoas: s?.invoice_roas ?? null,
+          spend: b.spend,
+          windowRevenue: b.revenue,
+          overrides: s?.zone_thresholds,
+          invoicingModel,
+          minMonthlySpend,
+        });
+      };
       const weekly_zones: (Zone | null)[] = configured
-        ? buckets.map((b) => {
-            const wr = b.spend > 0 ? b.revenue / b.spend : null;
-            return classifyZone({
-              liveRoas: wr,
-              breakevenRoas: s?.breakeven_roas ?? null,
-              invoiceRoas: s?.invoice_roas ?? null,
-              spend: b.spend,
-              windowRevenue: b.revenue,
-              overrides: s?.zone_thresholds,
-              invoicingModel,
-              minMonthlySpend,
-            });
-          })
+        ? buckets.map(classifyBucket)
         : [null, null, null, null];
+      const monthBuckets = monthlyByOrg.get(o.id as string) ?? [
+        emptyBucket(), emptyBucket(), emptyBucket(),
+      ];
+      const monthly_zones: (Zone | null)[] = configured
+        ? monthBuckets.map(classifyBucket)
+        : [null, null, null];
       return {
         org_id: o.id as string,
         store_name: (o.name as string) || "(unnamed)",
@@ -343,6 +387,7 @@ export async function computeStoreZones(
         zone,
         ratio,
         weekly_zones,
+        monthly_zones,
       };
     });
   return rows;
