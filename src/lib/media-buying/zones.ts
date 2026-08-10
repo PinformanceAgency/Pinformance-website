@@ -213,18 +213,31 @@ export async function computeStoreZones(
   const orgIds = (orgs ?? []).filter((o) => o.pinterest_user_id).map((o) => o.id as string);
   if (orgIds.length === 0) return [];
 
-  const { data: metrics, error: mErr } = await supabase
-    .from("pinterest_metrics_snapshots")
-    .select(
-      "org_id, entity_id, entity_name, ad_account_id, currency, spend, revenue, conversions, impressions, clicks, snapshot_date"
-    )
-    .eq("entity_type", "account")
-    .gte("snapshot_date", historyStart)
-    .lte("snapshot_date", end)
-    .in("org_id", orgIds);
-  if (mErr) throw new Error(mErr.message);
-
-  const allMetrics = (metrics ?? []) as MetricRow[];
+  // Paginate — Supabase's PostgREST caps a single response at ~1000 rows on
+  // hosted plans. With the widened history (now up to ~70 days for the
+  // monthly view) x 40+ orgs we routinely exceed that, and without paging
+  // the recent (highest-index) rows silently dropped off — which is exactly
+  // what made stores like Nordheim / Nova Jewelry show up as "no spend this
+  // week" in the Zones page while the DB actually had their data.
+  const PAGE_SIZE = 1000;
+  const allMetrics: MetricRow[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error: mErr } = await supabase
+      .from("pinterest_metrics_snapshots")
+      .select(
+        "org_id, entity_id, entity_name, ad_account_id, currency, spend, revenue, conversions, impressions, clicks, snapshot_date"
+      )
+      .eq("entity_type", "account")
+      .gte("snapshot_date", historyStart)
+      .lte("snapshot_date", end)
+      .in("org_id", orgIds)
+      .order("snapshot_date", { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (mErr) throw new Error(mErr.message);
+    const page = (data ?? []) as MetricRow[];
+    allMetrics.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
   // Existing behaviour: sum only rows within the current N-day window.
   const currentMetrics = allMetrics.filter((r) => r.snapshot_date >= currentStart);
   const totals = sumWindow(currentMetrics);
