@@ -167,7 +167,7 @@ async function run(request: NextRequest) {
       .map((r) => [r.org_id as string, r.attribution_setting as string])
   );
 
-  const results: Array<{
+  type Result = {
     org_id: string;
     org_name: string;
     ok: boolean;
@@ -175,9 +175,21 @@ async function run(request: NextRequest) {
     row_count?: number;
     error?: string;
     healed_from?: string;
-  }> = [];
+  };
 
-  for (const org of orgs || []) {
+  // Per-org processing extracted so we can run several orgs concurrently.
+  // Pinterest's per-app rate limit sits around ~1000/hour and each org fires
+  // ~10-15 calls, so a small concurrency cap (3) keeps us well under it while
+  // still cutting wall-clock time to a fraction of the sequential version —
+  // which was regularly hitting the Vercel 300s timeout and truncating the
+  // org list mid-run (that's how Nova Jewelry, Sarah Oliver, and 15+ others
+  // were silently missing 4-5 days of snapshots).
+  const orgList = orgs || [];
+  const CONCURRENCY = 3;
+  const results: Result[] = new Array(orgList.length);
+
+  async function processOrg(orgIndex: number): Promise<void> {
+    const org = orgList[orgIndex];
     try {
       const token = decrypt(org.pinterest_access_token_encrypted as string);
       const isTrial =
@@ -194,13 +206,13 @@ async function run(request: NextRequest) {
         preferredAdAccountId
       );
       if (!adAccount) {
-        results.push({
+        results[orgIndex] = {
           org_id: org.id as string,
           org_name: org.name as string,
           ok: false,
           error: "No ad account",
-        });
-        continue;
+        };
+        return;
       }
       const currency = adAccount.currency ?? null;
 
@@ -401,7 +413,7 @@ async function run(request: NextRequest) {
         if (error) throw new Error(error.message);
       }
 
-      results.push({
+      results[orgIndex] = {
         org_id: org.id as string,
         org_name: org.name as string,
         ok: true,
@@ -410,16 +422,32 @@ async function run(request: NextRequest) {
         // Was the range widened beyond the requested `days` because holes
         // were detected? Surfaces silent self-heal activity in logs.
         healed_from: fetchStartISO !== startISO ? fetchStartISO : undefined,
-      });
+      };
     } catch (e) {
-      results.push({
+      results[orgIndex] = {
         org_id: org.id as string,
         org_name: org.name as string,
         ok: false,
         error: e instanceof Error ? e.message : "Unknown error",
-      });
+      };
     }
   }
+
+  // Worker-pool: keeps `CONCURRENCY` promises running until every org has
+  // been claimed. `next` is the shared cursor so each worker picks the next
+  // unstarted org rather than dividing the list up-front (avoids uneven
+  // finish times when one org is much slower than others).
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= orgList.length) return;
+      await processOrg(i);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, orgList.length) }, () => worker())
+  );
 
   return NextResponse.json({
     ok: true,
