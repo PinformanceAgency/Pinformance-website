@@ -20,7 +20,13 @@
  *   - boards_created: boards.created_at in the week
  *   - pins_added: pins.created_at in the week
  */
-import { Pool } from "pg";
+import { Pool, types } from "pg";
+
+// Force Postgres DATE (OID 1082) to come back as a raw "YYYY-MM-DD" string
+// instead of a JS Date at LOCAL midnight — which shifts by one day when the
+// process TZ isn't UTC. Otherwise "Monday 2026-08-10" written from a
+// CEST-run bootstrap comes back as "2026-08-09" on the wire.
+types.setTypeParser(1082, (val) => val);
 
 export interface WeekBucket {
   /** Monday of the ISO week, YYYY-MM-DD. */
