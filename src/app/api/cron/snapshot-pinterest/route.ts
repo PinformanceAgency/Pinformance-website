@@ -47,15 +47,25 @@ async function run(request: NextRequest) {
     .not("pinterest_access_token_encrypted", "is", null);
 
   const today = new Date().toISOString().slice(0, 10);
-  const results: Array<{
+  type Result = {
     org_id: string;
     org_name: string;
     ok: boolean;
     counts?: { campaign: number; ad_group: number; ad: number };
     error?: string;
-  }> = [];
+  };
 
-  for (const org of orgs || []) {
+  // Parallelize per org — sequential was blowing the Vercel 300s ceiling on
+  // large accounts, leaving 4–8 day gaps in the entity snapshot table (which
+  // then makes the Team Activity page under-count new campaigns for the
+  // current week). Concurrency 3 keeps Pinterest API calls well under any
+  // per-app rate limit while cutting wall clock ~3×.
+  const orgList = orgs || [];
+  const CONCURRENCY = 3;
+  const results: Result[] = new Array(orgList.length);
+
+  async function processOrg(orgIndex: number): Promise<void> {
+    const org = orgList[orgIndex];
     try {
       const token = decrypt(org.pinterest_access_token_encrypted as string);
       const isTrial =
@@ -73,13 +83,13 @@ async function run(request: NextRequest) {
         preferredAdAccountId
       );
       if (!adAccount) {
-        results.push({
+        results[orgIndex] = {
           org_id: org.id as string,
           org_name: org.name as string,
           ok: false,
           error: "No ad account",
-        });
-        continue;
+        };
+        return;
       }
 
       async function pullAll<T>(
@@ -193,7 +203,7 @@ async function run(request: NextRequest) {
         if (error) throw new Error(error.message);
       }
 
-      results.push({
+      results[orgIndex] = {
         org_id: org.id as string,
         org_name: org.name as string,
         ok: true,
@@ -202,16 +212,29 @@ async function run(request: NextRequest) {
           ad_group: adGroups.length,
           ad: ads.length,
         },
-      });
+      };
     } catch (e) {
-      results.push({
+      results[orgIndex] = {
         org_id: org.id as string,
         org_name: org.name as string,
         ok: false,
         error: e instanceof Error ? e.message : "Unknown error",
-      });
+      };
     }
   }
+
+  // Worker pool — same pattern as snapshot-metrics.
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= orgList.length) return;
+      await processOrg(i);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, orgList.length) }, () => worker())
+  );
 
   return NextResponse.json({
     ok: true,
