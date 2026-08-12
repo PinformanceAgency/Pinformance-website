@@ -1,20 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, TrendingUp, TrendingDown, Minus, Rocket, Pause, LayoutGrid, ImageIcon, ArrowUpDown } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import { Loader2, ArrowUpDown, Rocket, Pause, LayoutGrid, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
   TeamActivityResponse,
-  WeekBucket,
   StoreWeekRow,
 } from "@/lib/media-buying/team-activity";
 
@@ -34,10 +24,8 @@ export default function TeamActivityPage() {
       <header>
         <h1 className="text-2xl font-semibold">Team Activity</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          What the team shipped in the last 7 days — campaigns launched and
-          paused in the ad account, boards created and pins added on the
-          organic side. Company totals at the top, per-store detail below so
-          you can see exactly which stores each buyer touched.
+          Per-store view of what each media buyer shipped in the last 7 days —
+          split by paid (ad account) and organic (dashboard) work.
         </p>
       </header>
 
@@ -54,207 +42,63 @@ export default function TeamActivityPage() {
 
       {data && (
         <>
-          <ActivitySection
-            title="Paid Ads Activity"
-            description="Campaign-level changes only — new campaigns spun up vs campaigns turned off."
-            weeks={data.weeks}
-            buyers={data.buyers}
-            series={[
-              {
-                key: "launched",
-                label: "Campaigns launched",
-                color: "#10b981",
-                icon: Rocket,
-                data: data.paid.launched,
-              },
-              {
-                key: "paused",
-                label: "Campaigns paused",
-                color: "#ef4444",
-                icon: Pause,
-                data: data.paid.paused,
-              },
-            ]}
+          <PerStoreTable
+            data={data}
+            variant="paid"
+            title="Paid Ads — per store (last 7 days)"
+            description="Campaign-level changes. Launched = new campaigns whose start_time falls in the last 7 days. Paused = campaigns that transitioned ACTIVE→PAUSED during the period."
+            icon1={Rocket}
+            icon2={Pause}
+            col1Label="Launched"
+            col2Label="Paused"
+            col1Color="#10b981"
+            col2Color="#ef4444"
           />
 
-          <ActivitySection
-            title="Organic Activity"
-            description="Boards created and pins added — the raw output flowing through the dashboard last 7 days."
-            weeks={data.weeks}
-            buyers={data.buyers}
-            series={[
-              {
-                key: "boards",
-                label: "Boards created",
-                color: "#8b5cf6",
-                icon: LayoutGrid,
-                data: data.organic.boards_created,
-              },
-              {
-                key: "pins",
-                label: "Pins added",
-                color: "#f59e0b",
-                icon: ImageIcon,
-                data: data.organic.pins_added,
-              },
-            ]}
+          <PerStoreTable
+            data={data}
+            variant="organic"
+            title="Organic — per store (last 7 days)"
+            description="Boards and pins added via the dashboard. Boards = boards.created_at in the last 7 days. Pins = pins.created_at in the last 7 days."
+            icon1={LayoutGrid}
+            icon2={ImageIcon}
+            col1Label="Boards"
+            col2Label="Pins"
+            col1Color="#8b5cf6"
+            col2Color="#f59e0b"
           />
-
-          <PerStoreTable data={data} />
         </>
       )}
     </div>
   );
 }
 
-interface Series {
-  key: string;
-  label: string;
-  color: string;
-  icon: React.ComponentType<{ className?: string }>;
-  data: WeekBucket[];
-}
+type SortKey = "store" | "buyer" | "col1" | "col2" | "total";
+type Variant = "paid" | "organic";
 
-function ActivitySection({
+function PerStoreTable({
+  data,
+  variant,
   title,
   description,
-  weeks,
-  series,
+  icon1: Icon1,
+  icon2: Icon2,
+  col1Label,
+  col2Label,
+  col1Color,
+  col2Color,
 }: {
+  data: TeamActivityResponse;
+  variant: Variant;
   title: string;
   description: string;
-  weeks: string[];
-  buyers: string[]; // kept in signature for callsite compat; unused here.
-  series: Series[];
+  icon1: React.ComponentType<{ className?: string }>;
+  icon2: React.ComponentType<{ className?: string }>;
+  col1Label: string;
+  col2Label: string;
+  col1Color: string;
+  col2Color: string;
 }) {
-  const currentIdx = weeks.length - 1;
-  const priorIdx = Math.max(0, currentIdx - 1);
-
-  return (
-    <section className="bg-card border border-border rounded-2xl p-6 space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
-      </div>
-
-      {/* Big numbers last 7 days */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {series.map((s) => {
-          const current = s.data[currentIdx]?.total ?? 0;
-          const prior = s.data[priorIdx]?.total ?? 0;
-          const delta = current - prior;
-          const Icon = s.icon;
-          return (
-            <div
-              key={s.key}
-              className="rounded-xl border border-border bg-background/50 p-4 flex items-center gap-4"
-            >
-              <div
-                className="rounded-lg p-2.5 flex-shrink-0"
-                style={{ backgroundColor: s.color + "22", color: s.color }}
-              >
-                <Icon className="w-5 h-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  {s.label}
-                </div>
-                <div className="flex items-baseline gap-3 mt-0.5">
-                  <span className="text-3xl font-semibold tabular-nums">{current}</span>
-                  <DeltaBadge delta={delta} />
-                </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  last 7 days · {prior} prior 7 days
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* 8-week trend bar chart */}
-      <div>
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Trailing 8 × 7-day windows
-        </div>
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={weeks.map((w, i) => {
-                const row: Record<string, string | number> = { week: shortWeek(w) };
-                for (const s of series) row[s.label] = s.data[i]?.total ?? 0;
-                return row;
-              })}
-              margin={{ top: 8, right: 12, bottom: 4, left: 4 }}
-              barCategoryGap="25%"
-              barGap={4}
-            >
-              <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
-              <XAxis
-                dataKey="week"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "currentColor", opacity: 0.65 }}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                allowDecimals={false}
-                tick={{ fontSize: 10, fill: "currentColor", opacity: 0.6 }}
-                width={30}
-              />
-              <Tooltip
-                cursor={{ fill: "currentColor", opacity: 0.05 }}
-                contentStyle={{ fontSize: 12, borderRadius: 8 }}
-              />
-              {series.map((s) => (
-                <Bar
-                  key={s.key}
-                  dataKey={s.label}
-                  fill={s.color}
-                  radius={[4, 4, 0, 0]}
-                  isAnimationActive={false}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-    </section>
-  );
-}
-
-function DeltaBadge({ delta }: { delta: number }) {
-  const cls =
-    delta > 0
-      ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
-      : delta < 0
-      ? "text-red-600 dark:text-red-400 bg-red-500/10"
-      : "text-muted-foreground bg-muted";
-  const Icon = delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus;
-  return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", cls)}>
-      <Icon className="w-3 h-3" />
-      {delta > 0 ? "+" : ""}
-      {delta} vs prior 7d
-    </span>
-  );
-}
-
-/** "2026-08-05" → "Aug 5". */
-function shortWeek(iso: string): string {
-  const d = new Date(iso + "T00:00:00Z");
-  const m = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
-  return `${m} ${d.getUTCDate()}`;
-}
-
-type SortKey = "store" | "buyer" | "launched" | "paused" | "boards" | "pins" | "total";
-
-/** Per-store table. One row per store, showing last 7 days's counts + delta vs
- *  last week for all four metrics. Filter by buyer, sort by any column,
- *  optional "only stores with activity last 7 days" toggle. */
-function PerStoreTable({ data }: { data: TeamActivityResponse }) {
   const [buyerFilter, setBuyerFilter] = useState<string>("all");
   const [onlyActive, setOnlyActive] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("total");
@@ -263,43 +107,37 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
   const currentWeek = data.weeks[data.weeks.length - 1];
   const priorWeek = data.weeks[data.weeks.length - 2] ?? null;
 
-  // Build a per-store view: last 7 days's row + prior week's row for each store.
-  const rowsByOrg = useMemo(() => {
+  // Pull the two relevant metrics per store based on the variant.
+  const rows = useMemo(() => {
     const byOrgWeek = new Map<string, StoreWeekRow>();
-    for (const r of data.per_store) {
-      byOrgWeek.set(`${r.org_id}::${r.week_start}`, r);
-    }
+    for (const r of data.per_store) byOrgWeek.set(`${r.org_id}::${r.week_start}`, r);
     return data.stores.map((s) => {
       const cur = byOrgWeek.get(`${s.org_id}::${currentWeek}`);
       const prev = priorWeek ? byOrgWeek.get(`${s.org_id}::${priorWeek}`) : undefined;
+      const col1Cur = variant === "paid" ? cur?.launched ?? 0 : cur?.boards_created ?? 0;
+      const col2Cur = variant === "paid" ? cur?.paused ?? 0 : cur?.pins_added ?? 0;
+      const col1Prev = variant === "paid" ? prev?.launched ?? 0 : prev?.boards_created ?? 0;
+      const col2Prev = variant === "paid" ? prev?.paused ?? 0 : prev?.pins_added ?? 0;
       return {
         org_id: s.org_id,
         store_name: s.store_name,
         buyer: s.media_buyer,
-        launched: cur?.launched ?? 0,
-        paused: cur?.paused ?? 0,
-        boards_created: cur?.boards_created ?? 0,
-        pins_added: cur?.pins_added ?? 0,
-        launched_delta: (cur?.launched ?? 0) - (prev?.launched ?? 0),
-        paused_delta: (cur?.paused ?? 0) - (prev?.paused ?? 0),
-        boards_delta: (cur?.boards_created ?? 0) - (prev?.boards_created ?? 0),
-        pins_delta: (cur?.pins_added ?? 0) - (prev?.pins_added ?? 0),
-        total:
-          (cur?.launched ?? 0) +
-          (cur?.paused ?? 0) +
-          (cur?.boards_created ?? 0) +
-          (cur?.pins_added ?? 0),
+        col1: col1Cur,
+        col2: col2Cur,
+        col1_delta: col1Cur - col1Prev,
+        col2_delta: col2Cur - col2Prev,
+        total: col1Cur + col2Cur,
       };
     });
-  }, [data.per_store, data.stores, currentWeek, priorWeek]);
+  }, [data.per_store, data.stores, currentWeek, priorWeek, variant]);
 
   const filtered = useMemo(() => {
-    return rowsByOrg.filter((r) => {
+    return rows.filter((r) => {
       if (buyerFilter !== "all" && r.buyer !== buyerFilter) return false;
       if (onlyActive && r.total === 0) return false;
       return true;
     });
-  }, [rowsByOrg, buyerFilter, onlyActive]);
+  }, [rows, buyerFilter, onlyActive]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -309,10 +147,8 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
         switch (sortKey) {
           case "store": return r.store_name.toLowerCase();
           case "buyer": return r.buyer.toLowerCase();
-          case "launched": return r.launched;
-          case "paused": return r.paused;
-          case "boards": return r.boards_created;
-          case "pins": return r.pins_added;
+          case "col1": return r.col1;
+          case "col2": return r.col2;
           case "total": return r.total;
         }
       };
@@ -324,10 +160,15 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
     return arr;
   }, [filtered, sortKey, sortDir]);
 
+  const totals = useMemo(() => {
+    let c1 = 0, c2 = 0;
+    for (const r of filtered) { c1 += r.col1; c2 += r.col2; }
+    return { c1, c2 };
+  }, [filtered]);
+
   function toggleSort(k: SortKey) {
-    if (k === sortKey) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
+    if (k === sortKey) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else {
       setSortKey(k);
       setSortDir(k === "store" || k === "buyer" ? "asc" : "desc");
     }
@@ -337,12 +178,8 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
     <section className="bg-card border border-border rounded-2xl p-6 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-lg font-semibold">Per store — last 7 days</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {shortWeek(currentWeek)} → today. Numbers to the right show
-            delta vs the prior 7 days so you can spot which stores got extra
-            love (or none at all) this period.
-          </p>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">{description}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -368,23 +205,27 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
         </div>
       </div>
 
+      {/* Totals strip */}
+      <div className="grid grid-cols-2 gap-3">
+        <TotalPill icon={Icon1} label={col1Label} value={totals.c1} color={col1Color} />
+        <TotalPill icon={Icon2} label={col2Label} value={totals.c2} color={col2Color} />
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <ColHeader label="Store" k="store" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="left" />
               <ColHeader label="Buyer" k="buyer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="left" />
-              <ColHeader label="Launched" k="launched" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <ColHeader label="Paused" k="paused" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <ColHeader label="Boards" k="boards" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <ColHeader label="Pins" k="pins" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <ColHeader label={col1Label} k="col1" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <ColHeader label={col2Label} k="col2" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <ColHeader label="Total" k="total" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-xs text-muted-foreground">
+                <td colSpan={5} className="py-6 text-center text-xs text-muted-foreground">
                   No stores match the current filter.
                 </td>
               </tr>
@@ -393,10 +234,8 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
               <tr key={r.org_id} className="border-b border-border/50 last:border-b-0 hover:bg-muted/30">
                 <td className="py-2 font-medium">{r.store_name}</td>
                 <td className="py-2 text-muted-foreground">{r.buyer}</td>
-                <NumCell value={r.launched} delta={r.launched_delta} />
-                <NumCell value={r.paused} delta={r.paused_delta} />
-                <NumCell value={r.boards_created} delta={r.boards_delta} />
-                <NumCell value={r.pins_added} delta={r.pins_delta} />
+                <NumCell value={r.col1} delta={r.col1_delta} />
+                <NumCell value={r.col2} delta={r.col2_delta} />
                 <td className="py-2 pr-2 text-right tabular-nums font-semibold">{r.total}</td>
               </tr>
             ))}
@@ -405,9 +244,35 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
       </div>
 
       <div className="text-[11px] text-muted-foreground">
-        Showing {sorted.length} of {data.stores.length} stores.
+        Showing {sorted.length} of {data.stores.length} stores. Deltas compare against the prior 7-day window.
       </div>
     </section>
+  );
+}
+
+function TotalPill({
+  icon: Icon,
+  label,
+  value,
+  color,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-background/50 p-3 flex items-center gap-3">
+      <div className="rounded-lg p-2 flex-shrink-0" style={{ backgroundColor: color + "22", color }}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+          Total {label.toLowerCase()}
+        </div>
+        <div className="text-xl font-semibold tabular-nums leading-tight mt-0.5">{value}</div>
+      </div>
+    </div>
   );
 }
 
