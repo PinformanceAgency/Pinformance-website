@@ -45,11 +45,17 @@ export interface TeamActivityResponse {
 }
 
 const WEEKS_BACK = 8;
-const CONCURRENCY = 5;
-const STATEMENT_TIMEOUT_MS = 25_000;
+// Small concurrency + generous timeout — the paid RPCs each hit LAG() and 5
+// concurrent runs cause enough DB contention that individual queries slip
+// past 25s. Sequential the whole set finishes in ~50s; concurrency 2 keeps
+// us at ~30s wall clock without contention spikes.
+const CONCURRENCY = 2;
+const STATEMENT_TIMEOUT_MS = 60_000;
 
-// Module-scoped pool so consecutive requests reuse the same connections
-// (spinning up a new client per request adds ~250ms of TLS handshake).
+// Module-scoped pool so consecutive requests reuse the same connections.
+// statement_timeout is set at pool level so every query gets 60s regardless
+// of what the pooler's default is (the transaction-mode pooler doesn't
+// preserve per-query SET statements).
 let pool: Pool | null = null;
 function getPool(): Pool {
   if (pool) return pool;
@@ -59,6 +65,8 @@ function getPool(): Pool {
     connectionString: cs,
     ssl: { rejectUnauthorized: false },
     max: 8,
+    statement_timeout: 60_000,
+    query_timeout: 60_000,
   });
   return pool;
 }
@@ -216,4 +224,43 @@ export async function computeTeamActivity(): Promise<TeamActivityResponse> {
     },
     buyers: Array.from(buyers).sort(),
   };
+}
+
+/**
+ * Fast path used by the API: read the pre-computed snapshot from
+ * team_activity_cache. A cron job (see /api/cron/refresh-team-activity)
+ * calls computeTeamActivity() and writes it there every 6 hours. Falls
+ * back to a live compute the first time the cache is empty.
+ */
+export async function readCachedTeamActivity(): Promise<{
+  data: TeamActivityResponse;
+  refreshed_at: string | null;
+}> {
+  const { rows } = await getPool().query<{
+    data: TeamActivityResponse;
+    refreshed_at: Date;
+  }>(`SELECT data, refreshed_at FROM team_activity_cache WHERE id = 'default'`);
+  if (rows.length) {
+    return {
+      data: rows[0].data,
+      refreshed_at: rows[0].refreshed_at.toISOString(),
+    };
+  }
+  // Cold start — compute inline once, cache it, return it.
+  const data = await computeTeamActivity();
+  await writeCachedTeamActivity(data);
+  return { data, refreshed_at: new Date().toISOString() };
+}
+
+/** Called by the refresh cron. Idempotent — a single-row upsert on
+ *  team_activity_cache. */
+export async function writeCachedTeamActivity(
+  data: TeamActivityResponse
+): Promise<void> {
+  await getPool().query(
+    `INSERT INTO team_activity_cache (id, data, refreshed_at)
+     VALUES ('default', $1::jsonb, now())
+     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, refreshed_at = EXCLUDED.refreshed_at`,
+    [JSON.stringify(data)]
+  );
 }

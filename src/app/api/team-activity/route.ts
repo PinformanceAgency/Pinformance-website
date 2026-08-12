@@ -7,11 +7,12 @@
  */
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { computeTeamActivity } from "@/lib/media-buying/team-activity";
+import { readCachedTeamActivity } from "@/lib/media-buying/team-activity";
 
-// Compute bypasses PostgREST and hits Postgres directly via DATABASE_URL,
-// but the per-org LAG() sweep can still take up to ~10s for the biggest
-// advertiser. Give the function a comfortable ceiling.
+// Reads a cached snapshot from team_activity_cache — the refresh cron
+// (`/api/cron/refresh-team-activity`) recomputes every 6h. This request
+// finishes in <100ms; the ceiling only matters on cold-start when the
+// cache is empty and we compute inline once.
 export const maxDuration = 60;
 
 export async function GET() {
@@ -22,8 +23,8 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   try {
-    const data = await computeTeamActivity();
-    return NextResponse.json(data);
+    const { data, refreshed_at } = await readCachedTeamActivity();
+    return NextResponse.json({ ...data, refreshed_at });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown error" },
