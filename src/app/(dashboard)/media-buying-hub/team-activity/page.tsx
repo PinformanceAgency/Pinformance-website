@@ -34,7 +34,7 @@ export default function TeamActivityPage() {
       <header>
         <h1 className="text-2xl font-semibold">Team Activity</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          What the team actually shipped this week — campaigns launched and
+          What the team shipped in the last 7 days — campaigns launched and
           paused in the ad account, boards created and pins added on the
           organic side. Company totals at the top, per-store detail below so
           you can see exactly which stores each buyer touched.
@@ -79,7 +79,7 @@ export default function TeamActivityPage() {
 
           <ActivitySection
             title="Organic Activity"
-            description="Boards created and pins added — the raw output flowing through the dashboard this week."
+            description="Boards created and pins added — the raw output flowing through the dashboard last 7 days."
             weeks={data.weeks}
             buyers={data.buyers}
             series={[
@@ -137,7 +137,7 @@ function ActivitySection({
         <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
       </div>
 
-      {/* Big numbers this week */}
+      {/* Big numbers last 7 days */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {series.map((s) => {
           const current = s.data[currentIdx]?.total ?? 0;
@@ -164,7 +164,7 @@ function ActivitySection({
                   <DeltaBadge delta={delta} />
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">
-                  this week · {prior} last week
+                  last 7 days · {prior} prior 7 days
                 </div>
               </div>
             </div>
@@ -175,7 +175,7 @@ function ActivitySection({
       {/* 8-week trend bar chart */}
       <div>
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Last 8 weeks
+          Trailing 8 × 7-day windows
         </div>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
@@ -237,7 +237,7 @@ function DeltaBadge({ delta }: { delta: number }) {
     <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", cls)}>
       <Icon className="w-3 h-3" />
       {delta > 0 ? "+" : ""}
-      {delta} wk/wk
+      {delta} vs prior 7d
     </span>
   );
 }
@@ -251,9 +251,9 @@ function shortWeek(iso: string): string {
 
 type SortKey = "store" | "buyer" | "launched" | "paused" | "boards" | "pins" | "total";
 
-/** Per-store table. One row per store, showing this week's counts + delta vs
+/** Per-store table. One row per store, showing last 7 days's counts + delta vs
  *  last week for all four metrics. Filter by buyer, sort by any column,
- *  optional "only stores with activity this week" toggle. */
+ *  optional "only stores with activity last 7 days" toggle. */
 function PerStoreTable({ data }: { data: TeamActivityResponse }) {
   const [buyerFilter, setBuyerFilter] = useState<string>("all");
   const [onlyActive, setOnlyActive] = useState(true);
@@ -263,7 +263,7 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
   const currentWeek = data.weeks[data.weeks.length - 1];
   const priorWeek = data.weeks[data.weeks.length - 2] ?? null;
 
-  // Build a per-store view: this week's row + prior week's row for each store.
+  // Build a per-store view: last 7 days's row + prior week's row for each store.
   const rowsByOrg = useMemo(() => {
     const byOrgWeek = new Map<string, StoreWeekRow>();
     for (const r of data.per_store) {
@@ -337,11 +337,11 @@ function PerStoreTable({ data }: { data: TeamActivityResponse }) {
     <section className="bg-card border border-border rounded-2xl p-6 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-lg font-semibold">Per store — this week</h2>
+          <h2 className="text-lg font-semibold">Per store — last 7 days</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Week of {shortWeek(currentWeek)}. Numbers to the right show
-            week-over-week delta so you can spot which stores got extra love
-            (or none at all) this week.
+            {shortWeek(currentWeek)} → today. Numbers to the right show
+            delta vs the prior 7 days so you can spot which stores got extra
+            love (or none at all) this period.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
