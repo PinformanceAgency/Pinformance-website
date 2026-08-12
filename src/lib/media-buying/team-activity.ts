@@ -31,6 +31,19 @@ export interface WeekBucket {
   by_buyer: Record<string, number>;
 }
 
+/** One store's counts for one week. Used to render the per-store activity
+ *  table so the manager can see exactly which stores were touched. */
+export interface StoreWeekRow {
+  org_id: string;
+  store_name: string;
+  media_buyer: string;
+  week_start: string;
+  launched: number;
+  paused: number;
+  boards_created: number;
+  pins_added: number;
+}
+
 export interface TeamActivityResponse {
   weeks: string[]; // oldest → newest
   paid: {
@@ -42,6 +55,11 @@ export interface TeamActivityResponse {
     pins_added: WeekBucket[];
   };
   buyers: string[];
+  /** All configured+active stores, with a per-week row for the last
+   *  WEEKS_BACK weeks — one row per (org × week). Zeroed if no activity. */
+  per_store: StoreWeekRow[];
+  /** Store name + buyer, keyed by org_id, for UI lookups. */
+  stores: Array<{ org_id: string; store_name: string; media_buyer: string }>;
 }
 
 const WEEKS_BACK = 8;
@@ -79,18 +97,24 @@ function isoDate(raw: unknown): string {
 }
 
 async function loadBuyerMap(): Promise<{
-  byOrg: Map<string, string>;
+  byOrg: Map<string, { buyer: string; store_name: string }>;
   buyers: Set<string>;
 }> {
   const { rows } = await getPool().query<{
     org_id: string;
     media_buyer: string | null;
-  }>(`SELECT org_id, media_buyer FROM store_settings`);
-  const byOrg = new Map<string, string>();
+    store_name: string;
+  }>(
+    `SELECT s.org_id, s.media_buyer, o.name AS store_name
+       FROM store_settings s
+       JOIN organizations o ON o.id = s.org_id
+      WHERE s.is_active IS DISTINCT FROM false`
+  );
+  const byOrg = new Map<string, { buyer: string; store_name: string }>();
   const buyers = new Set<string>();
   for (const r of rows) {
     const b = r.media_buyer ?? "(unassigned)";
-    byOrg.set(r.org_id, b);
+    byOrg.set(r.org_id, { buyer: b, store_name: r.store_name });
     if (b !== "(unassigned)") buyers.add(b);
   }
   return { byOrg, buyers };
@@ -99,7 +123,7 @@ async function loadBuyerMap(): Promise<{
 function rollupToBuckets(
   weeks: string[],
   rows: { week_start: string; org_id: string; count: number }[],
-  buyerByOrg: Map<string, string>
+  byOrg: Map<string, { buyer: string; store_name: string }>
 ): WeekBucket[] {
   const byWeek = new Map(
     weeks.map((w) => [w, { total: 0, by_buyer: {} as Record<string, number> }])
@@ -107,11 +131,56 @@ function rollupToBuckets(
   for (const r of rows) {
     const b = byWeek.get(r.week_start);
     if (!b || !r.count) continue;
-    const buyer = buyerByOrg.get(r.org_id) ?? "(unassigned)";
+    const buyer = byOrg.get(r.org_id)?.buyer ?? "(unassigned)";
     b.total += r.count;
     b.by_buyer[buyer] = (b.by_buyer[buyer] ?? 0) + r.count;
   }
   return weeks.map((w) => ({ week_start: w, ...byWeek.get(w)! }));
+}
+
+/** Build one row per (org × week) with all four metrics on it — the shape
+ *  the per-store table renders. */
+function buildPerStoreRows(
+  weeks: string[],
+  byOrg: Map<string, { buyer: string; store_name: string }>,
+  paidRows: Array<{ week_start: string; org_id: string; launched: number; paused: number }>,
+  organicRows: Array<{ week_start: string; org_id: string; boards_created: number; pins_added: number }>
+): StoreWeekRow[] {
+  const key = (org: string, w: string) => `${org}::${w}`;
+  const map = new Map<string, StoreWeekRow>();
+  const orgIds = Array.from(byOrg.keys());
+  // Seed a zero row for every (configured store × week) so the UI can render
+  // a stable grid without gaps.
+  for (const org of orgIds) {
+    const info = byOrg.get(org)!;
+    for (const w of weeks) {
+      map.set(key(org, w), {
+        org_id: org,
+        store_name: info.store_name,
+        media_buyer: info.buyer,
+        week_start: w,
+        launched: 0,
+        paused: 0,
+        boards_created: 0,
+        pins_added: 0,
+      });
+    }
+  }
+  for (const r of paidRows) {
+    const row = map.get(key(r.org_id, r.week_start));
+    if (row) {
+      row.launched += r.launched;
+      row.paused += r.paused;
+    }
+  }
+  for (const r of organicRows) {
+    const row = map.get(key(r.org_id, r.week_start));
+    if (row) {
+      row.boards_created += r.boards_created;
+      row.pins_added += r.pins_added;
+    }
+  }
+  return Array.from(map.values());
 }
 
 export async function computeTeamActivity(): Promise<TeamActivityResponse> {
@@ -223,6 +292,14 @@ export async function computeTeamActivity(): Promise<TeamActivityResponse> {
       ),
     },
     buyers: Array.from(buyers).sort(),
+    per_store: buildPerStoreRows(weekSeq, byOrg, paidRows, organicRows),
+    stores: Array.from(byOrg.entries())
+      .map(([org_id, info]) => ({
+        org_id,
+        store_name: info.store_name,
+        media_buyer: info.buyer,
+      }))
+      .sort((a, b) => a.store_name.localeCompare(b.store_name)),
   };
 }
 

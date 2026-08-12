@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, TrendingUp, TrendingDown, Minus, Rocket, Pause, LayoutGrid, ImageIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, TrendingUp, TrendingDown, Minus, Rocket, Pause, LayoutGrid, ImageIcon, ArrowUpDown } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import type {
   TeamActivityResponse,
   WeekBucket,
+  StoreWeekRow,
 } from "@/lib/media-buying/team-activity";
 
 export default function TeamActivityPage() {
@@ -35,7 +36,8 @@ export default function TeamActivityPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           What the team actually shipped this week — campaigns launched and
           paused in the ad account, boards created and pins added on the
-          organic side. Per media buyer, week over week.
+          organic side. Company totals at the top, per-store detail below so
+          you can see exactly which stores each buyer touched.
         </p>
       </header>
 
@@ -97,6 +99,8 @@ export default function TeamActivityPage() {
               },
             ]}
           />
+
+          <PerStoreTable data={data} />
         </>
       )}
     </div>
@@ -115,13 +119,12 @@ function ActivitySection({
   title,
   description,
   weeks,
-  buyers,
   series,
 }: {
   title: string;
   description: string;
   weeks: string[];
-  buyers: string[];
+  buyers: string[]; // kept in signature for callsite compat; unused here.
   series: Series[];
 }) {
   const currentIdx = weeks.length - 1;
@@ -218,63 +221,6 @@ function ActivitySection({
         </div>
       </div>
 
-      {/* Per-buyer breakdown table */}
-      <div>
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          This week per buyer
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                <th className="py-2 font-medium">Buyer</th>
-                {series.map((s) => (
-                  <th key={s.key} className="py-2 pr-4 font-medium text-right">
-                    {s.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {buyers.length === 0 && (
-                <tr>
-                  <td colSpan={1 + series.length} className="py-3 text-xs text-muted-foreground">
-                    No buyers configured on any store yet.
-                  </td>
-                </tr>
-              )}
-              {buyers.map((b) => (
-                <tr key={b} className="border-b border-border/50 last:border-b-0">
-                  <td className="py-2 font-medium">{b}</td>
-                  {series.map((s) => {
-                    const current = s.data[currentIdx]?.by_buyer[b] ?? 0;
-                    const prior = s.data[priorIdx]?.by_buyer[b] ?? 0;
-                    const delta = current - prior;
-                    return (
-                      <td key={s.key} className="py-2 pr-4 text-right tabular-nums">
-                        <span className="font-medium">{current}</span>{" "}
-                        <span
-                          className={cn(
-                            "text-[11px]",
-                            delta > 0
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : delta < 0
-                              ? "text-red-600 dark:text-red-400"
-                              : "text-muted-foreground"
-                          )}
-                        >
-                          {delta > 0 ? "+" : ""}
-                          {delta}
-                        </span>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </section>
   );
 }
@@ -301,4 +247,228 @@ function shortWeek(iso: string): string {
   const d = new Date(iso + "T00:00:00Z");
   const m = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
   return `${m} ${d.getUTCDate()}`;
+}
+
+type SortKey = "store" | "buyer" | "launched" | "paused" | "boards" | "pins" | "total";
+
+/** Per-store table. One row per store, showing this week's counts + delta vs
+ *  last week for all four metrics. Filter by buyer, sort by any column,
+ *  optional "only stores with activity this week" toggle. */
+function PerStoreTable({ data }: { data: TeamActivityResponse }) {
+  const [buyerFilter, setBuyerFilter] = useState<string>("all");
+  const [onlyActive, setOnlyActive] = useState(true);
+  const [sortKey, setSortKey] = useState<SortKey>("total");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const currentWeek = data.weeks[data.weeks.length - 1];
+  const priorWeek = data.weeks[data.weeks.length - 2] ?? null;
+
+  // Build a per-store view: this week's row + prior week's row for each store.
+  const rowsByOrg = useMemo(() => {
+    const byOrgWeek = new Map<string, StoreWeekRow>();
+    for (const r of data.per_store) {
+      byOrgWeek.set(`${r.org_id}::${r.week_start}`, r);
+    }
+    return data.stores.map((s) => {
+      const cur = byOrgWeek.get(`${s.org_id}::${currentWeek}`);
+      const prev = priorWeek ? byOrgWeek.get(`${s.org_id}::${priorWeek}`) : undefined;
+      return {
+        org_id: s.org_id,
+        store_name: s.store_name,
+        buyer: s.media_buyer,
+        launched: cur?.launched ?? 0,
+        paused: cur?.paused ?? 0,
+        boards_created: cur?.boards_created ?? 0,
+        pins_added: cur?.pins_added ?? 0,
+        launched_delta: (cur?.launched ?? 0) - (prev?.launched ?? 0),
+        paused_delta: (cur?.paused ?? 0) - (prev?.paused ?? 0),
+        boards_delta: (cur?.boards_created ?? 0) - (prev?.boards_created ?? 0),
+        pins_delta: (cur?.pins_added ?? 0) - (prev?.pins_added ?? 0),
+        total:
+          (cur?.launched ?? 0) +
+          (cur?.paused ?? 0) +
+          (cur?.boards_created ?? 0) +
+          (cur?.pins_added ?? 0),
+      };
+    });
+  }, [data.per_store, data.stores, currentWeek, priorWeek]);
+
+  const filtered = useMemo(() => {
+    return rowsByOrg.filter((r) => {
+      if (buyerFilter !== "all" && r.buyer !== buyerFilter) return false;
+      if (onlyActive && r.total === 0) return false;
+      return true;
+    });
+  }, [rowsByOrg, buyerFilter, onlyActive]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    const dir = sortDir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      const getVal = (r: typeof a): string | number => {
+        switch (sortKey) {
+          case "store": return r.store_name.toLowerCase();
+          case "buyer": return r.buyer.toLowerCase();
+          case "launched": return r.launched;
+          case "paused": return r.paused;
+          case "boards": return r.boards_created;
+          case "pins": return r.pins_added;
+          case "total": return r.total;
+        }
+      };
+      const av = getVal(a);
+      const bv = getVal(b);
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
+  function toggleSort(k: SortKey) {
+    if (k === sortKey) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(k);
+      setSortDir(k === "store" || k === "buyer" ? "asc" : "desc");
+    }
+  }
+
+  return (
+    <section className="bg-card border border-border rounded-2xl p-6 space-y-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-semibold">Per store — this week</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Week of {shortWeek(currentWeek)}. Numbers to the right show
+            week-over-week delta so you can spot which stores got extra love
+            (or none at all) this week.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={buyerFilter}
+            onChange={(e) => setBuyerFilter(e.target.value)}
+            className="px-2.5 py-1.5 bg-background border border-border rounded-lg text-xs font-medium"
+          >
+            <option value="all">All buyers</option>
+            {data.buyers.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+            <option value="(unassigned)">(unassigned)</option>
+          </select>
+          <label className="text-xs font-medium inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-background border border-border rounded-lg cursor-pointer">
+            <input
+              type="checkbox"
+              checked={onlyActive}
+              onChange={(e) => setOnlyActive(e.target.checked)}
+              className="w-3.5 h-3.5"
+            />
+            Only stores with activity
+          </label>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-muted-foreground">
+              <ColHeader label="Store" k="store" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="left" />
+              <ColHeader label="Buyer" k="buyer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="left" />
+              <ColHeader label="Launched" k="launched" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <ColHeader label="Paused" k="paused" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <ColHeader label="Boards" k="boards" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <ColHeader label="Pins" k="pins" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <ColHeader label="Total" k="total" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={7} className="py-6 text-center text-xs text-muted-foreground">
+                  No stores match the current filter.
+                </td>
+              </tr>
+            )}
+            {sorted.map((r) => (
+              <tr key={r.org_id} className="border-b border-border/50 last:border-b-0 hover:bg-muted/30">
+                <td className="py-2 font-medium">{r.store_name}</td>
+                <td className="py-2 text-muted-foreground">{r.buyer}</td>
+                <NumCell value={r.launched} delta={r.launched_delta} />
+                <NumCell value={r.paused} delta={r.paused_delta} />
+                <NumCell value={r.boards_created} delta={r.boards_delta} />
+                <NumCell value={r.pins_added} delta={r.pins_delta} />
+                <td className="py-2 pr-2 text-right tabular-nums font-semibold">{r.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="text-[11px] text-muted-foreground">
+        Showing {sorted.length} of {data.stores.length} stores.
+      </div>
+    </section>
+  );
+}
+
+function ColHeader({
+  label,
+  k,
+  sortKey,
+  sortDir,
+  onSort,
+  align = "right",
+}: {
+  label: string;
+  k: SortKey;
+  sortKey: SortKey;
+  sortDir: "asc" | "desc";
+  onSort: (k: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const active = k === sortKey;
+  return (
+    <th className={cn("py-2 font-medium select-none", align === "right" ? "text-right pr-2" : "text-left")}>
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={cn(
+          "inline-flex items-center gap-1 hover:text-foreground",
+          active && "text-foreground"
+        )}
+      >
+        {label}
+        <ArrowUpDown
+          className={cn(
+            "w-3 h-3 opacity-40",
+            active && "opacity-100",
+            active && sortDir === "asc" && "rotate-180"
+          )}
+        />
+      </button>
+    </th>
+  );
+}
+
+function NumCell({ value, delta }: { value: number; delta: number }) {
+  return (
+    <td className="py-2 pr-2 text-right tabular-nums">
+      <span className={cn("font-medium", value === 0 && "text-muted-foreground/60")}>
+        {value}
+      </span>{" "}
+      {delta !== 0 && (
+        <span
+          className={cn(
+            "text-[11px]",
+            delta > 0
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-red-600 dark:text-red-400"
+          )}
+        >
+          {delta > 0 ? "+" : ""}
+          {delta}
+        </span>
+      )}
+    </td>
+  );
 }
