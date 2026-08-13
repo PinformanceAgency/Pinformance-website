@@ -145,6 +145,9 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
       continue;
     }
     // New board on Pinterest that we don't know about → insert.
+    // Mark as 'imported' so the Team Activity page doesn't count it as
+    // "boards created this week" — the buyer didn't create it, we just
+    // discovered it during Pinterest sync.
     await admin.from("boards").insert({
       org_id: orgId,
       pinterest_board_id: pb.id,
@@ -153,6 +156,7 @@ export async function syncBoardsForOrg(orgId: string): Promise<SyncSummary> {
       privacy: pb.privacy === "SECRET" ? "secret" : "public",
       status: "active",
       pin_count: pb.pin_count ?? 0,
+      source: "imported",
     });
     summary.added++;
   }
