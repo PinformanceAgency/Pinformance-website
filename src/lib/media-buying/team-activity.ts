@@ -46,6 +46,18 @@ export interface StoreWeekRow {
   week_start: string;
   launched: number;
   paused: number;
+  /** Distinct ads that went ACTIVE→PAUSED in the window, filtered to ads
+   *  whose parent campaign is CURRENTLY still active — otherwise ads
+   *  paused as a byproduct of pausing the whole campaign would double-count
+   *  and drown the real creative-optimization signal. */
+  ads_paused: number;
+  /** Distinct campaigns whose daily_spend_cap changed value inside the
+   *  window (scaling up OR down). */
+  budget_changed: number;
+  /** Distinct days inside the window that had ANY paid action for this
+   *  store — best proxy for "how often did the buyer touch this account".
+   *  Pinterest doesn't expose login history via API. */
+  active_days: number;
   boards_created: number;
   pins_added: number;
 }
@@ -69,12 +81,11 @@ export interface TeamActivityResponse {
 }
 
 const WEEKS_BACK = 8;
-// Small concurrency + generous timeout — the paid RPCs each hit LAG() and 5
-// concurrent runs cause enough DB contention that individual queries slip
-// past 25s. Sequential the whole set finishes in ~50s; concurrency 2 keeps
-// us at ~30s wall clock without contention spikes.
+// Small concurrency + generous timeout. The paid RPC now covers 5 metrics
+// including an ads LAG-scan (much larger table than campaigns), so per-org
+// runtime doubled and even MayCosmetics can occasionally touch 90s.
 const CONCURRENCY = 2;
-const STATEMENT_TIMEOUT_MS = 60_000;
+const STATEMENT_TIMEOUT_MS = 120_000;
 
 // Module-scoped pool so consecutive requests reuse the same connections.
 // statement_timeout is set at pool level so every query gets 60s regardless
@@ -89,8 +100,8 @@ function getPool(): Pool {
     connectionString: cs,
     ssl: { rejectUnauthorized: false },
     max: 8,
-    statement_timeout: 60_000,
-    query_timeout: 60_000,
+    statement_timeout: 120_000,
+    query_timeout: 120_000,
   });
   return pool;
 }
@@ -149,14 +160,16 @@ function rollupToBuckets(
 function buildPerStoreRows(
   weeks: string[],
   byOrg: Map<string, { buyer: string; store_name: string }>,
-  paidRows: Array<{ week_start: string; org_id: string; launched: number; paused: number }>,
+  paidRows: Array<{
+    week_start: string; org_id: string;
+    launched: number; paused: number;
+    ads_paused: number; budget_changed: number; active_days: number;
+  }>,
   organicRows: Array<{ week_start: string; org_id: string; boards_created: number; pins_added: number }>
 ): StoreWeekRow[] {
   const key = (org: string, w: string) => `${org}::${w}`;
   const map = new Map<string, StoreWeekRow>();
   const orgIds = Array.from(byOrg.keys());
-  // Seed a zero row for every (configured store × week) so the UI can render
-  // a stable grid without gaps.
   for (const org of orgIds) {
     const info = byOrg.get(org)!;
     for (const w of weeks) {
@@ -167,6 +180,9 @@ function buildPerStoreRows(
         week_start: w,
         launched: 0,
         paused: 0,
+        ads_paused: 0,
+        budget_changed: 0,
+        active_days: 0,
         boards_created: 0,
         pins_added: 0,
       });
@@ -177,6 +193,11 @@ function buildPerStoreRows(
     if (row) {
       row.launched += r.launched;
       row.paused += r.paused;
+      row.ads_paused += r.ads_paused;
+      row.budget_changed += r.budget_changed;
+      // active_days is a distinct-day count, not a sum; but paidRows only has
+      // one entry per (org, week) so += is equivalent to = here.
+      row.active_days = Math.max(row.active_days, r.active_days);
     }
   }
   for (const r of organicRows) {
@@ -201,6 +222,9 @@ export async function computeTeamActivity(): Promise<TeamActivityResponse> {
     org_id: string;
     launched: number;
     paused: number;
+    ads_paused: number;
+    budget_changed: number;
+    active_days: number;
   }> = [];
   let cursor = 0;
   async function worker() {
@@ -215,6 +239,9 @@ export async function computeTeamActivity(): Promise<TeamActivityResponse> {
           week_start: Date;
           launched: string;
           paused: string;
+          ads_paused: string;
+          budget_changed: string;
+          active_days: string;
         }>(`SELECT * FROM team_paid_activity_for_org($1, $2)`, [oid, WEEKS_BACK]);
         for (const r of rows) {
           paidRows.push({
@@ -222,6 +249,9 @@ export async function computeTeamActivity(): Promise<TeamActivityResponse> {
             org_id: oid,
             launched: Number(r.launched),
             paused: Number(r.paused),
+            ads_paused: Number(r.ads_paused),
+            budget_changed: Number(r.budget_changed),
+            active_days: Number(r.active_days),
           });
         }
       }
