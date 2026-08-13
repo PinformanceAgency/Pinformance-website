@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { AlertTriangle, ArrowUpRight, Flame, Sparkles, Trophy } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Flame, Sparkles, Trophy, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HubResponse } from "@/lib/media-buying/hub-types";
 import type { StoreZoneRow } from "@/lib/media-buying/zones";
@@ -76,8 +76,39 @@ export function CriticalAttentionOverview({
       <CurrentlyRedCard stores={currentlyRed} onStoreClick={onStoreClick} />
       <RecoveringCard recovering={recovering} onStoreClick={onStoreClick} />
       <WinnersCard stores={currentlyGreen} onStoreClick={onStoreClick} />
+      <PersistenceCard
+        stores={filteredStores}
+        zone="red"
+        onStoreClick={onStoreClick}
+      />
+      <PersistenceCard
+        stores={filteredStores}
+        zone="orange"
+        onStoreClick={onStoreClick}
+      />
+      <PersistenceCard
+        stores={filteredStores}
+        zone="green"
+        onStoreClick={onStoreClick}
+      />
     </div>
   );
+}
+
+/** How many CONSECUTIVE weeks (counting back from most recent) the store's
+ *  zone_history has been in the given zone. Returns 0 if the most recent
+ *  bucket isn't that zone. */
+function consecutiveWeeksIn(
+  zoneHistory: (StoreZoneRow["zone"] | null)[] | undefined,
+  targetZone: "red" | "orange" | "green"
+): number {
+  if (!zoneHistory || zoneHistory.length === 0) return 0;
+  let streak = 0;
+  for (let i = zoneHistory.length - 1; i >= 0; i--) {
+    if (zoneHistory[i] === targetZone) streak++;
+    else break;
+  }
+  return streak;
 }
 
 // ─── Card shell ─────────────────────────────────────────────────────────────
@@ -320,6 +351,101 @@ function StoreList({
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * Persistence view — currently-in-zone stores sorted by how many consecutive
+ * weeks they've been in that zone. Mutually exclusive across the 3 cards
+ * because it filters on the store's CURRENT zone.
+ *
+ *   Red   → who has been red the longest (biggest concern)
+ *   Orange → chronically underperforming, not yet breakeven
+ *   Green → most reliable winners
+ */
+function PersistenceCard({
+  stores,
+  zone,
+  onStoreClick,
+}: {
+  stores: StoreZoneRow[];
+  zone: "red" | "orange" | "green";
+  onStoreClick: (orgId: string) => void;
+}) {
+  const inZone = useMemo(
+    () =>
+      stores
+        .filter((s) => s.zone === zone)
+        .map((s) => ({
+          store: s,
+          weeks: consecutiveWeeksIn(s.zone_history as (typeof zone | null)[] | undefined, zone),
+        }))
+        // Longest streak first — worst offenders (red/orange) or most reliable (green) at the top
+        .sort((a, b) => b.weeks - a.weeks),
+    [stores, zone]
+  );
+
+  const cfg = {
+    red: {
+      title: "Longest in red",
+      iconClass: "text-red-500",
+      chip: "border-red-500/40 bg-red-500/5 hover:bg-red-500/10",
+      badge: "text-red-600 dark:text-red-400",
+      empty: "No stores currently red.",
+    },
+    orange: {
+      title: "Longest in orange",
+      iconClass: "text-amber-500",
+      chip: "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10",
+      badge: "text-amber-600 dark:text-amber-400",
+      empty: "No stores currently orange.",
+    },
+    green: {
+      title: "Longest in green",
+      iconClass: "text-emerald-500",
+      chip: "border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10",
+      badge: "text-emerald-600 dark:text-emerald-400",
+      empty: "No stores currently green.",
+    },
+  }[zone];
+
+  return (
+    <CardShell
+      icon={Clock}
+      iconClass={cfg.iconClass}
+      title={cfg.title}
+      count={inZone.length}
+      emptyLabel={cfg.empty}
+    >
+      <ul className="space-y-1.5">
+        {inZone.map(({ store: s, weeks }) => (
+          <li key={s.org_id}>
+            <button
+              onClick={() => onStoreClick(s.org_id)}
+              className={cn("w-full text-left rounded-lg border px-3 py-2", cfg.chip)}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{s.store_name}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {s.media_buyer ?? "—"} · ROAS {fmtRoas(s.roas)} · BER {fmtRoas(s.breakeven_roas)}
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className={cn("text-sm font-semibold tabular-nums", cfg.badge)}>
+                    {weeks === 0
+                      ? "<1 wk"
+                      : weeks >= 12
+                      ? "12+ wks"
+                      : `${weeks} wk${weeks === 1 ? "" : "s"}`}
+                  </div>
+                </div>
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </CardShell>
   );
 }
 

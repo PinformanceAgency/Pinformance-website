@@ -63,6 +63,11 @@ export interface StoreZoneRow {
    *  gate, so early-in-the-month stores may sit in orange even at healthy ROAS
    *  until the spend/revenue floor is met. */
   monthly_zones: (Zone | null)[];
+  /** Rolling 12-week zone history, oldest first. Same bucketing logic as
+   *  weekly_zones just wider — used by Critical Attention "Long red/orange/
+   *  green" cards to compute how many consecutive weeks the store has been
+   *  in its current state. */
+  zone_history: (Zone | null)[];
 }
 
 export interface CampaignZoneRow {
@@ -195,9 +200,14 @@ export async function computeStoreZones(
   const thisMonthStart = monthStart(0, 0);
   const lastMonthStart = monthStart(0, -1);
   const prevMonthStart = monthStart(0, -2);
+  // 12 weeks of history for the persistence view on Critical Attention
+  // ("how long has this store been red/orange/green"). We need enough weeks
+  // to spot multi-month streaks — 4 weeks alone caps the answer at "4+".
   const { start: weeklyHistoryStart } = zoneWindow(28);
+  const { start: extendedHistoryStart } = zoneWindow(12 * 7); // 84 days
   const historyStart =
-    prevMonthStart < weeklyHistoryStart ? prevMonthStart : weeklyHistoryStart;
+    extendedHistoryStart < prevMonthStart ? extendedHistoryStart : prevMonthStart;
+  if (weeklyHistoryStart) { /* referenced for clarity — historyStart is always earlier */ }
 
   const { data: orgs, error: orgsErr } = await supabase
     .from("organizations")
@@ -246,12 +256,17 @@ export async function computeStoreZones(
   // bucket 3 = most recent 7 days.
   // Monthly bucketing for the 3-month view. Bucket 0 = 2 months ago,
   // bucket 1 = last month, bucket 2 = this month MTD.
+  // History bucketing for the 12-week zone-history array (persistence view
+  // on Critical Attention). Bucket 0 = 11 weeks ago, bucket 11 = this week.
+  const HISTORY_WEEKS = 12;
   const weeklyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
   const monthlyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
+  const historyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
   const emptyBucket = () => ({ spend: 0, revenue: 0 });
   for (const orgId of orgIds) {
     weeklyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket(), emptyBucket()]);
     monthlyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket()]);
+    historyByOrg.set(orgId, Array.from({ length: HISTORY_WEEKS }, () => emptyBucket()));
   }
   for (const r of allMetrics) {
     const d = new Date(r.snapshot_date + "T00:00:00Z");
@@ -267,6 +282,17 @@ export async function computeStoreZones(
         if (bucket) {
           bucket[weekIndex].spend += n(r.spend);
           bucket[weekIndex].revenue += n(r.revenue);
+        }
+      }
+    }
+    // 12-week history bucket
+    if (daysBack >= 0 && daysBack < HISTORY_WEEKS * 7) {
+      const hIndex = HISTORY_WEEKS - 1 - Math.floor(daysBack / 7);
+      if (hIndex >= 0 && hIndex < HISTORY_WEEKS) {
+        const bucket = historyByOrg.get(r.org_id);
+        if (bucket) {
+          bucket[hIndex].spend += n(r.spend);
+          bucket[hIndex].revenue += n(r.revenue);
         }
       }
     }
@@ -360,6 +386,10 @@ export async function computeStoreZones(
       const monthly_zones: (Zone | null)[] = configured
         ? monthBuckets.map(classifyBucket)
         : [null, null, null];
+      const historyBuckets = historyByOrg.get(o.id as string) ?? Array.from({ length: HISTORY_WEEKS }, emptyBucket);
+      const zone_history: (Zone | null)[] = configured
+        ? historyBuckets.map(classifyBucket)
+        : Array.from({ length: HISTORY_WEEKS }, () => null);
       return {
         org_id: o.id as string,
         store_name: (o.name as string) || "(unnamed)",
@@ -401,6 +431,7 @@ export async function computeStoreZones(
         ratio,
         weekly_zones,
         monthly_zones,
+        zone_history,
       };
     });
   return rows;
