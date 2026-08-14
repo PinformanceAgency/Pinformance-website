@@ -42,6 +42,10 @@
     {
       "path": "/api/cron/refresh-team-activity",
       "schedule": "15 */6 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-update-sync",
+      "schedule": "0 14 * * 1"
     }
   ]
 }

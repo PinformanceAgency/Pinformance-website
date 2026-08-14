@@ -4,7 +4,26 @@
  * Schrijft per store de weekcijfers (spend, revenue) vanuit Pinterest naar de
  * subitems van het Monday-bord "Weekly Updates".
  *
- * Draait wekelijks: maandag 12:00 Europe/Amsterdam.
+ * Draait wekelijks: maandag 14:00 UTC (was 12:00).
+ *
+ * WAAROM 14:00 UTC
+ * ----------------
+ * Pinterest rapporteert per dag in de tijdzone van het AD ACCOUNT. Voor een
+ * account in de VS is de zondag pas een flink stuk na middernacht UTC echt
+ * afgesloten, en de cijfers zakken daarna nog na. Twee uur later draaien geeft
+ * die data meer tijd om te settelen, en het sluit aan op het moment waarop
+ * Tristan het handmatig deed.
+ *
+ * Bewust UTC en niet Europe/Amsterdam: een cron in UTC verspringt niet met de
+ * zomertijd. 14:00 UTC is 16:00 in de zomer (CEST) en 15:00 in de winter (CET).
+ *
+ * LET OP -- dit is geen wondermiddel. Op 14-08-2026 draaide de sync om 14:10
+ * UTC, dus feitelijk al op dit tijdstip, en toen week Tola Jewelry US nog
+ * steeds 13,4% af van wat er handmatig op het bord stond (490,32 tegen 566,30).
+ * Een later tijdstip verkleint tijdzone-ruis, maar verklaart dat verschil niet.
+ * Zie de tijdzone-notitie bij fetchWeekMetrics().
+ *
+ * Gepland via /api/cron/weekly-update-sync, in vercel.json op "0 14 * * 1".
  *
  * ARCHITECTUUR
  * ------------
@@ -108,7 +127,7 @@ const SPEND_ONLY_ATTRIBUTION_LABELS = new Set(['Shopify Revenue + Refunds']);
 
 // Draai eerst met DRY_RUN = true. Dan wordt er niets naar Monday geschreven,
 // maar zie je in de log precies wat er weggeschreven zou worden.
-const DRY_RUN = true;
+const DRY_RUN = false;
 
 // ---------------------------------------------------------------------------
 // LOGGING
