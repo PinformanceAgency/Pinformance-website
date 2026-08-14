@@ -218,6 +218,64 @@ export interface ClassifyInput {
   monthProgress?: number;
 }
 
+/** Which metric the scale gate looks at, and the number it has to reach. */
+export interface ScaleFloor {
+  /** revenue_fee stores are judged on revenue, spend_fee stores on spend. */
+  metric: "revenue" | "spend";
+  /** The amount that metric must reach, in the store's own currency. */
+  floor: number;
+}
+
+/**
+ * The scale-gate floor for one bucket. Split out of classifyZone() so the UI
+ * can show a store what it is actually being measured against without
+ * re-deriving the arithmetic — one source of truth, no drift between the
+ * number we classify on and the number we display.
+ *
+ * `monthProgress` is only read when `scaleBasis === "month"`; see the field
+ * docs on ClassifyInput.
+ */
+export function scaleFloorFor(opts: {
+  invoicingModel?: InvoicingModel | null;
+  minMonthlySpend?: number | null;
+  overrides?: Partial<ZoneThresholds> | null;
+  scaleBasis?: "week" | "month";
+  monthProgress?: number;
+}): ScaleFloor {
+  const { invoicingModel, minMonthlySpend, overrides, scaleBasis } = opts;
+  // Clamped: a caller that forgets to pass progress for a month bucket gets
+  // the full floor (the strict end) rather than a floor of zero that would
+  // wave everything through.
+  const monthShare =
+    scaleBasis === "month"
+      ? Math.min(1, Math.max(0, opts.monthProgress ?? 1))
+      : 1;
+
+  if (invoicingModel === "spend_fee") {
+    const monthly =
+      minMonthlySpend != null && minMonthlySpend > 0
+        ? minMonthlySpend
+        : DEFAULT_MIN_MONTHLY_SPEND;
+    // Month bucket: the monthly floor, pro-rata over the part of the month we
+    // have data for. Week bucket: unchanged, the monthly floor spread over an
+    // average month's worth of weeks.
+    return {
+      metric: "spend",
+      floor:
+        scaleBasis === "month" ? monthly * monthShare : monthly / WEEKS_PER_MONTH,
+    };
+  }
+  // revenue_fee (default).
+  return {
+    metric: "revenue",
+    floor:
+      scaleBasis === "month"
+        ? (overrides?.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR) *
+          monthShare
+        : (overrides?.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR),
+  };
+}
+
 export function classifyZone(input: ClassifyInput): Zone | null {
   const {
     liveRoas,
@@ -243,13 +301,6 @@ export function classifyZone(input: ClassifyInput): Zone | null {
     min_monthly_revenue:
       overrides?.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR,
   };
-  // Share of the monthly floor this bucket has to clear. Clamped: a caller
-  // that forgets to pass progress for a month bucket gets the full floor
-  // (the strict end) rather than a floor of zero that waves everything green.
-  const monthShare =
-    scaleBasis === "month"
-      ? Math.min(1, Math.max(0, monthProgress ?? 1))
-      : 1;
   const berFloor = breakevenRoas * th.orange_ratio;
   // Red — below breakeven. Costs > revenue in ad terms.
   if (liveRoas < berFloor) return "red";
@@ -263,30 +314,22 @@ export function classifyZone(input: ClassifyInput): Zone | null {
 
   const beatsInvoice = liveRoas >= effectiveInvoiceRoas;
 
-  // Scale gate: whether the store's at enough size for its billing model.
-  // For spend-fee brands the agency's fee kicks in only above a monthly
-  // spend floor; convert to weekly so a fresh 7d window can decide.
+  // Scale gate: is the store big enough for its billing model? Which metric
+  // and which number that means depends on the model and on the bucket's
+  // period — see scaleFloorFor().
   let scaleOK: boolean;
   if (input.requireRevenueFloor === false) {
     scaleOK = true;
-  } else if (invoicingModel === "spend_fee") {
-    const monthly = minMonthlySpend != null && minMonthlySpend > 0
-      ? minMonthlySpend
-      : DEFAULT_MIN_MONTHLY_SPEND;
-    // Month bucket: the monthly floor, pro-rata over the part of the month we
-    // have data for. Week bucket: unchanged, the monthly floor spread over an
-    // average month's worth of weeks.
-    const floor =
-      scaleBasis === "month" ? monthly * monthShare : monthly / WEEKS_PER_MONTH;
-    scaleOK = spend >= floor;
   } else {
-    // revenue_fee (default).
-    const floor =
-      scaleBasis === "month"
-        ? (th.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR) *
-          monthShare
-        : (th.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR);
-    scaleOK = (windowRevenue ?? 0) >= floor;
+    const gate = scaleFloorFor({
+      invoicingModel,
+      minMonthlySpend,
+      overrides: th,
+      scaleBasis,
+      monthProgress,
+    });
+    const actual = gate.metric === "spend" ? spend : (windowRevenue ?? 0);
+    scaleOK = actual >= gate.floor;
   }
 
   if (beatsInvoice && scaleOK) return "green";

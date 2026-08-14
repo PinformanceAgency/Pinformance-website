@@ -11,6 +11,7 @@ import {
   DEFAULT_ZONE_THRESHOLDS,
   ZONE_ROAS_WINDOW_DAYS,
   classifyZone,
+  scaleFloorFor,
   type InvoicingModel,
   type Zone,
   type ZoneThresholds,
@@ -71,6 +72,29 @@ export interface StoreZoneRow {
    *  which a whole month of revenue clears trivially. That painted stores
    *  green on the monthly view that were nowhere near their monthly target. */
   monthly_zones: (Zone | null)[];
+  /** Current calendar month to date. Same numbers the monthly_zones[2] bucket
+   *  is classified on, exposed so the store deep-dive can show where a store
+   *  stands against the month it actually gets invoiced on — the 7-day KPIs
+   *  alone can't answer "is this store on pace?".
+   *
+   *  `scale_target` is the pro-rata floor as of today and `scale_metric` says
+   *  which number it applies to (revenue for revenue-fee stores, spend for
+   *  spend-fee ones). Both come from scaleFloorFor(), the same helper the
+   *  classifier uses, so the displayed target can't drift from the one the
+   *  zone was decided on. */
+  mtd: {
+    spend: number;
+    revenue: number;
+    roas: number | null;
+    /** Days of the month we have data for, and the month's full length. */
+    days_with_data: number;
+    days_in_month: number;
+    scale_metric: "revenue" | "spend";
+    /** Pro-rata floor for today. */
+    scale_target: number;
+    /** Floor for the whole month, for context on the pro-rata number. */
+    scale_target_full_month: number;
+  };
   /** Rolling 12-week zone history, oldest first. Same bucketing logic as
    *  weekly_zones just wider — used by Critical Attention "Long red/orange/
    *  green" cards to compute how many consecutive weeks the store has been
@@ -444,6 +468,30 @@ export async function computeStoreZones(
       const monthly_zones: (Zone | null)[] = configured
         ? monthBuckets.map(classifyMonthBucket)
         : [null, null, null];
+      const thisMonth = monthBuckets[2];
+      const mtdGate = scaleFloorFor({
+        invoicingModel,
+        minMonthlySpend,
+        overrides: s?.zone_thresholds,
+        scaleBasis: "month",
+        monthProgress: thisMonthProgress,
+      });
+      const mtd = {
+        spend: thisMonth.spend,
+        revenue: thisMonth.revenue,
+        roas: thisMonth.spend > 0 ? thisMonth.revenue / thisMonth.spend : null,
+        days_with_data: daysWithData,
+        days_in_month: daysInThisMonth,
+        scale_metric: mtdGate.metric,
+        scale_target: mtdGate.floor,
+        scale_target_full_month: scaleFloorFor({
+          invoicingModel,
+          minMonthlySpend,
+          overrides: s?.zone_thresholds,
+          scaleBasis: "month",
+          monthProgress: 1,
+        }).floor,
+      };
       const historyBuckets = historyByOrg.get(o.id as string) ?? Array.from({ length: HISTORY_WEEKS }, emptyBucket);
       const zone_history: (Zone | null)[] = configured
         ? historyBuckets.map(classifyBucket)
@@ -489,6 +537,7 @@ export async function computeStoreZones(
         ratio,
         weekly_zones,
         monthly_zones,
+        mtd,
         zone_history,
       };
     });

@@ -106,6 +106,11 @@ export function StoreDeepDive({
           <Kpi label="CTR" value={fmtCtr(store.ctr)} />
         </div>
 
+        {/* This month — the period the store is actually invoiced on. The 7d
+            strip above says how the store is doing right now; this says
+            whether the month is going to land. */}
+        <MonthToDate store={store} currency={currency} />
+
         {/* Benchmarks */}
         {bench && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -169,6 +174,83 @@ export function StoreDeepDive({
   );
 }
 
+/**
+ * Month-to-date block. Mirrors the 7-day KPI strip but for the calendar month
+ * the agency invoices on, plus a pace card that answers the question the raw
+ * MTD numbers don't: is this store on track for its monthly target, given how
+ * far into the month we are?
+ */
+function MonthToDate({
+  store,
+  currency,
+}: {
+  store: import("@/lib/media-buying/zones").StoreZoneRow;
+  currency: string;
+}) {
+  const mtd = store.mtd;
+  // Older cached payloads predate this field; render nothing rather than
+  // crashing on undefined.
+  if (!mtd) return null;
+
+  const monthZone = store.monthly_zones?.[2] ?? null;
+  const actual = mtd.scale_metric === "spend" ? mtd.spend : mtd.revenue;
+  const pct = mtd.scale_target > 0 ? (actual / mtd.scale_target) * 100 : null;
+  const onPace = mtd.scale_target > 0 && actual >= mtd.scale_target;
+  const paceCls =
+    pct == null
+      ? "text-muted-foreground"
+      : onPace
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-red-600 dark:text-red-400";
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+          This month
+        </div>
+        {monthZone && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold border",
+              zoneBg[monthZone]
+            )}
+          >
+            <span className={cn("w-1.5 h-1.5 rounded-full", zoneDot[monthZone])} />
+            {zoneLabel[monthZone]}
+          </span>
+        )}
+        <span className="text-[11px] text-muted-foreground">
+          day {mtd.days_with_data} of {mtd.days_in_month}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Kpi label="Spend (MTD)" value={fmtCurrency(mtd.spend, currency)} />
+        <Kpi label="Revenue (MTD)" value={fmtCurrency(mtd.revenue, currency)} />
+        <Kpi
+          label="ROAS (MTD)"
+          value={fmtRoas(mtd.roas)}
+          sub={`vs ${fmtRoas(store.breakeven_roas)} BER`}
+        />
+        <div className="rounded-xl border border-border p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            {mtd.scale_metric === "spend" ? "Spend" : "Revenue"} pace
+          </div>
+          <div className={cn("mt-0.5 text-lg font-semibold tabular-nums", paceCls)}>
+            {pct == null ? "—" : `${Math.round(pct)}%`}
+          </div>
+          <div className="text-[11px] text-muted-foreground tabular-nums">
+            {fmtCurrency(actual, currency)} of {fmtCurrency(mtd.scale_target, currency)}
+          </div>
+          <div className="text-[11px] text-muted-foreground tabular-nums">
+            {fmtCurrency(mtd.scale_target_full_month, currency)} by month end
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ZoneRulesFootnote({
   store,
   hub,
@@ -183,18 +265,33 @@ function ZoneRulesFootnote({
       ? ber *
         (store.zone_thresholds?.green_ratio ?? hub.meta.default_zone_thresholds.green_ratio)
       : null);
+  const currency = store.currency ?? "USD";
   const floor =
     store.zone_thresholds?.min_weekly_revenue ??
     hub.meta.default_green_revenue_weekly_floor;
+  const mtd = store.mtd;
   return (
-    <div className="text-xs text-muted-foreground border-t border-border pt-3">
-      <strong>Zone rules for this store:</strong>{" "}
-      ROAS &lt; <strong>{fmtRoas(ber)}</strong> = red · ROAS &ge;{" "}
-      <strong>{fmtRoas(invoice)}</strong> AND weekly revenue &ge;{" "}
-      <strong>{fmtCurrency(floor, store.currency ?? "USD")}</strong> = green ·
-      everything else = orange.
-      {store.invoice_roas == null && (
-        <span className="italic"> (Invoice ROAS not set; using BER &times; green fallback ratio.)</span>
+    <div className="text-xs text-muted-foreground border-t border-border pt-3 space-y-1">
+      <div>
+        <strong>Zone rules for this store:</strong>{" "}
+        ROAS &lt; <strong>{fmtRoas(ber)}</strong> = red · ROAS &ge;{" "}
+        <strong>{fmtRoas(invoice)}</strong> AND weekly revenue &ge;{" "}
+        <strong>{fmtCurrency(floor, currency)}</strong> = green ·
+        everything else = orange.
+        {store.invoice_roas == null && (
+          <span className="italic"> (Invoice ROAS not set; using BER &times; green fallback ratio.)</span>
+        )}
+      </div>
+      {mtd && (
+        <div>
+          <strong>On the monthly view</strong> the same ROAS gates apply, but the
+          scale gate is the monthly one:{" "}
+          {mtd.scale_metric === "spend" ? "spend" : "revenue"} &ge;{" "}
+          <strong>{fmtCurrency(mtd.scale_target_full_month, currency)}</strong> for a
+          full month, pro-rata while the month is running — today{" "}
+          <strong>{fmtCurrency(mtd.scale_target, currency)}</strong> ({mtd.days_with_data}/
+          {mtd.days_in_month} days).
+        </div>
       )}
     </div>
   );
