@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
   let orgId: string | null = null;
 
   const cronSecret = request.headers.get("x-cron-secret");
-  const expectedSecret = process.env.CRON_SECRET || process.env.CRON_SET;
+  const expectedSecret = process.env.CRON_SECRET;
 
   if (cronSecret && cronSecret === expectedSecret) {
     const cloned = await request.clone().json();

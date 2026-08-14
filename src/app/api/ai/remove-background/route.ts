@@ -15,7 +15,7 @@ export const maxDuration = 60;
 export async function POST(request: NextRequest) {
   // Auth: either cron secret or user session
   const cronSecret = request.headers.get("x-cron-secret");
-  const expectedSecret = process.env.CRON_SECRET || process.env.CRON_SET;
+  const expectedSecret = process.env.CRON_SECRET;
   let orgId: string | null = null;
 
   if (cronSecret && cronSecret === expectedSecret) {

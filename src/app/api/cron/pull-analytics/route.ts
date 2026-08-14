@@ -6,9 +6,9 @@ import { fetchOrganicConversions } from "@/lib/pinterest/graphql";
 
 function verifyCron(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
-  if (authHeader === `Bearer ${process.env.CRON_SECRET || process.env.CRON_SET}`) return true;
+  if (authHeader === `Bearer ${process.env.CRON_SECRET}`) return true;
   const cronSecret = request.headers.get("x-cron-secret");
-  if (cronSecret === (process.env.CRON_SECRET || process.env.CRON_SET)) return true;
+  if (cronSecret === (process.env.CRON_SECRET)) return true;
   return false;
 }
 

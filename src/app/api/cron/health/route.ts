@@ -9,21 +9,21 @@ import { NextRequest, NextResponse } from "next/server";
  * 1. POST /api/cron/post-pins
  *    - Schedule: Every 15 minutes
  *    - Posts approved pins to Pinterest on their scheduled times
- *    - Header: x-cron-secret: <CRON_SET value from Vercel env>
+ *    - Header: x-cron-secret: <CRON_SECRET value from Vercel env>
  *
  * 2. POST /api/cron/pull-analytics
  *    - Schedule: Every 6 hours
  *    - Pulls analytics for posted pins from last 7 days
- *    - Header: x-cron-secret: <CRON_SET value from Vercel env>
+ *    - Header: x-cron-secret: <CRON_SECRET value from Vercel env>
  *
  * 3. POST /api/cron/optimize-prompts
  *    - Schedule: Weekly on Monday at 3 AM (0 3 * * 1)
  *    - Analyzes pin performance and optimizes prompts/keywords
- *    - Header: x-cron-secret: <CRON_SET value from Vercel env>
+ *    - Header: x-cron-secret: <CRON_SECRET value from Vercel env>
  */
 export async function GET(request: NextRequest) {
   const secret = request.headers.get("x-cron-secret");
-  if (secret !== (process.env.CRON_SECRET || process.env.CRON_SET)) {
+  if (secret !== (process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
       },
     ],
     environment: {
-      cron_secret_set: !!(process.env.CRON_SECRET || process.env.CRON_SET),
+      cron_secret_set: !!(process.env.CRON_SECRET),
       anthropic_key_set: !!process.env.ANTHROPIC_API_KEY,
       krea_key_set: !!process.env.KREA_API_KEY,
     },

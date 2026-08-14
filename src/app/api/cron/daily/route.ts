@@ -10,7 +10,7 @@ import { syncBoardsForOrg } from "@/app/api/pinterest/boards/sync/route";
  *
  * Schedule: Every 15 minutes via EasyCron
  * POST /api/cron/daily
- * Header: x-cron-secret: <CRON_SET>
+ * Header: x-cron-secret: <CRON_SECRET>
  *
  * What it does each run:
  * 1. Posts any approved pins whose scheduled_at has passed
@@ -23,9 +23,9 @@ export const maxDuration = 300; // 5 min max for Vercel
 
 function verifyCron(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
-  if (authHeader === `Bearer ${process.env.CRON_SECRET || process.env.CRON_SET}`) return true;
+  if (authHeader === `Bearer ${process.env.CRON_SECRET}`) return true;
   const cronSecret = request.headers.get("x-cron-secret");
-  if (cronSecret === (process.env.CRON_SECRET || process.env.CRON_SET)) return true;
+  if (cronSecret === (process.env.CRON_SECRET)) return true;
   return false;
 }
 

@@ -19,7 +19,7 @@ export const maxDuration = 300; // 5 minutes for pipeline operations
 
 export async function POST(request: NextRequest) {
   const secret = request.headers.get("x-cron-secret");
-  if (secret !== (process.env.CRON_SECRET || process.env.CRON_SET)) {
+  if (secret !== (process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

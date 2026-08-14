@@ -141,7 +141,7 @@ async function handle(request: NextRequest) {
       // block the response. The cron runs as its own Vercel invocation with
       // its own timeout budget; any leftover pins stay in status='approved'
       // with scheduled_at=now so the 15-min cron sweeps them up.
-      const cronSecret = process.env.CRON_SECRET || process.env.CRON_SET;
+      const cronSecret = process.env.CRON_SECRET;
       let triggerNote: string;
       if (cronSecret) {
         const origin = request.nextUrl.origin;
