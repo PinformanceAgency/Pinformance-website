@@ -58,10 +58,18 @@ export interface StoreZoneRow {
    *  green. */
   weekly_zones: (Zone | null)[];
   /** Per-month zone for the last 3 calendar months, oldest first:
-   *  [prev month, last month, this month MTD]. The current-month bucket is
-   *  partial by definition — the classifier still applies the invoicing-model
-   *  gate, so early-in-the-month stores may sit in orange even at healthy ROAS
-   *  until the spend/revenue floor is met. */
+   *  [prev month, last month, this month MTD].
+   *
+   *  These are judged against the MONTHLY scale floor (20k revenue / 7.5k
+   *  spend by default), because that is the period the agency invoices on.
+   *  The two finished months are held to the full floor; the current month is
+   *  held to its pro-rata share of it, based on how many days of data we have
+   *  — so a store early in the month is measured on being on pace, not
+   *  punished for the month not being over.
+   *
+   *  Until 14-08-2026 these buckets were classified with the WEEKLY floor,
+   *  which a whole month of revenue clears trivially. That painted stores
+   *  green on the monthly view that were nowhere near their monthly target. */
   monthly_zones: (Zone | null)[];
   /** Rolling 12-week zone history, oldest first. Same bucketing logic as
    *  weekly_zones just wider — used by Critical Attention "Long red/orange/
@@ -263,6 +271,8 @@ export async function computeStoreZones(
   const monthlyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
   const historyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
   const emptyBucket = () => ({ spend: 0, revenue: 0 });
+  /** Newest snapshot_date seen inside the current month, "" if none yet. */
+  let lastDateThisMonth = "";
   for (const orgId of orgIds) {
     weeklyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket(), emptyBucket()]);
     monthlyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket()]);
@@ -310,8 +320,34 @@ export async function computeStoreZones(
         mb[monthIndex].spend += n(r.spend);
         mb[monthIndex].revenue += n(r.revenue);
       }
+      if (monthIndex === 2 && r.snapshot_date > lastDateThisMonth) {
+        lastDateThisMonth = r.snapshot_date;
+      }
     }
   }
+
+  // How far into the current month our DATA runs — not the calendar. Taken
+  // from the newest snapshot_date we actually received, across all orgs, so a
+  // snapshot cron that is a day behind loosens the target for everyone
+  // instead of quietly marking every store as falling short.
+  //
+  // Deliberately global rather than per-store: a store that only ran ads on 3
+  // of the 13 elapsed days is BEHIND on its monthly target, and dividing by
+  // its own 3 active days would hide exactly that.
+  const daysInThisMonth = new Date(
+    Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth() + 1, 0)
+  ).getUTCDate();
+  const daysWithData = lastDateThisMonth
+    ? parseInt(lastDateThisMonth.slice(8, 10), 10)
+    : 0;
+  // Floor at one day: on the 1st of the month there is no data yet, and a
+  // progress of 0 would drop the scale gate to zero and wave everything
+  // through. Those buckets are empty anyway (spend 0 → classifyZone returns
+  // null), but the guard keeps that from depending on it.
+  const thisMonthProgress = Math.min(
+    1,
+    Math.max(1, daysWithData) / daysInThisMonth
+  );
 
   const rows: StoreZoneRow[] = (orgs ?? [])
     .filter((o) => o.pinterest_user_id)
@@ -380,11 +416,33 @@ export async function computeStoreZones(
       const weekly_zones: (Zone | null)[] = configured
         ? buckets.map(classifyBucket)
         : [null, null, null, null];
+      // Month buckets get the MONTHLY floor, not the weekly one. Buckets 0
+      // and 1 are finished months and are held to the full floor; bucket 2 is
+      // the month in progress and is held to its pro-rata share, so a store is
+      // judged on being on pace rather than on the month not being over yet.
+      const classifyMonthBucket = (
+        b: { spend: number; revenue: number },
+        index: number
+      ) => {
+        const mr = b.spend > 0 ? b.revenue / b.spend : null;
+        return classifyZone({
+          liveRoas: mr,
+          breakevenRoas: s?.breakeven_roas ?? null,
+          invoiceRoas: s?.invoice_roas ?? null,
+          spend: b.spend,
+          windowRevenue: b.revenue,
+          overrides: s?.zone_thresholds,
+          invoicingModel,
+          minMonthlySpend,
+          scaleBasis: "month",
+          monthProgress: index === 2 ? thisMonthProgress : 1,
+        });
+      };
       const monthBuckets = monthlyByOrg.get(o.id as string) ?? [
         emptyBucket(), emptyBucket(), emptyBucket(),
       ];
       const monthly_zones: (Zone | null)[] = configured
-        ? monthBuckets.map(classifyBucket)
+        ? monthBuckets.map(classifyMonthBucket)
         : [null, null, null];
       const historyBuckets = historyByOrg.get(o.id as string) ?? Array.from({ length: HISTORY_WEEKS }, emptyBucket);
       const zone_history: (Zone | null)[] = configured

@@ -12,12 +12,19 @@
 // Zone is decided by TWO gates rather than a single ratio band:
 //   1. Profitability gate — is live ROAS above breakeven ROAS?
 //   2. Scale gate         — is live ROAS above the invoice ROAS AND is the
-//                            weekly revenue above the €5k floor?
+//                            revenue (or spend) above the floor for this
+//                            bucket's period?
 //
 //   red    = live ROAS < breakeven ROAS                       (losing money)
-//   green  = live ROAS ≥ invoice ROAS AND weekly rev ≥ floor  (winning at scale)
+//   green  = live ROAS ≥ invoice ROAS AND rev ≥ floor         (winning at scale)
 //   orange = anything else                                    (profitable but sub-scale
 //                                                              or between BER and invoice)
+//
+// The scale gate is period-aware (see `scaleBasis` on ClassifyInput). A 7-day
+// bucket is held to the weekly floor; a calendar-month bucket is held to the
+// monthly floor, pro-rata over the part of the month we have data for. Judging
+// a month bucket by the weekly floor is what used to paint sub-scale stores
+// green on the monthly view.
 //
 // zone_thresholds JSONB on store_settings can override the two knobs per
 // store. `green_ratio` is only used as a fallback when a store has no
@@ -29,6 +36,11 @@ export interface ZoneThresholds {
   green_ratio: number;
   /** Per-store override for the weekly revenue floor required for green. */
   min_weekly_revenue?: number;
+  /** Per-store override for the FULL-month revenue floor required for green.
+   *  Independent of min_weekly_revenue — see the note at
+   *  DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR on why the two aren't derived from
+   *  each other. */
+  min_monthly_revenue?: number;
 }
 
 export const DEFAULT_ZONE_THRESHOLDS: ZoneThresholds = {
@@ -42,6 +54,17 @@ export const ZONE_ROAS_WINDOW_DAYS = 7;
 /** Weekly revenue (in the store's currency) required to be classified green.
  *  The 7-day window means the last-7-days revenue IS the weekly revenue. */
 export const DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR = 5000;
+
+/** Full-month revenue required for a revenue-fee store to be green on the
+ *  MONTHLY view — the agency invoices per month, so this is the number that
+ *  actually decides whether a store pays for itself.
+ *
+ *  Deliberately NOT derived from the weekly floor. The weekly floors are a
+ *  loose day-rate extrapolation (weekly / 7 * 30), which lands near but not
+ *  exactly on the monthly target. Confirmed with Tristan on 14-08-2026: the
+ *  weekly floors stay as they are, and the monthly view gets these hard
+ *  numbers instead of a multiple of the weekly one. */
+export const DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR = 20000;
 
 // ─── Invoicing model (billing basis for the agency) ────────────────────────
 /** Two ways the agency invoices its clients — the zone engine flips its
@@ -172,6 +195,27 @@ export interface ClassifyInput {
   invoicingModel?: InvoicingModel | null;
   /** Only used when `invoicingModel === "spend_fee"`. */
   minMonthlySpend?: number | null;
+  /**
+   * Which scale floor the bucket is measured against.
+   *   "week"  (default) — a 7-day bucket, judged on the weekly floor.
+   *   "month"           — a calendar-month bucket, judged on the monthly
+   *                       floor scaled by `monthProgress`.
+   * Passing a month bucket with the default "week" is exactly the bug this
+   * parameter was added to fix: a whole month of revenue would clear a floor
+   * meant for a single week, painting sub-scale stores green.
+   */
+  scaleBasis?: "week" | "month";
+  /**
+   * How much of the month the bucket actually covers, as a fraction (0-1].
+   * Only read when `scaleBasis === "month"`.
+   *
+   * A finished month passes 1 and is held to the full floor. A month in
+   * progress passes daysWithData / daysInMonth, so the store is judged on
+   * whether it is ON PACE rather than punished for the month not being over:
+   * on 14 August with data through the 13th that is 13/31, and a revenue-fee
+   * store needs 20000 * 13/31 = 8387 so far.
+   */
+  monthProgress?: number;
 }
 
 export function classifyZone(input: ClassifyInput): Zone | null {
@@ -184,6 +228,8 @@ export function classifyZone(input: ClassifyInput): Zone | null {
     overrides,
     invoicingModel,
     minMonthlySpend,
+    scaleBasis,
+    monthProgress,
   } = input;
   if (spend <= 0) return null; // no spend → no signal
   if (breakevenRoas == null || breakevenRoas <= 0) return null;
@@ -194,7 +240,16 @@ export function classifyZone(input: ClassifyInput): Zone | null {
     green_ratio: overrides?.green_ratio ?? DEFAULT_ZONE_THRESHOLDS.green_ratio,
     min_weekly_revenue:
       overrides?.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR,
+    min_monthly_revenue:
+      overrides?.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR,
   };
+  // Share of the monthly floor this bucket has to clear. Clamped: a caller
+  // that forgets to pass progress for a month bucket gets the full floor
+  // (the strict end) rather than a floor of zero that waves everything green.
+  const monthShare =
+    scaleBasis === "month"
+      ? Math.min(1, Math.max(0, monthProgress ?? 1))
+      : 1;
   const berFloor = breakevenRoas * th.orange_ratio;
   // Red — below breakeven. Costs > revenue in ad terms.
   if (liveRoas < berFloor) return "red";
@@ -218,13 +273,20 @@ export function classifyZone(input: ClassifyInput): Zone | null {
     const monthly = minMonthlySpend != null && minMonthlySpend > 0
       ? minMonthlySpend
       : DEFAULT_MIN_MONTHLY_SPEND;
-    const weeklyFloor = monthly / WEEKS_PER_MONTH;
-    scaleOK = spend >= weeklyFloor;
+    // Month bucket: the monthly floor, pro-rata over the part of the month we
+    // have data for. Week bucket: unchanged, the monthly floor spread over an
+    // average month's worth of weeks.
+    const floor =
+      scaleBasis === "month" ? monthly * monthShare : monthly / WEEKS_PER_MONTH;
+    scaleOK = spend >= floor;
   } else {
-    // revenue_fee (default): existing behaviour.
-    scaleOK =
-      (windowRevenue ?? 0) >=
-      (th.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR);
+    // revenue_fee (default).
+    const floor =
+      scaleBasis === "month"
+        ? (th.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR) *
+          monthShare
+        : (th.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR);
+    scaleOK = (windowRevenue ?? 0) >= floor;
   }
 
   if (beatsInvoice && scaleOK) return "green";
