@@ -16,6 +16,7 @@ import {
   type Zone,
   type ZoneThresholds,
 } from "./config";
+import { loadFxRates, ratePerEur } from "./fx";
 import type { StoreSettings } from "./store-settings-types";
 import type { Department } from "./config";
 
@@ -94,6 +95,12 @@ export interface StoreZoneRow {
     scale_target: number;
     /** Floor for the whole month, for context on the pro-rata number. */
     scale_target_full_month: number;
+    /** The same full-month floor before currency conversion. The thresholds
+     *  are set in euros; this is what CHF 18,780 is derived from. */
+    scale_target_full_month_eur: number;
+    /** Units of the store's currency per EUR that the conversion used.
+     *  1 for EUR stores. */
+    fx_per_eur: number;
   };
   /** Rolling 12-week zone history, oldest first. Same bucketing logic as
    *  weekly_zones just wider — used by Critical Attention "Long red/orange/
@@ -245,6 +252,10 @@ export async function computeStoreZones(
     .from("organizations")
     .select("id, name, pinterest_user_id, settings");
   if (orgsErr) throw new Error(orgsErr.message);
+
+  // Newest ECB reference rates, used to express the euro thresholds in each
+  // store's own currency. Never throws — falls back to the seeded rates.
+  const fxRates = await loadFxRates(supabase);
 
   const { data: settings, error: setErr } = await supabase.from("store_settings").select("*");
   if (setErr) throw new Error(setErr.message);
@@ -406,6 +417,11 @@ export async function computeStoreZones(
       const invoicingModel: InvoicingModel =
         (s?.invoicing_model as InvoicingModel | undefined) ?? "revenue_fee";
       const minMonthlySpend = s?.min_monthly_spend ?? null;
+      // The store's own currency is what every amount below is in; the euro
+      // thresholds get converted to meet them. Amounts are never converted.
+      const storeCurrency =
+        tot?.currency ?? (s as { currency?: string } | null)?.currency ?? null;
+      const fxPerEur = ratePerEur(fxRates, storeCurrency);
       const zone = configured
         ? classifyZone({
             liveRoas: roas,
@@ -416,6 +432,7 @@ export async function computeStoreZones(
             overrides: s?.zone_thresholds,
             invoicingModel,
             minMonthlySpend,
+            fxPerEur,
           })
         : null;
       const ber = s?.breakeven_roas ?? null;
@@ -435,6 +452,7 @@ export async function computeStoreZones(
           overrides: s?.zone_thresholds,
           invoicingModel,
           minMonthlySpend,
+          fxPerEur,
         });
       };
       const weekly_zones: (Zone | null)[] = configured
@@ -458,6 +476,7 @@ export async function computeStoreZones(
           overrides: s?.zone_thresholds,
           invoicingModel,
           minMonthlySpend,
+          fxPerEur,
           scaleBasis: "month",
           monthProgress: index === 2 ? thisMonthProgress : 1,
         });
@@ -469,13 +488,15 @@ export async function computeStoreZones(
         ? monthBuckets.map(classifyMonthBucket)
         : [null, null, null];
       const thisMonth = monthBuckets[2];
-      const mtdGate = scaleFloorFor({
+      const gateOpts = {
         invoicingModel,
         minMonthlySpend,
         overrides: s?.zone_thresholds,
-        scaleBasis: "month",
-        monthProgress: thisMonthProgress,
-      });
+        fxPerEur,
+        scaleBasis: "month" as const,
+      };
+      const mtdGate = scaleFloorFor({ ...gateOpts, monthProgress: thisMonthProgress });
+      const fullMonthGate = scaleFloorFor({ ...gateOpts, monthProgress: 1 });
       const mtd = {
         spend: thisMonth.spend,
         revenue: thisMonth.revenue,
@@ -484,13 +505,9 @@ export async function computeStoreZones(
         days_in_month: daysInThisMonth,
         scale_metric: mtdGate.metric,
         scale_target: mtdGate.floor,
-        scale_target_full_month: scaleFloorFor({
-          invoicingModel,
-          minMonthlySpend,
-          overrides: s?.zone_thresholds,
-          scaleBasis: "month",
-          monthProgress: 1,
-        }).floor,
+        scale_target_full_month: fullMonthGate.floor,
+        scale_target_full_month_eur: fullMonthGate.floor_eur,
+        fx_per_eur: fxPerEur,
       };
       const historyBuckets = historyByOrg.get(o.id as string) ?? Array.from({ length: HISTORY_WEEKS }, emptyBucket);
       const zone_history: (Zone | null)[] = configured

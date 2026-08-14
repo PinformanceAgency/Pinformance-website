@@ -216,6 +216,12 @@ export interface ClassifyInput {
    * store needs 20000 * 13/31 = 8387 so far.
    */
   monthProgress?: number;
+  /**
+   * Units of the store's currency per EUR, so the euro thresholds can be
+   * expressed in the currency the metrics are actually in. Amounts are never
+   * converted — only the threshold. Omit (or 1) for EUR stores.
+   */
+  fxPerEur?: number;
 }
 
 /** Which metric the scale gate looks at, and the number it has to reach. */
@@ -224,6 +230,9 @@ export interface ScaleFloor {
   metric: "revenue" | "spend";
   /** The amount that metric must reach, in the store's own currency. */
   floor: number;
+  /** The same floor in euros, before conversion — handy for the UI to show
+   *  what the store-currency number is derived from. */
+  floor_eur: number;
 }
 
 /**
@@ -234,6 +243,18 @@ export interface ScaleFloor {
  *
  * `monthProgress` is only read when `scaleBasis === "month"`; see the field
  * docs on ClassifyInput.
+ *
+ * CURRENCY: the floors below are euro amounts, but store metrics are in the
+ * currency of the Pinterest ad account and stay that way. `fxPerEur` (units of
+ * the store's currency for one EUR, straight from the ECB feed) converts the
+ * THRESHOLD to meet the amounts where they are — €20,000 becomes CHF 18,780
+ * for a Swiss account. Leaving it at 1 measures a CHF store against a number
+ * that is really euros, which is 6.5% too strict; for a USD store it is 13.5%
+ * too lenient. See lib/media-buying/fx.ts.
+ *
+ * The per-store overrides in zone_thresholds / min_monthly_spend are EUR too,
+ * same as the defaults — one unit for every threshold in the system, so you
+ * never have to know a store's currency to read its config.
  */
 export function scaleFloorFor(opts: {
   invoicingModel?: InvoicingModel | null;
@@ -241,8 +262,14 @@ export function scaleFloorFor(opts: {
   overrides?: Partial<ZoneThresholds> | null;
   scaleBasis?: "week" | "month";
   monthProgress?: number;
+  /** Units of the store's currency per EUR. 1 = store already bills in EUR. */
+  fxPerEur?: number;
 }): ScaleFloor {
   const { invoicingModel, minMonthlySpend, overrides, scaleBasis } = opts;
+  const fx =
+    typeof opts.fxPerEur === "number" && isFinite(opts.fxPerEur) && opts.fxPerEur > 0
+      ? opts.fxPerEur
+      : 1;
   // Clamped: a caller that forgets to pass progress for a month bucket gets
   // the full floor (the strict end) rather than a floor of zero that would
   // wave everything through.
@@ -259,21 +286,17 @@ export function scaleFloorFor(opts: {
     // Month bucket: the monthly floor, pro-rata over the part of the month we
     // have data for. Week bucket: unchanged, the monthly floor spread over an
     // average month's worth of weeks.
-    return {
-      metric: "spend",
-      floor:
-        scaleBasis === "month" ? monthly * monthShare : monthly / WEEKS_PER_MONTH,
-    };
+    const eur =
+      scaleBasis === "month" ? monthly * monthShare : monthly / WEEKS_PER_MONTH;
+    return { metric: "spend", floor: eur * fx, floor_eur: eur };
   }
   // revenue_fee (default).
-  return {
-    metric: "revenue",
-    floor:
-      scaleBasis === "month"
-        ? (overrides?.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR) *
-          monthShare
-        : (overrides?.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR),
-  };
+  const eur =
+    scaleBasis === "month"
+      ? (overrides?.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR) *
+        monthShare
+      : (overrides?.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR);
+  return { metric: "revenue", floor: eur * fx, floor_eur: eur };
 }
 
 export function classifyZone(input: ClassifyInput): Zone | null {
@@ -327,6 +350,7 @@ export function classifyZone(input: ClassifyInput): Zone | null {
       overrides: th,
       scaleBasis,
       monthProgress,
+      fxPerEur: input.fxPerEur,
     });
     const actual = gate.metric === "spend" ? spend : (windowRevenue ?? 0);
     scaleOK = actual >= gate.floor;

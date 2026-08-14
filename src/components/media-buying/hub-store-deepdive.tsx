@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HubResponse } from "@/lib/media-buying/hub-types";
 import { benchmarksFor } from "@/lib/media-buying/benchmarks";
-import { DEPARTMENT_LABELS, COUNTRY_OPTIONS } from "@/lib/media-buying/config";
+import { DEPARTMENT_LABELS, COUNTRY_OPTIONS, scaleFloorFor } from "@/lib/media-buying/config";
 import { fmtCurrency, fmtRoas, fmtPct, fmtCtr, fmtNum, zoneBg, zoneDot, zoneLabel } from "./hub-format";
 
 const COUNTRY_LABEL: Record<string, string> = COUNTRY_OPTIONS.reduce(
@@ -266,17 +266,25 @@ function ZoneRulesFootnote({
         (store.zone_thresholds?.green_ratio ?? hub.meta.default_zone_thresholds.green_ratio)
       : null);
   const currency = store.currency ?? "USD";
-  const floor =
-    store.zone_thresholds?.min_weekly_revenue ??
-    hub.meta.default_green_revenue_weekly_floor;
   const mtd = store.mtd;
+  // The thresholds are euro amounts; express them in the store's currency so
+  // they line up with the numbers next to them. Same helper the classifier
+  // uses, so the shown floor is the floor that decided the zone.
+  const weeklyGate = scaleFloorFor({
+    invoicingModel: store.invoicing_model,
+    minMonthlySpend: store.min_monthly_spend,
+    overrides: store.zone_thresholds,
+    scaleBasis: "week",
+    fxPerEur: mtd?.fx_per_eur ?? 1,
+  });
   return (
     <div className="text-xs text-muted-foreground border-t border-border pt-3 space-y-1">
       <div>
         <strong>Zone rules for this store:</strong>{" "}
         ROAS &lt; <strong>{fmtRoas(ber)}</strong> = red · ROAS &ge;{" "}
-        <strong>{fmtRoas(invoice)}</strong> AND weekly revenue &ge;{" "}
-        <strong>{fmtCurrency(floor, currency)}</strong> = green ·
+        <strong>{fmtRoas(invoice)}</strong> AND weekly{" "}
+        {weeklyGate.metric === "spend" ? "spend" : "revenue"} &ge;{" "}
+        <strong>{fmtCurrency(weeklyGate.floor, currency)}</strong> = green ·
         everything else = orange.
         {store.invoice_roas == null && (
           <span className="italic"> (Invoice ROAS not set; using BER &times; green fallback ratio.)</span>
@@ -291,6 +299,13 @@ function ZoneRulesFootnote({
           full month, pro-rata while the month is running — today{" "}
           <strong>{fmtCurrency(mtd.scale_target, currency)}</strong> ({mtd.days_with_data}/
           {mtd.days_in_month} days).
+          {mtd.fx_per_eur !== 1 && (
+            <>
+              {" "}Targets are set in euros ({fmtCurrency(mtd.scale_target_full_month_eur, "EUR")}{" "}
+              per month) and converted at the ECB rate; the store&apos;s own figures
+              are never converted.
+            </>
+          )}
         </div>
       )}
     </div>

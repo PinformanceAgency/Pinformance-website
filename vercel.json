@@ -46,6 +46,10 @@
     {
       "path": "/api/cron/weekly-update-sync",
       "schedule": "0 10 * * 1"
+    },
+    {
+      "path": "/api/cron/fx-rates",
+      "schedule": "30 6 * * *"
     }
   ]
 }
