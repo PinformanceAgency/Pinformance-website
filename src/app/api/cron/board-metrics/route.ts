@@ -16,7 +16,7 @@ const SANDBOX = "https://api-sandbox.pinterest.com/v5";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function verifyCron(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET || process.env.CRON_SET;
+  const secret = process.env.CRON_SECRET;
   if (request.headers.get("authorization") === `Bearer ${secret}`) return true;
   if (request.headers.get("x-cron-secret") === secret) return true;
   return false;

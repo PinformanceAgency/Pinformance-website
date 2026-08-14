@@ -9,7 +9,7 @@ export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   const cronSecret = request.headers.get("x-cron-secret");
-  const expectedSecret = process.env.CRON_SECRET || process.env.CRON_SET;
+  const expectedSecret = process.env.CRON_SECRET;
   if (!cronSecret || cronSecret !== expectedSecret) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

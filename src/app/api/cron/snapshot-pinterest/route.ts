@@ -21,7 +21,7 @@ import { parseCampaignName } from "@/lib/pinterest/naming-conventions";
 export const maxDuration = 300;
 
 function verifyCron(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET || process.env.CRON_SET;
+  const secret = process.env.CRON_SECRET;
   if (!secret) return false;
   if (request.headers.get("authorization") === `Bearer ${secret}`) return true;
   if (request.headers.get("x-cron-secret") === secret) return true;

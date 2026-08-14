@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     const { secret, org_slug, conversions } = body;
 
     // Verify with cron secret (the bookmarklet includes it)
-    if (secret !== (process.env.CRON_SECRET || process.env.CRON_SET)) {
+    if (secret !== (process.env.CRON_SECRET)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: cors });
     }
 
