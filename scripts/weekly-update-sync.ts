@@ -4,28 +4,43 @@
  * Schrijft per store de weekcijfers (spend, revenue) vanuit Pinterest naar de
  * subitems van het Monday-bord "Weekly Updates".
  *
- * Draait wekelijks: maandag 12:00 UTC.
+ * Draait wekelijks: maandag 10:00 UTC.
  *
- * WAAROM 12:00 UTC
+ * WAAROM 10:00 UTC
  * ----------------
- * Vroeg op de dag, zodat er nog ruim tijd overblijft om de cijfers na te lopen
- * voordat de updates de deur uit gaan.
+ * De media buyers vullen de zones maandagochtend rond 10:00-11:00 UTC in. Als
+ * de sync daarvóór klaar is, staat alle data er al en hoeven ze alleen nog te
+ * beoordelen in welke zone een store valt. Dat is de reden voor dit tijdstip;
+ * eerder eindigde de sync pas ná dat moment.
  *
  * Later draaien is overwogen om de Pinterest-data te laten settelen: Pinterest
  * rapporteert per dag in de tijdzone van het AD ACCOUNT, dus voor een account
- * in de VS sluit de zondag pas ruim na middernacht UTC. Gemeten maakt dat niet
- * uit. De run van 14-08-2026 draaide om 14:10 UTC en gaf voor 28 van de 33
- * stores exact hetzelfde bedrag als wat er handmatig op het bord stond; de
- * stores met een US-tijdzone (o.a. Roha Home 3517,55 en Nature Roots 2726,75)
- * kwamen tot op de cent uit. Alleen Tola Jewelry US week af, 13,4% (490,32
- * tegen 566,30) -- dat is dus store-specifiek en geen tijdzone-effect. Zoek het
- * daar dus niet als die ene store blijft afwijken; zie ook de tijdzone-notitie
- * bij fetchWeekMetrics().
+ * in de VS sluit de zondag pas na middernacht UTC. Dat is hier geen probleem.
+ * Het laatst sluitende account dat we hebben staat op US Pacific, en daar is
+ * zondag om 06:59 UTC voorbij -- ruim drie uur vóór deze run. De run van
+ * 14-08-2026 (om 14:10 UTC) bevestigde dat ook empirisch: 28 van de 33 stores
+ * gaven exact hetzelfde bedrag als wat er handmatig op het bord stond, en de
+ * US-stores (o.a. Roha Home 3517,55 en Nature Roots 2726,75) kwamen tot op de
+ * cent uit.
+ *
+ * De ene uitschieter in die run, Tola Jewelry US met 13,4% (490,32 tegen
+ * 566,30 handmatig), is uitgezocht en was geen fout van dit script: het
+ * ad account rekent in EUR en het handmatige bedrag was met de hand naar USD
+ * omgerekend (factor 1,155). Zie de VALUTA-sectie hieronder.
  *
  * Bewust UTC en niet Europe/Amsterdam: een cron in UTC verspringt niet met de
- * zomertijd. 12:00 UTC is 14:00 in de zomer (CEST) en 13:00 in de winter (CET).
+ * zomertijd. 10:00 UTC is 12:00 in de zomer (CEST) en 11:00 in de winter (CET).
  *
- * Gepland via /api/cron/weekly-update-sync, in vercel.json op "0 12 * * 1".
+ * VALUTA
+ * ------
+ * Bedragen gaan één op één over zoals Pinterest ze rapporteert: in de valuta
+ * van het ad account. Er wordt nooit omgerekend. De valuta-kolom in Monday is
+ * puur een label -- staat daar iets anders dan wat Pinterest hanteert, dan is
+ * het label fout, niet het bedrag. checkCurrency() in run() vergelijkt die twee
+ * en meldt afwijkingen aan het eind van de log, zodat zo'n verschil niet meer
+ * als rekenfout gediagnosticeerd hoeft te worden.
+ *
+ * Gepland via /api/cron/weekly-update-sync, in vercel.json op "0 10 * * 1".
  *
  * ARCHITECTUUR
  * ------------
@@ -197,6 +212,7 @@ export interface ClientConfig {
   clickWindowDays: number; // 30
   viewWindowDays: number; // 1, 7, of 30
   engagementWindowDays: number; // meestal gelijk aan click
+  currencyLabel: string; // het valuta-label uit Monday: "€", "$", "£", "CHF"
   active: boolean;
 }
 
@@ -315,6 +331,12 @@ interface DashboardLink {
   isTrial: boolean;
   /** Laatste dag waarop een cron dit ad account voor deze org zag. */
   lastSeen: string;
+  /**
+   * ISO-valuta van het ad account zoals Pinterest hem rapporteert ("EUR",
+   * "USD", ...). Leeg als er geen metrics-snapshot met valuta is; alleen
+   * pinterest_metrics_snapshots houdt dit bij, pinterest_entity_snapshots niet.
+   */
+  currency: string;
 }
 
 /**
@@ -365,6 +387,13 @@ const LINKS_QUERY = `
          WHERE snapshot_date > CURRENT_DATE - $1::int
       ) u
      GROUP BY org_id, ad_account_id
+  ),
+  cur AS (
+    SELECT DISTINCT ON (ad_account_id) ad_account_id, currency
+      FROM pinterest_metrics_snapshots
+     WHERE snapshot_date > CURRENT_DATE - $1::int
+       AND currency IS NOT NULL AND currency <> ''
+     ORDER BY ad_account_id, snapshot_date DESC
   )
   SELECT o.id::text                           AS org_id,
          o.name                               AS org_name,
@@ -372,9 +401,11 @@ const LINKS_QUERY = `
          o.pinterest_token_expires_at         AS token_expires_at,
          o.settings->>'pinterest_access_tier' AS access_tier,
          seen.ad_account_id                   AS ad_account_id,
-         seen.last_seen                       AS last_seen
+         seen.last_seen                       AS last_seen,
+         cur.currency                         AS currency
     FROM organizations o
     LEFT JOIN seen ON seen.org_id = o.id
+    LEFT JOIN cur ON cur.ad_account_id = seen.ad_account_id
    WHERE o.pinterest_user_id IS NOT NULL
    ORDER BY o.name, seen.last_seen DESC NULLS LAST
 `;
@@ -440,6 +471,7 @@ async function dashboardLinks(): Promise<LinkIndex> {
           : ((r.token_expires_at as string | null) ?? null),
       isTrial: r.access_tier === 'trial',
       lastSeen: String(r.last_seen ?? '').slice(0, 10),
+      currency: r.currency ? String(r.currency).trim().toUpperCase() : '',
     };
 
     if (!link.adAccountId) {
@@ -671,6 +703,55 @@ function attributionWindow(
     return fallback;
   }
   return hit;
+}
+
+/**
+ * Monday-label -> ISO-code. Het bord noteert de valuta als symbool.
+ *
+ * "$" wordt op USD gezet: de stores die in CAD of AUD rekenen hebben dat
+ * voluit in de kolom staan, dus een kaal dollarteken is altijd USD.
+ */
+const CURRENCY_BY_LABEL: Record<string, string> = {
+  '€': 'EUR',
+  EUR: 'EUR',
+  $: 'USD',
+  USD: 'USD',
+  '£': 'GBP',
+  GBP: 'GBP',
+  CHF: 'CHF',
+  CAD: 'CAD',
+  AUD: 'AUD',
+};
+
+/**
+ * Vergelijkt het valuta-label in Monday met de valuta waarin Pinterest dit ad
+ * account daadwerkelijk rapporteert.
+ *
+ * Waarom dit bestaat: we schrijven de bedragen ongewijzigd weg, in de valuta
+ * van het ad account. Klopt het label niet, dan staat er straks een bedrag
+ * onder het verkeerde teken en ziet dat eruit als een rekenfout in de sync.
+ * Precies dat gebeurde bij Tola Jewelry US (zie de VALUTA-sectie bovenaan).
+ *
+ * Dit blokkeert niets: het bedrag is hoe dan ook goed, alleen het label niet.
+ * Return null als er niets aan de hand is, anders de melding voor de log.
+ */
+export function checkCurrency(
+  client: ClientConfig,
+  accountCurrency: string,
+): string | null {
+  if (!accountCurrency) {
+    // Geen metrics-snapshot met valuta -- niets om tegen te vergelijken.
+    return null;
+  }
+  const label = client.currencyLabel.trim();
+  if (!label) {
+    return `${client.storeName}: valuta-kolom leeg, Pinterest rekent in ${accountCurrency}`;
+  }
+  const expected = CURRENCY_BY_LABEL[label] ?? label.toUpperCase();
+  if (expected === accountCurrency) {
+    return null;
+  }
+  return `${client.storeName}: Monday zegt ${label} (${expected}), Pinterest rekent in ${accountCurrency}`;
 }
 
 function num(v: unknown): number {
@@ -963,6 +1044,7 @@ export async function loadClients(): Promise<ClientConfig[]> {
       clickWindowDays: click,
       viewWindowDays: view,
       engagementWindowDays: engagement,
+      currencyLabel: cols[COL_CURRENCY] ?? '',
       active: true,
     });
   }
@@ -998,6 +1080,8 @@ export async function run(today?: Date): Promise<void> {
   const spendOnly: string[] = [];
   const notConnected: string[] = [];
   const failed: string[] = [];
+  const currencyMismatch: string[] = [];
+  const links = await dashboardLinks();
 
   for (const client of await loadClients()) {
     if (!client.active) {
@@ -1023,6 +1107,14 @@ export async function run(today?: Date): Promise<void> {
       log.exception(`${client.storeName} gefaald`, exc);
       failed.push(client.storeName);
       continue;
+    }
+
+    const mismatch = checkCurrency(
+      client,
+      links.byAdAccount.get(client.pinterestAdAccountId)?.currency ?? '',
+    );
+    if (mismatch) {
+      currencyMismatch.push(mismatch);
     }
 
     try {
@@ -1064,6 +1156,14 @@ export async function run(today?: Date): Promise<void> {
     // Normale toestand voor pas geonboarde stores. Volledig handmatig
     // invullen tot de koppeling er is; daarna pakt de sync ze vanzelf op.
     log.info(`NOG NIET GEKOPPELD, VOLLEDIG HANDMATIG: ${notConnected.join(', ')}`);
+  }
+  if (currencyMismatch.length) {
+    // Het bedrag klopt, het label in Monday niet. Zet het label recht; reken
+    // het bedrag niet om.
+    log.warning('VALUTA-LABEL IN MONDAY WIJKT AF VAN PINTEREST:');
+    for (const m of currencyMismatch) {
+      log.warning(`  ${m}`);
+    }
   }
   if (failed.length) {
     // Stuur dit naar je eigen Slack-kanaal, niet naar een klantkanaal.

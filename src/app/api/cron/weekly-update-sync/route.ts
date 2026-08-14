@@ -1,6 +1,6 @@
 /**
  * Weekly Update Sync — schrijft de weekcijfers per store naar de subitems van
- * het Monday-bord "Weekly Updates". Draait maandag 12:00 UTC (zie vercel.json).
+ * het Monday-bord "Weekly Updates". Draait maandag 10:00 UTC (zie vercel.json).
  *
  * De logica zelf staat in scripts/weekly-update-sync.ts; die is ook los te
  * draaien met `npx tsx`. Deze route is alleen de cron-ingang eromheen.
