@@ -29,6 +29,7 @@ import {
   AlertTriangle,
   Grid3x3,
   Users2,
+  ArrowDownWideNarrow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/hooks/use-org";
@@ -61,6 +62,7 @@ const mediaBuyingHubNav = [
   { href: "/media-buying-hub/overview", label: "Analytic Overview", icon: LineChart },
   { href: "/media-buying-hub/zones", label: "Zones", icon: Grid3x3 },
   { href: "/media-buying-hub/critical", label: "Critical Attention", icon: AlertTriangle },
+  { href: "/media-buying-hub/store-ranking", label: "Store Ranking", icon: ArrowDownWideNarrow },
   { href: "/media-buying-hub/team-activity", label: "Team Activity", icon: Users2 },
   { href: "/media-buying-hub/benchmarks", label: "Benchmarks", icon: Scale },
   { href: "/media-buying-hub/store-settings", label: "Store Settings", icon: Store },
