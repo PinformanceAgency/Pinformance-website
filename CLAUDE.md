@@ -61,7 +61,7 @@ The script connects via `pg` using `DATABASE_URL` from `.env.local` (bypasses Su
 | `/api/cron/snapshot-pinterest` | 30 */6 * * * | Snapshot campaigns/ad_groups/ads every 6h (parallelized) |
 | `/api/cron/snapshot-metrics` | 0 */6 * * * | Snapshot spend/revenue/conversions per day every 6h (self-healing 7-day window) |
 | `/api/cron/refresh-team-activity` | 15 */6 * * * | Recompute Team Activity cache every 6h |
-| `/api/cron/weekly-update-sync` | 0 10 * * 1 | Write last week's spend/revenue per store to the Monday "Weekly Updates" board |
+| `/api/cron/weekly-update-sync` | 0 12 * * 1 | Write last week's spend/revenue per store to the Monday "Weekly Updates" board |
 | `/api/cron/fx-rates` | 30 6 * * * | Pull ECB daily reference rates into `fx_rates` (used to express EUR zone thresholds per store currency) |
 
 All crons authenticate via `CRON_SECRET` env var. Manual trigger:
