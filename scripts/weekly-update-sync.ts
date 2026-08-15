@@ -4,20 +4,24 @@
  * Schrijft per store de weekcijfers (spend, revenue) vanuit Pinterest naar de
  * subitems van het Monday-bord "Weekly Updates".
  *
- * Draait wekelijks: maandag 10:00 UTC.
+ * Draait wekelijks: maandag 12:00 UTC.
  *
- * WAAROM 10:00 UTC
+ * WAAROM 12:00 UTC
  * ----------------
- * De media buyers vullen de zones maandagochtend rond 10:00-11:00 UTC in. Als
- * de sync daarvóór klaar is, staat alle data er al en hoeven ze alleen nog te
- * beoordelen in welke zone een store valt. Dat is de reden voor dit tijdstip;
- * eerder eindigde de sync pas ná dat moment.
+ * Heeft eerder op 10:00 UTC gestaan, met als redenering: de media buyers vullen
+ * de zones maandagochtend rond 10:00-11:00 UTC in, dus als de sync daarvóór
+ * klaar is hoeven ze alleen nog te beoordelen in welke zone een store valt.
+ * Dat is op 15-08-2026 teruggedraaid naar 12:00 UTC. Tygo meldde dat er in de
+ * praktijk delay in de aanlevering zit: om 10:00 UTC kan de data nog niet
+ * compleet zijn, om 12:00 UTC wel. Het risico op een onvolledig cijfer weegt
+ * zwaarder dan het uur voorsprong op de zone-invoer.
  *
- * Later draaien is overwogen om de Pinterest-data te laten settelen: Pinterest
- * rapporteert per dag in de tijdzone van het AD ACCOUNT, dus voor een account
- * in de VS sluit de zondag pas na middernacht UTC. Dat is hier geen probleem.
- * Het laatst sluitende account dat we hebben staat op US Pacific, en daar is
- * zondag om 06:59 UTC voorbij -- ruim drie uur vóór deze run. De run van
+ * Later draaien is los daarvan ook overwogen om de Pinterest-data te laten
+ * settelen -- dat speelde bij 10:00 al niet, en bij 12:00 dus zeker niet.
+ * Pinterest rapporteert per dag in de tijdzone van het AD ACCOUNT, dus voor een
+ * account in de VS sluit de zondag pas na middernacht UTC. Dat is hier geen
+ * probleem. Het laatst sluitende account dat we hebben staat op US Pacific, en
+ * daar is zondag om 06:59 UTC voorbij -- ruim vijf uur vóór deze run. De run van
  * 14-08-2026 (om 14:10 UTC) bevestigde dat ook empirisch: 28 van de 33 stores
  * gaven exact hetzelfde bedrag als wat er handmatig op het bord stond, en de
  * US-stores (o.a. Roha Home 3517,55 en Nature Roots 2726,75) kwamen tot op de
@@ -29,7 +33,7 @@
  * omgerekend (factor 1,155). Zie de VALUTA-sectie hieronder.
  *
  * Bewust UTC en niet Europe/Amsterdam: een cron in UTC verspringt niet met de
- * zomertijd. 10:00 UTC is 12:00 in de zomer (CEST) en 11:00 in de winter (CET).
+ * zomertijd. 12:00 UTC is 14:00 in de zomer (CEST) en 13:00 in de winter (CET).
  *
  * VALUTA
  * ------
@@ -40,7 +44,7 @@
  * en meldt afwijkingen aan het eind van de log, zodat zo'n verschil niet meer
  * als rekenfout gediagnosticeerd hoeft te worden.
  *
- * Gepland via /api/cron/weekly-update-sync, in vercel.json op "0 10 * * 1".
+ * Gepland via /api/cron/weekly-update-sync, in vercel.json op "0 12 * * 1".
  *
  * ARCHITECTUUR
  * ------------
