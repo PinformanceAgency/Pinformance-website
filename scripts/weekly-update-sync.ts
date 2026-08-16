@@ -4,7 +4,20 @@
  * Schrijft per store de weekcijfers (spend, revenue) vanuit Pinterest naar de
  * subitems van het Monday-bord "Weekly Updates".
  *
- * Draait wekelijks: maandag 12:00 UTC.
+ * TWEE RUNS PER MAANDAG
+ * ---------------------
+ *   01:00 UTC  runSeed()  zet voor élke actieve store een LEGE weekregel klaar
+ *                         (alleen timeline + verzenddatum). Geen Pinterest,
+ *                         geen database. Zie sectie 5.
+ *   12:00 UTC  run()      vult diezelfde regels met spend, revenue en de spend
+ *                         van vorige week.
+ *
+ * Daartussenin schrijven de media buyers hun zone en tekstupdate in de al
+ * klaarstaande regel. Vóór 16-08-2026 moesten ze die regel zelf aanmaken als ze
+ * vroeg begonnen, en dan sloeg de 12:00-run de store over (hij vroor op het
+ * bestaan van het subitem, niet op de inhoud). Die twee dingen hangen samen:
+ * runSeed() zonder de gevuld-check in writeWeek() zou élke store leeg laten.
+ * Wijzig ze nooit los van elkaar.
  *
  * WAAROM 12:00 UTC
  * ----------------
@@ -44,7 +57,17 @@
  * en meldt afwijkingen aan het eind van de log, zodat zo'n verschil niet meer
  * als rekenfout gediagnosticeerd hoeft te worden.
  *
- * Gepland via /api/cron/weekly-update-sync, in vercel.json op "0 12 * * 1".
+ * AANTALLEN IN DIT BESTAND
+ * ------------------------
+ * Alle getallen in de commentaren hieronder (aantal stores, aantal orgs, aantal
+ * spend-only labels) zijn MOMENTOPNAMEN met een datum erbij, geen constanten.
+ * Er worden doorlopend stores ge-onboard en ge-offboard: 47 actief op
+ * 14-08-2026, 49 op 16-08-2026. Nergens in de code staat een verwacht aantal;
+ * de lijst is altijd wat er op dat moment in de groep "Weekly Updates" staat.
+ * Gebruik die getallen om een log te duiden, nooit om op te controleren.
+ *
+ * Gepland via /api/cron/weekly-update-sync ("0 12 * * 1") en
+ * /api/cron/weekly-update-seed ("0 1 * * 1"), beide in vercel.json.
  *
  * ARCHITECTUUR
  * ------------
@@ -65,7 +88,14 @@
  *
  * DRAAIEN
  * -------
+ *     # de 12:00-sync (cijfers)
  *     DOTENV_CONFIG_PATH=.env.local npx tsx scripts/weekly-update-sync.ts
+ *
+ *     # de 01:00-seed (lege regels)
+ *     DOTENV_CONFIG_PATH=.env.local npx tsx scripts/weekly-update-sync.ts seed
+ *
+ * Zet WEEKLY_SYNC_DRY_RUN=1 ervoor om te zien wat er zou gebeuren zonder dat er
+ * iets naar Monday gaat.
  */
 
 import 'dotenv/config';
@@ -136,8 +166,9 @@ const REVISE_AFTER_WINDOW_CLOSES = false;
 // Hun revenue komt uit Shopify (incl. refunds) en is niet uit Pinterest te
 // halen -- die vult Tristan handmatig aan. Spend staat los van attributie en
 // is dus wel gewoon te syncen.
-// Op het bord staan 11 actieve stores met dit label, allemaal dropship, maar in
-// de log zie je er 7 (gemeten 14-08-2026). Dat verschil is geen bug: run()
+// Gemeten op 14-08-2026 (momentopname, geen constante -- zie AANTALLEN bovenaan):
+// 11 actieve stores met dit label, allemaal dropship, maar in de log zie je er
+// 7. Dat verschil is geen bug: run()
 // filtert eerst op koppeling en pas daarna op attributielabel. Een store zonder
 // werkende Pinterest-koppeling wordt met `continue` afgevangen vóórdat
 // isSpendOnly() ooit wordt aangeroepen, en belandt dus in de lijst
@@ -146,9 +177,12 @@ const REVISE_AFTER_WINDOW_CLOSES = false;
 // Zodra hun koppeling er is, schuiven ze vanzelf naar de spend-only-lijst.
 const SPEND_ONLY_ATTRIBUTION_LABELS = new Set(['Shopify Revenue + Refunds']);
 
-// Draai eerst met DRY_RUN = true. Dan wordt er niets naar Monday geschreven,
-// maar zie je in de log precies wat er weggeschreven zou worden.
-const DRY_RUN = false;
+// Draai eerst met WEEKLY_SYNC_DRY_RUN=1. Dan wordt er niets naar Monday
+// geschreven, maar zie je in de log precies wat er weggeschreven zou worden.
+// Bewust een env-var en geen constante die je met de hand omzet: zo kun je een
+// droogloop doen zonder het bestand te wijzigen, en kan een gewijzigde regel
+// nooit per ongeluk mee de deploy in.
+const DRY_RUN = process.env.WEEKLY_SYNC_DRY_RUN === '1';
 
 // ---------------------------------------------------------------------------
 // LOGGING
@@ -353,7 +387,8 @@ interface DashboardLink {
  * baseert het dashboard zijn Not connected / Configured-badge op, zie
  * src/app/api/media-buying/store-settings/route.ts:44-76. Voor de vraag "is er
  * een koppeling?" klopt dat ook. Maar voor "welk ad account hoort erbij?" is
- * die bron vrijwel leeg, gemeten op 14-08-2026:
+ * die bron vrijwel leeg. Momentopname 14-08-2026 (geen constante, zie AANTALLEN
+ * bovenaan -- de verhouding is het punt, niet de exacte getallen):
  *
  *     50   orgs met een Pinterest-koppeling (pinterest_user_id IS NOT NULL)
  *      3   daarvan met een opgeslagen ad account ID
@@ -854,7 +889,7 @@ query ($itemId: [ID!]) {
     subitems {
       id
       name
-      column_values (ids: ["timerange_mm0d1drh", "numeric_mm0dje2n"]) {
+      column_values (ids: ["timerange_mm0d1drh", "numeric_mm0dje2n", "numeric_mm0dgayk"]) {
         id
         text
       }
@@ -865,22 +900,36 @@ query ($itemId: [ID!]) {
 
 interface ExistingWeek {
   id: string;
+  /** Tekst van de numerieke kolom: '' als leeg, '0' als er echt 0 staat. */
   spend: string | null;
+  revenue: string | null;
 }
 
-/** Bestaande weken per store, gesleuteld op 'YYYY-MM-DD - YYYY-MM-DD'. */
+interface ExistingSubitems {
+  /** Bestaande weken, gesleuteld op 'YYYY-MM-DD - YYYY-MM-DD'. */
+  weeks: Record<string, ExistingWeek>;
+  /**
+   * Subitems zonder ingevulde timeline. Die kunnen we aan geen enkele week
+   * koppelen -- de naam is de maandnaam en dus niet uniek. We adopteren ze
+   * bewust NIET (te veel gok), maar melden ze wel, zodat zichtbaar wordt of
+   * dit geval in de praktijk voorkomt. Zie de notitie bij seedWeek().
+   */
+  orphans: Array<{ id: string; name: string }>;
+}
+
 export async function existingWeekSubitems(
   mondayItemId: number,
-): Promise<Record<string, ExistingWeek>> {
+): Promise<ExistingSubitems> {
   const data = await mondayQuery(EXISTING_SUBITEMS, {
     itemId: [String(mondayItemId)],
   });
   const items = data?.items ?? [];
   if (items.length === 0) {
-    return {};
+    return { weeks: {}, orphans: [] };
   }
 
-  const result: Record<string, ExistingWeek> = {};
+  const weeks: Record<string, ExistingWeek> = {};
+  const orphans: Array<{ id: string; name: string }> = [];
   for (const sub of items[0].subitems ?? []) {
     const cols: Record<string, string | null> = {};
     for (const c of sub.column_values) {
@@ -888,10 +937,16 @@ export async function existingWeekSubitems(
     }
     const key = (cols[COL_TIMERANGE] ?? '').trim();
     if (key) {
-      result[key] = { id: sub.id, spend: cols[COL_SPEND] ?? null };
+      weeks[key] = {
+        id: sub.id,
+        spend: cols[COL_SPEND] ?? null,
+        revenue: cols[COL_REVENUE] ?? null,
+      };
+    } else {
+      orphans.push({ id: sub.id, name: sub.name ?? '' });
     }
   }
-  return result;
+  return { weeks, orphans };
 }
 
 const CREATE_SUBITEM = `
@@ -934,19 +989,72 @@ export function buildColumnValues(
   return JSON.stringify(cols);
 }
 
-/** Idempotent: bestaat de week al, dan bijwerken in plaats van dubbel aanmaken. */
+/**
+ * Heeft DIT script de cijfers van deze weekregel al geschreven?
+ *
+ * Dit is de kernregel van de vries-logica en bewust een losse pure functie:
+ * hij bepaalt of een bestaande regel met rust gelaten wordt, en dat mag niet
+ * pas maandagochtend om 12:00 blijken. Zie de toelichting bij writeWeek().
+ *
+ * - Lege spend  -> nee. De regel komt van de seed of van een media buyer die
+ *   alleen zone en tekstupdate invulde. Aanvullen.
+ * - Spend gevuld, revenue leeg, NIET spend-only -> nee. Half werk, in de
+ *   praktijk een eerdere run die halverwege faalde. Opnieuw schrijven.
+ * - Spend gevuld en (spend-only OF revenue gevuld) -> ja. Bevriezen.
+ *
+ * Bij spend-only stores telt revenue niet mee: die komt uit Shopify en vult
+ * Tristan met de hand. Een lege revenue betekent daar niet "wij waren er nog
+ * niet", en zou de regel anders elke run opnieuw laten overschrijven.
+ *
+ * Let op: '0' is gevuld. Een store die een week stilstond krijgt spend 0
+ * geschreven, en die 0 moet daarna net zo goed bevriezen als elk ander bedrag.
+ */
+export function isAlreadySynced(
+  existing: { spend: string | null; revenue: string | null },
+  spendOnly: boolean,
+): boolean {
+  const spendFilled = (existing.spend ?? '') !== '';
+  const revenueFilled = (existing.revenue ?? '') !== '';
+  return spendFilled && (spendOnly || revenueFilled);
+}
+
+/**
+ * Idempotent: bestaat de week al, dan bijwerken in plaats van dubbel aanmaken.
+ *
+ * WAAROM ER OP "GEVULD" GECHECKT WORDT EN NIET OP "BESTAAT"
+ * ---------------------------------------------------------
+ * Deze functie vroor eerder op het enkele bestaan van het subitem. Dat klopte
+ * zolang alleen dit script subitems aanmaakte, maar er zijn twee partijen die
+ * dat vóór 12:00 UTC ook doen:
+ *
+ *  - de media buyer die 's ochtends vroeg de zone en de tekstupdate invult en
+ *    daarvoor zelf de weekregel aanmaakt;
+ *  - sinds 16-08-2026 seedWeek(), die maandag 01:00 UTC voor élke actieve store
+ *    een lege regel klaarzet.
+ *
+ * Met de oude check sloeg de 12:00-run die stores over ("bestaat al, bevroren")
+ * en bleven spend en revenue leeg -- bij de seed-cron zou dat élke store zijn.
+ * De vries-logica is bedoeld om late conversies niet achteraf te laten muteren,
+ * niet om een lege regel te beschermen. Dus: bevriezen zodra WIJ de cijfers
+ * hebben geschreven, en anders aanvullen.
+ *
+ * Een aangetroffen regel wordt bijgewerkt met change_multiple_column_values,
+ * dat uitsluitend de kolommen in de payload raakt. Zone en tekstupdate van de
+ * buyer blijven dus staan, en bij spend-only stores blijft een handmatig
+ * ingevulde revenue ongemoeid (die kolom zit al niet in buildColumnValues()).
+ */
 export async function writeWeek(
   client: ClientConfig,
   start: Date,
   end: Date,
   metrics: WeekMetrics,
 ): Promise<string> {
-  const existing = await existingWeekSubitems(client.mondayItemId);
+  const { weeks } = await existingWeekSubitems(client.mondayItemId);
   const key = `${isoDate(start)} - ${isoDate(end)}`;
 
   const prevStart = addDays(start, -7);
   const prevKey = `${isoDate(prevStart)} - ${isoDate(addDays(prevStart, 6))}`;
-  const prevRaw = existing[prevKey]?.spend;
+  const prevRaw = weeks[prevKey]?.spend;
   const spendPrev =
     prevRaw !== undefined && prevRaw !== null && prevRaw !== ''
       ? parseFloat(prevRaw)
@@ -960,22 +1068,34 @@ export async function writeWeek(
     !isSpendOnly(client),
   );
 
-  if (key in existing) {
-    if (!REVISE_AFTER_WINDOW_CLOSES) {
+  const hit = weeks[key];
+  if (hit) {
+    const alreadySynced = isAlreadySynced(hit, isSpendOnly(client));
+
+    if (alreadySynced && !REVISE_AFTER_WINDOW_CLOSES) {
       log.info(
-        `${client.storeName}: week ${key} bestaat al, bevroren -- overgeslagen`,
+        `${client.storeName}: week ${key} al gevuld, bevroren -- overgeslagen`,
       );
-      return existing[key].id;
+      return hit.id;
     }
-    await mondayQuery(UPDATE_SUBITEM, {
-      boardId: String(BOARD_WEEKLY_SUBITEMS),
-      itemId: existing[key].id,
-      cols,
-    });
-    log.info(`${client.storeName}: week ${key} herzien`);
-    return existing[key].id;
+    if (!DRY_RUN) {
+      await mondayQuery(UPDATE_SUBITEM, {
+        boardId: String(BOARD_WEEKLY_SUBITEMS),
+        itemId: hit.id,
+        cols,
+      });
+    }
+    const what = alreadySynced ? 'herzien' : 'bestond al leeg -- cijfers';
+    log.info(
+      `${client.storeName}: week ${key} ${what} ${DRY_RUN ? 'ZOU WORDEN BIJGEWERKT' : 'bijgewerkt'}`,
+    );
+    return hit.id;
   }
 
+  if (DRY_RUN) {
+    log.info(`${client.storeName}: week ${key} ZOU WORDEN AANGEMAAKT`);
+    return '';
+  }
   const data = await mondayQuery(CREATE_SUBITEM, {
     parentId: String(client.mondayItemId),
     name: monthName(start),
@@ -986,7 +1106,7 @@ export async function writeWeek(
 }
 
 // ---------------------------------------------------------------------------
-// 4. RUN
+// 4. KLANTENLIJST
 // ---------------------------------------------------------------------------
 
 const ACTIVE_CLIENTS = `
@@ -1056,6 +1176,157 @@ export async function loadClients(): Promise<ClientConfig[]> {
   log.info(`${clients.length} actieve stores geladen uit Monday`);
   return clients;
 }
+
+// ---------------------------------------------------------------------------
+// 5. SEED -- lege weekregels klaarzetten (maandag 01:00 UTC)
+// ---------------------------------------------------------------------------
+//
+// WAAROM DIT BESTAAT
+// ------------------
+// De media buyers vullen zone en tekstupdate maandagochtend met de hand in.
+// Stond de weekregel er dan nog niet, dan maakten ze hem zelf aan -- handwerk
+// dat twee dingen opleverde die je niet wilt: de 12:00-run die de store
+// oversloeg (zie de toelichting bij writeWeek()), en een dubbele regel zodra
+// de timeline net anders stond dan wij hem schrijven.
+//
+// Daarom zet deze run maandag 01:00 UTC voor élke actieve store een lege regel
+// klaar met alleen de timeline en de verzenddatum. De buyer schrijft daar zijn
+// zone en update in; om 12:00 UTC vult de sync spend, revenue en de spend van
+// vorige week aan zonder die velden te raken.
+//
+// GEEN PINTEREST, GEEN DATABASE
+// -----------------------------
+// Deze run schrijft geen cijfers en doet dus geen enkele Pinterest-call en
+// geen DB-query. Hij kan niet omvallen op een dood token of een ontbrekende
+// koppeling -- precies wat je wilt van iets dat om 01:00 draait.
+//
+// ALLE ACTIEVE STORES, OOK ZONDER AD ACCOUNT
+// ------------------------------------------
+// Bewust NIET via loadClients(): die slaat stores zonder ad account ID over.
+// Voor de sync klopt dat (zonder ad account valt er niets op te halen), maar
+// voor de seed is het omgekeerd -- juist een net geonboarde store zonder ad
+// account vult de buyer volledig met de hand, en heeft die lege regel dus het
+// hardst nodig. We lezen de groep rauw uit en seeden wat erin staat.
+//
+// Het aantal stores is expliciet geen constante: er worden doorlopend stores
+// ge-onboard en ge-offboard (49 actief op 16-08-2026, tegen 47 twee dagen
+// eerder). Wat er in de groep "Weekly Updates" staat op het moment dat de cron
+// draait, is de lijst. Een store die naar "Inactive Stores" verhuist valt er
+// vanzelf uit.
+//
+// Valt deze run een keer uit, dan is er niets stuk: de 12:00-run maakt het
+// subitem dan gewoon zelf aan, zoals hij dat altijd al deed.
+
+const ACTIVE_BOARD_ITEMS = `
+query ($boardId: [ID!], $groupId: String!) {
+  boards (ids: $boardId) {
+    groups (ids: [$groupId]) {
+      items_page (limit: 200) {
+        items {
+          id
+          name
+        }
+      }
+    }
+  }
+}
+`;
+
+/** Alle items in de actieve groep, ongefilterd. */
+async function loadActiveBoardItems(): Promise<
+  Array<{ id: number; name: string }>
+> {
+  const data = await mondayQuery(ACTIVE_BOARD_ITEMS, {
+    boardId: [String(BOARD_WEEKLY_UPDATES)],
+    groupId: GROUP_ACTIVE,
+  });
+  return data.boards[0].groups[0].items_page.items.map(
+    (i: { id: string; name: string }) => ({
+      id: parseInt(i.id, 10),
+      name: i.name,
+    }),
+  );
+}
+
+/** Alleen de week en de verzenddatum. Cijfers volgen om 12:00 UTC. */
+export function buildSeedColumnValues(start: Date, end: Date): string {
+  return JSON.stringify({
+    [COL_TIMERANGE]: { from: isoDate(start), to: isoDate(end) },
+    [COL_SEND_DATE]: { date: isoDate(addDays(end, 1)) },
+  });
+}
+
+export async function runSeed(today?: Date): Promise<void> {
+  const day = today ?? todayUtc();
+  const { start, end } = previousFullWeek(day);
+  const key = `${isoDate(start)} - ${isoDate(end)}`;
+  log.info(`Seed week ${key}`);
+
+  if (DRY_RUN) {
+    log.warning('DRY RUN -- er wordt niets naar Monday geschreven.');
+  }
+
+  const cols = buildSeedColumnValues(start, end);
+  const items = await loadActiveBoardItems();
+  log.info(`${items.length} actieve stores op het bord`);
+
+  let created = 0;
+  let existed = 0;
+  const failed: string[] = [];
+  const withOrphans: string[] = [];
+
+  for (const item of items) {
+    try {
+      const { weeks, orphans } = await existingWeekSubitems(item.id);
+
+      // Niet adopteren, wel melden. Een subitem zonder timeline kunnen we aan
+      // geen week koppelen (de naam is de maandnaam, dus niet uniek), en gokken
+      // is erger dan een dubbele regel die je ziet. Komt dit structureel voor,
+      // dan werkt er iemand vóór maandag 01:00 UTC aan de update en is dit het
+      // signaal om er alsnog iets voor te bouwen.
+      if (orphans.length) {
+        withOrphans.push(`${item.name} (${orphans.length})`);
+      }
+
+      if (weeks[key]) {
+        existed += 1;
+        continue;
+      }
+
+      if (!DRY_RUN) {
+        await mondayQuery(CREATE_SUBITEM, {
+          parentId: String(item.id),
+          name: monthName(start),
+          cols,
+        });
+      }
+      created += 1;
+      log.info(
+        `${pad(item.name, 32)} lege regel ${DRY_RUN ? 'zou worden aangemaakt' : 'aangemaakt'}`,
+      );
+    } catch (exc) {
+      // Per store falen mag de rest niet blokkeren -- zelfde patroon als run().
+      log.exception(`${item.name} gefaald bij seeden`, exc);
+      failed.push(item.name);
+    }
+  }
+
+  log.info(
+    `Seed klaar: ${created} aangemaakt, ${existed} bestond al, ${failed.length} gefaald`,
+  );
+  if (withOrphans.length) {
+    log.warning(
+      `SUBITEM ZONDER TIMELINE (niet gekoppeld aan een week): ${withOrphans.join(', ')}`,
+    );
+  }
+  if (failed.length) {
+    log.error(`HANDMATIG NALOPEN: ${failed.join(', ')}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 6. RUN
+// ---------------------------------------------------------------------------
 
 function pad(s: string, width: number): string {
   return s.length >= width ? s : s + ' '.repeat(width - s.length);
@@ -1142,9 +1413,10 @@ export async function run(today?: Date): Promise<void> {
           )}  ROAS ${roas.toFixed(2)}`,
         );
       }
-      if (!DRY_RUN) {
-        await writeWeek(client, start, end, metrics);
-      }
+      // Geen DRY_RUN-guard hier: writeWeek() kent hem zelf, zodat een droogloop
+      // laat zien welke beslissing hij zou nemen (aanmaken / aanvullen /
+      // bevroren) in plaats van die stap over te slaan.
+      await writeWeek(client, start, end, metrics);
       ok += 1;
     } catch (exc) {
       log.exception(`${client.storeName} gefaald bij wegschrijven`, exc);
@@ -1176,9 +1448,13 @@ export async function run(today?: Date): Promise<void> {
 }
 
 // Alleen draaien wanneer dit bestand direct wordt aangeroepen.
+// `... weekly-update-sync.ts seed` draait de 01:00-seed, zonder argument de
+// 12:00-sync.
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '')) {
-  run().catch((e) => {
-    log.exception('Sync gefaald', e);
+  const seedMode = process.argv[2] === 'seed';
+  const main = seedMode ? runSeed : run;
+  main().catch((e) => {
+    log.exception(seedMode ? 'Seed gefaald' : 'Sync gefaald', e);
     process.exit(1);
   });
 }

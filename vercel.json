@@ -44,6 +44,10 @@
       "schedule": "15 */6 * * *"
     },
     {
+      "path": "/api/cron/weekly-update-seed",
+      "schedule": "0 1 * * 1"
+    },
+    {
       "path": "/api/cron/weekly-update-sync",
       "schedule": "0 12 * * 1"
     },
