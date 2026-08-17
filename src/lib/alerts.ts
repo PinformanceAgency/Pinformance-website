@@ -35,6 +35,15 @@ export interface CronAlert {
   message: string;
   /** Optioneel: de onderliggende fout. */
   error?: unknown;
+  /**
+   * 'failed'    -- de hele run is omgevallen (standaard).
+   * 'attention' -- de run kwam klaar, maar een deel is niet gelukt.
+   *
+   * Het onderscheid staat er zodat de kop in Slack klopt: 'Cron gefaald' boven
+   * een run die 46 van de 49 stores wél heeft gevuld leest als een storing die
+   * het niet is, en dan leer je het kanaal negeren.
+   */
+  level?: "failed" | "attention";
 }
 
 function describeError(error: unknown): string | null {
@@ -62,8 +71,12 @@ export async function alertCronFailure(alert: CronAlert): Promise<boolean> {
   }
 
   const detail = describeError(alert.error);
+  const heading =
+    alert.level === "attention"
+      ? `:warning: *Nalopen: ${alert.cron}*`
+      : `:rotating_light: *Cron gefaald: ${alert.cron}*`;
   const text = [
-    `:rotating_light: *Cron gefaald: ${alert.cron}*`,
+    heading,
     alert.message,
     detail ? `\`\`\`${detail}\`\`\`` : null,
     `Logs: https://vercel.com/pinformance-tt/pinformance-dashboard/logs`,

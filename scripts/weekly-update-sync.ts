@@ -1504,7 +1504,21 @@ function padNum(n: number, width: number): string {
   return s.length >= width ? s : ' '.repeat(width - s.length) + s;
 }
 
-export async function run(today?: Date): Promise<void> {
+/** Wat de run heeft gedaan; de cron-route hangt hier het Slack-alarm aan op. */
+export interface SyncSummary {
+  /** Aantal stores waarvan de cijfers zijn weggeschreven. */
+  ok: number;
+  /** Stores die zijn mislukt en met de hand moeten worden nagelopen. */
+  failed: string[];
+  /** Stores waar alleen spend is geschreven; revenue vult de buyer aan. */
+  spendOnly: string[];
+  /** Stores zonder koppeling: volledig handwerk tot die er is. */
+  notConnected: string[];
+  /** Label in Monday wijkt af van de valuta bij Pinterest. */
+  currencyMismatch: string[];
+}
+
+export async function run(today?: Date): Promise<SyncSummary> {
   const day = today ?? todayUtc();
   const { start, end } = previousFullWeek(day);
   log.info(`Week ${isoDate(start)} t/m ${isoDate(end)}`);
@@ -1612,6 +1626,13 @@ export async function run(today?: Date): Promise<void> {
     // Stuur dit naar je eigen Slack-kanaal, niet naar een klantkanaal.
     log.error(`HANDMATIG NALOPEN: ${failed.join(', ')}`);
   }
+
+  // De route hangt hier het Slack-alarm aan op. Bewust teruggeven in plaats van
+  // alleen loggen: een store die faalt laat de rest gewoon doorlopen, dus de run
+  // eindigt met ok:true en dan zag je in de logs nooit dat er drie stores geen
+  // cijfers kregen -- dezelfde stille storing als de seed van 17-08-2026, alleen
+  // kleiner.
+  return { ok, failed, spendOnly, notConnected, currencyMismatch };
 }
 
 // Alleen draaien wanneer dit bestand direct wordt aangeroepen.

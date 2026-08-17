@@ -43,8 +43,28 @@ async function handle(request: NextRequest) {
     // run() logt per store naar console (zichtbaar in de Vercel-logs) en gooit
     // alleen bij een fatale fout, zoals Monday die de token weigert. Fouten per
     // store worden daarbinnen al opgevangen en aan het eind gerapporteerd.
-    await runWeeklySync();
-    return NextResponse.json({ ok: true, elapsed_ms: Date.now() - started });
+    const summary = await runWeeklySync();
+
+    // Een mislukte store blokkeert de rest niet, dus deze run eindigt gewoon
+    // met ok:true. Zonder deze melding stond alleen in de logs dat er stores
+    // zijn overgeslagen -- en daar kijkt op maandagmiddag niemand.
+    if (summary.failed.length) {
+      await alertCronFailure({
+        cron: "weekly-update-sync",
+        level: "attention",
+        message:
+          `${summary.failed.length} van de ${summary.failed.length + summary.ok} stores ` +
+          `kregen geen cijfers op het Weekly Updates-bord. Handmatig nalopen: ` +
+          summary.failed.join(", "),
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      elapsed_ms: Date.now() - started,
+      stores_ok: summary.ok,
+      stores_failed: summary.failed,
+    });
   } catch (e) {
     await alertCronFailure({
       cron: "weekly-update-sync",
