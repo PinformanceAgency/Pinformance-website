@@ -1456,6 +1456,39 @@ export async function runSeed(today?: Date): Promise<void> {
   if (failed.length) {
     log.error(`HANDMATIG NALOPEN: ${failed.join(', ')}`);
   }
+
+  // EINDCONTROLE
+  // ------------
+  // Op 17-08-2026 sloeg deze run stilletjes 31 stores over. De tellers hierboven
+  // hadden dat niet laten zien: die tellen wat de lus deed, en de lus kwam nooit
+  // bij die stores. Wordt de functie halverwege afgekapt, dan wordt ook deze
+  // controle niet meer bereikt -- en dat is precies het signaal. Een run die
+  // niet eindigt met 'EINDCONTROLE' in de logs is niet afgemaakt.
+  //
+  // We lezen het bord opnieuw (3 calls) in plaats van de tellers te vertrouwen,
+  // zodat een create die 200 teruggaf maar niets opleverde hier alsnog opvalt.
+  if (DRY_RUN) {
+    log.info('EINDCONTROLE overgeslagen (dry run)');
+    return;
+  }
+
+  const naSeed = await loadAllWeekSubitems();
+  const zonderRegel = items
+    .filter((item) => !naSeed.get(String(item.id))?.weeks[key])
+    .map((item) => item.name);
+
+  if (zonderRegel.length) {
+    log.error(
+      `EINDCONTROLE GEFAALD: ${zonderRegel.length} van ${items.length} stores` +
+        ` hebben geen regel voor ${key}: ${zonderRegel.join(', ')}`,
+    );
+    // Gooien zodat de cron-route een 500 teruggeeft in plaats van {ok:true}.
+    throw new Error(
+      `Seed onvolledig: ${zonderRegel.length} van ${items.length} stores zonder weekregel`,
+    );
+  }
+
+  log.info(`EINDCONTROLE OK: alle ${items.length} stores hebben een regel voor ${key}`);
 }
 
 // ---------------------------------------------------------------------------
