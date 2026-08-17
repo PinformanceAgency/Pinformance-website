@@ -22,6 +22,7 @@
  * en geen DB-query, en kan dus niet omvallen op een dood token.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { alertCronFailure } from "@/lib/alerts";
 
 // Lichter dan de sync: 2 Monday-calls per store, geen Pinterest. Ruim genomen
 // zodat groei van de storelijst hier niet tegenaan loopt.
@@ -50,6 +51,17 @@ async function handle(request: NextRequest) {
     await runSeed();
     return NextResponse.json({ ok: true, elapsed_ms: Date.now() - started });
   } catch (e) {
+    // runSeed() gooit onder andere als de eindcontrole ziet dat er stores
+    // zonder weekregel zijn achtergebleven -- precies het geval dat op
+    // 17-08-2026 onopgemerkt bleef. Await, zodat de melding de deur uit is
+    // voordat de functie wordt afgesloten.
+    await alertCronFailure({
+      cron: "weekly-update-seed",
+      message:
+        "De lege weekregels zijn niet (volledig) aangemaakt. Media buyers " +
+        "missen mogelijk hun rij op het Weekly Updates-bord.",
+      error: e,
+    });
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown error" },
       { status: 500 }

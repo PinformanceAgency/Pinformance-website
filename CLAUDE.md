@@ -65,6 +65,12 @@ The script connects via `pg` using `DATABASE_URL` from `.env.local` (bypasses Su
 | `/api/cron/weekly-update-sync` | 0 12 * * 1 | Write last week's spend/revenue per store into those same subitems |
 | `/api/cron/fx-rates` | 30 6 * * * | Pull ECB daily reference rates into `fx_rates` (used to express EUR zone thresholds per store currency) |
 
+### Cron failure alerts
+
+`src/lib/alerts.ts` → `alertCronFailure()` posts to a Slack Incoming Webhook read from `SLACK_ALERT_WEBHOOK` (the channel is baked into the URL). Wired into `weekly-update-seed` and `weekly-update-sync`; add it to other crons the same way — call it in the route's `catch` before returning the 500, and `await` it so the message leaves before the function shuts down.
+
+Without the env var it is a no-op that logs one line, so local and preview runs never post. It never throws: a broken alert must not take down a run that was otherwise fine. Note it only fires on **fatal** errors — the crons that catch per-store failures internally still report those to the logs only.
+
 All crons authenticate via `CRON_SECRET` env var. Manual trigger:
 ```bash
 curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/api/cron/<name>"

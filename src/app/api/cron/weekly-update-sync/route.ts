@@ -17,6 +17,7 @@
  *   MONDAY_API_TOKEN, DATABASE_URL, ENCRYPTION_KEY
  */
 import { NextRequest, NextResponse } from "next/server";
+import { alertCronFailure } from "@/lib/alerts";
 
 // De run duurde lokaal ~2 minuten over 47 stores (1 Pinterest-call + 1 Monday
 // query per store). Zelfde plafond als snapshot-metrics.
@@ -45,6 +46,13 @@ async function handle(request: NextRequest) {
     await runWeeklySync();
     return NextResponse.json({ ok: true, elapsed_ms: Date.now() - started });
   } catch (e) {
+    await alertCronFailure({
+      cron: "weekly-update-sync",
+      message:
+        "Spend en revenue zijn niet in de weekregels geschreven. Het Weekly " +
+        "Updates-bord staat mogelijk zonder cijfers.",
+      error: e,
+    });
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown error" },
       { status: 500 }
