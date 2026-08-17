@@ -67,7 +67,7 @@ The script connects via `pg` using `DATABASE_URL` from `.env.local` (bypasses Su
 
 All crons authenticate via `CRON_SECRET` env var. Manual trigger:
 ```bash
-curl -H "x-cron-secret: $CRON_SECRET" "https://typage.pinformance-agency.com/api/cron/<name>"
+curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/api/cron/<name>"
 ```
 
 The two snapshot crons are load-bearing — most other views are computed from their output. If team activity or zones look wrong, first check that snapshot data is fresh (see "Data conventions" below).
@@ -129,7 +129,7 @@ Data preserved. Store disappears from Hub / Zones / Benchmarks / Team Activity. 
 ### Refresh Team Activity cache manually
 
 ```bash
-curl -H "x-cron-secret: $CRON_SECRET" "https://typage.pinformance-agency.com/api/cron/refresh-team-activity"
+curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/api/cron/refresh-team-activity"
 ```
 
 ## Data conventions
@@ -184,7 +184,7 @@ npx tsc --noEmit
 DOTENV_CONFIG_PATH=.env.local npx tsx -e "require('dotenv/config'); const {Client}=require('pg'); (async()=>{const c=new Client({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}}); await c.connect(); const r=await c.query('SELECT COUNT(*) FROM organizations'); console.log('orgs:', r.rows[0].count); await c.end();})();"
 
 # 3. Cron auth works (should return 200 or empty results, not 401)
-curl -H "x-cron-secret: $CRON_SECRET" "https://typage.pinformance-agency.com/api/cron/health-check"
+curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/api/cron/health-check"
 ```
 
 If all three succeed, you're set up correctly.
