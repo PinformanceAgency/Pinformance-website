@@ -19,8 +19,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { alertCronFailure } from "@/lib/alerts";
 
-// De run duurde lokaal ~2 minuten over 47 stores (1 Pinterest-call + 1 Monday
-// query per store). Zelfde plafond als snapshot-metrics.
+// LET OP: deze 300 is niet wat je in de praktijk krijgt. Ze is ooit gekozen op
+// een lokale meting van ~2 minuten over 47 stores, maar op 17-08-2026 12:00 UTC
+// stopte de run na 13 van de 37 stores -- rond een minuut, net als de seed die
+// een week eerder na 18 van de 49 stopte. run() rekent daarom met ~60s en
+// verwerkt de stores in batches (SYNC_BATCH); reken hier niet op meer.
 export const maxDuration = 300;
 
 function verifyCron(request: NextRequest): boolean {
@@ -59,11 +62,26 @@ async function handle(request: NextRequest) {
       });
     }
 
+    // De eindcontrole leest het bord terug. Wat hier in staat is nét niet
+    // hetzelfde als `failed`: die stores gooiden een fout, deze zijn zonder
+    // klacht leeg gebleven. Precies het gat waar de run van 17-08-2026 in viel,
+    // dus dit is een echte storing en geen 'nalopen'.
+    if (summary.missing.length) {
+      await alertCronFailure({
+        cron: "weekly-update-sync",
+        message:
+          `Eindcontrole: ${summary.missing.length} stores staan na afloop nog ` +
+          `zonder cijfers op het Weekly Updates-bord, zonder dat de run een fout ` +
+          `meldde: ${summary.missing.join(", ")}`,
+      });
+    }
+
     return NextResponse.json({
-      ok: true,
+      ok: summary.missing.length === 0,
       elapsed_ms: Date.now() - started,
       stores_ok: summary.ok,
       stores_failed: summary.failed,
+      stores_missing: summary.missing,
     });
   } catch (e) {
     await alertCronFailure({

@@ -126,16 +126,31 @@ if (!MONDAY_TOKEN) {
 
 // Bord-ID's (geverifieerd)
 const BOARD_WEEKLY_UPDATES = 5091362359; // klantregels
-const BOARD_WEEKLY_SUBITEMS = 5091487606; // de weekregels
+export const BOARD_WEEKLY_SUBITEMS = 5091487606; // de weekregels
 
 // Kolom-ID's op het SUBITEM-bord (geverifieerd tegen live data)
 const COL_TIMERANGE = 'timerange_mm0d1drh'; // timeline: de week
 const COL_SPEND = 'numeric_mm0dje2n'; // spend deze week
 const COL_REVENUE = 'numeric_mm0dgayk'; // revenue deze week
 const COL_SPEND_PREV = 'numeric_mm0qz9qs'; // spend vorige week (voedt de WoW-formule)
+const COL_REVENUE_PREV = 'numeric_mm1cwqpp'; // revenue vorige week (idem)
+const COL_ROAS_PREV = 'numeric_mm1cde88'; // ROAS vorige week (idem)
+const COL_ROAS = 'numeric_mm1c77w2'; // "ROAS (for update)": ROAS deze week als getal
 const COL_SEND_DATE = 'date_mm0rkas9'; // datum waarop de update de deur uit gaat
-// ROAS (formula_mm0qb00) en WoW-% (formula_mm0gpbmy) berekent Monday zelf.
-// Die NIET schrijven.
+// De formulekolommen berekent Monday zelf; die NIET schrijven:
+//   formula_mm0qb00  ROAS deze week
+//   formula_mm0gpbmy Spend +/- (%)
+//   formula_mm1c9yat Revenue +/- (%)
+//   formula_mm1c886m ROAS +/- (%)
+// De drie tekstkolommen ernaast ("... +/- (for update)", text_mm1cbeze /
+// text_mm1cxxv5 / text_mm1cyt41) bevatten diezelfde percentages als tekst,
+// omdat je een formulekolom niet in een Slack-update kunt gebruiken. Die vult de
+// media buyer met de hand -- bewuste keuze op 17-08-2026, zodat er ruimte blijft
+// om er iets anders neer te zetten dan het rauwe percentage.
+//
+// COL_ROAS is géén formulekolom maar een gewoon getalveld met dezelfde waarde
+// (1 decimaal). Het bestaat om dezelfde reden als die tekstkolommen: de
+// formulewaarde is buiten het bord niet bruikbaar.
 
 // Kolom-ID's op het KLANT-bord
 const COL_ATTRIBUTION = 'color_mm66jxan'; // status: 30/1, 30/7, 30/30, Shopify Revenue + Refunds
@@ -184,6 +199,23 @@ const SPEND_ONLY_ATTRIBUTION_LABELS = new Set(['Shopify Revenue + Refunds']);
 // nooit per ongeluk mee de deploy in.
 const DRY_RUN = process.env.WEEKLY_SYNC_DRY_RUN === '1';
 
+// Hoeveel stores run() tegelijk verwerkt.
+//
+// WAAROM DIT NIET 1 MAG ZIJN
+// --------------------------
+// De sync was een strikt sequentiële lus: per store een Pinterest-rapport, een
+// Monday-lees en een Monday-schrijf achter elkaar. Lokaal is dat ~2 minuten over
+// 47 stores, en op die meting is `maxDuration = 300` in de route ooit gekozen.
+// Op Vercel gold die 300 in de praktijk niet: de run van 17-08-2026 12:00 UTC
+// werd na 13 van de 37 stores afgekapt, net als de seed die een week eerder na
+// 18 van de 49 stopte -- beide rond een minuut. Reken dus met ~60s, niet met de
+// gedeclareerde 300.
+//
+// Zes tegelijk (zelfde getal als inBatches() in de seed gebruikt) brengt de run
+// van ~40 rondes terug naar ~7. Niet hoger: Monday knijpt bij te veel parallelle
+// mutaties, en Pinterest-rapporten tellen mee in hun eigen rate limit.
+const SYNC_BATCH = 6;
+
 // ---------------------------------------------------------------------------
 // LOGGING
 // ---------------------------------------------------------------------------
@@ -205,11 +237,11 @@ const log = {
 // Alles werkt op UTC-middernacht zodat er geen zomertijd-drift optreedt.
 // Een "date" is hier altijd een Date op 00:00:00Z.
 
-function isoDate(d: Date): string {
+export function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function addDays(d: Date, days: number): Date {
+export function addDays(d: Date, days: number): Date {
   return new Date(d.getTime() + days * 86_400_000);
 }
 
@@ -218,7 +250,7 @@ function weekday(d: Date): number {
   return (d.getUTCDay() + 6) % 7;
 }
 
-function todayUtc(): Date {
+export function todayUtc(): Date {
   const now = new Date();
   return new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
@@ -235,6 +267,14 @@ function monthName(d: Date): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ROAS gaat op het bord op één decimaal, net als de formulekolom
+// (ROUND({revenue} / {spend}, 1)). Dat is niet cosmetisch: de ROAS +/- formule
+// rekent met déze afgeronde waarden, dus 1,88 hier als 1,9 wegschrijven en daar
+// als 1,88 zou een percentage geven dat niet klopt met wat het bord toont.
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
 }
 
 // ---------------------------------------------------------------------------
@@ -850,7 +890,7 @@ function isAccessError(err: unknown): boolean {
 // 3. MONDAY
 // ---------------------------------------------------------------------------
 
-async function mondayQuery(
+export async function mondayQuery(
   query: string,
   variables: Record<string, unknown>,
 ): Promise<any> {
@@ -883,13 +923,35 @@ async function mondayQuery(
   }
 }
 
+// De kolommen die we van een bestaande weekregel terug willen lezen. Meer
+// kolom-ID's in dezelfde query kosten geen extra call, en de backfill moet van
+// de afgeleide kolommen kunnen zien of er al iets in staat.
+const READ_COLUMNS = [
+  COL_TIMERANGE,
+  COL_SPEND,
+  COL_REVENUE,
+  COL_SPEND_PREV,
+  COL_REVENUE_PREV,
+  COL_ROAS_PREV,
+  COL_ROAS,
+];
+const READ_COLUMN_IDS = JSON.stringify(READ_COLUMNS);
+
+/** De afgeleide kolommen, in de volgorde waarin ze op het bord staan. */
+export const DERIVED_COLUMNS = [
+  COL_SPEND_PREV,
+  COL_REVENUE_PREV,
+  COL_ROAS_PREV,
+  COL_ROAS,
+];
+
 const EXISTING_SUBITEMS = `
 query ($itemId: [ID!]) {
   items (ids: $itemId) {
     subitems {
       id
       name
-      column_values (ids: ["timerange_mm0d1drh", "numeric_mm0dje2n", "numeric_mm0dgayk"]) {
+      column_values (ids: ${READ_COLUMN_IDS}) {
         id
         text
       }
@@ -898,14 +960,48 @@ query ($itemId: [ID!]) {
 }
 `;
 
-interface ExistingWeek {
+export interface ExistingWeek {
   id: string;
   /** Tekst van de numerieke kolom: '' als leeg, '0' als er echt 0 staat. */
   spend: string | null;
   revenue: string | null;
+  /**
+   * Rauwe tekst van de afgeleide kolommen, gesleuteld op kolom-ID. Nodig om te
+   * kunnen zien of een kolom al gevuld is; de backfill overschrijft namelijk
+   * niets wat er al staat.
+   */
+  derived: Record<string, string | null>;
 }
 
-interface ExistingSubitems {
+/**
+ * De tekstwaarden van een weekregel als getallen.
+ *
+ * Monday geeft getalkolommen als tekst terug, en een lege kolom als '' of null.
+ * Dat onderscheid moet blijven staan: '' betekent "niets ingevuld" en moet null
+ * worden, terwijl '0' een echte 0 is (een store die een week stilstond).
+ *
+ * Een ontbrekende regel (undefined) levert twee keer null op, zodat de aanroeper
+ * geen apart geval hoeft te schrijven voor de eerste week van een nieuwe store.
+ */
+export function weekNumbers(week: ExistingWeek | undefined): WeekNumbers {
+  return { spend: parseAmount(week?.spend), revenue: parseAmount(week?.revenue) };
+}
+
+function parseAmount(raw: string | null | undefined): number | null {
+  if (raw === undefined || raw === null) return null;
+  // Duizendscheidingstekens komen in de praktijk niet voor in wat de API
+  // teruggeeft, maar een handmatig ingetypte "1.234,56" of "1,234.56" wél.
+  const cleaned = raw.replace(/[^\d.,-]/g, '');
+  if (cleaned === '') return null;
+  const normalized =
+    cleaned.includes(',') && !cleaned.includes('.')
+      ? cleaned.replace(',', '.')
+      : cleaned.replace(/,/g, '');
+  const n = parseFloat(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+export interface ExistingSubitems {
   /** Bestaande weken, gesleuteld op 'YYYY-MM-DD - YYYY-MM-DD'. */
   weeks: Record<string, ExistingWeek>;
   /**
@@ -915,6 +1011,26 @@ interface ExistingSubitems {
    * dit geval in de praktijk voorkomt. Zie de notitie bij seedWeek().
    */
   orphans: Array<{ id: string; name: string }>;
+  /**
+   * Naam van de klantregel waar deze weekregels onder hangen. Alleen voor
+   * logging, en alleen gevuld door loadAllWeekSubitems() -- die leest het bord
+   * rauw en heeft dus geen ClientConfig om de naam uit te halen.
+   */
+  parentName?: string;
+}
+
+/** Bouwt een ExistingWeek uit de rauwe kolomteksten van één subitem. */
+function weekRow(id: string, cols: Record<string, string | null>): ExistingWeek {
+  const derived: Record<string, string | null> = {};
+  for (const col of DERIVED_COLUMNS) {
+    derived[col] = cols[col] ?? null;
+  }
+  return {
+    id,
+    spend: cols[COL_SPEND] ?? null,
+    revenue: cols[COL_REVENUE] ?? null,
+    derived,
+  };
 }
 
 export async function existingWeekSubitems(
@@ -937,11 +1053,7 @@ export async function existingWeekSubitems(
     }
     const key = (cols[COL_TIMERANGE] ?? '').trim();
     if (key) {
-      weeks[key] = {
-        id: sub.id,
-        spend: cols[COL_SPEND] ?? null,
-        revenue: cols[COL_REVENUE] ?? null,
-      };
+      weeks[key] = weekRow(sub.id, cols);
     } else {
       orphans.push({ id: sub.id, name: sub.name ?? '' });
     }
@@ -971,8 +1083,8 @@ query ($boardId: [ID!], $cursor: String) {
       items {
         id
         name
-        parent_item { id }
-        column_values (ids: ["timerange_mm0d1drh", "numeric_mm0dje2n", "numeric_mm0dgayk"]) {
+        parent_item { id name }
+        column_values (ids: ${READ_COLUMN_IDS}) {
           id
           text
         }
@@ -1006,7 +1118,11 @@ export async function loadAllWeekSubitems(): Promise<
 
       let entry = byParent.get(parentId);
       if (!entry) {
-        entry = { weeks: {}, orphans: [] };
+        entry = {
+          weeks: {},
+          orphans: [],
+          parentName: sub.parent_item?.name ?? undefined,
+        };
         byParent.set(parentId, entry);
       }
 
@@ -1016,11 +1132,7 @@ export async function loadAllWeekSubitems(): Promise<
       }
       const key = (cols[COL_TIMERANGE] ?? '').trim();
       if (key) {
-        entry.weeks[key] = {
-          id: sub.id,
-          spend: cols[COL_SPEND] ?? null,
-          revenue: cols[COL_REVENUE] ?? null,
-        };
+        entry.weeks[key] = weekRow(sub.id, cols);
       } else {
         entry.orphans.push({ id: sub.id, name: sub.name ?? '' });
       }
@@ -1046,7 +1158,7 @@ export async function loadAllWeekSubitems(): Promise<
  * eerste paar: 31 creates van ~2,5s gaan van ~78s naar ~13s. Zes is bewust
  * conservatief -- dit draait om 01:00 zonder dat er iemand meekijkt.
  */
-async function inBatches<T>(
+export async function inBatches<T>(
   items: T[],
   size: number,
   fn: (item: T) => Promise<void>,
@@ -1064,7 +1176,7 @@ mutation ($parentId: ID!, $name: String!, $cols: JSON!) {
 }
 `;
 
-const UPDATE_SUBITEM = `
+export const UPDATE_SUBITEM = `
 mutation ($boardId: ID!, $itemId: ID!, $cols: JSON!) {
   change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $cols) {
     id
@@ -1072,11 +1184,67 @@ mutation ($boardId: ID!, $itemId: ID!, $cols: JSON!) {
 }
 `;
 
+/** Spend en revenue van één weekregel; null = niet bekend / leeg op het bord. */
+export interface WeekNumbers {
+  spend: number | null;
+  revenue: number | null;
+}
+
+/** ROAS zoals het bord hem toont, of null als hij niet te berekenen is. */
+export function roasOf(week: WeekNumbers): number | null {
+  if (week.spend === null || week.revenue === null || week.spend <= 0) {
+    // Spend 0 met revenue erop komt voor (late conversie op een stilgezette
+    // week). De formulekolom geeft daar een deelfout; wij laten hem dan leeg,
+    // want een 0 zou als "ROAS 0" gelezen worden en dat is iets anders.
+    return null;
+  }
+  return round1(week.revenue / week.spend);
+}
+
+/**
+ * De kolommen die volledig uit de twee weekregels volgen: de cijfers van vorige
+ * week en de ROAS.
+ *
+ * WAAROM DIT APART STAAT
+ * ----------------------
+ * De sync vulde tot 17-08-2026 alleen COL_SPEND_PREV, waardoor "Revenue last
+ * week", "ROAS last week" en "ROAS (for update)" week na week leeg bleven --
+ * 8, 3 en 0 van de 49 regels in de week van 10-08. Alle vier volgen uit precies
+ * dezelfde twee bronnen, dus staan ze hier bij elkaar; dan kan er niet nog eens
+ * één achterblijven. De eenmalige backfill (scripts/backfill-week-derived.ts)
+ * gebruikt dezelfde functie, zodat oude weken exact zo gevuld worden.
+ *
+ * Ontbrekende waarden worden weggelaten in plaats van als 0 geschreven: bij een
+ * pas geonboarde store bestaat de week ervoor niet, en een 0 in "vorige week"
+ * maakt van de WoW-formule een sprong van +oneindig.
+ */
+export function derivedColumnValues(
+  prev: WeekNumbers,
+  current: WeekNumbers,
+): Record<string, number> {
+  const cols: Record<string, number> = {};
+  if (prev.spend !== null) {
+    cols[COL_SPEND_PREV] = round2(prev.spend);
+  }
+  if (prev.revenue !== null) {
+    cols[COL_REVENUE_PREV] = round2(prev.revenue);
+  }
+  const roasPrev = roasOf(prev);
+  if (roasPrev !== null) {
+    cols[COL_ROAS_PREV] = roasPrev;
+  }
+  const roas = roasOf(current);
+  if (roas !== null) {
+    cols[COL_ROAS] = roas;
+  }
+  return cols;
+}
+
 export function buildColumnValues(
   start: Date,
   end: Date,
   metrics: WeekMetrics,
-  spendPrev: number | null,
+  prev: WeekNumbers,
   writeRevenue = true,
 ): string {
   const cols: Record<string, unknown> = {
@@ -1090,9 +1258,17 @@ export function buildColumnValues(
   // Bij spend-only laten we COL_REVENUE bewust ongemoeid: leeg als het
   // subitem nieuw is, en een handmatig ingevulde waarde blijft staan als
   // het subitem al bestond.
-  if (spendPrev !== null) {
-    cols[COL_SPEND_PREV] = round2(spendPrev);
-  }
+  Object.assign(
+    cols,
+    derivedColumnValues(prev, {
+      spend: metrics.spend,
+      // Zelfde reden: bij spend-only is de revenue van deze week niet van ons,
+      // dus kunnen we de ROAS er niet uit berekenen. Die vult de buyer mee als
+      // hij de Shopify-revenue invult; de backfill pakt hem later alsnog op,
+      // want die rekent met wat er dan op het bord staat.
+      revenue: writeRevenue ? metrics.revenue : null,
+    }),
+  );
   return JSON.stringify(cols);
 }
 
@@ -1155,23 +1331,32 @@ export async function writeWeek(
   start: Date,
   end: Date,
   metrics: WeekMetrics,
+  /**
+   * Vooraf ingelezen subitems (zie loadAllWeekSubitems). Meegeven scheelt één
+   * Monday-call per store; run() doet dat, omdat die calls samen de reden waren
+   * dat de sync van 17-08-2026 halverwege werd afgekapt. Zonder argument leest
+   * deze functie het zelf op, zodat losse aanroepen blijven werken.
+   */
+  preloaded?: Map<string, ExistingSubitems>,
 ): Promise<string> {
-  const { weeks } = await existingWeekSubitems(client.mondayItemId);
+  const { weeks } = preloaded
+    ? (preloaded.get(String(client.mondayItemId)) ?? { weeks: {}, orphans: [] })
+    : await existingWeekSubitems(client.mondayItemId);
   const key = `${isoDate(start)} - ${isoDate(end)}`;
 
   const prevStart = addDays(start, -7);
   const prevKey = `${isoDate(prevStart)} - ${isoDate(addDays(prevStart, 6))}`;
-  const prevRaw = weeks[prevKey]?.spend;
-  const spendPrev =
-    prevRaw !== undefined && prevRaw !== null && prevRaw !== ''
-      ? parseFloat(prevRaw)
-      : null;
+  // Van de regel van vorige week nemen we de cijfers over zoals ze op het bord
+  // staan, niet zoals Pinterest ze nu zou rapporteren: die regel is bevroren en
+  // is wat er in de vorige klantupdate stond. Bij spend-only stores is de
+  // revenue daar bovendien handwerk van Tristan en dus de enige bron.
+  const prev = weekNumbers(weeks[prevKey]);
 
   const cols = buildColumnValues(
     start,
     end,
     metrics,
-    spendPrev,
+    prev,
     !isSpendOnly(client),
   );
 
@@ -1516,6 +1701,12 @@ export interface SyncSummary {
   notConnected: string[];
   /** Label in Monday wijkt af van de valuta bij Pinterest. */
   currencyMismatch: string[];
+  /**
+   * Stores die na afloop nog steeds geen cijfers op het bord hebben terwijl ze
+   * die wel hoorden te krijgen. Gevuld door de eindcontrole, die het bord
+   * opnieuw leest in plaats van de tellers te geloven.
+   */
+  missing: string[];
 }
 
 export async function run(today?: Date): Promise<SyncSummary> {
@@ -1538,16 +1729,17 @@ export async function run(today?: Date): Promise<SyncSummary> {
   const failed: string[] = [];
   const currencyMismatch: string[] = [];
   const links = await dashboardLinks();
+  const clients = (await loadClients()).filter((client) => client.active);
 
-  for (const client of await loadClients()) {
-    if (!client.active) {
-      continue;
-    }
+  // Eén board-brede lezing in plaats van één call per store; zie de toelichting
+  // bij loadAllWeekSubitems(). Faalt dit, dan faalt de hele run zichtbaar.
+  const subitems = await loadAllWeekSubitems();
 
+  await inBatches(clients, SYNC_BATCH, async (client) => {
     // Vooraf filteren als het dashboard kan vertellen wat gekoppeld is.
     if (connected !== null && !connected.has(client.pinterestAdAccountId)) {
       notConnected.push(client.storeName);
-      continue;
+      return;
     }
 
     let metrics: WeekMetrics;
@@ -1557,12 +1749,12 @@ export async function run(today?: Date): Promise<SyncSummary> {
       if (exc instanceof AdAccountNotConnected) {
         // Vangnet voor als connectedAdAccountIds() niet geïmplementeerd is.
         notConnected.push(client.storeName);
-        continue;
+        return;
       }
       // per klant falen mag de rest niet blokkeren
       log.exception(`${client.storeName} gefaald`, exc);
       failed.push(client.storeName);
-      continue;
+      return;
     }
 
     const mismatch = checkCurrency(
@@ -1597,13 +1789,13 @@ export async function run(today?: Date): Promise<SyncSummary> {
       // Geen DRY_RUN-guard hier: writeWeek() kent hem zelf, zodat een droogloop
       // laat zien welke beslissing hij zou nemen (aanmaken / aanvullen /
       // bevroren) in plaats van die stap over te slaan.
-      await writeWeek(client, start, end, metrics);
+      await writeWeek(client, start, end, metrics, subitems);
       ok += 1;
     } catch (exc) {
       log.exception(`${client.storeName} gefaald bij wegschrijven`, exc);
       failed.push(client.storeName);
     }
-  }
+  });
 
   log.info(`Klaar: ${ok} weggeschreven, ${failed.length} gefaald`);
   if (spendOnly.length) {
@@ -1627,12 +1819,53 @@ export async function run(today?: Date): Promise<SyncSummary> {
     log.error(`HANDMATIG NALOPEN: ${failed.join(', ')}`);
   }
 
+  // EINDCONTROLE
+  // ------------
+  // Zelfde reden als bij runSeed(). Op 17-08-2026 stopte deze run na 13 van de
+  // 37 stores en meldde niets: de tellers tellen wat de lus deed, en de lus
+  // kwam nooit bij de rest. Wordt de functie halverwege afgekapt, dan wordt ook
+  // deze controle niet meer bereikt -- en dát is het signaal. Een sync-log
+  // zonder 'EINDCONTROLE' is niet afgemaakt, wat er ook boven staat.
+  //
+  // We lezen het bord opnieuw (3 calls) in plaats van `ok` te geloven, zodat een
+  // update die 200 teruggaf maar niets muteerde hier alsnog opvalt.
+  const missing: string[] = [];
+  if (DRY_RUN) {
+    log.info('EINDCONTROLE overgeslagen (dry run)');
+  } else {
+    const key = `${isoDate(start)} - ${isoDate(end)}`;
+    const naSync = await loadAllWeekSubitems();
+    const overgeslagen = new Set([...notConnected, ...failed]);
+
+    for (const client of clients) {
+      // Niet-gekoppelde stores horen leeg te blijven, en gefaalde stores staan
+      // al in HANDMATIG NALOPEN. Alleen het stille gat is nieuws.
+      if (overgeslagen.has(client.storeName)) continue;
+      const hit = naSync.get(String(client.mondayItemId))?.weeks[key];
+      if (!hit || !isAlreadySynced(hit, isSpendOnly(client))) {
+        missing.push(client.storeName);
+      }
+    }
+
+    if (missing.length) {
+      log.error(
+        `EINDCONTROLE GEFAALD: ${missing.length} van de ${clients.length} stores` +
+          ` hebben geen cijfers voor ${key}: ${missing.join(', ')}`,
+      );
+    } else {
+      log.info(
+        `EINDCONTROLE OK: alle ${clients.length - overgeslagen.size} te vullen` +
+          ` stores hebben cijfers voor ${key}`,
+      );
+    }
+  }
+
   // De route hangt hier het Slack-alarm aan op. Bewust teruggeven in plaats van
   // alleen loggen: een store die faalt laat de rest gewoon doorlopen, dus de run
   // eindigt met ok:true en dan zag je in de logs nooit dat er drie stores geen
   // cijfers kregen -- dezelfde stille storing als de seed van 17-08-2026, alleen
   // kleiner.
-  return { ok, failed, spendOnly, notConnected, currencyMismatch };
+  return { ok, failed, spendOnly, notConnected, currencyMismatch, missing };
 }
 
 // Alleen draaien wanneer dit bestand direct wordt aangeroepen.
