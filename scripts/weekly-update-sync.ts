@@ -949,6 +949,113 @@ export async function existingWeekSubitems(
   return { weeks, orphans };
 }
 
+/**
+ * Alle subitems van het weekregel-bord in één keer, gepagineerd op cursor.
+ *
+ * WAAROM NIET PER STORE
+ * ---------------------
+ * EXISTING_SUBITEMS hierboven kost één call per store. Bij 49 stores is dat 49
+ * round-trips van ~2,5s op Vercel, en dan komen de creates er nog bij -- de
+ * seed van 17-08-2026 werd daardoor na 18 stores afgekapt en liet 31 stores
+ * zonder weekregel achter. Het bord telt ~1.400 subitems, dus dezelfde vraag
+ * kost hier 3 calls, ongeacht hoeveel stores erbij komen.
+ *
+ * We lezen het subitem-bord rauw: daar staan óók de weekregels van stores in de
+ * groep "Inactive Stores". Dat geeft niet, we zoeken op parent-id op.
+ */
+const SUBITEM_BOARD_PAGE = `
+query ($boardId: [ID!], $cursor: String) {
+  boards (ids: $boardId) {
+    items_page (limit: 500, cursor: $cursor) {
+      cursor
+      items {
+        id
+        name
+        parent_item { id }
+        column_values (ids: ["timerange_mm0d1drh", "numeric_mm0dje2n", "numeric_mm0dgayk"]) {
+          id
+          text
+        }
+      }
+    }
+  }
+}
+`;
+
+/** Gesleuteld op parent-item-id, met dezelfde vorm als existingWeekSubitems(). */
+export async function loadAllWeekSubitems(): Promise<
+  Map<string, ExistingSubitems>
+> {
+  const byParent = new Map<string, ExistingSubitems>();
+  let cursor: string | null = null;
+  let pages = 0;
+
+  do {
+    const data: any = await mondayQuery(SUBITEM_BOARD_PAGE, {
+      boardId: [String(BOARD_WEEKLY_SUBITEMS)],
+      cursor,
+    });
+    const page = data?.boards?.[0]?.items_page;
+    if (!page) break;
+    pages += 1;
+
+    for (const sub of page.items ?? []) {
+      // Een subitem zonder parent hoort bij geen enkele store; overslaan.
+      const parentId = sub.parent_item?.id;
+      if (!parentId) continue;
+
+      let entry = byParent.get(parentId);
+      if (!entry) {
+        entry = { weeks: {}, orphans: [] };
+        byParent.set(parentId, entry);
+      }
+
+      const cols: Record<string, string | null> = {};
+      for (const c of sub.column_values ?? []) {
+        cols[c.id] = c.text;
+      }
+      const key = (cols[COL_TIMERANGE] ?? '').trim();
+      if (key) {
+        entry.weeks[key] = {
+          id: sub.id,
+          spend: cols[COL_SPEND] ?? null,
+          revenue: cols[COL_REVENUE] ?? null,
+        };
+      } else {
+        entry.orphans.push({ id: sub.id, name: sub.name ?? '' });
+      }
+    }
+
+    cursor = page.cursor ?? null;
+    // Vangnet: het bord groeit met ~50 regels per week, dus dit hoort nooit te
+    // vuren. Beter een onvolledige map met een luide waarschuwing dan een
+    // oneindige lus in een cron.
+    if (pages > 20) {
+      log.warning('Subitem-bord: gestopt na 20 paginas, mogelijk onvolledig');
+      break;
+    }
+  } while (cursor);
+
+  return byParent;
+}
+
+/**
+ * Voert `fn` uit over alle items, maar met maximaal `size` tegelijk.
+ *
+ * Monday knijpt bij te veel parallelle mutaties, en de winst zit toch al in de
+ * eerste paar: 31 creates van ~2,5s gaan van ~78s naar ~13s. Zes is bewust
+ * conservatief -- dit draait om 01:00 zonder dat er iemand meekijkt.
+ */
+async function inBatches<T>(
+  items: T[],
+  size: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map(fn));
+  }
+}
+
 const CREATE_SUBITEM = `
 mutation ($parentId: ID!, $name: String!, $cols: JSON!) {
   create_subitem (parent_item_id: $parentId, item_name: $name, column_values: $cols) {
@@ -1214,8 +1321,23 @@ export async function loadClients(): Promise<ClientConfig[]> {
 // draait, is de lijst. Een store die naar "Inactive Stores" verhuist valt er
 // vanzelf uit.
 //
+// CALL-BUDGET: HOUD DIT O(1) IN HET AANTAL STORES
+// -----------------------------------------------
+// De eerste live run (17-08-2026 01:00 UTC) werd na 18 van de 49 stores
+// afgekapt en liet 31 stores zonder weekregel achter. De creates liepen keurig
+// door op ~2,7s per store en stopten toen abrupt -- geen storefout (die worden
+// per store opgevangen), maar de functie die eronderuit werd getrokken, ~55s na
+// aanvang. maxDuration staat op 300 in de route, dus dat is niet wat er in de
+// praktijk gold.
+//
+// De les is niet "zet de limiet hoger" maar: deze run moet niet schalen met het
+// aantal stores. Daarom leest hij het subitem-bord in één keer (3 calls, zie
+// loadAllWeekSubitems) in plaats van één call per store, en maakt hij de
+// ontbrekende regels 6 tegelijk aan. Voeg hier geen per-store call aan toe.
+//
 // Valt deze run een keer uit, dan is er niets stuk: de 12:00-run maakt het
-// subitem dan gewoon zelf aan, zoals hij dat altijd al deed.
+// subitem dan gewoon zelf aan, zoals hij dat altijd al deed. Maar dat vangnet
+// geldt alleen voor stores mét ad account -- stores zonder blijven dan leeg.
 
 const ACTIVE_BOARD_ITEMS = `
 query ($boardId: [ID!], $groupId: String!) {
@@ -1270,29 +1392,41 @@ export async function runSeed(today?: Date): Promise<void> {
   const items = await loadActiveBoardItems();
   log.info(`${items.length} actieve stores op het bord`);
 
-  let created = 0;
+  // Eén board-brede lezing in plaats van één call per store; zie de toelichting
+  // bij loadAllWeekSubitems(). Faalt dit, dan faalt de hele run zichtbaar --
+  // beter dan alsnog 49 regels aanmaken bovenop regels die er al staan.
+  const subitemsByParent = await loadAllWeekSubitems();
+
   let existed = 0;
   const failed: string[] = [];
   const withOrphans: string[] = [];
+  const todo: Array<{ id: number; name: string }> = [];
 
   for (const item of items) {
+    const { weeks, orphans } = subitemsByParent.get(String(item.id)) ?? {
+      weeks: {},
+      orphans: [],
+    };
+
+    // Niet adopteren, wel melden. Een subitem zonder timeline kunnen we aan
+    // geen week koppelen (de naam is de maandnaam, dus niet uniek), en gokken
+    // is erger dan een dubbele regel die je ziet. Komt dit structureel voor,
+    // dan werkt er iemand vóór maandag 01:00 UTC aan de update en is dit het
+    // signaal om er alsnog iets voor te bouwen.
+    if (orphans.length) {
+      withOrphans.push(`${item.name} (${orphans.length})`);
+    }
+
+    if (weeks[key]) {
+      existed += 1;
+      continue;
+    }
+    todo.push(item);
+  }
+
+  let created = 0;
+  await inBatches(todo, 6, async (item) => {
     try {
-      const { weeks, orphans } = await existingWeekSubitems(item.id);
-
-      // Niet adopteren, wel melden. Een subitem zonder timeline kunnen we aan
-      // geen week koppelen (de naam is de maandnaam, dus niet uniek), en gokken
-      // is erger dan een dubbele regel die je ziet. Komt dit structureel voor,
-      // dan werkt er iemand vóór maandag 01:00 UTC aan de update en is dit het
-      // signaal om er alsnog iets voor te bouwen.
-      if (orphans.length) {
-        withOrphans.push(`${item.name} (${orphans.length})`);
-      }
-
-      if (weeks[key]) {
-        existed += 1;
-        continue;
-      }
-
       if (!DRY_RUN) {
         await mondayQuery(CREATE_SUBITEM, {
           parentId: String(item.id),
@@ -1309,7 +1443,7 @@ export async function runSeed(today?: Date): Promise<void> {
       log.exception(`${item.name} gefaald bij seeden`, exc);
       failed.push(item.name);
     }
-  }
+  });
 
   log.info(
     `Seed klaar: ${created} aangemaakt, ${existed} bestond al, ${failed.length} gefaald`,
