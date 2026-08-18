@@ -168,6 +168,7 @@ curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/
 - Skip sequential numbers on migrations (each must be strictly higher than the previous — check the folder before naming yours)
 - Deploy without `npx tsc --noEmit` passing
 - Edit shared code (`src/lib/`, `src/components/`, `src/app/api/`) without grepping to see who imports it
+- **Create a new public-schema table without also enabling RLS in the same migration.** Supabase flags any table with RLS off as "publicly accessible" (rls_disabled_in_public) because the anon key can read/write/delete it. Every new table needs at minimum: `ALTER TABLE <name> ENABLE ROW LEVEL SECURITY;` plus one or more `CREATE POLICY` statements for the roles that need access (usually authenticated for reads; service_role bypasses RLS automatically for cron writes)
 
 ## Do
 
