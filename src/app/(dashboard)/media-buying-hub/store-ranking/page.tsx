@@ -54,11 +54,20 @@ export default function StoreRankingPage() {
     if (start > end) return; // invalid range
     setLoading(true);
     setError(null);
-    fetch(`/api/media-buying/store-ranking?start=${start}&end=${end}`)
+    // Cancel any in-flight fetch when the range changes — otherwise a
+    // slower earlier request (e.g. from the intermediate "01" date while
+    // the user was still typing "10") can arrive AFTER the newer one and
+    // overwrite the freshly-fetched data.
+    const abort = new AbortController();
+    fetch(`/api/media-buying/store-ranking?start=${start}&end=${end}`, { signal: abort.signal })
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e.error))))
       .then((d) => setData(d as ApiResponse))
-      .catch((e) => setError(typeof e === "string" ? e : String(e)))
+      .catch((e) => {
+        if (e?.name === "AbortError") return;
+        setError(typeof e === "string" ? e : String(e));
+      })
       .finally(() => setLoading(false));
+    return () => abort.abort();
   }, [start, end]);
 
   const buyers = useMemo(() => {
