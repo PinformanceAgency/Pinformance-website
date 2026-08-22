@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadClientHeader, loadClientTasks } from "@/lib/organic/queries";
 import { loadViability } from "@/lib/organic/viability";
+import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { TasksBoard } from "./TasksBoard";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +13,11 @@ export default async function ClientPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
-  const [header, tasks, viability] = await Promise.all([
+  const [header, tasks, viability, phase2] = await Promise.all([
     loadClientHeader(orgId),
     loadClientTasks(orgId),
     loadViability(orgId),
+    loadPhase2Snapshot(orgId),
   ]);
   if (!header) notFound();
 
@@ -47,6 +49,7 @@ export default async function ClientPage({
           tasks={tasks}
           viability={viability}
           initialDomain={header.domain}
+          phase2={phase2}
         />
       )}
     </div>
