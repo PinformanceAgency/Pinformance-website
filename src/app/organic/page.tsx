@@ -1,7 +1,9 @@
-export default function OrganicPage() {
-  return (
-    <main className="min-h-screen flex items-center justify-center">
-      <h1 className="text-4xl font-semibold">Organic</h1>
-    </main>
-  );
+import { loadClientList } from "@/lib/organic/queries";
+import { ClientsBoard } from "./ClientsBoard";
+
+export const dynamic = "force-dynamic";
+
+export default async function OrganicHomePage() {
+  const rows = await loadClientList();
+  return <ClientsBoard rows={rows} />;
 }
