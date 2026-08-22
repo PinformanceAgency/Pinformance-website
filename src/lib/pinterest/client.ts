@@ -187,7 +187,10 @@ export class PinterestClient {
   async createBoard(data: {
     name: string;
     description?: string;
-    privacy?: "PUBLIC" | "SECRET";
+    // Pinterest's POST /v5/boards no longer accepts SECRET (returns 403
+    // code 29). PROTECTED is the working "hidden until seeded" mode.
+    // PUBLIC and SECRET are kept in the union for legacy callers.
+    privacy?: "PUBLIC" | "SECRET" | "PROTECTED";
   }): Promise<PinterestBoard> {
     return this.request("/boards", {
       method: "POST",
@@ -304,9 +307,37 @@ export class PinterestClient {
     });
   }
 
-  async getAccountPins(bookmark?: string): Promise<{ items: { id: string }[]; bookmark?: string }> {
-    const params = bookmark ? `?bookmark=${bookmark}` : "";
-    return this.request(`/user_account/pins${params}`);
+  /** PATCH an existing pin — supports moving to another board. Passing null
+   *  for board_section_id clears the section assignment. */
+  async updatePin(
+    pinId: string,
+    fields: { board_id?: string; board_section_id?: string | null; title?: string; description?: string; link?: string; alt_text?: string }
+  ): Promise<PinterestPinResponse> {
+    return this.request<PinterestPinResponse>(`/pins/${pinId}`, {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    });
+  }
+
+  async getAccountPins(bookmark?: string): Promise<{
+    items: Array<{
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      alt_text?: string | null;
+      board_id?: string | null;
+      board_section_id?: string | null;
+      created_at?: string;
+      link?: string | null;
+      media?: { url?: string; images?: Record<string, { url: string }> } | null;
+    }>;
+    bookmark?: string;
+  }> {
+    // v5 endpoint is /pins for listing the authenticated user's owned pins.
+    // The old /user_account/pins path 404s.
+    const params = new URLSearchParams({ page_size: "100" });
+    if (bookmark) params.set("bookmark", bookmark);
+    return this.request(`/pins?${params}`);
   }
 
   /**

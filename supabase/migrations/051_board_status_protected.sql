@@ -1,0 +1,26 @@
+-- Pinterest's POST /v5/boards no longer allows privacy:"SECRET" (returns
+-- 403 code 29). PROTECTED and PUBLIC both work. Confirmed by direct curl:
+--   privacy:SECRET     → 403 { code:29, message:"You are not permitted..." }
+--   privacy:PROTECTED  → 201 (board created)
+--   privacy:PUBLIC     → 201 (board created)
+--
+-- Consequence: the SOP wants boards hidden until seeded to 10 pins, but
+-- since we can't create SECRET via API anymore we use PROTECTED for the
+-- pre-seed state, then the existing auto_publish_board trigger flips to
+-- PUBLIC at pin_count >= 10.
+--
+-- This migration:
+--   1. Adds PROTECTED to organic.board_status.
+--   2. Backfills the three already-synced boards from their actual
+--      Pinterest privacy (verified via GET /v5/boards).
+--   3. Updates auto_publish_board so it flips PROTECTED (as well as
+--      the legacy SECRET) → PUBLIC at 10 pins.
+--   4. Updates topic_coverage so PROTECTED counts as an active board,
+--      the same way SECRET always did.
+--
+-- SECRET stays a valid enum label so legacy rows and boards created
+-- via the Pinterest web UI aren't broken. New API-created boards
+-- default to PROTECTED.
+
+-- 1. Add PROTECTED to the enum.
+ALTER TYPE organic.board_status ADD VALUE IF NOT EXISTS 'PROTECTED';

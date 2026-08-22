@@ -863,14 +863,17 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
     const client = new PinterestClient(decrypt(enc), false);
     for (const b of due.rows) {
       try {
+        // Pinterest rejects privacy:"SECRET" on POST /v5/boards (403
+        // code 29) since 2026 — PROTECTED is the working equivalent
+        // for the SOP's "hidden until 10 pins" state. See migration 051.
         const r = await client.createBoard({
           name: b.name,
           description: b.description ?? undefined,
-          privacy: "SECRET",
+          privacy: "PROTECTED",
         });
         await pool.query(
           `UPDATE organic.boards
-              SET status = 'SECRET'::organic.board_status,
+              SET status = 'PROTECTED'::organic.board_status,
                   pinterest_board_id = $1,
                   created_on_pinterest = $2::date
             WHERE id = $3`,
@@ -887,7 +890,7 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
     for (const b of due.rows) {
       await pool.query(
         `UPDATE organic.boards
-            SET status = 'SECRET'::organic.board_status, created_on_pinterest = $1::date
+            SET status = 'PROTECTED'::organic.board_status, created_on_pinterest = $1::date
           WHERE id = $2`,
         [today, b.id]
       );
@@ -918,7 +921,7 @@ export async function proposeSeedPins(orgId: string, timeSpentMin: number): Prom
   const boards = await pool.query<{ id: string; name: string; primary_keyword: string | null; keywords: string[] | null }>(
     `SELECT id::text, name, primary_keyword, keywords
        FROM organic.boards
-      WHERE org_id = $1 AND status IN ('SECRET','PUBLIC','PLANNED'::organic.board_status)
+      WHERE org_id = $1 AND status IN ('SECRET','PROTECTED','PUBLIC','PLANNED'::organic.board_status)
       ORDER BY name`,
     [orgId]
   );
@@ -1064,7 +1067,7 @@ export async function flipBoardsPublicAtTen(orgId: string, timeSpentMin: number)
     `UPDATE organic.boards
         SET status = 'PUBLIC'::organic.board_status
       WHERE org_id = $1
-        AND status = 'SECRET'::organic.board_status
+        AND status IN ('SECRET'::organic.board_status, 'PROTECTED'::organic.board_status)
         AND pin_count >= 10`,
     [orgId]
   );

@@ -25,7 +25,7 @@ export interface PinterestBoard {
   id: string;
   name: string;
   description: string | null;
-  privacy: "PUBLIC" | "SECRET";
+  privacy: "PUBLIC" | "SECRET" | "PROTECTED";
   pin_count: number;
 }
 
