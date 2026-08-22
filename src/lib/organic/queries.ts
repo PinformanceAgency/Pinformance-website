@@ -1,8 +1,8 @@
 /**
- * Data loaders for the organic app UI. All reads go through the service_role
- * admin client (skips RLS for this internal tool).
+ * Data loaders for the organic app UI. All reads go through the direct pg
+ * pool — see src/lib/organic/db.ts for the reasoning.
  */
-import { organicDb, publicDb } from "./db";
+import { organicPool } from "./db";
 import { loadStatusContext, evaluateBlockReasons } from "./status";
 import type {
   ClientHeader,
@@ -45,30 +45,32 @@ function n(v: unknown): number {
 
 /** Scherm 1 — one row per organisation. */
 export async function loadClientList(): Promise<ClientListRow[]> {
-  const pub = publicDb();
-  const org = organicDb();
+  const pool = organicPool();
 
   const [orgsRes, setRes, progRes] = await Promise.all([
-    pub.from("organizations").select("id, name").order("name"),
-    org.from("client_settings").select("*"),
-    org.from("client_progress").select("*"),
+    pool.query<OrgRow>(`SELECT id::text, name FROM public.organizations ORDER BY name`),
+    pool.query<SettingsRow>(
+      `SELECT org_id::text, engagement_status::text AS engagement_status,
+              niche, account_class::text AS account_class,
+              spacing_hours, daily_pin_target, onboarded_date
+         FROM organic.client_settings`
+    ),
+    pool.query<ProgressRow>(
+      `SELECT org_id::text, phase, total_tasks, done_tasks, blocked_tasks, pct_done
+         FROM organic.client_progress`
+    ),
   ]);
-  if (orgsRes.error) throw new Error(orgsRes.error.message);
-  if (setRes.error) throw new Error(setRes.error.message);
-  if (progRes.error) throw new Error(progRes.error.message);
 
-  const settingsByOrg = new Map<string, SettingsRow>(
-    (setRes.data ?? []).map((s) => [s.org_id as string, s as SettingsRow])
-  );
+  const settingsByOrg = new Map<string, SettingsRow>(setRes.rows.map((s) => [s.org_id, s]));
   const progressByOrg = new Map<string, ProgressRow[]>();
-  for (const p of (progRes.data ?? []) as ProgressRow[]) {
+  for (const p of progRes.rows) {
     const arr = progressByOrg.get(p.org_id) ?? [];
     arr.push(p);
     progressByOrg.set(p.org_id, arr);
   }
 
   const rows: ClientListRow[] = [];
-  for (const o of (orgsRes.data ?? []) as OrgRow[]) {
+  for (const o of orgsRes.rows) {
     const s = settingsByOrg.get(o.id);
     const phases = (progressByOrg.get(o.id) ?? []).sort((a, b) => a.phase - b.phase);
 
@@ -77,7 +79,6 @@ export async function loadClientList(): Promise<ClientListRow[]> {
     const blocked = phases.reduce((sum, p) => sum + n(p.blocked_tasks), 0);
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
-    // Huidige fase = laagste fase met pct_done < 100, of hoogste als alles klaar
     const inProgress = phases.find((p) => n(p.pct_done) < 100);
     const currentPhase = inProgress
       ? inProgress.phase
@@ -90,7 +91,7 @@ export async function loadClientList(): Promise<ClientListRow[]> {
       name: o.name,
       activated: !!s,
       niche: s?.niche ?? null,
-      engagement_status: s?.engagement_status ?? null,
+      engagement_status: (s?.engagement_status ?? null) as EngagementStatus | null,
       account_class: s?.account_class ?? null,
       spacing_hours: s?.spacing_hours ?? null,
       daily_pin_target: s?.daily_pin_target ?? null,
@@ -106,21 +107,27 @@ export async function loadClientList(): Promise<ClientListRow[]> {
 
 /** Scherm 2 header — client info + per-phase progress. */
 export async function loadClientHeader(orgId: string): Promise<ClientHeader | null> {
-  const pub = publicDb();
-  const org = organicDb();
+  const pool = organicPool();
 
   const [orgRes, setRes, progRes] = await Promise.all([
-    pub.from("organizations").select("id, name").eq("id", orgId).maybeSingle(),
-    org.from("client_settings").select("*").eq("org_id", orgId).maybeSingle(),
-    org.from("client_progress").select("*").eq("org_id", orgId),
+    pool.query<OrgRow>(`SELECT id::text, name FROM public.organizations WHERE id = $1`, [orgId]),
+    pool.query<SettingsRow>(
+      `SELECT org_id::text, engagement_status::text AS engagement_status,
+              niche, account_class::text AS account_class,
+              spacing_hours, daily_pin_target, onboarded_date
+         FROM organic.client_settings WHERE org_id = $1`,
+      [orgId]
+    ),
+    pool.query<ProgressRow>(
+      `SELECT org_id::text, phase, total_tasks, done_tasks, blocked_tasks, pct_done
+         FROM organic.client_progress WHERE org_id = $1`,
+      [orgId]
+    ),
   ]);
-  if (orgRes.error) throw new Error(orgRes.error.message);
-  if (setRes.error) throw new Error(setRes.error.message);
-  if (progRes.error) throw new Error(progRes.error.message);
-  if (!orgRes.data) return null;
 
-  const s = setRes.data as SettingsRow | null;
-  const phases: PhaseProgress[] = ((progRes.data ?? []) as ProgressRow[])
+  if (orgRes.rowCount === 0) return null;
+  const s = setRes.rows[0] as SettingsRow | undefined;
+  const phases: PhaseProgress[] = progRes.rows
     .map((p) => ({
       phase: p.phase,
       total_tasks: n(p.total_tasks),
@@ -132,10 +139,10 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
 
   return {
     org_id: orgId,
-    name: (orgRes.data as OrgRow).name,
+    name: orgRes.rows[0].name,
     activated: !!s,
     niche: s?.niche ?? null,
-    engagement_status: s?.engagement_status ?? null,
+    engagement_status: (s?.engagement_status ?? null) as EngagementStatus | null,
     account_class: s?.account_class ?? null,
     spacing_hours: s?.spacing_hours ?? null,
     daily_pin_target: s?.daily_pin_target ?? null,
@@ -144,14 +151,11 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
   };
 }
 
-interface RawTaskRow {
+interface RawJoinedTaskRow {
   id: string;
   task_id: string;
   status: TaskStatus;
   time_spent_min: number | null;
-}
-interface RawDefRow {
-  id: string;
   phase: number;
   step: string;
   name: string;
@@ -167,51 +171,38 @@ interface RawDefRow {
 /** Scherm 2 list — every task for this client, joined with the definition
  *  and augmented with block-reasons when BLOCKED. */
 export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
-  const db = organicDb();
+  const pool = organicPool();
 
-  const [tasksRes, defsRes, ctx] = await Promise.all([
-    db.from("client_tasks").select("id, task_id, status, time_spent_min").eq("org_id", orgId),
-    db
-      .from("task_definitions")
-      .select(
-        "id, phase, step, name, description, task_type, sort_order, guidance, external_tool, external_url, is_recurring"
-      ),
+  const [rowsRes, ctx] = await Promise.all([
+    pool.query<RawJoinedTaskRow>(
+      `SELECT ct.id::text, ct.task_id, ct.status::text AS status, ct.time_spent_min,
+              td.phase, td.step, td.name, td.description,
+              td.task_type::text AS task_type, td.sort_order,
+              td.guidance, td.external_tool, td.external_url, td.is_recurring
+         FROM organic.client_tasks ct
+         JOIN organic.task_definitions td ON td.id = ct.task_id
+        WHERE ct.org_id = $1
+        ORDER BY td.phase, td.sort_order`,
+      [orgId]
+    ),
     loadStatusContext(orgId),
   ]);
-  if (tasksRes.error) throw new Error(tasksRes.error.message);
-  if (defsRes.error) throw new Error(defsRes.error.message);
 
-  const defById = new Map<string, RawDefRow>(
-    ((defsRes.data ?? []) as RawDefRow[]).map((d) => [d.id, d])
-  );
-
-  const rows: TaskRow[] = [];
-  for (const t of (tasksRes.data ?? []) as RawTaskRow[]) {
-    const d = defById.get(t.task_id);
-    if (!d) continue; // task definition removed since instantiation
-    rows.push({
-      client_task_id: t.id,
-      task_id: t.task_id,
-      phase: d.phase,
-      step: d.step,
-      name: d.name,
-      description: d.description,
-      task_type: d.task_type,
-      sort_order: d.sort_order,
-      guidance: d.guidance,
-      external_tool: d.external_tool,
-      external_url: d.external_url,
-      is_recurring: d.is_recurring,
-      status: t.status,
-      time_spent_min: t.time_spent_min,
-      block_reasons: t.status === "BLOCKED" ? evaluateBlockReasons(t.task_id, ctx) : [],
-    });
-  }
-
-  rows.sort((a, b) => {
-    if (a.phase !== b.phase) return a.phase - b.phase;
-    return a.sort_order - b.sort_order;
-  });
-
-  return rows;
+  return rowsRes.rows.map((r) => ({
+    client_task_id: r.id,
+    task_id: r.task_id,
+    phase: r.phase,
+    step: r.step,
+    name: r.name,
+    description: r.description,
+    task_type: r.task_type,
+    sort_order: r.sort_order,
+    guidance: r.guidance,
+    external_tool: r.external_tool,
+    external_url: r.external_url,
+    is_recurring: r.is_recurring,
+    status: r.status,
+    time_spent_min: r.time_spent_min,
+    block_reasons: r.status === "BLOCKED" ? evaluateBlockReasons(r.task_id, ctx) : [],
+  }));
 }

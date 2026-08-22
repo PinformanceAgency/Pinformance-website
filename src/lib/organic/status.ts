@@ -16,7 +16,7 @@
  *
  * Call this after every status change so downstream tasks unlock immediately.
  */
-import { organicDb } from "./db";
+import { organicPool } from "./db";
 
 const MANUAL_STATUSES = new Set(["IN_PROGRESS", "REVIEW", "DONE", "SKIPPED"]);
 
@@ -26,8 +26,15 @@ interface Precondition {
   requires_check: string | null;
 }
 
+interface TaskRow {
+  id: string;
+  task_id: string;
+  status: string;
+}
+
 /** Recompute + persist auto-statuses for one org. Returns how many rows were updated. */
 export async function recomputeStatuses(orgId: string): Promise<{ updated: number }> {
+  const pool = organicPool();
   const ctx = await loadStatusContext(orgId);
 
   const updates: { id: string; status: "TODO" | "BLOCKED" }[] = [];
@@ -40,36 +47,50 @@ export async function recomputeStatuses(orgId: string): Promise<{ updated: numbe
 
   if (updates.length === 0) return { updated: 0 };
 
-  const db = organicDb();
-  // Update one at a time — batch upsert would require sending every column;
-  // we typically toggle a handful of rows per recompute.
+  // Single UPDATE via a VALUES join — one round-trip regardless of size.
+  const values: string[] = [];
+  const params: unknown[] = [];
   for (const u of updates) {
-    const { error } = await db.from("client_tasks").update({ status: u.status }).eq("id", u.id);
-    if (error) throw new Error(`recompute update failed: ${error.message}`);
+    values.push(`($${params.length + 1}::uuid, $${params.length + 2}::organic.task_status)`);
+    params.push(u.id, u.status);
   }
+  await pool.query(
+    `UPDATE organic.client_tasks t
+        SET status = v.status
+       FROM (VALUES ${values.join(",")}) AS v(id, status)
+      WHERE t.id = v.id`,
+    params
+  );
   return { updated: updates.length };
 }
 
 /** Same context, but read-only — used to render "why is this blocked?" in the UI. */
 export async function loadStatusContext(orgId: string) {
-  const db = organicDb();
+  const pool = organicPool();
 
   const [tasksRes, precondsRes, topicsRes, urlsRes] = await Promise.all([
-    db.from("client_tasks").select("id, task_id, status").eq("org_id", orgId),
-    db.from("task_preconditions").select("task_id, requires_task_id, requires_check"),
-    db.from("topic_coverage").select("is_covered").eq("org_id", orgId),
-    db.from("urls_selectable").select("id").eq("org_id", orgId).eq("is_selectable", true).limit(1),
+    pool.query<TaskRow>(
+      `SELECT id::text, task_id, status::text FROM organic.client_tasks WHERE org_id = $1`,
+      [orgId]
+    ),
+    pool.query<Precondition>(
+      `SELECT task_id, requires_task_id, requires_check FROM organic.task_preconditions`
+    ),
+    pool.query<{ is_covered: boolean | null }>(
+      `SELECT is_covered FROM organic.topic_coverage WHERE org_id = $1`,
+      [orgId]
+    ),
+    pool.query<{ id: string }>(
+      `SELECT id::text FROM organic.urls_selectable
+        WHERE org_id = $1 AND is_selectable = true LIMIT 1`,
+      [orgId]
+    ),
   ]);
 
-  if (tasksRes.error) throw new Error(tasksRes.error.message);
-  if (precondsRes.error) throw new Error(precondsRes.error.message);
-  if (topicsRes.error) throw new Error(topicsRes.error.message);
-  if (urlsRes.error) throw new Error(urlsRes.error.message);
-
-  const tasks = (tasksRes.data ?? []) as { id: string; task_id: string; status: string }[];
-  const preconditions = (precondsRes.data ?? []) as Precondition[];
-  const topics = (topicsRes.data ?? []) as { is_covered: boolean | null }[];
-  const urls = urlsRes.data ?? [];
+  const tasks = tasksRes.rows;
+  const preconditions = precondsRes.rows;
+  const topics = topicsRes.rows;
+  const urls = urlsRes.rows;
 
   // "Every topic covered" — vacuously true when there are no topics yet, but
   // then any task that depends on topic_coverage is by definition unmet

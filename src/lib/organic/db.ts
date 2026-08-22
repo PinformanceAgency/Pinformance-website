@@ -1,20 +1,36 @@
-import { createAdminClient } from "@/lib/supabase/admin";
-
 /**
- * Supabase client scoped to the `organic` schema. Uses the service_role key
- * so we don't need per-table RLS policies for the internal organic tool
- * (dashboard middleware still gates access to the /organic paths).
+ * Direct Postgres pool for the organic app.
  *
- * Callers do:  organicDb().from("client_tasks").select("*")
+ * We deliberately bypass PostgREST here because the `organic` schema is not
+ * exposed via Supabase Settings → API → Exposed schemas (and even if it
+ * were, PostgREST enforces a short statement_timeout that some of our
+ * aggregate views would blow through). Direct pg gives us:
  *
- * The `organic` schema must be exposed in Supabase → Settings → API →
- * Exposed schemas.
+ *   - Access to every schema without dashboard config
+ *   - Our own statement_timeout per request
+ *   - Predictable behavior regardless of PostgREST changes
+ *
+ * Same pattern as src/lib/media-buying/team-activity.ts.
  */
-export function organicDb() {
-  return createAdminClient().schema("organic");
-}
+import { Pool, types } from "pg";
 
-/** Non-scoped admin client — needed for reads/writes on public.organizations. */
-export function publicDb() {
-  return createAdminClient();
+// Force DATE (OID 1082) to come back as raw YYYY-MM-DD strings — otherwise
+// node-pg turns them into JS Dates at LOCAL midnight and they shift by a
+// day when the process TZ isn't UTC.
+types.setTypeParser(1082, (val) => val);
+
+let pool: Pool | null = null;
+
+export function organicPool(): Pool {
+  if (pool) return pool;
+  const cs = process.env.DATABASE_URL;
+  if (!cs) throw new Error("DATABASE_URL not set");
+  pool = new Pool({
+    connectionString: cs,
+    ssl: { rejectUnauthorized: false },
+    max: 4,
+    statement_timeout: 30_000,
+    query_timeout: 30_000,
+  });
+  return pool;
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { organicDb } from "@/lib/organic/db";
+import { organicPool } from "@/lib/organic/db";
 import { recomputeStatuses } from "@/lib/organic/status";
 import type { TaskStatus } from "@/lib/organic/types";
 
@@ -29,31 +29,44 @@ export async function PATCH(
     );
   }
 
-  const db = organicDb();
+  const pool = organicPool();
 
-  // Read current row to know the org (needed for recompute) and to timestamp
-  // start/completion transitions.
-  const { data: current, error: readErr } = await db
-    .from("client_tasks")
-    .select("id, org_id, status, started_at")
-    .eq("id", taskId)
-    .maybeSingle();
-  if (readErr) return NextResponse.json({ error: readErr.message }, { status: 500 });
-  if (!current) return NextResponse.json({ error: "task not found" }, { status: 404 });
-
-  const patch: Record<string, unknown> = { status: body.status };
-  if (body.status === "IN_PROGRESS" && !current.started_at) {
-    patch.started_at = new Date().toISOString();
+  const cur = await pool.query<{ org_id: string; started_at: string | null }>(
+    `SELECT org_id::text, started_at
+       FROM organic.client_tasks WHERE id = $1`,
+    [taskId]
+  );
+  if (cur.rowCount === 0) {
+    return NextResponse.json({ error: "task not found" }, { status: 404 });
   }
+  const { org_id, started_at } = cur.rows[0];
+
+  const nowIso = new Date().toISOString();
   if (body.status === "DONE") {
-    patch.completed_at = new Date().toISOString();
-    patch.time_spent_min = body.time_spent_min;
-    if (!current.started_at) patch.started_at = patch.completed_at;
+    await pool.query(
+      `UPDATE organic.client_tasks
+          SET status = $1::organic.task_status,
+              completed_at = $2::timestamptz,
+              started_at = COALESCE(started_at, $2::timestamptz),
+              time_spent_min = $3,
+              completed_by = NULL
+        WHERE id = $4`,
+      [body.status, nowIso, body.time_spent_min, taskId]
+    );
+  } else if (body.status === "IN_PROGRESS" && !started_at) {
+    await pool.query(
+      `UPDATE organic.client_tasks
+          SET status = $1::organic.task_status, started_at = $2::timestamptz
+        WHERE id = $3`,
+      [body.status, nowIso, taskId]
+    );
+  } else {
+    await pool.query(
+      `UPDATE organic.client_tasks SET status = $1::organic.task_status WHERE id = $2`,
+      [body.status, taskId]
+    );
   }
 
-  const { error: updErr } = await db.from("client_tasks").update(patch).eq("id", taskId);
-  if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
-
-  const { updated } = await recomputeStatuses(current.org_id as string);
+  const { updated } = await recomputeStatuses(org_id);
   return NextResponse.json({ ok: true, recomputed: updated });
 }

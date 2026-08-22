@@ -6,12 +6,12 @@
  *
  * Steps:
  *   1. Insert a default row in organic.client_settings for the org
- *   2. Instantiate every non-recurring task definition (phases 1–3) into
- *      organic.client_tasks. Recurring tasks (phases 4–5) run per cycle and
- *      are handled by a separate flow.
+ *   2. Instantiate every non-recurring active task definition (phases 1-3)
+ *      into organic.client_tasks. Recurring tasks (phases 4-5) run per
+ *      cycle and are handled by a separate flow.
  *   3. Recompute statuses so tasks without preconditions unlock to TODO.
  */
-import { organicDb } from "./db";
+import { organicPool } from "./db";
 import { recomputeStatuses } from "./status";
 
 export async function activateClient(orgId: string): Promise<{
@@ -19,46 +19,34 @@ export async function activateClient(orgId: string): Promise<{
   tasks_created: number;
   statuses_updated: number;
 }> {
-  const db = organicDb();
+  const pool = organicPool();
 
-  const { data: existing, error: existErr } = await db
-    .from("client_settings")
-    .select("org_id")
-    .eq("org_id", orgId)
-    .maybeSingle();
-  if (existErr) throw new Error(`check settings: ${existErr.message}`);
-
-  if (existing) {
-    // Already activated — nothing to seed. Still recompute in case
-    // preconditions have changed.
+  const existing = await pool.query(
+    `SELECT 1 FROM organic.client_settings WHERE org_id = $1 LIMIT 1`,
+    [orgId]
+  );
+  if (existing.rowCount && existing.rowCount > 0) {
     const { updated } = await recomputeStatuses(orgId);
     return { already: true, tasks_created: 0, statuses_updated: updated };
   }
 
-  const { error: insertErr } = await db.from("client_settings").insert({ org_id: orgId });
-  if (insertErr) throw new Error(`create settings: ${insertErr.message}`);
+  await pool.query(`INSERT INTO organic.client_settings (org_id) VALUES ($1)`, [orgId]);
 
-  // Load every non-recurring active task definition and materialise into
-  // client_tasks. Start every one as BLOCKED — the recompute right below
-  // will flip the ones without preconditions to TODO.
-  const { data: defs, error: defsErr } = await db
-    .from("task_definitions")
-    .select("id")
-    .eq("is_recurring", false)
-    .eq("active", true);
-  if (defsErr) throw new Error(`load defs: ${defsErr.message}`);
-
-  const rows = (defs ?? []).map((d) => ({
-    org_id: orgId,
-    task_id: d.id as string,
-    status: "BLOCKED" as const,
-  }));
-
-  if (rows.length > 0) {
-    const { error: seedErr } = await db.from("client_tasks").insert(rows);
-    if (seedErr) throw new Error(`seed tasks: ${seedErr.message}`);
-  }
+  // Seed every non-recurring active task definition as BLOCKED. The recompute
+  // that follows flips the ones without preconditions to TODO.
+  const seed = await pool.query<{ count: string }>(
+    `WITH ins AS (
+       INSERT INTO organic.client_tasks (org_id, task_id, status)
+       SELECT $1, id, 'BLOCKED'::organic.task_status
+         FROM organic.task_definitions
+        WHERE is_recurring = false AND active = true
+       RETURNING 1
+     )
+     SELECT COUNT(*)::text AS count FROM ins`,
+    [orgId]
+  );
+  const tasksCreated = Number(seed.rows[0]?.count ?? 0);
 
   const { updated } = await recomputeStatuses(orgId);
-  return { already: false, tasks_created: rows.length, statuses_updated: updated };
+  return { already: false, tasks_created: tasksCreated, statuses_updated: updated };
 }
