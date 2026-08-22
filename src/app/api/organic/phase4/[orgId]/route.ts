@@ -1,0 +1,55 @@
+import { NextResponse } from "next/server";
+import * as P4 from "@/lib/organic/phase4";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  const { orgId } = await params;
+  const body = (await req.json()) as { action: string } & Record<string, unknown>;
+  try {
+    const r = (await dispatch(orgId, body)) as Record<string, unknown>;
+    return NextResponse.json({ ok: true, ...r });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
+}
+
+async function dispatch(orgId: string, body: { action: string } & Record<string, unknown>): Promise<unknown> {
+  const t = () => Number(body.time_spent_min);
+  switch (body.action) {
+    case "start_cycle":
+      return P4.startCycleForUrl(orgId, String(body.url_id));
+    case "candidates":
+      return { candidates: await P4.candidateUrls(orgId) };
+    case "seasonal":
+      return { candidates: await P4.seasonalCandidates(orgId) };
+    case "upsert_url":
+      return { url_id: await P4.upsertUrl(orgId, body as unknown as P4.UrlInput) };
+    case "assign_boards":
+      await P4.assignBoardsToUrl(String(body.url_id), body.board_ids as string[]);
+      return { ok: true };
+    case "assign_keywords":
+      await P4.assignKeywordsToUrl(String(body.url_id), body.keyword_ids as string[], String(body.primary_id));
+      return { ok: true };
+    case "brief":
+      return { brief: await P4.generateDesignBrief(orgId, String(body.url_id)) };
+    case "validate_copy":
+      return P4.validateCopy(body as unknown as P4.CopyDraft);
+    case "waterfall":
+      return await P4.generateWaterfall(orgId, String(body.url_id), String(body.start_date));
+    case "schedule":
+      return { rows: await P4.loadWaterfallSchedule(String(body.waterfall_id)) };
+    case "push":
+      return P4.pushWaterfallToPinterest(String(body.waterfall_id), { dryRun: !!body.dry_run });
+    case "complete_cycle_task": {
+      await P4.completeCycleTask(orgId, String(body.cycle), String(body.task_id), t(), body.notes as string | undefined);
+      return { ok: true };
+    }
+    default:
+      throw new Error(`unknown action: ${body.action}`);
+  }
+}
