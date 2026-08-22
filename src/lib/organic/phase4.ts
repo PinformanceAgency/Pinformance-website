@@ -467,3 +467,194 @@ export async function loadPhase4Snapshot(orgId: string) {
   ]);
   return { selectable_urls: selectable.rows, waterfalls: waterfalls.rows };
 }
+
+// ---------- cycle loader for the UI -----------------------------------------
+
+export interface CycleTaskRow {
+  client_task_id: string;
+  task_id: string;
+  step: string;
+  name: string;
+  task_type: string;
+  guidance: string | null;
+  status: string;
+  time_spent_min: number | null;
+  notes: string | null;
+  sort_order: number;
+}
+export interface CycleView {
+  cycle: string;
+  url_id: string;
+  url: string;
+  url_name: string;
+  reason: string;
+  reason_note: string | null;
+  is_seasonal: boolean;
+  peak_window_start: string | null;
+  peak_window_end: string | null;
+  topic_id: string | null;
+  topic_name: string | null;
+  funnel_stage: string | null;
+  assigned_boards: Array<{ board_id: string; board_name: string; position: number }>;
+  assigned_keywords: Array<{ keyword_id: string; term: string; is_primary: boolean; volume: number | null }>;
+  waterfall: { id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number } | null;
+  tasks: CycleTaskRow[];
+  progress: { total: number; done: number; blocked: number; pct: number };
+}
+
+/** Returns every URL-scoped Phase 4 cycle for this org, hydrated with the
+ *  URL info, assigned boards, keywords, current waterfall and all 22 tasks. */
+export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
+  const pool = organicPool();
+
+  const cyclesRes = await pool.query<{ cycle: string }>(
+    `SELECT DISTINCT cycle FROM organic.client_tasks
+      WHERE org_id = $1 AND cycle IS NOT NULL AND cycle LIKE 'URL-%'`,
+    [orgId]
+  );
+  if (cyclesRes.rowCount === 0) return [];
+
+  const cycleKeys = cyclesRes.rows.map((r) => r.cycle);
+  const urlShortIds = cycleKeys.map((c) => c.replace(/^URL-/, ""));
+
+  // Match cycle-key short id (first 8 chars of url_id) → url row.
+  const urlsRes = await pool.query<{ id: string; url: string; name: string; reason: string; reason_note: string | null; is_seasonal: boolean; peak_window_start: string | null; peak_window_end: string | null; topic_id: string | null; topic_name: string | null; funnel_stage: string | null }>(
+    `SELECT u.id::text, u.url, u.name, u.reason::text AS reason, u.reason_note,
+            u.is_seasonal, u.peak_window_start::text, u.peak_window_end::text,
+            u.topic_id::text, t.name AS topic_name, u.funnel_stage::text
+       FROM organic.urls u
+       LEFT JOIN organic.topics t ON t.id = u.topic_id
+      WHERE u.org_id = $1 AND left(u.id::text, 8) = ANY($2)`,
+    [orgId, urlShortIds]
+  );
+  const urlByShort = new Map(urlsRes.rows.map((u) => [u.id.slice(0, 8), u]));
+
+  const boardsRes = await pool.query<{ url_id: string; board_id: string; board_name: string; position: number }>(
+    `SELECT ub.url_id::text, ub.board_id::text, b.name AS board_name, ub.position
+       FROM organic.url_boards ub JOIN organic.boards b ON b.id = ub.board_id
+      WHERE ub.url_id IN (SELECT id FROM organic.urls WHERE org_id = $1)
+      ORDER BY ub.position`,
+    [orgId]
+  );
+  const kwRes = await pool.query<{ url_id: string; keyword_id: string; term: string; is_primary: boolean; volume: number | null }>(
+    `SELECT uk.url_id::text, uk.keyword_id::text, k.term, uk.is_primary, c.volume
+       FROM organic.url_keywords uk
+       JOIN organic.keywords k ON k.id = uk.keyword_id
+       LEFT JOIN organic.keyword_volume_cache c ON c.term = k.term
+      WHERE uk.url_id IN (SELECT id FROM organic.urls WHERE org_id = $1)`,
+    [orgId]
+  );
+  const wfRes = await pool.query<{ id: string; url_id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number }>(
+    `SELECT id::text, url_id::text, status::text, start_date::text, end_date::text, spacing_hours
+       FROM organic.waterfalls WHERE org_id = $1
+      ORDER BY created_at DESC`,
+    [orgId]
+  );
+  const wfLatestByUrl = new Map<string, { id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number }>();
+  for (const w of wfRes.rows) if (!wfLatestByUrl.has(w.url_id)) wfLatestByUrl.set(w.url_id, { id: w.id, status: w.status, start_date: w.start_date, end_date: w.end_date, spacing_hours: w.spacing_hours });
+
+  const tasksRes = await pool.query<{ cycle: string; id: string; task_id: string; step: string; name: string; task_type: string; guidance: string | null; status: string; time_spent_min: number | null; notes: string | null; sort_order: number }>(
+    `SELECT ct.cycle, ct.id::text, ct.task_id, td.step, td.name, td.task_type::text,
+            td.guidance, ct.status::text, ct.time_spent_min, ct.notes, td.sort_order
+       FROM organic.client_tasks ct JOIN organic.task_definitions td ON td.id = ct.task_id
+      WHERE ct.org_id = $1 AND ct.cycle = ANY($2)
+      ORDER BY td.sort_order`,
+    [orgId, cycleKeys]
+  );
+  const tasksByCycle = new Map<string, CycleTaskRow[]>();
+  for (const r of tasksRes.rows) {
+    const arr = tasksByCycle.get(r.cycle) ?? [];
+    arr.push({
+      client_task_id: r.id, task_id: r.task_id, step: r.step, name: r.name,
+      task_type: r.task_type, guidance: r.guidance, status: r.status,
+      time_spent_min: r.time_spent_min, notes: r.notes, sort_order: r.sort_order,
+    });
+    tasksByCycle.set(r.cycle, arr);
+  }
+
+  const boardsByUrl = new Map<string, Array<{ board_id: string; board_name: string; position: number }>>();
+  for (const b of boardsRes.rows) {
+    const arr = boardsByUrl.get(b.url_id) ?? [];
+    arr.push({ board_id: b.board_id, board_name: b.board_name, position: b.position });
+    boardsByUrl.set(b.url_id, arr);
+  }
+  const kwsByUrl = new Map<string, Array<{ keyword_id: string; term: string; is_primary: boolean; volume: number | null }>>();
+  for (const k of kwRes.rows) {
+    const arr = kwsByUrl.get(k.url_id) ?? [];
+    arr.push({ keyword_id: k.keyword_id, term: k.term, is_primary: k.is_primary, volume: k.volume });
+    kwsByUrl.set(k.url_id, arr);
+  }
+
+  const out: CycleView[] = [];
+  for (const cycleKey of cycleKeys) {
+    const shortId = cycleKey.replace(/^URL-/, "");
+    const u = urlByShort.get(shortId);
+    if (!u) continue; // URL was deleted — skip orphan cycles
+    const tasks = tasksByCycle.get(cycleKey) ?? [];
+    const done = tasks.filter((t) => t.status === "DONE").length;
+    const blocked = tasks.filter((t) => t.status === "BLOCKED").length;
+    out.push({
+      cycle: cycleKey,
+      url_id: u.id,
+      url: u.url,
+      url_name: u.name,
+      reason: u.reason,
+      reason_note: u.reason_note,
+      is_seasonal: u.is_seasonal,
+      peak_window_start: u.peak_window_start,
+      peak_window_end: u.peak_window_end,
+      topic_id: u.topic_id,
+      topic_name: u.topic_name,
+      funnel_stage: u.funnel_stage,
+      assigned_boards: boardsByUrl.get(u.id) ?? [],
+      assigned_keywords: kwsByUrl.get(u.id) ?? [],
+      waterfall: wfLatestByUrl.get(u.id) ?? null,
+      tasks,
+      progress: {
+        total: tasks.length,
+        done,
+        blocked,
+        pct: tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0,
+      },
+    });
+  }
+  return out;
+}
+
+/** Boards this org has available to assign to a URL — for the board picker. */
+export async function loadOrgBoards(orgId: string) {
+  const pool = organicPool();
+  const r = await pool.query<{ id: string; name: string; status: string; topic_name: string | null }>(
+    `SELECT b.id::text, b.name, b.status::text, t.name AS topic_name
+       FROM organic.boards b
+       LEFT JOIN organic.topics t ON t.id = b.topic_id
+      WHERE b.org_id = $1
+      ORDER BY t.name NULLS LAST, b.name`,
+    [orgId]
+  );
+  return r.rows;
+}
+
+/** Volume-cached keywords for this org — for the keyword picker. */
+export async function loadOrgKeywordsWithVolume(orgId: string) {
+  const pool = organicPool();
+  const r = await pool.query<{ id: string; term: string; volume: number | null; type: string }>(
+    `SELECT k.id::text, k.term, c.volume, k.type::text
+       FROM organic.keywords k
+       LEFT JOIN organic.keyword_volume_cache c ON c.term = k.term
+      WHERE k.org_id = $1 AND (c.volume IS NOT NULL OR k.volume_validated = true)
+      ORDER BY COALESCE(c.volume, 0) DESC, k.term`,
+    [orgId]
+  );
+  return r.rows;
+}
+
+/** Grid-analysis presence check for the "P4.2.1 grid gate before design". */
+export async function hasGridAnalysisForKeyword(orgId: string, keyword: string): Promise<boolean> {
+  const pool = organicPool();
+  const r = await pool.query(
+    `SELECT 1 FROM organic.grid_analyses WHERE org_id = $1 AND target_keyword = $2 LIMIT 1`,
+    [orgId, keyword]
+  );
+  return (r.rowCount ?? 0) > 0;
+}

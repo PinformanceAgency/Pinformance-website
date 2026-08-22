@@ -177,6 +177,9 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
 
   const [rowsRes, ctx] = await Promise.all([
     pool.query<RawJoinedTaskRow>(
+      // Exclude Phase-4 per-URL cycle tasks — they render in their own
+      // Phase4Cycles panel, grouped by URL. Only cycle IS NULL (flat) and
+      // any legacy non-URL cycle keys stay on the main board.
       `SELECT ct.id::text, ct.task_id, ct.status::text AS status, ct.time_spent_min,
               ct.skip_reason, ct.skip_note, ct.notes,
               td.phase, td.step, td.name, td.description,
@@ -185,6 +188,7 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
          FROM organic.client_tasks ct
          JOIN organic.task_definitions td ON td.id = ct.task_id
         WHERE ct.org_id = $1
+          AND (ct.cycle IS NULL OR ct.cycle NOT LIKE 'URL-%')
         ORDER BY td.phase, td.sort_order`,
       [orgId]
     ),

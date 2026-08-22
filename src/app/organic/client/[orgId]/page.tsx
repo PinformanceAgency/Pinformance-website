@@ -4,7 +4,9 @@ import { loadClientHeader, loadClientTasks } from "@/lib/organic/queries";
 import { loadViability } from "@/lib/organic/viability";
 import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { loadPhase3Snapshot } from "@/lib/organic/phase3";
+import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume } from "@/lib/organic/phase4";
 import { TasksBoard } from "./TasksBoard";
+import { Phase4Cycles } from "./Phase4Cycles";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +16,16 @@ export default async function ClientPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
-  const [header, tasks, viability, phase2, phase3] = await Promise.all([
+  const [header, tasks, viability, phase2, phase3, phase4, cycles, orgBoards, orgKeywords] = await Promise.all([
     loadClientHeader(orgId),
     loadClientTasks(orgId),
     loadViability(orgId),
     loadPhase2Snapshot(orgId),
     loadPhase3Snapshot(orgId),
+    loadPhase4Snapshot(orgId),
+    loadCyclesForOrg(orgId),
+    loadOrgBoards(orgId),
+    loadOrgKeywordsWithVolume(orgId),
   ]);
   if (!header) notFound();
 
@@ -30,12 +36,14 @@ export default async function ClientPage({
           ← Back to clients
         </Link>
         {header.activated && (
-          <Link
-            href={`/client/${orgId}/intake`}
-            className="text-xs font-medium text-blue-600 hover:text-blue-800"
-          >
-            Open intake form →
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link href={`/client/${orgId}/analytics`} className="text-xs font-medium text-blue-600 hover:text-blue-800">
+              Analytics →
+            </Link>
+            <Link href={`/client/${orgId}/intake`} className="text-xs font-medium text-blue-600 hover:text-blue-800">
+              Intake form →
+            </Link>
+          </div>
         )}
       </div>
 
@@ -46,14 +54,23 @@ export default async function ClientPage({
           This client is not activated yet. Go back to the list to activate.
         </div>
       ) : (
-        <TasksBoard
-          orgId={orgId}
-          tasks={tasks}
-          viability={viability}
-          initialDomain={header.domain}
-          phase2={phase2}
-          phase3={phase3}
-        />
+        <>
+          <TasksBoard
+            orgId={orgId}
+            tasks={tasks}
+            viability={viability}
+            initialDomain={header.domain}
+            phase2={phase2}
+            phase3={phase3}
+          />
+          <Phase4Cycles
+            orgId={orgId}
+            cycles={cycles}
+            selectableUrls={phase4.selectable_urls as Parameters<typeof Phase4Cycles>[0]["selectableUrls"]}
+            orgBoards={orgBoards}
+            orgKeywords={orgKeywords}
+          />
+        </>
       )}
     </div>
   );
