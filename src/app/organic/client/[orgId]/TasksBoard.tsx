@@ -55,26 +55,57 @@ function PhaseSection({ phase, tasks }: { phase: number; tasks: TaskRow[] }) {
 function TaskCard({ task }: { task: TaskRow }) {
   const [expanded, setExpanded] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   async function commitStatus(status: TaskStatus, timeSpentMin?: number) {
     setError(null);
-    const res = await fetch(`/api/organic/tasks/${task.client_task_id}/status`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status, time_spent_min: timeSpentMin }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error ?? "Update failed");
-      return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/organic/tasks/${task.client_task_id}/status`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status, time_spent_min: timeSpentMin }),
+        // Don't follow the auth-middleware redirect to /login as if it were
+        // success — fetch's default `redirect: "follow"` turns a 307 into a
+        // 200 HTML page and hides the real failure.
+        redirect: "error",
+      });
+
+      // Read as text first so non-JSON responses (auth redirects, 500 pages,
+      // gateway errors) surface as HTTP N + snippet instead of a swallowed
+      // JSON.parse SyntaxError.
+      const text = await res.text();
+      let data: { ok?: boolean; error?: string; recomputed?: number } = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        /* keep raw text for the error message */
+      }
+
+      if (!res.ok) {
+        const snippet = text ? text.replace(/\s+/g, " ").slice(0, 140) : "";
+        setError(data.error ?? `HTTP ${res.status}${snippet ? ` — ${snippet}` : ""}`);
+        return;
+      }
+
+      // Success — refresh the server component so the row, phase counters,
+      // and any tasks that just unblocked all reflect the new state without
+      // a manual reload.
+      startTransition(() => router.refresh());
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("commitStatus failed", e);
+      setError(`Request failed: ${msg}`);
+    } finally {
+      setSubmitting(false);
     }
-    startTransition(() => router.refresh());
   }
 
   async function onStatusPick(next: TaskStatus) {
+    if (next === task.status) return;
     if (next === "DONE") {
       setDialogOpen(true);
       return;
@@ -82,7 +113,7 @@ function TaskCard({ task }: { task: TaskRow }) {
     await commitStatus(next);
   }
 
-  const disabled = pending || task.status === "BLOCKED";
+  const disabled = submitting || task.status === "BLOCKED";
 
   return (
     <div className="px-4 py-3">
@@ -129,6 +160,7 @@ function TaskCard({ task }: { task: TaskRow }) {
             value={task.status}
             onChange={onStatusPick}
             disabled={disabled}
+            submitting={submitting}
           />
           {task.guidance && (
             <button
@@ -144,7 +176,9 @@ function TaskCard({ task }: { task: TaskRow }) {
       </div>
 
       {error && (
-        <div className="mt-2 text-xs text-red-600">{error}</div>
+        <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1 break-words" role="alert">
+          <span className="font-medium">Update failed:</span> {error}
+        </div>
       )}
 
       {expanded && task.guidance && (
@@ -189,10 +223,12 @@ function StatusSelect({
   value,
   onChange,
   disabled,
+  submitting,
 }: {
   value: TaskStatus;
   onChange: (v: TaskStatus) => void;
   disabled: boolean;
+  submitting: boolean;
 }) {
   if (value === "BLOCKED") {
     return (
@@ -202,18 +238,25 @@ function StatusSelect({
     );
   }
   return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value as TaskStatus)}
-      className={`text-xs rounded-md border px-2 py-1 font-medium ${statusColor(value)} disabled:opacity-50`}
-    >
-      {STATUS_CHOICES.map((s) => (
-        <option key={s} value={s}>
-          {s.replace("_", " ")}
-        </option>
-      ))}
-    </select>
+    <span className="inline-flex items-center gap-1.5">
+      {submitting && (
+        <span className="text-[10px] text-neutral-400 tabular-nums" aria-live="polite">
+          saving…
+        </span>
+      )}
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value as TaskStatus)}
+        className={`text-xs rounded-md border px-2 py-1 font-medium ${statusColor(value)} disabled:opacity-50 disabled:cursor-wait`}
+      >
+        {STATUS_CHOICES.map((s) => (
+          <option key={s} value={s}>
+            {s.replace("_", " ")}
+          </option>
+        ))}
+      </select>
+    </span>
   );
 }
 
