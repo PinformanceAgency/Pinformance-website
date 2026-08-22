@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadClientHeader, loadClientTasks } from "@/lib/organic/queries";
+import { loadViability } from "@/lib/organic/viability";
 import { TasksBoard } from "./TasksBoard";
 
 export const dynamic = "force-dynamic";
@@ -11,18 +12,27 @@ export default async function ClientPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
-  const [header, tasks] = await Promise.all([
+  const [header, tasks, viability] = await Promise.all([
     loadClientHeader(orgId),
     loadClientTasks(orgId),
+    loadViability(orgId),
   ]);
   if (!header) notFound();
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-center justify-between">
         <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-900">
           ← Back to clients
         </Link>
+        {header.activated && (
+          <Link
+            href={`/client/${orgId}/intake`}
+            className="text-xs font-medium text-blue-600 hover:text-blue-800"
+          >
+            Open intake form →
+          </Link>
+        )}
       </div>
 
       <ClientHeaderCard header={header} />
@@ -32,7 +42,12 @@ export default async function ClientPage({
           This client is not activated yet. Go back to the list to activate.
         </div>
       ) : (
-        <TasksBoard tasks={tasks} />
+        <TasksBoard
+          orgId={orgId}
+          tasks={tasks}
+          viability={viability}
+          initialDomain={header.domain}
+        />
       )}
     </div>
   );
@@ -59,6 +74,12 @@ function ClientHeaderCard({
             </span>
             <span>·</span>
             <span>Daily target: {header.daily_pin_target ?? "—"}</span>
+            {header.domain && (
+              <>
+                <span>·</span>
+                <span>Domain: {header.domain}</span>
+              </>
+            )}
             {header.onboarded_date && (
               <>
                 <span>·</span>

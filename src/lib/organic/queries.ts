@@ -9,6 +9,7 @@ import type {
   ClientListRow,
   EngagementStatus,
   PhaseProgress,
+  SkipReason,
   TaskRow,
   TaskStatus,
   TaskType,
@@ -27,6 +28,7 @@ interface SettingsRow {
   spacing_hours: number;
   daily_pin_target: number;
   onboarded_date: string | null;
+  domain: string | null;
 }
 
 interface ProgressRow {
@@ -43,7 +45,6 @@ function n(v: unknown): number {
   return isFinite(x) ? x : 0;
 }
 
-/** Scherm 1 — one row per organisation. */
 export async function loadClientList(): Promise<ClientListRow[]> {
   const pool = organicPool();
 
@@ -52,7 +53,7 @@ export async function loadClientList(): Promise<ClientListRow[]> {
     pool.query<SettingsRow>(
       `SELECT org_id::text, engagement_status::text AS engagement_status,
               niche, account_class::text AS account_class,
-              spacing_hours, daily_pin_target, onboarded_date
+              spacing_hours, daily_pin_target, onboarded_date, domain
          FROM organic.client_settings`
     ),
     pool.query<ProgressRow>(
@@ -105,7 +106,6 @@ export async function loadClientList(): Promise<ClientListRow[]> {
   return rows;
 }
 
-/** Scherm 2 header — client info + per-phase progress. */
 export async function loadClientHeader(orgId: string): Promise<ClientHeader | null> {
   const pool = organicPool();
 
@@ -114,7 +114,7 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
     pool.query<SettingsRow>(
       `SELECT org_id::text, engagement_status::text AS engagement_status,
               niche, account_class::text AS account_class,
-              spacing_hours, daily_pin_target, onboarded_date
+              spacing_hours, daily_pin_target, onboarded_date, domain
          FROM organic.client_settings WHERE org_id = $1`,
       [orgId]
     ),
@@ -147,6 +147,7 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
     spacing_hours: s?.spacing_hours ?? null,
     daily_pin_target: s?.daily_pin_target ?? null,
     onboarded_date: s?.onboarded_date ?? null,
+    domain: s?.domain ?? null,
     phases,
   };
 }
@@ -156,6 +157,9 @@ interface RawJoinedTaskRow {
   task_id: string;
   status: TaskStatus;
   time_spent_min: number | null;
+  skip_reason: SkipReason | null;
+  skip_note: string | null;
+  notes: string | null;
   phase: number;
   step: string;
   name: string;
@@ -168,14 +172,13 @@ interface RawJoinedTaskRow {
   is_recurring: boolean;
 }
 
-/** Scherm 2 list — every task for this client, joined with the definition
- *  and augmented with block-reasons when BLOCKED. */
 export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
   const pool = organicPool();
 
   const [rowsRes, ctx] = await Promise.all([
     pool.query<RawJoinedTaskRow>(
       `SELECT ct.id::text, ct.task_id, ct.status::text AS status, ct.time_spent_min,
+              ct.skip_reason, ct.skip_note, ct.notes,
               td.phase, td.step, td.name, td.description,
               td.task_type::text AS task_type, td.sort_order,
               td.guidance, td.external_tool, td.external_url, td.is_recurring
@@ -203,6 +206,9 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
     is_recurring: r.is_recurring,
     status: r.status,
     time_spent_min: r.time_spent_min,
+    skip_reason: r.skip_reason,
+    skip_note: r.skip_note,
+    notes: r.notes,
     block_reasons: r.status === "BLOCKED" ? evaluateBlockReasons(r.task_id, ctx) : [],
   }));
 }

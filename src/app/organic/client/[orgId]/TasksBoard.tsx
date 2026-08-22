@@ -2,11 +2,25 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { TaskRow, TaskStatus, TaskType } from "@/lib/organic/types";
+import type { SkipReason, TaskRow, TaskStatus, TaskType, ViabilityRow } from "@/lib/organic/types";
+import { TaskFormFor } from "./TaskForms";
+import { SkipDialog } from "./SkipDialog";
 
 const STATUS_CHOICES: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE", "SKIPPED"];
 
-export function TasksBoard({ tasks }: { tasks: TaskRow[] }) {
+// Tasks that render a dedicated form. DONE for these is only reachable via
+// the form submit — the plain dropdown-to-DONE path is disabled so the
+// domain data always gets written.
+const CUSTOM_FORM_TASKS = new Set(["P1.0.1", "P1.0.2", "P1.0.3", "P1.0.4", "P1.2.13"]);
+
+export function TasksBoard({
+  orgId, tasks, viability,
+}: {
+  orgId: string;
+  tasks: TaskRow[];
+  viability: ViabilityRow | null;
+  initialDomain: string | null;
+}) {
   const phases = useMemo(() => {
     const byPhase = new Map<number, TaskRow[]>();
     for (const t of tasks) {
@@ -30,75 +44,95 @@ export function TasksBoard({ tasks }: { tasks: TaskRow[] }) {
   return (
     <div className="space-y-6">
       {phases.map((p) => (
-        <PhaseSection key={p.phase} phase={p.phase} tasks={p.tasks} />
+        <PhaseSection key={p.phase} phase={p.phase} tasks={p.tasks} orgId={orgId} viability={viability} />
       ))}
     </div>
   );
 }
 
-function PhaseSection({ phase, tasks }: { phase: number; tasks: TaskRow[] }) {
+function PhaseSection({
+  phase, tasks, orgId, viability,
+}: {
+  phase: number;
+  tasks: TaskRow[];
+  orgId: string;
+  viability: ViabilityRow | null;
+}) {
+  // Group by step within a phase so operators see the SOP structure.
+  const steps = useMemo(() => {
+    const m = new Map<string, TaskRow[]>();
+    for (const t of tasks) {
+      const arr = m.get(t.step) ?? [];
+      arr.push(t);
+      m.set(t.step, arr);
+    }
+    return Array.from(m.entries())
+      .map(([step, ts]) => ({ step, tasks: ts.sort((a, b) => a.sort_order - b.sort_order) }))
+      .sort((a, b) => a.step.localeCompare(b.step));
+  }, [tasks]);
+
   return (
     <section>
       <h2 className="text-sm font-semibold mb-2 text-neutral-800">
-        Phase {phase}{" "}
-        <span className="text-neutral-400 font-normal">({tasks.length})</span>
+        Phase {phase} <span className="text-neutral-400 font-normal">({tasks.length})</span>
       </h2>
-      <div className="rounded-lg border border-neutral-200 bg-white overflow-hidden divide-y divide-neutral-100">
-        {tasks.map((t) => (
-          <TaskCard key={t.client_task_id} task={t} />
+      <div className="space-y-3">
+        {steps.map((s) => (
+          <div key={s.step} className="rounded-lg border border-neutral-200 bg-white overflow-hidden">
+            <div className="px-3 py-1.5 text-[11px] font-medium text-neutral-500 bg-neutral-50 border-b border-neutral-100">
+              Step {phase}.{s.step}
+            </div>
+            <div className="divide-y divide-neutral-100">
+              {s.tasks.map((t) => (
+                <TaskCard key={t.client_task_id} task={t} orgId={orgId} viability={viability} />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </section>
   );
 }
 
-function TaskCard({ task }: { task: TaskRow }) {
-  const [expanded, setExpanded] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
+function TaskCard({
+  task, orgId, viability,
+}: {
+  task: TaskRow;
+  orgId: string;
+  viability: ViabilityRow | null;
+}) {
+  const hasCustomForm = CUSTOM_FORM_TASKS.has(task.task_id);
+  const [expanded, setExpanded] = useState(
+    // Auto-expand actionable custom-form tasks so operators can act without an extra click.
+    hasCustomForm && (task.status === "TODO" || task.status === "IN_PROGRESS")
+  );
+  const [showSkip, setShowSkip] = useState(false);
+  const [showComplete, setShowComplete] = useState(false);
   const [, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  async function commitStatus(status: TaskStatus, timeSpentMin?: number) {
+  async function patch(body: Record<string, unknown>) {
     setError(null);
     setSubmitting(true);
     try {
       const res = await fetch(`/api/organic/tasks/${task.client_task_id}/status`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status, time_spent_min: timeSpentMin }),
-        // Don't follow the auth-middleware redirect to /login as if it were
-        // success — fetch's default `redirect: "follow"` turns a 307 into a
-        // 200 HTML page and hides the real failure.
+        body: JSON.stringify(body),
         redirect: "error",
       });
-
-      // Read as text first so non-JSON responses (auth redirects, 500 pages,
-      // gateway errors) surface as HTTP N + snippet instead of a swallowed
-      // JSON.parse SyntaxError.
       const text = await res.text();
-      let data: { ok?: boolean; error?: string; recomputed?: number } = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        /* keep raw text for the error message */
-      }
-
+      let data: { error?: string } = {};
+      try { data = JSON.parse(text); } catch { /* keep raw */ }
       if (!res.ok) {
         const snippet = text ? text.replace(/\s+/g, " ").slice(0, 140) : "";
-        setError(data.error ?? `HTTP ${res.status}${snippet ? ` — ${snippet}` : ""}`);
-        return;
+        throw new Error(data.error ?? `HTTP ${res.status}${snippet ? ` — ${snippet}` : ""}`);
       }
-
-      // Success — refresh the server component so the row, phase counters,
-      // and any tasks that just unblocked all reflect the new state without
-      // a manual reload.
       startTransition(() => router.refresh());
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error("commitStatus failed", e);
-      setError(`Request failed: ${msg}`);
+      setError((e as Error).message);
     } finally {
       setSubmitting(false);
     }
@@ -107,10 +141,12 @@ function TaskCard({ task }: { task: TaskRow }) {
   async function onStatusPick(next: TaskStatus) {
     if (next === task.status) return;
     if (next === "DONE") {
-      setDialogOpen(true);
+      if (hasCustomForm) { setExpanded(true); return; }
+      setShowComplete(true);
       return;
     }
-    await commitStatus(next);
+    if (next === "SKIPPED") { setShowSkip(true); return; }
+    await patch({ status: next });
   }
 
   const disabled = submitting || task.status === "BLOCKED";
@@ -121,23 +157,24 @@ function TaskCard({ task }: { task: TaskRow }) {
         <TaskTypeBadge type={task.task_type} />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-[11px] text-neutral-400 tabular-nums">{task.step}</span>
+            <span className="text-[11px] text-neutral-400 tabular-nums">{task.task_id}</span>
             <span className="text-sm font-medium text-neutral-900">{task.name}</span>
           </div>
           {task.description && (
             <div className="mt-0.5 text-xs text-neutral-500">{task.description}</div>
+          )}
+          {task.guidance && (
+            <div className="mt-1 text-xs text-neutral-600 leading-relaxed">
+              <span className="text-neutral-400">Guidance: </span>
+              {task.guidance}
+            </div>
           )}
           {task.task_type === "EXTERNAL" && task.external_tool && (
             <div className="mt-1 text-xs text-neutral-600 flex items-center gap-2">
               <span className="text-neutral-500">Tool:</span>
               <span className="font-medium">{task.external_tool}</span>
               {task.external_url && (
-                <a
-                  href={task.external_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
-                >
+                <a href={task.external_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
                   Open ↗
                 </a>
               )}
@@ -145,31 +182,30 @@ function TaskCard({ task }: { task: TaskRow }) {
           )}
           {task.status === "BLOCKED" && task.block_reasons.length > 0 && (
             <div className="mt-1.5 text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1">
-              <span className="font-medium">Blocked:</span>{" "}
-              {task.block_reasons.join(" · ")}
+              <span className="font-medium">Blocked:</span> {task.block_reasons.join(" · ")}
             </div>
           )}
-          {task.time_spent_min != null && task.status === "DONE" && (
+          {task.status === "DONE" && task.time_spent_min != null && (
             <div className="mt-1 text-[11px] text-neutral-400">
               Logged {task.time_spent_min} min
+              {task.notes && <span className="ml-2 text-neutral-500">· {task.notes.slice(0, 100)}</span>}
+            </div>
+          )}
+          {task.status === "SKIPPED" && task.skip_reason && (
+            <div className="mt-1 text-[11px] text-neutral-500">
+              Skipped: {task.skip_reason}{task.skip_note ? ` — ${task.skip_note}` : ""}
             </div>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <StatusSelect
-            value={task.status}
-            onChange={onStatusPick}
-            disabled={disabled}
-            submitting={submitting}
-          />
-          {task.guidance && (
+          <StatusSelect value={task.status} onChange={onStatusPick} disabled={disabled} submitting={submitting} />
+          {hasCustomForm && (
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="text-xs text-neutral-500 hover:text-neutral-900 px-1"
-              aria-label="Toggle guidance"
+              className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
             >
-              {expanded ? "▲" : "▼"}
+              {expanded ? "Close" : "Open"}
             </button>
           )}
         </div>
@@ -181,19 +217,38 @@ function TaskCard({ task }: { task: TaskRow }) {
         </div>
       )}
 
-      {expanded && task.guidance && (
-        <div className="mt-3 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700 whitespace-pre-wrap">
-          {task.guidance}
+      {expanded && hasCustomForm && (
+        <div className="mt-3">
+          <TaskFormFor
+            orgId={orgId}
+            task={task}
+            viability={viability}
+            onDone={() => {
+              setExpanded(false);
+              startTransition(() => router.refresh());
+            }}
+          />
         </div>
       )}
 
-      {dialogOpen && (
+      {showSkip && (
+        <SkipDialog
+          taskName={task.name}
+          onCancel={() => setShowSkip(false)}
+          onConfirm={async (skip_reason: SkipReason, note: string) => {
+            await patch({ status: "SKIPPED", skip_reason, skip_note: note || null });
+            setShowSkip(false);
+          }}
+        />
+      )}
+
+      {showComplete && (
         <CompleteDialog
           taskName={task.name}
-          onCancel={() => setDialogOpen(false)}
+          onCancel={() => setShowComplete(false)}
           onConfirm={async (minutes) => {
-            setDialogOpen(false);
-            await commitStatus("DONE", minutes);
+            setShowComplete(false);
+            await patch({ status: "DONE", time_spent_min: minutes });
           }}
         />
       )}
@@ -210,20 +265,14 @@ function TaskTypeBadge({ type }: { type: TaskType }) {
   };
   const c = config[type];
   return (
-    <span
-      className={`shrink-0 mt-0.5 inline-flex items-center justify-center w-14 rounded border px-1 py-0.5 text-[9px] font-semibold tracking-wider ${c.cls}`}
-      title={type}
-    >
+    <span className={`shrink-0 mt-0.5 inline-flex items-center justify-center w-14 rounded border px-1 py-0.5 text-[9px] font-semibold tracking-wider ${c.cls}`} title={type}>
       {c.label}
     </span>
   );
 }
 
 function StatusSelect({
-  value,
-  onChange,
-  disabled,
-  submitting,
+  value, onChange, disabled, submitting,
 }: {
   value: TaskStatus;
   onChange: (v: TaskStatus) => void;
@@ -239,11 +288,7 @@ function StatusSelect({
   }
   return (
     <span className="inline-flex items-center gap-1.5">
-      {submitting && (
-        <span className="text-[10px] text-neutral-400 tabular-nums" aria-live="polite">
-          saving…
-        </span>
-      )}
+      {submitting && <span className="text-[10px] text-neutral-400" aria-live="polite">saving…</span>}
       <select
         value={value}
         disabled={disabled}
@@ -251,9 +296,7 @@ function StatusSelect({
         className={`text-xs rounded-md border px-2 py-1 font-medium ${statusColor(value)} disabled:opacity-50 disabled:cursor-wait`}
       >
         {STATUS_CHOICES.map((s) => (
-          <option key={s} value={s}>
-            {s.replace("_", " ")}
-          </option>
+          <option key={s} value={s}>{s.replace("_", " ")}</option>
         ))}
       </select>
     </span>
@@ -262,24 +305,17 @@ function StatusSelect({
 
 function statusColor(s: TaskStatus): string {
   switch (s) {
-    case "DONE":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "IN_PROGRESS":
-      return "border-blue-200 bg-blue-50 text-blue-700";
-    case "REVIEW":
-      return "border-purple-200 bg-purple-50 text-purple-700";
-    case "SKIPPED":
-      return "border-neutral-200 bg-neutral-100 text-neutral-500";
+    case "DONE": return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "IN_PROGRESS": return "border-blue-200 bg-blue-50 text-blue-700";
+    case "REVIEW": return "border-purple-200 bg-purple-50 text-purple-700";
+    case "SKIPPED": return "border-neutral-200 bg-neutral-100 text-neutral-500";
     case "TODO":
-    default:
-      return "border-neutral-200 bg-white text-neutral-700";
+    default: return "border-neutral-200 bg-white text-neutral-700";
   }
 }
 
 function CompleteDialog({
-  taskName,
-  onCancel,
-  onConfirm,
+  taskName, onCancel, onConfirm,
 }: {
   taskName: string;
   onCancel: () => void;
@@ -287,22 +323,14 @@ function CompleteDialog({
 }) {
   const [minutes, setMinutes] = useState("");
   const [err, setErr] = useState<string | null>(null);
-
   async function confirm() {
     const n = Number(minutes);
-    if (!isFinite(n) || n <= 0) {
-      setErr("Enter a positive number of minutes.");
-      return;
-    }
+    if (!isFinite(n) || n <= 0) { setErr("Enter a positive number of minutes."); return; }
     await onConfirm(Math.round(n));
   }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onCancel}>
-      <div
-        className="w-full max-w-sm rounded-lg bg-white shadow-xl p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="w-full max-w-sm rounded-lg bg-white shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-neutral-900">Log time spent</h3>
         <p className="mt-1 text-xs text-neutral-500">
           How many minutes did &ldquo;{taskName}&rdquo; take? (required)
@@ -312,30 +340,15 @@ function CompleteDialog({
           min={1}
           autoFocus
           value={minutes}
-          onChange={(e) => {
-            setMinutes(e.target.value);
-            if (err) setErr(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") confirm();
-          }}
+          onChange={(e) => { setMinutes(e.target.value); if (err) setErr(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") confirm(); }}
           placeholder="e.g. 15"
           className="mt-3 w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm"
         />
         {err && <div className="mt-1 text-xs text-red-600">{err}</div>}
         <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-xs font-medium rounded-md border border-neutral-300 hover:bg-neutral-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={confirm}
-            className="px-3 py-1.5 text-xs font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
-          >
-            Mark done
-          </button>
+          <button onClick={onCancel} className="px-3 py-1.5 text-xs font-medium rounded-md border border-neutral-300 hover:bg-neutral-50">Cancel</button>
+          <button onClick={confirm} className="px-3 py-1.5 text-xs font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700">Mark done</button>
         </div>
       </div>
     </div>
