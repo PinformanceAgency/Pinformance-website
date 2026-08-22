@@ -11,9 +11,11 @@ import {
   saveDisplayName, saveBio,
   finaliseBoardList, checkCoverage, saveBoardDescriptions,
   generateCreationSchedule, createBoardsToday,
-  selectSeedingPins, runSeeding, flipBoardsPublicAtTen,
+  proposeSeedPins, runSeeding, flipBoardsPublicAtTen,
   searchInterests,
-  type BoardInput, type SeasonalClassification, type DescriptionRow,
+  draftDisplayName, draftBio, draftBoardDescription,
+  approveAndSaveDisplayName, approveAndSaveBio, approveAndSaveBoardDescription,
+  type BoardInput, type SeasonalClassification, type DescriptionRow, type SeedSelection,
 } from "@/lib/organic/phase3";
 import { completeTaskByDefinition, recomputeAfter } from "@/lib/organic/complete";
 
@@ -89,9 +91,22 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
     case "create_boards":
       return createBoardsToday(orgId, t(), { dryRun: !!body.dry_run });
     case "select_seeds":
-      return selectSeedingPins(orgId, t(), body.notes as string | undefined);
+      return proposeSeedPins(orgId, t());
     case "run_seeding":
-      return runSeeding(orgId, t(), body.notes as string | undefined);
+      return runSeeding(orgId, t(), body.selections as SeedSelection[], { dryRun: !!body.dry_run });
+    case "draft_display_name":
+      return draftDisplayName(orgId, String(body.brand_name));
+    case "approve_display_name":
+      return approveAndSaveDisplayName(orgId, String(body.draft_id), String(body.approved_text), t());
+    case "draft_bio":
+      return draftBio(orgId, String(body.brand_name));
+    case "approve_bio":
+      return approveAndSaveBio(orgId, String(body.draft_id), String(body.approved_text), t());
+    case "draft_board_description":
+      return draftBoardDescription(orgId, String(body.board_id));
+    case "approve_board_description":
+      await approveAndSaveBoardDescription(orgId, String(body.draft_id), String(body.board_name), String(body.approved_text));
+      return { ok: true };
     case "flip_public":
       return flipBoardsPublicAtTen(orgId, t());
     default:

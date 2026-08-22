@@ -465,13 +465,45 @@ function AlignmentForm({ orgId, onDone }: Props) {
 function DisplayNameForm({ orgId, snapshot, onDone }: Props) {
   const [name, setName] = useState(snapshot.profile?.display_name ?? "");
   const [time, setTime] = useState("");
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [genInfo, setGenInfo] = useState<{ attempts: number; failed_attempts: string[] } | null>(null);
+  const [genLoading, setGenLoading] = useState(false);
+  const [genErr, setGenErr] = useState<string | null>(null);
+
+  async function propose() {
+    setGenErr(null); setGenLoading(true);
+    try {
+      const brandName = prompt("Brand name?") || "";
+      if (!brandName.trim()) return;
+      const r = await post(orgId, { action: "draft_display_name", brand_name: brandName }) as { draft_id: string; text: string; attempts: number; failed_attempts: string[] };
+      setName(r.text); setDraftId(r.draft_id); setGenInfo({ attempts: r.attempts, failed_attempts: r.failed_attempts });
+    } catch (e) { setGenErr((e as Error).message); }
+    finally { setGenLoading(false); }
+  }
+
   return (
     <FormShell
       title={`P3.2.1 — Display name (${name.length}/65, must contain a volume-cached keyword)`}
-      body={<input value={name} onChange={(e) => setName(e.target.value)} maxLength={65}
-        className="w-full rounded-md border border-neutral-300 px-2 py-1 text-sm" placeholder="Brand · broad keyword" />}
-      time={time} setTime={setTime} submitLabel="Save (validators: length + cached keyword)"
-      onSubmit={async () => { await post(orgId, { action: "display_name", display_name: name, time_spent_min: n(time) }); onDone(); }}
+      body={
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={propose} disabled={genLoading}
+              className="px-2 py-1 rounded border border-purple-300 bg-purple-50 text-purple-700 text-[11px] font-medium hover:bg-purple-100 disabled:opacity-50">
+              {genLoading ? "Generating…" : "🤖 Generate proposal"}
+            </button>
+            {genInfo && <span className="text-[10px] text-neutral-500">AI: {genInfo.attempts} attempt(s), {genInfo.failed_attempts.length} rejected by validator</span>}
+            {genErr && <span className="text-[11px] text-red-600 break-words">{genErr}</span>}
+          </div>
+          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={65}
+            className="w-full rounded-md border border-neutral-300 px-2 py-1 text-sm" placeholder="Brand · broad keyword" />
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel={draftId ? "Approve & save" : "Save"}
+      onSubmit={async () => {
+        if (draftId) await post(orgId, { action: "approve_display_name", draft_id: draftId, approved_text: name, time_spent_min: n(time) });
+        else await post(orgId, { action: "display_name", display_name: name, time_spent_min: n(time) });
+        onDone();
+      }}
     />
   );
 }
@@ -479,13 +511,45 @@ function DisplayNameForm({ orgId, snapshot, onDone }: Props) {
 function BioForm({ orgId, snapshot, onDone }: Props) {
   const [bio, setBio] = useState(snapshot.profile?.bio ?? "");
   const [time, setTime] = useState("");
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [genInfo, setGenInfo] = useState<{ attempts: number } | null>(null);
+  const [genLoading, setGenLoading] = useState(false);
+  const [genErr, setGenErr] = useState<string | null>(null);
+
+  async function propose() {
+    setGenErr(null); setGenLoading(true);
+    try {
+      const brandName = prompt("Brand name?") || "";
+      if (!brandName.trim()) return;
+      const r = await post(orgId, { action: "draft_bio", brand_name: brandName }) as { draft_id: string; text: string; attempts: number };
+      setBio(r.text); setDraftId(r.draft_id); setGenInfo({ attempts: r.attempts });
+    } catch (e) { setGenErr((e as Error).message); }
+    finally { setGenLoading(false); }
+  }
+
   return (
     <FormShell
       title={`P3.2.2 — Bio (${bio.length}/500, ≥3 volume-cached keywords, CTA at end)`}
-      body={<textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={500} rows={5}
-        className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs" />}
-      time={time} setTime={setTime} submitLabel="Save (validators: length + cached keywords)"
-      onSubmit={async () => { await post(orgId, { action: "bio", bio, time_spent_min: n(time) }); onDone(); }}
+      body={
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={propose} disabled={genLoading}
+              className="px-2 py-1 rounded border border-purple-300 bg-purple-50 text-purple-700 text-[11px] font-medium hover:bg-purple-100 disabled:opacity-50">
+              {genLoading ? "Generating…" : "🤖 Generate proposal"}
+            </button>
+            {genInfo && <span className="text-[10px] text-neutral-500">AI: {genInfo.attempts} attempt(s)</span>}
+            {genErr && <span className="text-[11px] text-red-600 break-words">{genErr}</span>}
+          </div>
+          <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={500} rows={5}
+            className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs" />
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel={draftId ? "Approve & save" : "Save"}
+      onSubmit={async () => {
+        if (draftId) await post(orgId, { action: "approve_bio", draft_id: draftId, approved_text: bio, time_spent_min: n(time) });
+        else await post(orgId, { action: "bio", bio, time_spent_min: n(time) });
+        onDone();
+      }}
     />
   );
 }
@@ -544,32 +608,73 @@ function BoardListForm({ orgId, snapshot, onDone }: Props) {
 }
 
 function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
-  const [rows, setRows] = useState(() => snapshot.boards.map((b) => ({ name: b.name, description: b.description ?? "" })));
+  const [rows, setRows] = useState(() => snapshot.boards.map((b) => ({ board_id: b.id, name: b.name, description: b.description ?? "", draft_id: null as string | null, generating: false, err: null as string | null })));
   const [time, setTime] = useState("");
-  const set = (i: number, description: string) => setRows(rows.map((r, idx) => idx === i ? { ...r, description } : r));
+  const set = (i: number, patch: Partial<typeof rows[0]>) => setRows(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+
+  async function generateOne(i: number) {
+    set(i, { generating: true, err: null });
+    try {
+      const r = await post(orgId, { action: "draft_board_description", board_id: rows[i].board_id }) as { draft_id: string; text: string; attempts: number };
+      set(i, { description: r.text, draft_id: r.draft_id, generating: false });
+    } catch (e) { set(i, { err: (e as Error).message, generating: false }); }
+  }
+
+  async function generateAll() {
+    for (let i = 0; i < rows.length; i++) {
+      if (!rows[i].draft_id) await generateOne(i);
+    }
+  }
+
   return (
     <FormShell
-      title="P3.3.3 — Board descriptions (400–480 chars, board name in first sentence)"
+      title={`P3.3.3 — Board descriptions (${rows.length} boards; 400–480 chars, name in first sentence)`}
       body={
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {rows.map((r, i) => {
-            const len = r.description.length;
-            const lenOk = len >= 400 && len <= 480;
-            return (
-              <div key={i} className="rounded border border-neutral-200 bg-white p-2">
-                <div className="text-[11px] font-medium text-neutral-800 mb-1">{r.name}</div>
-                <textarea value={r.description} onChange={(e) => set(i, e.target.value)} rows={3}
-                  className="w-full rounded border border-neutral-300 px-2 py-1 text-[11px]" />
-                <div className={`text-[10px] tabular-nums ${lenOk ? "text-neutral-500" : "text-red-600"}`}>{len}/480 · target 400–480</div>
-              </div>
-            );
-          })}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={generateAll}
+              className="px-2 py-1 rounded border border-purple-300 bg-purple-50 text-purple-700 text-[11px] font-medium hover:bg-purple-100">
+              🤖 Generate all missing (batches through the boards)
+            </button>
+            <span className="text-[10px] text-neutral-500">Each proposal is regenerated up to 3× until it satisfies the validators.</span>
+          </div>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {rows.map((r, i) => {
+              const len = r.description.length;
+              const lenOk = len >= 400 && len <= 480;
+              return (
+                <div key={i} className="rounded border border-neutral-200 bg-white p-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-[11px] font-medium text-neutral-800">{r.name}</div>
+                    <button type="button" onClick={() => generateOne(i)} disabled={r.generating}
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-purple-300 text-purple-700 hover:bg-purple-50 disabled:opacity-50">
+                      {r.generating ? "…" : r.draft_id ? "↻ Regenerate" : "🤖 Generate"}
+                    </button>
+                  </div>
+                  <textarea value={r.description} onChange={(e) => set(i, { description: e.target.value })} rows={3}
+                    className="w-full rounded border border-neutral-300 px-2 py-1 text-[11px]" />
+                  <div className={`text-[10px] tabular-nums ${lenOk ? "text-neutral-500" : "text-red-600"}`}>
+                    {len}/480 · target 400–480 {r.draft_id && "· ✓ AI drafted"}
+                  </div>
+                  {r.err && <div className="text-[10px] text-red-600">{r.err}</div>}
+                </div>
+              );
+            })}
+          </div>
         </div>
       }
-      time={time} setTime={setTime} submitLabel="Save descriptions"
+      time={time} setTime={setTime} submitLabel="Save descriptions (approves any AI drafts too)"
       onSubmit={async () => {
-        const rowsToSend = rows.filter((r) => r.description.trim());
-        await post(orgId, { action: "descriptions", rows: rowsToSend, time_spent_min: n(time) });
+        // For rows with a draft_id, call approve_board_description; for others, the generic save.
+        for (const r of rows) {
+          if (!r.description.trim()) continue;
+          if (r.draft_id) {
+            await post(orgId, { action: "approve_board_description", draft_id: r.draft_id, board_name: r.name, approved_text: r.description });
+          }
+        }
+        // Then also fire the generic save for anything missed.
+        const rowsToSend = rows.filter((r) => r.description.trim()).map(({ name, description }) => ({ name, description }));
+        if (rowsToSend.length > 0) await post(orgId, { action: "descriptions", rows: rowsToSend, time_spent_min: n(time) });
         onDone();
       }}
     />

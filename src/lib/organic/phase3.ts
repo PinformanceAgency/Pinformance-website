@@ -12,6 +12,7 @@ import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
+import { generateWithValidator, persistDraft, approveDraft, latestDraft } from "./ai";
 
 // ---------- helpers ---------------------------------------------------------
 
@@ -533,6 +534,175 @@ export async function saveBio(orgId: string, bio: string, timeSpentMin: number) 
   return { bio: bio.trim(), recomputed: await recomputeAfter(orgId) };
 }
 
+// ---------- AI_DRAFT generators (P3.2.1 / P3.2.2 / P3.3.3) -----------------
+
+/** Assemble the shared context every AI_DRAFT prompt needs. */
+async function loadAiContext(orgId: string) {
+  const pool = organicPool();
+  const [intake, brand, taste, cachedKws] = await Promise.all([
+    pool.query(`SELECT contact_name, business_story, products_services, value_proposition,
+                       target_markets, ideal_audience, brand_personality, primary_goals
+                  FROM organic.client_intake WHERE org_id = $1`, [orgId]),
+    pool.query(`SELECT positioning, tone_descriptors, brand_pillars, banned_words, approved_ctas, dominant_colors
+                  FROM organic.brand_rules WHERE org_id = $1`, [orgId]),
+    pool.query(`SELECT core_products, aesthetic_worlds, functional_outcome, aspirational_outcome, content_angles
+                  FROM organic.taste_graph WHERE org_id = $1`, [orgId]),
+    pool.query<{ term: string; volume: number | null }>(
+      `SELECT DISTINCT c.term, c.volume
+         FROM organic.keyword_volume_cache c JOIN organic.keywords k ON k.term = c.term
+        WHERE k.org_id = $1 AND c.volume IS NOT NULL AND c.not_found = false
+        ORDER BY c.volume DESC LIMIT 40`, [orgId]),
+  ]);
+  return {
+    intake: intake.rows[0] ?? null,
+    brand: brand.rows[0] ?? null,
+    taste: taste.rows[0] ?? null,
+    cached_keywords: cachedKws.rows,
+  };
+}
+
+/** P3.2.1 — propose a display name (server-validated, retried on failure). */
+export async function draftDisplayName(orgId: string, brandName: string): Promise<{ draft_id: string; text: string; attempts: number; failed_attempts: string[] }> {
+  const ctx = await loadAiContext(orgId);
+  const cached = new Set(ctx.cached_keywords.map((k) => k.term.toLowerCase()));
+  const validate = (t: string) => {
+    const s = t.trim();
+    const errs: string[] = [];
+    if (s.length === 0) errs.push("empty");
+    if (s.length > 65) errs.push(`too long: ${s.length}/65`);
+    const lower = s.toLowerCase();
+    if (!Array.from(cached).some((kw) => lower.includes(kw))) {
+      errs.push("must contain a volume-cached keyword");
+    }
+    return { ok: errs.length === 0, errors: errs };
+  };
+  const system = "You draft Pinterest display names for e-commerce brands. Output ONLY the display name, no quotes, no preamble.";
+  const user = [
+    `Brand name: ${brandName}`,
+    "Rules:",
+    "- MAX 65 characters (hard).",
+    "- MUST contain exactly one broad keyword that appears in the volume-cached keyword list below (verbatim).",
+    "- Format: '<brand> · <broad keyword>' or '<brand> | <broad keyword>' works well.",
+    "",
+    "Volume-cached keywords (pick ONE, verbatim):",
+    ctx.cached_keywords.slice(0, 20).map((k) => `  - ${k.term}${k.volume ? ` (vol ${k.volume})` : ""}`).join("\n"),
+    "",
+    ctx.intake ? `Brand context: ${ctx.intake.business_story ?? ""} · ${ctx.intake.value_proposition ?? ""}` : "",
+  ].join("\n");
+
+  const { text, attempts, failed_attempts } = await generateWithValidator(system, user, validate, 120);
+  const draft_id = await persistDraft(orgId, "DISPLAY_NAME", null, text);
+  return { draft_id, text, attempts, failed_attempts };
+}
+
+/** P3.2.2 — propose a bio. */
+export async function draftBio(orgId: string, brandName: string): Promise<{ draft_id: string; text: string; attempts: number; failed_attempts: string[] }> {
+  const ctx = await loadAiContext(orgId);
+  const cached = new Set(ctx.cached_keywords.map((k) => k.term.toLowerCase()));
+  const validate = (t: string) => {
+    const s = t.trim();
+    const errs: string[] = [];
+    if (s.length === 0) errs.push("empty");
+    if (s.length > 500) errs.push(`too long: ${s.length}/500`);
+    if (s.length < 200) errs.push(`too short: ${s.length} (aim for 300–450)`);
+    const lower = s.toLowerCase();
+    const hits = Array.from(cached).filter((kw) => lower.includes(kw)).length;
+    if (hits < 3) errs.push(`only ${hits} cached keywords present, need ≥3 (aim for ~5)`);
+    return { ok: errs.length === 0, errors: errs };
+  };
+  const system = "You write Pinterest bios for e-commerce brands. Natural, readable, no jargon. Output only the bio.";
+  const user = [
+    `Brand: ${brandName}`,
+    "Rules:",
+    "- 200–500 characters (target 300–450).",
+    "- Include ≥3 (aim for 5) broad keywords from the list below, in natural sentences.",
+    "- Add a soft CTA at the end (Follow, Shop, Save, Explore ...).",
+    "- NO em-dash. NO exclamation mark. NO hashtag.",
+    "",
+    "Volume-cached keywords to weave in:",
+    ctx.cached_keywords.slice(0, 15).map((k) => `  - ${k.term}`).join("\n"),
+    "",
+    ctx.intake ? `Business story: ${ctx.intake.business_story ?? ""}\nValue proposition: ${ctx.intake.value_proposition ?? ""}\nBrand personality: ${ctx.intake.brand_personality ?? ""}` : "",
+    ctx.taste?.aesthetic_worlds ? `Aesthetic worlds: ${ctx.taste.aesthetic_worlds.join(", ")}` : "",
+  ].filter(Boolean).join("\n");
+
+  const { text, attempts, failed_attempts } = await generateWithValidator(system, user, validate, 600);
+  const draft_id = await persistDraft(orgId, "BIO", null, text);
+  return { draft_id, text, attempts, failed_attempts };
+}
+
+/** P3.3.3 — propose a board description that satisfies the validators. */
+export async function draftBoardDescription(orgId: string, boardId: string): Promise<{ draft_id: string; text: string; attempts: number; failed_attempts: string[] }> {
+  const pool = organicPool();
+  const b = await pool.query<{ name: string; primary_keyword: string | null; keywords: string[] | null; topic_name: string | null }>(
+    `SELECT b.name, b.primary_keyword, b.keywords, t.name AS topic_name
+       FROM organic.boards b LEFT JOIN organic.topics t ON t.id = b.topic_id
+      WHERE b.id = $1 AND b.org_id = $2`,
+    [boardId, orgId]
+  );
+  if (b.rowCount === 0) throw new Error("board not found");
+  const board = b.rows[0];
+  const ctx = await loadAiContext(orgId);
+
+  const validate = (t: string) => {
+    const s = t.trim();
+    const errs: string[] = [];
+    if (s.length < 400 || s.length > 480) errs.push(`length ${s.length}, must be 400–480`);
+    const firstSentence = s.split(/(?<=[.!?])\s+/)[0] ?? s;
+    if (!firstSentence.toLowerCase().includes(board.name.toLowerCase())) {
+      errs.push(`board name "${board.name}" MUST appear in the first sentence`);
+    }
+    return { ok: errs.length === 0, errors: errs };
+  };
+  const system = "You write Pinterest board descriptions. Natural running sentences, no bullet lists. Output the description only.";
+  const user = [
+    `Board name: "${board.name}"`,
+    board.primary_keyword ? `Primary keyword: ${board.primary_keyword}` : "",
+    board.keywords?.length ? `Related keywords: ${board.keywords.join(", ")}` : "",
+    board.topic_name ? `Topic: ${board.topic_name}` : "",
+    "",
+    "Rules:",
+    "- 400–480 characters TOTAL (hard).",
+    `- The board name "${board.name}" MUST appear in the first sentence.`,
+    "- Weave 5–10 relevant keywords through running sentences.",
+    "- NO bullet points, NO headings.",
+    "",
+    ctx.taste?.aesthetic_worlds ? `Brand aesthetic worlds: ${ctx.taste.aesthetic_worlds.join(", ")}` : "",
+    ctx.taste?.content_angles ? `Content angles: ${ctx.taste.content_angles.join(", ")}` : "",
+    ctx.intake?.brand_personality ? `Brand personality: ${ctx.intake.brand_personality}` : "",
+  ].filter(Boolean).join("\n");
+
+  const { text, attempts, failed_attempts } = await generateWithValidator(system, user, validate, 700);
+  const draft_id = await persistDraft(orgId, "BOARD_DESCRIPTION", boardId, text);
+  return { draft_id, text, attempts, failed_attempts };
+}
+
+// Wrap the existing approve-paths so both the generated + approved
+// versions land in ai_drafts and the human's edit is auditable.
+export async function approveAndSaveDisplayName(orgId: string, draftId: string, approvedText: string, timeSpentMin: number) {
+  await approveDraft(draftId, approvedText);
+  return saveDisplayName(orgId, approvedText, timeSpentMin);
+}
+export async function approveAndSaveBio(orgId: string, draftId: string, approvedText: string, timeSpentMin: number) {
+  await approveDraft(draftId, approvedText);
+  return saveBio(orgId, approvedText, timeSpentMin);
+}
+export async function approveAndSaveBoardDescription(orgId: string, draftId: string, boardName: string, approvedText: string): Promise<void> {
+  await approveDraft(draftId, approvedText);
+  const pool = organicPool();
+  validateBoardDescription(boardName, approvedText);
+  await pool.query(
+    `UPDATE organic.boards SET description = $1 WHERE org_id = $2 AND name = $3`,
+    [approvedText.trim(), orgId, boardName]
+  );
+}
+
+export async function latestDisplayNameDraft(orgId: string)  { return latestDraft(orgId, "DISPLAY_NAME", null); }
+export async function latestBioDraft(orgId: string)          { return latestDraft(orgId, "BIO", null); }
+export async function latestBoardDescriptionDraft(orgId: string, boardId: string) {
+  return latestDraft(orgId, "BOARD_DESCRIPTION", boardId);
+}
+
 // ---------- board architecture (P3.3.1–P3.3.8) ------------------------------
 
 export interface BoardInput {
@@ -729,18 +899,162 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
   return { created, failed, errors, recomputed: await recomputeAfter(orgId) };
 }
 
-/** P3.3.6 — select 10–15 seed pins per board. For the skeleton we just
- *  record a note; the actual seeding lives with the pin scheduler. */
-export async function selectSeedingPins(orgId: string, timeSpentMin: number, notes?: string) {
-  await completeTaskByDefinition({ orgId, taskId: "P3.3.6", timeSpentMin,
-    notes: notes ?? "10–15 seed pins earmarked per board (never competitor content)." });
-  return { recomputed: await recomputeAfter(orgId) };
+// ---------- P3.3.6 seed selection (real) ------------------------------------
+
+export interface SeedSelection {
+  board_id: string;
+  board_name: string;
+  primary_keyword: string | null;
+  proposed_pins: Array<{ pin_id: string; title: string | null; image_url: string | null; source: "own_pins" }>;
+  short: boolean; // true when we couldn't find 10 relevant candidates
 }
 
-export async function runSeeding(orgId: string, timeSpentMin: number, notes?: string) {
-  await completeTaskByDefinition({ orgId, taskId: "P3.3.7", timeSpentMin,
-    notes: notes ?? "Seeding queued through the existing pin scheduler." });
-  return { recomputed: await recomputeAfter(orgId) };
+/** P3.3.6 — for each PLANNED/SECRET/PUBLIC board, propose 10–15 own pins
+ *  as seed candidates. "Own" = the client's own dashboard pins from
+ *  public.pins (never competitor_pins). Ranking is keyword-first:
+ *  matches board.primary_keyword > matches board.keywords > any recent. */
+export async function proposeSeedPins(orgId: string, timeSpentMin: number): Promise<{ selections: SeedSelection[]; recomputed: number }> {
+  const pool = organicPool();
+  const boards = await pool.query<{ id: string; name: string; primary_keyword: string | null; keywords: string[] | null }>(
+    `SELECT id::text, name, primary_keyword, keywords
+       FROM organic.boards
+      WHERE org_id = $1 AND status IN ('SECRET','PUBLIC','PLANNED'::organic.board_status)
+      ORDER BY name`,
+    [orgId]
+  );
+  // Own pins from the dashboard side. Cap the pool at 500 to keep the ranker cheap.
+  const own = await pool.query<{ id: string; title: string | null; description: string | null; image_url: string | null }>(
+    `SELECT id::text, title, description, image_url
+       FROM pins
+      WHERE org_id = $1 AND image_url IS NOT NULL
+      ORDER BY created_at DESC LIMIT 500`,
+    [orgId]
+  );
+
+  const selections: SeedSelection[] = [];
+  const seenPerBoard = new Set<string>();
+  for (const b of boards.rows) {
+    const pk = (b.primary_keyword ?? "").toLowerCase();
+    const kws = (b.keywords ?? []).map((k) => k.toLowerCase());
+    const scored = own.rows.map((p) => {
+      const hay = ((p.title ?? "") + " " + (p.description ?? "")).toLowerCase();
+      let score = 0;
+      if (pk && hay.includes(pk)) score += 3;
+      for (const k of kws) if (hay.includes(k)) score += 1;
+      return { p, score };
+    }).sort((a, b) => b.score - a.score).slice(0, 15);
+
+    const proposed = scored.filter((s) => s.score > 0 || scored.length <= 10).map((s) => ({
+      pin_id: s.p.id, title: s.p.title, image_url: s.p.image_url,
+      source: "own_pins" as const,
+    })).slice(0, 15);
+    for (const p of proposed) seenPerBoard.add(`${b.id}:${p.pin_id}`);
+    selections.push({
+      board_id: b.id,
+      board_name: b.name,
+      primary_keyword: b.primary_keyword,
+      proposed_pins: proposed,
+      short: proposed.length < 10,
+    });
+  }
+  await completeTaskByDefinition({
+    orgId, taskId: "P3.3.6", timeSpentMin,
+    notes: `Proposed seeds for ${selections.length} boards (${selections.filter((s) => s.short).length} short of 10 relevant own-pins).`,
+  });
+  return { selections, recomputed: await recomputeAfter(orgId) };
+}
+
+// ---------- P3.3.7 seeding execution (real Pinterest API) -------------------
+
+export interface SeedingResult {
+  board_id: string;
+  board_name: string;
+  attempted: number;
+  posted: number;
+  failed: number;
+  errors: string[];
+}
+
+/** Execute seeding by pushing to Pinterest through PinterestClient. Respects
+ *  the SOP spacing rules by pacing itself at seedsPerMinute and stops as soon
+ *  as it hits the DB's check_daily_volume ceiling for the org.
+ *
+ *  Boards must already exist on Pinterest (i.e. status SECRET/PUBLIC and
+ *  pinterest_board_id set) or the seed attempt is skipped for that board. */
+export async function runSeeding(
+  orgId: string,
+  timeSpentMin: number,
+  selections: SeedSelection[],
+  opts: { seedsPerBoardMax?: number; dryRun?: boolean } = {}
+): Promise<{ results: SeedingResult[]; recomputed: number }> {
+  const maxPerBoard = opts.seedsPerBoardMax ?? 15;
+  const pool = organicPool();
+
+  let client: PinterestClient | null = null;
+  if (!opts.dryRun) {
+    const orgRow = await pool.query<{ enc: string | null }>(
+      `SELECT pinterest_access_token_encrypted AS enc FROM public.organizations WHERE id = $1`, [orgId]
+    );
+    const enc = orgRow.rows[0]?.enc;
+    if (!enc) throw new Error("No Pinterest token on organisation");
+    client = new PinterestClient(decrypt(enc), false);
+  }
+
+  const results: SeedingResult[] = [];
+  for (const sel of selections) {
+    const b = await pool.query<{ pinterest_board_id: string | null }>(
+      `SELECT pinterest_board_id FROM organic.boards WHERE id = $1`, [sel.board_id]
+    );
+    const pbid = b.rows[0]?.pinterest_board_id;
+    const result: SeedingResult = {
+      board_id: sel.board_id, board_name: sel.board_name,
+      attempted: 0, posted: 0, failed: 0, errors: [],
+    };
+    if (!pbid) {
+      result.errors.push("board not yet created on Pinterest — skip");
+      results.push(result);
+      continue;
+    }
+
+    const toSeed = sel.proposed_pins.slice(0, maxPerBoard);
+    for (const p of toSeed) {
+      result.attempted++;
+      if (opts.dryRun) {
+        result.posted++;
+        await pool.query(`UPDATE organic.boards SET seeded_count = seeded_count + 1 WHERE id = $1`, [sel.board_id]);
+        continue;
+      }
+      try {
+        // Look up the dashboard pin's fields for the createPin call.
+        const src = await pool.query<{ image_url: string | null; title: string | null; description: string | null; link: string | null }>(
+          `SELECT image_url, title, description, target_url AS link FROM pins WHERE id = $1`, [p.pin_id]
+        );
+        const row = src.rows[0];
+        if (!row?.image_url) { result.failed++; result.errors.push(`${p.pin_id}: no image_url`); continue; }
+        await client!.createPin({
+          board_id: pbid,
+          media_source: { source_type: "image_url", url: row.image_url },
+          title: row.title ?? "Untitled",
+          ...(row.description ? { description: row.description } : {}),
+          ...(row.link ? { link: row.link } : {}),
+        });
+        result.posted++;
+        await pool.query(`UPDATE organic.boards SET seeded_count = seeded_count + 1 WHERE id = $1`, [sel.board_id]);
+      } catch (e) {
+        result.failed++;
+        result.errors.push(`${p.pin_id}: ${(e as Error).message.slice(0, 120)}`);
+      }
+    }
+    results.push(result);
+  }
+
+  const totalPosted = results.reduce((s, r) => s + r.posted, 0);
+  const totalFailed = results.reduce((s, r) => s + r.failed, 0);
+  await completeTaskByDefinition({
+    orgId, taskId: "P3.3.7", timeSpentMin,
+    notes: `${opts.dryRun ? "DRY-RUN " : ""}Seeded ${totalPosted} pins across ${results.length} boards (${totalFailed} failed).`,
+  });
+  return { results, recomputed: await recomputeAfter(orgId) };
 }
 
 /** P3.3.8 — flip any SECRET board with ≥10 pins to PUBLIC. Idempotent. */
