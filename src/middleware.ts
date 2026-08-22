@@ -72,7 +72,10 @@ export async function middleware(request: NextRequest) {
   }
 
   // Rewrite organic.pinformance-agency.com root → /organic (public, no auth).
-  if (isOrganicHost && !request.nextUrl.pathname.startsWith("/organic")) {
+  // Keep /api/organic/* passing through unchanged so the app's own endpoints
+  // (activate, task-status) reach their routes instead of being rewritten
+  // into /organic/api/organic/* (which doesn't exist → 404).
+  if (isOrganicHost && !request.nextUrl.pathname.startsWith("/organic") && !request.nextUrl.pathname.startsWith("/api/organic")) {
     const url = request.nextUrl.clone();
     url.pathname = "/organic" + (request.nextUrl.pathname === "/" ? "" : request.nextUrl.pathname);
     return NextResponse.rewrite(url);

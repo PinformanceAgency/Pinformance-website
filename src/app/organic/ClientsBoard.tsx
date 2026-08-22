@@ -121,35 +121,68 @@ function InactiveTable({ rows }: { rows: ClientListRow[] }) {
 
 function ActivateButton({ orgId }: { orgId: string }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function activate() {
     setError(null);
-    const res = await fetch("/api/organic/activate", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ orgId }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error ?? "Activation failed");
-      return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/organic/activate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ orgId }),
+      });
+
+      // Read body as text first — /api routes returning 404 render an HTML
+      // page, and res.json() would throw an unrelated SyntaxError that hides
+      // the real HTTP failure.
+      const text = await res.text();
+      let data: { ok?: boolean; error?: string } = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        // Non-JSON response — keep the raw body snippet so the operator can
+        // see what came back (404 page, gateway error, etc).
+      }
+
+      if (!res.ok) {
+        const snippet = text ? text.replace(/\s+/g, " ").slice(0, 120) : "";
+        setError(
+          data.error ??
+            `HTTP ${res.status}${snippet ? ` — ${snippet}` : ""}`
+        );
+        return;
+      }
+
+      startTransition(() => router.refresh());
+    } catch (e) {
+      // Network error, aborted request, unexpected exception. Never fail silently.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("activate() failed", e);
+      setError(`Request failed: ${msg}`);
+    } finally {
+      setSubmitting(false);
     }
-    startTransition(() => router.refresh());
   }
 
   return (
-    <span className="inline-flex items-center gap-2">
-      {error && <span className="text-xs text-red-600">{error}</span>}
+    <div className="inline-flex items-center gap-2 max-w-md justify-end">
+      {error && (
+        <span className="text-xs text-red-600 text-right break-words" role="alert">
+          {error}
+        </span>
+      )}
       <button
+        type="button"
         onClick={activate}
-        disabled={pending}
-        className="px-2.5 py-1 text-xs font-medium rounded-md border border-neutral-300 bg-white hover:bg-neutral-100 disabled:opacity-50"
+        disabled={submitting}
+        className="px-2.5 py-1 text-xs font-medium rounded-md border border-neutral-300 bg-white hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-wait shrink-0"
       >
-        {pending ? "Activating…" : "Activate"}
+        {submitting ? "Activating…" : "Activate"}
       </button>
-    </span>
+    </div>
   );
 }
 
