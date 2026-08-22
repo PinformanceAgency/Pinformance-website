@@ -1,0 +1,598 @@
+"use client";
+
+import { useState } from "react";
+import type { TaskRow } from "@/lib/organic/types";
+
+export interface Phase3Snapshot {
+  keywords: Array<{ term: string; type: string; source: string; seasonal_type: string | null; autocomplete_rank: number | null; generic_applies_to_all: boolean | null; client_forbidden: boolean; volume_validated: boolean }>;
+  cache_status: Array<{ term: string; volume: number | null; taxonomy_path: string | null; expires_at: string | null; not_found: boolean | null; looked_up_at: string | null }>;
+  clusters: Array<{ id: string; name: string; axis: string }>;
+  topics: Array<{ id: string; name: string }>;
+  boards: Array<{ id: string; name: string; topic_id: string | null; primary_keyword: string | null; breadth: string; status: string; pin_count: number; planned_creation_date: string | null; pinterest_board_id: string | null; description: string | null }>;
+  coverage: Array<{ topic_name: string; active_boards: string; is_covered: boolean }>;
+  profile: { display_name: string | null; bio: string | null } | null;
+  queue: Array<{ term: string; priority: number; status: string }>;
+}
+
+interface Props {
+  orgId: string;
+  task: TaskRow;
+  snapshot: Phase3Snapshot;
+  onDone: () => void;
+}
+
+export function Phase3FormFor(p: Props): React.ReactNode {
+  switch (p.task.task_id) {
+    case "P3.1.1": return <SearchBarForm {...p} />;
+    case "P3.1.2": return <BubblesForm {...p} />;
+    case "P3.1.3": return <InterestPicksForm {...p} />;
+    case "P3.1.4": return <ActionForm {...p} action="competitor_annotations" title="Mine competitor annotations" desc="Scans imported PinInspector CSV descriptions for 2–4 word phrases seen at least twice." />;
+    case "P3.1.5": return <CloakedForm {...p} />;
+    case "P3.1.6": return <ActionForm {...p} action="dedupe" title="Dedupe candidate pool against shared cache" desc="Volume is a property of the term, not the client. Anything already cached does not need looking up again." />;
+    case "P3.1.7": return <ActionForm {...p} action="work_list" title="Generate PinClicks work list" desc="Cache misses only, prioritised by autocomplete rank." />;
+    case "P3.1.8": return <PinClicksForm {...p} />;
+    case "P3.1.9": return <ParentInterestsForm {...p} />;
+    case "P3.1.10": return <GenericTestForm {...p} />;
+    case "P3.1.11": return <ClustersForm {...p} />;
+    case "P3.1.12": return <SeasonalForm {...p} />;
+    case "P3.1.13": return <ActionForm {...p} action="windows" title="Compute publishing windows" desc="Peak minus 8 weeks. Runs over every SEASONAL keyword and fills ramp_up_start." />;
+    case "P3.1.14": return <AlignmentForm {...p} />;
+    case "P3.2.1": return <DisplayNameForm {...p} />;
+    case "P3.2.2": return <BioForm {...p} />;
+    case "P3.3.1": return <BoardListForm {...p} />;
+    case "P3.3.2": return <ActionForm {...p} action="coverage" title="Check topic coverage" desc="Every topic needs ≥5 active (SECRET or PUBLIC) boards. Failure blocks P4.1.1 via the topic_coverage view." />;
+    case "P3.3.3": return <DescriptionsForm {...p} />;
+    case "P3.3.4": return <ActionForm {...p} action="schedule" title="Generate creation schedule" desc="Max 3 boards per day, starting tomorrow." />;
+    case "P3.3.5": return <CreateBoardsForm {...p} />;
+    case "P3.3.6": return <ActionForm {...p} action="select_seeds" title="Mark seed pins selected" desc="10–15 existing pins per board (never competitor content)." />;
+    case "P3.3.7": return <ActionForm {...p} action="run_seeding" title="Run seeding" desc="Queues seeding through the existing pin scheduler." />;
+    case "P3.3.8": return <ActionForm {...p} action="flip_public" title="Flip boards to public @ ≥10 pins" desc="Idempotent — safe to run repeatedly." />;
+    default: return null;
+  }
+}
+
+// --- shared ------------------------------------------------------------------
+
+function FormShell({
+  title, body, time, setTime, submitLabel, onSubmit,
+}: {
+  title: string;
+  body: React.ReactNode;
+  time: string;
+  setTime: (v: string) => void;
+  submitLabel: string;
+  onSubmit: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function go() {
+    setErr(null); setSubmitting(true);
+    try { await onSubmit(); }
+    catch (e) { setErr((e as Error).message); }
+    finally { setSubmitting(false); }
+  }
+  return (
+    <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-3">
+      <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">{title}</div>
+      {body}
+      <div className="flex items-center gap-2 pt-1 border-t border-neutral-200">
+        <label className="text-[11px] text-neutral-600 flex items-center gap-1.5">
+          Time (min):
+          <input type="number" min={1} value={time} onChange={(e) => setTime(e.target.value)}
+            className="w-20 rounded-md border border-neutral-300 px-2 py-1 text-xs tabular-nums" placeholder="10" />
+        </label>
+        <span className="flex-1" />
+        {err && <span className="text-xs text-red-600 mr-2 break-words max-w-md">{err}</span>}
+        <button onClick={go} disabled={submitting || !time}
+          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
+          {submitting ? "Saving…" : submitLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+async function post(orgId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await fetch(`/api/organic/phase3/${orgId}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    redirect: "error",
+  });
+  const text = await res.text();
+  let data: { error?: string } & Record<string, unknown> = {};
+  try { data = JSON.parse(text); } catch { /* keep raw */ }
+  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status} — ${text.slice(0, 160)}`);
+  return data;
+}
+
+function n(s: string): number {
+  const x = Number(s);
+  if (!isFinite(x) || x <= 0) throw new Error("Enter a positive time value.");
+  return Math.round(x);
+}
+
+function TextList({ v, on, rows = 5, placeholder }: { v: string; on: (v: string) => void; rows?: number; placeholder?: string }) {
+  return (
+    <textarea value={v} onChange={(e) => on(e.target.value)} rows={rows} placeholder={placeholder}
+      className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs" />
+  );
+}
+
+// --- individual forms -------------------------------------------------------
+
+function SearchBarForm({ orgId, onDone }: Props) {
+  const [seed, setSeed] = useState("");
+  const [raw, setRaw] = useState("");
+  const [time, setTime] = useState("");
+  const list = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+  return (
+    <FormShell
+      title="P3.1.1 — Search-bar suggestions (order = volume proxy)"
+      body={
+        <div className="space-y-2">
+          <input value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="Seed keyword you typed"
+            className="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs" />
+          <TextList v={raw} on={setRaw} rows={8} placeholder="One suggestion per line, TOP TO BOTTOM. Rank is captured automatically." />
+          <div className="text-[11px] text-neutral-500">{list.length} suggestions parsed. Rank = line number.</div>
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Save"
+      onSubmit={async () => {
+        if (!seed.trim()) throw new Error("Enter the seed keyword.");
+        if (list.length === 0) throw new Error("Add at least one suggestion.");
+        await post(orgId, { action: "search_bar", seed: seed.trim(), suggestions: list, time_spent_min: n(time) });
+        onDone();
+      }}
+    />
+  );
+}
+
+function BubblesForm({ orgId, onDone }: Props) {
+  const [raw, setRaw] = useState("");
+  const [time, setTime] = useState("");
+  const list = raw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  return (
+    <FormShell
+      title="P3.1.2 — Bubbles + related searches"
+      body={
+        <>
+          <TextList v={raw} on={setRaw} rows={4} placeholder="Comma-separated or one per line" />
+          <div className="text-[11px] text-neutral-500">{list.length} bubbles parsed.</div>
+        </>
+      }
+      time={time} setTime={setTime} submitLabel="Save"
+      onSubmit={async () => { if (list.length === 0) throw new Error("Add at least one term."); await post(orgId, { action: "bubbles", terms: list, time_spent_min: n(time) }); onDone(); }}
+    />
+  );
+}
+
+function InterestPicksForm({ orgId, onDone }: Props) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<Array<{ interest_id: string; name: string; crumb: string }>>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [time, setTime] = useState("");
+  const [searching, setSearching] = useState(false);
+  async function search() {
+    if (!q.trim()) return;
+    setSearching(true);
+    try {
+      const r = await post(orgId, { action: "interest_search", query: q.trim() });
+      setResults((r.results as Array<{ interest_id: string; name: string; crumb: string }>) ?? []);
+    } finally { setSearching(false); }
+  }
+  return (
+    <FormShell
+      title="P3.1.3 — Pick from Pinterest interest taxonomy (3,437 terms)"
+      body={
+        <div className="space-y-2">
+          <div className="flex gap-1">
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search taxonomy…"
+              onKeyDown={(e) => e.key === "Enter" && search()}
+              className="flex-1 rounded-md border border-neutral-300 px-2 py-1 text-xs" />
+            <button type="button" onClick={search} disabled={searching}
+              className="px-2 py-1 rounded-md border border-neutral-300 text-xs bg-white hover:bg-neutral-50 disabled:opacity-50">
+              {searching ? "…" : "Search"}
+            </button>
+          </div>
+          <div className="max-h-56 overflow-y-auto rounded border border-neutral-200 bg-white divide-y divide-neutral-100">
+            {results.map((r) => (
+              <label key={r.interest_id} className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer hover:bg-neutral-50">
+                <input type="checkbox" checked={picked.has(r.name)}
+                  onChange={(e) => { const nx = new Set(picked); e.target.checked ? nx.add(r.name) : nx.delete(r.name); setPicked(nx); }} />
+                <span className="font-medium">{r.name}</span>
+                <span className="text-neutral-400 text-[11px] truncate">{r.crumb}</span>
+              </label>
+            ))}
+            {results.length === 0 && <div className="px-2 py-2 text-[11px] text-neutral-400">Search to find interests.</div>}
+          </div>
+          <div className="text-[11px] text-neutral-500">{picked.size} picked.</div>
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Add picks to candidate pool"
+      onSubmit={async () => { if (picked.size === 0) throw new Error("Pick at least one interest."); await post(orgId, { action: "interest_picks", terms: Array.from(picked), time_spent_min: n(time) }); onDone(); }}
+    />
+  );
+}
+
+function CloakedForm({ orgId, onDone }: Props) {
+  const [cloaked, setCloaked] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [time, setTime] = useState("");
+  return (
+    <FormShell
+      title="P3.1.5 — Cloaked niche?"
+      body={
+        <div className="space-y-2 text-xs">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={cloaked} onChange={(e) => setCloaked(e.target.checked)} />
+            <span>This niche is cloaked — Pinterest hides autocomplete for it.</span>
+          </label>
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional note (e.g. workaround plan)"
+            className="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs" />
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Save"
+      onSubmit={async () => { await post(orgId, { action: "cloaked", cloaked, notes, time_spent_min: n(time) }); onDone(); }}
+    />
+  );
+}
+
+function ActionForm({ orgId, task, onDone, action, title, desc }: Props & { action: string; title: string; desc: string }) {
+  const [time, setTime] = useState("");
+  return (
+    <FormShell
+      title={`${task.task_id} — ${title}`}
+      body={<div className="text-xs text-neutral-600">{desc}</div>}
+      time={time} setTime={setTime} submitLabel="Run & mark done"
+      onSubmit={async () => { await post(orgId, { action, time_spent_min: n(time) }); onDone(); }}
+    />
+  );
+}
+
+function PinClicksForm({ orgId, snapshot, onDone }: Props) {
+  // Queue: cache misses for this org.
+  const queued = snapshot.queue.filter((q) => q.status === "QUEUED");
+  const [values, setValues] = useState<Record<string, { volume: string; not_found: boolean }>>(() =>
+    Object.fromEntries(queued.map((q) => [q.term, { volume: "", not_found: false }])));
+  const [extra, setExtra] = useState("");
+  const [time, setTime] = useState("");
+  if (queued.length === 0) {
+    return <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">No queue items. Run P3.1.7 first.</div>;
+  }
+  return (
+    <FormShell
+      title={`P3.1.8 — PinClicks session (${queued.length} lookups)`}
+      body={
+        <div className="space-y-2">
+          <div className="max-h-72 overflow-y-auto rounded border border-neutral-200 bg-white divide-y divide-neutral-100">
+            {queued.map((q) => {
+              const v = values[q.term] ?? { volume: "", not_found: false };
+              return (
+                <div key={q.term} className="grid grid-cols-12 gap-1 items-center px-2 py-1 text-[11px]">
+                  <span className="col-span-6 truncate text-neutral-700">{q.term}</span>
+                  <input type="number" value={v.volume} onChange={(e) => setValues({ ...values, [q.term]: { ...v, volume: e.target.value } })}
+                    disabled={v.not_found} placeholder="volume"
+                    className="col-span-3 rounded border border-neutral-300 px-2 py-1 text-xs tabular-nums disabled:opacity-50" />
+                  <label className="col-span-3 flex items-center gap-1">
+                    <input type="checkbox" checked={v.not_found} onChange={(e) => setValues({ ...values, [q.term]: { ...v, not_found: e.target.checked } })} />
+                    <span>not found</span>
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+          <div>
+            <div className="text-[11px] text-neutral-600 mb-1">Related keywords found along the way (added to pool)</div>
+            <TextList v={extra} on={setExtra} rows={2} placeholder="Comma-separated or one per line" />
+          </div>
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Write to shared cache"
+      onSubmit={async () => {
+        const results = Object.entries(values).map(([term, v]) => ({ term, volume: v.volume ? Number(v.volume) : null, not_found: v.not_found }));
+        const extra_finds = extra.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        await post(orgId, { action: "pinclicks_submit", results, extra_finds, time_spent_min: n(time) });
+        onDone();
+      }}
+    />
+  );
+}
+
+function ParentInterestsForm({ orgId, onDone }: Props) {
+  const [raw, setRaw] = useState("");
+  const [time, setTime] = useState("");
+  const list = raw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  return (
+    <FormShell
+      title="P3.1.9 — Parent interests (≥5)"
+      body={<>
+        <TextList v={raw} on={setRaw} rows={4} placeholder="Home Decor, Living Room, Vanity Lighting, Small Bedroom, Interior Design" />
+        <div className="text-[11px] text-neutral-500">{list.length} parsed · these become topics for coverage.</div>
+      </>}
+      time={time} setTime={setTime} submitLabel="Save (≥5 required)"
+      onSubmit={async () => { if (list.length < 5) throw new Error("At least 5 parent interests required."); await post(orgId, { action: "parent_interests", terms: list, time_spent_min: n(time) }); onDone(); }}
+    />
+  );
+}
+
+function GenericTestForm({ orgId, snapshot, onDone }: Props) {
+  // Present all keywords (non-parent, non-cluster) as candidates.
+  const candidates = snapshot.keywords.filter((k) => k.type === "GENERIC").map((k) => k.term);
+  const [pass, setPass] = useState<Set<string>>(new Set(snapshot.keywords.filter((k) => k.generic_applies_to_all).map((k) => k.term)));
+  const [time, setTime] = useState("");
+  const toggle = (t: string) => { const nx = new Set(pass); nx.has(t) ? nx.delete(t) : nx.add(t); setPass(nx); };
+  return (
+    <FormShell
+      title={`P3.1.10 — Applies to every product? (5–10 pass)`}
+      body={
+        <div className="space-y-1">
+          <div className="max-h-64 overflow-y-auto rounded border border-neutral-200 bg-white divide-y divide-neutral-100">
+            {candidates.map((t) => (
+              <label key={t} className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer hover:bg-neutral-50">
+                <input type="checkbox" checked={pass.has(t)} onChange={() => toggle(t)} />
+                <span>{t}</span>
+              </label>
+            ))}
+            {candidates.length === 0 && <div className="p-2 text-[11px] text-neutral-400">No generic candidates yet.</div>}
+          </div>
+          <div className="text-[11px] text-neutral-500">{pass.size} pass (need 5–10).</div>
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Save (5–10 required)"
+      onSubmit={async () => {
+        const decisions = candidates.map((t) => ({ term: t, applies_to_all: pass.has(t) }));
+        await post(orgId, { action: "generic_test", decisions, time_spent_min: n(time) });
+        onDone();
+      }}
+    />
+  );
+}
+
+function ClustersForm({ orgId, onDone }: Props) {
+  type Cl = { name: string; axis: string; keywords: string };
+  const [rows, setRows] = useState<Cl[]>(Array.from({ length: 3 }, () => ({ name: "", axis: "MOMENT", keywords: "" })));
+  const [time, setTime] = useState("");
+  const set = (i: number, patch: Partial<Cl>) => setRows(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  return (
+    <FormShell
+      title="P3.1.11 — Topic clusters (≥3, each 10–15 keywords)"
+      body={
+        <div className="space-y-2">
+          {rows.map((r, i) => {
+            const kws = r.keywords.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+            const bad = kws.length !== 0 && (kws.length < 10 || kws.length > 15);
+            return (
+              <div key={i} className="rounded border border-neutral-200 bg-white p-2 space-y-1">
+                <div className="flex gap-1">
+                  <input value={r.name} onChange={(e) => set(i, { name: e.target.value })} placeholder="Cluster name"
+                    className="flex-1 rounded border border-neutral-300 px-2 py-1 text-xs" />
+                  <select value={r.axis} onChange={(e) => set(i, { axis: e.target.value })}
+                    className="rounded border border-neutral-300 px-1 py-1 text-xs bg-white">
+                    {["PRODUCT","MOMENT","COLOR","SIZE","MATERIAL","SEASON","OTHER"].map((a) => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setRows(rows.filter((_, idx) => idx !== i))}
+                    className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-100">×</button>
+                </div>
+                <TextList v={r.keywords} on={(v) => set(i, { keywords: v })} rows={3} placeholder="10–15 keywords (comma-separated or per line)" />
+                <div className={`text-[10px] tabular-nums ${bad ? "text-red-600" : "text-neutral-500"}`}>{kws.length} keywords{bad ? " — need 10–15" : ""}</div>
+              </div>
+            );
+          })}
+          <button type="button" onClick={() => setRows([...rows, { name: "", axis: "MOMENT", keywords: "" }])}
+            className="text-[11px] text-blue-600 hover:text-blue-800 font-medium">+ Add cluster</button>
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Save clusters"
+      onSubmit={async () => {
+        const clusters = rows.filter((r) => r.name.trim()).map((r) => ({
+          name: r.name.trim(),
+          axis: r.axis as "PRODUCT"|"MOMENT"|"COLOR"|"SIZE"|"MATERIAL"|"SEASON"|"OTHER",
+          keywords: r.keywords.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean),
+        }));
+        await post(orgId, { action: "clusters", clusters, time_spent_min: n(time) });
+        onDone();
+      }}
+    />
+  );
+}
+
+function SeasonalForm({ orgId, snapshot, onDone }: Props) {
+  const terms = snapshot.keywords.map((k) => k.term);
+  const [pick, setPick] = useState<Record<string, { type: string; start: string; end: string }>>(() =>
+    Object.fromEntries(snapshot.keywords.map((k) => [k.term, { type: k.seasonal_type ?? "", start: "", end: "" }])));
+  const [time, setTime] = useState("");
+  const set = (t: string, patch: Partial<{ type: string; start: string; end: string }>) => setPick({ ...pick, [t]: { ...pick[t], ...patch } });
+  const classified = Object.values(pick).filter((v) => v.type).length;
+  return (
+    <FormShell
+      title={`P3.1.12 — Seasonal classification (${classified}/${terms.length} set)`}
+      body={
+        <div className="max-h-72 overflow-y-auto rounded border border-neutral-200 bg-white divide-y divide-neutral-100 text-xs">
+          {terms.map((t) => (
+            <div key={t} className="grid grid-cols-12 gap-1 px-2 py-1 items-center">
+              <span className="col-span-4 truncate text-neutral-700">{t}</span>
+              <select value={pick[t]?.type ?? ""} onChange={(e) => set(t, { type: e.target.value })}
+                className="col-span-3 rounded border border-neutral-300 px-1 py-0.5 bg-white">
+                <option value="">—</option>
+                {["EVERGREEN","SEASONAL","MICRO_TREND"].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <input type="date" value={pick[t]?.start ?? ""} onChange={(e) => set(t, { start: e.target.value })}
+                disabled={pick[t]?.type !== "SEASONAL"}
+                className="col-span-2 rounded border border-neutral-300 px-1 py-0.5 disabled:opacity-40" />
+              <input type="date" value={pick[t]?.end ?? ""} onChange={(e) => set(t, { end: e.target.value })}
+                disabled={pick[t]?.type !== "SEASONAL"}
+                className="col-span-2 rounded border border-neutral-300 px-1 py-0.5 disabled:opacity-40" />
+            </div>
+          ))}
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Save seasonal classification"
+      onSubmit={async () => {
+        const list = Object.entries(pick).filter(([, v]) => v.type).map(([term, v]) => ({
+          term, seasonal_type: v.type as "EVERGREEN"|"SEASONAL"|"MICRO_TREND",
+          peak_start: v.start || null, peak_end: v.end || null,
+        }));
+        await post(orgId, { action: "seasonal", list, time_spent_min: n(time) });
+        onDone();
+      }}
+    />
+  );
+}
+
+function AlignmentForm({ orgId, onDone }: Props) {
+  const [raw, setRaw] = useState("");
+  const [notes, setNotes] = useState("");
+  const [time, setTime] = useState("");
+  return (
+    <FormShell
+      title="P3.1.14 — Client alignment (forbidden terms)"
+      body={<>
+        <TextList v={raw} on={setRaw} rows={3} placeholder="Comma-separated or per line" />
+        <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Note"
+          className="w-full mt-1 rounded-md border border-neutral-300 px-2 py-1 text-xs" />
+      </>}
+      time={time} setTime={setTime} submitLabel="Save"
+      onSubmit={async () => {
+        const forbidden = raw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        await post(orgId, { action: "alignment", forbidden_terms: forbidden, notes, time_spent_min: n(time) });
+        onDone();
+      }}
+    />
+  );
+}
+
+function DisplayNameForm({ orgId, snapshot, onDone }: Props) {
+  const [name, setName] = useState(snapshot.profile?.display_name ?? "");
+  const [time, setTime] = useState("");
+  return (
+    <FormShell
+      title={`P3.2.1 — Display name (${name.length}/65, must contain a volume-cached keyword)`}
+      body={<input value={name} onChange={(e) => setName(e.target.value)} maxLength={65}
+        className="w-full rounded-md border border-neutral-300 px-2 py-1 text-sm" placeholder="Brand · broad keyword" />}
+      time={time} setTime={setTime} submitLabel="Save (validators: length + cached keyword)"
+      onSubmit={async () => { await post(orgId, { action: "display_name", display_name: name, time_spent_min: n(time) }); onDone(); }}
+    />
+  );
+}
+
+function BioForm({ orgId, snapshot, onDone }: Props) {
+  const [bio, setBio] = useState(snapshot.profile?.bio ?? "");
+  const [time, setTime] = useState("");
+  return (
+    <FormShell
+      title={`P3.2.2 — Bio (${bio.length}/500, ≥3 volume-cached keywords, CTA at end)`}
+      body={<textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={500} rows={5}
+        className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs" />}
+      time={time} setTime={setTime} submitLabel="Save (validators: length + cached keywords)"
+      onSubmit={async () => { await post(orgId, { action: "bio", bio, time_spent_min: n(time) }); onDone(); }}
+    />
+  );
+}
+
+function BoardListForm({ orgId, snapshot, onDone }: Props) {
+  type Row = { name: string; topic_name: string; primary_keyword: string; breadth: string };
+  const seed = snapshot.boards.map((b) => ({
+    name: b.name, topic_name: snapshot.topics.find((t) => t.id === b.topic_id)?.name ?? "",
+    primary_keyword: b.primary_keyword ?? "", breadth: b.breadth,
+  }));
+  const [rows, setRows] = useState<Row[]>(seed.length > 0 ? seed : Array.from({ length: 20 }, () => ({ name: "", topic_name: "", primary_keyword: "", breadth: "BROAD" })));
+  const [time, setTime] = useState("");
+  const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  return (
+    <FormShell
+      title={`P3.3.1 — Finalise board list (${rows.length}, must be 20–30)`}
+      body={
+        <div className="space-y-1 max-h-96 overflow-y-auto">
+          {rows.map((r, i) => (
+            <div key={i} className="grid grid-cols-12 gap-1 text-[11px] items-center">
+              <input value={r.name} onChange={(e) => set(i, { name: e.target.value })} placeholder="Board name"
+                className="col-span-4 rounded border border-neutral-300 px-2 py-1" />
+              <select value={r.topic_name} onChange={(e) => set(i, { topic_name: e.target.value })}
+                className="col-span-3 rounded border border-neutral-300 px-1 py-1 bg-white">
+                <option value="">— Topic —</option>
+                {snapshot.topics.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+              </select>
+              <input value={r.primary_keyword} onChange={(e) => set(i, { primary_keyword: e.target.value })} placeholder="Primary keyword"
+                className="col-span-3 rounded border border-neutral-300 px-2 py-1" />
+              <select value={r.breadth} onChange={(e) => set(i, { breadth: e.target.value })}
+                className="col-span-1 rounded border border-neutral-300 px-1 py-1 bg-white">
+                <option value="BROAD">B</option>
+                <option value="NICHE">N</option>
+              </select>
+              <button type="button" onClick={() => setRows(rows.filter((_, idx) => idx !== i))}
+                className="col-span-1 rounded border border-neutral-300 px-1 py-1 text-neutral-500 hover:bg-neutral-100">×</button>
+            </div>
+          ))}
+          <button type="button" onClick={() => rows.length < 30 && setRows([...rows, { name: "", topic_name: "", primary_keyword: "", breadth: "BROAD" }])}
+            className="mt-1 text-[11px] text-blue-600 hover:text-blue-800 font-medium disabled:opacity-40" disabled={rows.length >= 30}>
+            + Add board ({rows.length}/30)
+          </button>
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Save board list"
+      onSubmit={async () => {
+        const boards = rows.filter((r) => r.name.trim() && r.topic_name && r.primary_keyword.trim()).map((r) => ({
+          name: r.name.trim(), topic_name: r.topic_name, primary_keyword: r.primary_keyword.trim(),
+          keywords: [r.primary_keyword.trim()], breadth: r.breadth as "BROAD" | "NICHE",
+        }));
+        await post(orgId, { action: "board_list", boards, time_spent_min: n(time) });
+        onDone();
+      }}
+    />
+  );
+}
+
+function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
+  const [rows, setRows] = useState(() => snapshot.boards.map((b) => ({ name: b.name, description: b.description ?? "" })));
+  const [time, setTime] = useState("");
+  const set = (i: number, description: string) => setRows(rows.map((r, idx) => idx === i ? { ...r, description } : r));
+  return (
+    <FormShell
+      title="P3.3.3 — Board descriptions (400–480 chars, board name in first sentence)"
+      body={
+        <div className="space-y-2 max-h-96 overflow-y-auto">
+          {rows.map((r, i) => {
+            const len = r.description.length;
+            const lenOk = len >= 400 && len <= 480;
+            return (
+              <div key={i} className="rounded border border-neutral-200 bg-white p-2">
+                <div className="text-[11px] font-medium text-neutral-800 mb-1">{r.name}</div>
+                <textarea value={r.description} onChange={(e) => set(i, e.target.value)} rows={3}
+                  className="w-full rounded border border-neutral-300 px-2 py-1 text-[11px]" />
+                <div className={`text-[10px] tabular-nums ${lenOk ? "text-neutral-500" : "text-red-600"}`}>{len}/480 · target 400–480</div>
+              </div>
+            );
+          })}
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Save descriptions"
+      onSubmit={async () => {
+        const rowsToSend = rows.filter((r) => r.description.trim());
+        await post(orgId, { action: "descriptions", rows: rowsToSend, time_spent_min: n(time) });
+        onDone();
+      }}
+    />
+  );
+}
+
+function CreateBoardsForm({ orgId, task, onDone }: Props) {
+  const [dryRun, setDryRun] = useState(true);
+  const [time, setTime] = useState("");
+  return (
+    <FormShell
+      title={`${task.task_id} — Create boards (max 3/day, enforced by DB trigger)`}
+      body={
+        <div className="text-xs text-neutral-600 space-y-2">
+          <div>Creates today&#39;s eligible boards on Pinterest as SECRET, then updates the board row with the returned Pinterest ID.</div>
+          <label className="flex items-center gap-2 text-[11px]">
+            <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
+            <span>Dry-run (flip locally only, no Pinterest API call)</span>
+          </label>
+        </div>
+      }
+      time={time} setTime={setTime} submitLabel="Create today's slot"
+      onSubmit={async () => { await post(orgId, { action: "create_boards", dry_run: dryRun, time_spent_min: n(time) }); onDone(); }}
+    />
+  );
+}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { SkipReason, TaskRow, TaskStatus, TaskType, ViabilityRow } from "@/lib/organic/types";
 import { TaskFormFor } from "./TaskForms";
 import { Phase2FormFor, type Phase2Snapshot } from "./Phase2Forms";
+import { Phase3FormFor, type Phase3Snapshot } from "./Phase3Forms";
 import { SkipDialog } from "./SkipDialog";
 
 const STATUS_CHOICES: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE", "SKIPPED"];
@@ -16,16 +17,21 @@ const CUSTOM_FORM_TASKS = new Set([
   "P1.0.1", "P1.0.2", "P1.0.3", "P1.0.4", "P1.2.13",
   "P2.1.1", "P2.1.3", "P2.1.4", "P2.1.5", "P2.1.6",
   "P2.2.1", "P2.2.2", "P2.3.1", "P2.3.3", "P2.4.1", "P2.4.2",
+  "P3.1.1","P3.1.2","P3.1.3","P3.1.4","P3.1.5","P3.1.6","P3.1.7","P3.1.8",
+  "P3.1.9","P3.1.10","P3.1.11","P3.1.12","P3.1.13","P3.1.14",
+  "P3.2.1","P3.2.2",
+  "P3.3.1","P3.3.2","P3.3.3","P3.3.4","P3.3.5","P3.3.6","P3.3.7","P3.3.8",
 ]);
 
 export function TasksBoard({
-  orgId, tasks, viability, phase2,
+  orgId, tasks, viability, phase2, phase3,
 }: {
   orgId: string;
   tasks: TaskRow[];
   viability: ViabilityRow | null;
   initialDomain: string | null;
   phase2: Phase2Snapshot;
+  phase3: Phase3Snapshot;
 }) {
   const phases = useMemo(() => {
     const byPhase = new Map<number, TaskRow[]>();
@@ -50,20 +56,21 @@ export function TasksBoard({
   return (
     <div className="space-y-6">
       {phases.map((p) => (
-        <PhaseSection key={p.phase} phase={p.phase} tasks={p.tasks} orgId={orgId} viability={viability} phase2={phase2} />
+        <PhaseSection key={p.phase} phase={p.phase} tasks={p.tasks} orgId={orgId} viability={viability} phase2={phase2} phase3={phase3} />
       ))}
     </div>
   );
 }
 
 function PhaseSection({
-  phase, tasks, orgId, viability, phase2,
+  phase, tasks, orgId, viability, phase2, phase3,
 }: {
   phase: number;
   tasks: TaskRow[];
   orgId: string;
   viability: ViabilityRow | null;
   phase2: Phase2Snapshot;
+  phase3: Phase3Snapshot;
 }) {
   // Group by step within a phase so operators see the SOP structure.
   const steps = useMemo(() => {
@@ -91,7 +98,7 @@ function PhaseSection({
             </div>
             <div className="divide-y divide-neutral-100">
               {s.tasks.map((t) => (
-                <TaskCard key={t.client_task_id} task={t} orgId={orgId} viability={viability} phase2={phase2} />
+                <TaskCard key={t.client_task_id} task={t} orgId={orgId} viability={viability} phase2={phase2} phase3={phase3} />
               ))}
             </div>
           </div>
@@ -102,12 +109,13 @@ function PhaseSection({
 }
 
 function TaskCard({
-  task, orgId, viability, phase2,
+  task, orgId, viability, phase2, phase3,
 }: {
   task: TaskRow;
   orgId: string;
   viability: ViabilityRow | null;
   phase2: Phase2Snapshot;
+  phase3: Phase3Snapshot;
 }) {
   const hasCustomForm = CUSTOM_FORM_TASKS.has(task.task_id);
   const [expanded, setExpanded] = useState(
@@ -227,7 +235,17 @@ function TaskCard({
 
       {expanded && hasCustomForm && (
         <div className="mt-3">
-          {task.task_id.startsWith("P2.") ? (
+          {task.task_id.startsWith("P3.") ? (
+            <Phase3FormFor
+              orgId={orgId}
+              task={task}
+              snapshot={phase3}
+              onDone={() => {
+                setExpanded(false);
+                startTransition(() => router.refresh());
+              }}
+            />
+          ) : task.task_id.startsWith("P2.") ? (
             <Phase2FormFor
               orgId={orgId}
               task={task}
