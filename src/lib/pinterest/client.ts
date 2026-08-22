@@ -177,7 +177,14 @@ export class PinterestClient {
       const error = await res.text();
       throw new Error(`Pinterest API error ${res.status}: ${error}`);
     }
-    return res.json();
+    // DELETE endpoints reply 204 No Content with an empty body. Also, some
+    // GET/PATCH endpoints legitimately return an empty body on success.
+    // res.json() throws "Unexpected end of JSON input" on empty bodies, so
+    // route both cases through a text-first read.
+    if (res.status === 204) return undefined as T;
+    const text = await res.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
   }
 
   async getUser(): Promise<PinterestUserAccount> {
@@ -301,10 +308,13 @@ export class PinterestClient {
   }
 
   async deletePin(pinId: string): Promise<void> {
-    await fetch(`${this.baseUrl}/pins/${pinId}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${this.accessToken}` },
-    });
+    // Now goes through this.request so failed deletes throw with the
+    // Pinterest error body (the raw-fetch version silently ignored non-2xx).
+    await this.request<void>(`/pins/${pinId}`, { method: "DELETE" });
+  }
+
+  async deleteBoard(boardId: string): Promise<void> {
+    await this.request<void>(`/boards/${boardId}`, { method: "DELETE" });
   }
 
   /** PATCH an existing pin — supports moving to another board. Passing null
