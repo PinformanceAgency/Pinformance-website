@@ -211,10 +211,12 @@ const DRY_RUN = process.env.WEEKLY_SYNC_DRY_RUN === '1';
 // 18 van de 49 stopte -- beide rond een minuut. Reken dus met ~60s, niet met de
 // gedeclareerde 300.
 //
-// Zes tegelijk (zelfde getal als inBatches() in de seed gebruikt) brengt de run
-// van ~40 rondes terug naar ~7. Niet hoger: Monday knijpt bij te veel parallelle
-// mutaties, en Pinterest-rapporten tellen mee in hun eigen rate limit.
-const SYNC_BATCH = 6;
+// Acht tegelijk brengt de run van ~40 rondes terug naar ~5. De seed gebruikt 6,
+// maar die doet creates op één bord; hier gaan de calls naar 8 verschillende
+// Pinterest-accounts en naar 8 verschillende subitems, wat Monday en Pinterest
+// allebei makkelijker wegzetten. Niet veel hoger: Monday knijpt bij te veel
+// parallelle mutaties en Pinterest-rapporten hebben hun eigen rate limit.
+const SYNC_BATCH = 8;
 
 // ---------------------------------------------------------------------------
 // LOGGING
@@ -303,10 +305,22 @@ export interface ClientConfig {
  *   revenue zou een gok zijn. Spend is altijd veilig.
  */
 export function isSpendOnly(client: ClientConfig): boolean {
-  if (!client.attributionLabel) {
+  return isSpendOnlyLabel(client.attributionLabel);
+}
+
+/**
+ * Zelfde regel, maar op het rauwe attributielabel van het Monday-bord. De
+ * controle-cron leest dat bord zonder ClientConfig te bouwen, en moet toch
+ * weten of een lege revenue daar normaal is.
+ *
+ * Geen label = spend-only: dan weten we niet welk attributievenster geldt en
+ * halen we de revenue dus sowieso niet op.
+ */
+export function isSpendOnlyLabel(label: string): boolean {
+  if (!label) {
     return true;
   }
-  return SPEND_ONLY_ATTRIBUTION_LABELS.has(client.attributionLabel);
+  return SPEND_ONLY_ATTRIBUTION_LABELS.has(label);
 }
 
 export interface WeekMetrics {
@@ -1409,6 +1423,7 @@ query ($boardId: [ID!], $groupId: String!) {
         items {
           id
           name
+          created_at
           column_values (ids: ["color_mm66jxan", "text_mm66z84h", "text_mm0qxxnt"]) {
             id
             text
@@ -1431,20 +1446,63 @@ query ($boardId: [ID!], $groupId: String!) {
  * Stores zonder ad account ID worden overgeslagen met een waarschuwing: die
  * kunnen we niet ophalen zonder op naam te matchen, en dat doen we bewust niet.
  */
-export async function loadClients(): Promise<ClientConfig[]> {
+/** Eén regel uit de actieve groep, precies zoals hij op het bord staat. */
+export interface ActiveClientRow {
+  mondayItemId: number;
+  storeName: string;
+  /** Leeg = nog niet gekoppeld; die store wordt volledig met de hand gevuld. */
+  adAccountId: string;
+  attributionLabel: string;
+  currencyLabel: string;
+  /** ISO-tijdstempel waarop de klantregel op het bord is gezet. */
+  createdAt: string;
+}
+
+/**
+ * De actieve groep ongefilterd.
+ *
+ * loadClients() hieronder gooit de stores zonder ad account ID eruit -- die kan
+ * de sync niet ophalen. De controle-cron heeft ze juist nodig: dat zijn de pas
+ * geonboarde stores die iemand met de hand invult, en of dat gebeurd is wil je
+ * maandagmiddag ook weten.
+ */
+export async function loadActiveClientRows(): Promise<ActiveClientRow[]> {
   const data = await mondayQuery(ACTIVE_CLIENTS, {
     boardId: [String(BOARD_WEEKLY_UPDATES)],
     groupId: GROUP_ACTIVE,
   });
 
+  return data.boards[0].groups[0].items_page.items.map(
+    (item: {
+      id: string;
+      name: string;
+      created_at: string;
+      column_values: Array<{ id: string; text: string | null }>;
+    }) => {
+      const cols: Record<string, string> = {};
+      for (const c of item.column_values) {
+        cols[c.id] = (c.text ?? '').trim();
+      }
+      return {
+        mondayItemId: parseInt(item.id, 10),
+        storeName: item.name,
+        adAccountId: cols[COL_AD_ACCOUNT] ?? '',
+        attributionLabel: cols[COL_ATTRIBUTION] ?? '',
+        currencyLabel: cols[COL_CURRENCY] ?? '',
+        createdAt: item.created_at,
+      };
+    },
+  );
+}
+
+export async function loadClients(): Promise<ClientConfig[]> {
+  const rows = await loadActiveClientRows();
+
   const clients: ClientConfig[] = [];
-  for (const item of data.boards[0].groups[0].items_page.items) {
-    const cols: Record<string, string> = {};
-    for (const c of item.column_values) {
-      cols[c.id] = (c.text ?? '').trim();
-    }
-    const adAccount = cols[COL_AD_ACCOUNT] ?? '';
-    const label = cols[COL_ATTRIBUTION] ?? '';
+  for (const row of rows) {
+    const adAccount = row.adAccountId;
+    const label = row.attributionLabel;
+    const item = { name: row.storeName, id: String(row.mondayItemId) };
 
     if (!adAccount) {
       log.warning(`${item.name} heeft geen ad account ID -- overgeslagen`);
@@ -1460,7 +1518,7 @@ export async function loadClients(): Promise<ClientConfig[]> {
       clickWindowDays: click,
       viewWindowDays: view,
       engagementWindowDays: engagement,
-      currencyLabel: cols[COL_CURRENCY] ?? '',
+      currencyLabel: row.currencyLabel,
       active: true,
     });
   }
@@ -1702,6 +1760,12 @@ export interface SyncSummary {
   /** Label in Monday wijkt af van de valuta bij Pinterest. */
   currencyMismatch: string[];
   /**
+   * Stores die deze week al gevuld waren toen de run begon, en dus zijn
+   * overgeslagen vóór de Pinterest-call. Bij de eerste run van de dag is dit 0;
+   * bij de herhaalrun om 12:30 UTC is dit bijna alles.
+   */
+  alreadyDone: string[];
+  /**
    * Stores die na afloop nog steeds geen cijfers op het bord hebben terwijl ze
    * die wel hoorden te krijgen. Gevuld door de eindcontrole, die het bord
    * opnieuw leest in plaats van de tellers te geloven.
@@ -1718,24 +1782,57 @@ export async function run(today?: Date): Promise<SyncSummary> {
     log.warning('DRY RUN -- er wordt niets naar Monday geschreven.');
   }
 
-  const connected = await connectedAdAccountIds();
-  if (connected !== null) {
-    log.info(`${connected.size} gekoppelde ad accounts bekend in het dashboard`);
-  }
 
   let ok = 0;
   const spendOnly: string[] = [];
   const notConnected: string[] = [];
   const failed: string[] = [];
   const currencyMismatch: string[] = [];
+  const alreadyDone: string[] = [];
+  // De drie vaste vragen tegelijk. Ze hangen niet van elkaar af, en samen waren
+  // ze het grootste deel van de doorlooptijd: de koppelingenquery haalt zijn
+  // antwoord uit de dashboard-database, de andere twee uit Monday.
+  // connectedAdAccountIds() gebruikt dashboardLinks() en zet daarmee de cache,
+  // dus de aanroep eronder is gratis.
+  const [connected, clientRows, subitems] = await Promise.all([
+    connectedAdAccountIds(),
+    loadClients(),
+    // Eén board-brede lezing in plaats van één call per store; zie de
+    // toelichting bij loadAllWeekSubitems(). Faalt dit, dan faalt de hele run.
+    loadAllWeekSubitems(),
+  ]);
+  if (connected !== null) {
+    log.info(`${connected.size} gekoppelde ad accounts bekend in het dashboard`);
+  }
   const links = await dashboardLinks();
-  const clients = (await loadClients()).filter((client) => client.active);
+  const clients = clientRows.filter((client) => client.active);
+  const weekKey = `${isoDate(start)} - ${isoDate(end)}`;
 
-  // Eén board-brede lezing in plaats van één call per store; zie de toelichting
-  // bij loadAllWeekSubitems(). Faalt dit, dan faalt de hele run zichtbaar.
-  const subitems = await loadAllWeekSubitems();
+  // BEVROREN STORES ERUIT VÓÓR DE PINTEREST-CALL
+  // --------------------------------------------
+  // writeWeek() herkent een al gevulde weekregel ook zelf, maar dan is het
+  // rapport al opgehaald -- en juist die call is per store het duurst. Zolang de
+  // run in één keer slaagt maakt dat niets uit, maar het maakt een herhaalrun
+  // bijna gratis: de tweede run van maandag (12:30 UTC) hoeft alleen nog de
+  // stores te doen die de eerste run niet haalde. Zonder deze filter zou die
+  // herhaling dezelfde ~30s aan Pinterest-calls doen als de eerste en dus even
+  // hard tegen de tijdslimiet aanlopen.
+  const todo: ClientConfig[] = [];
+  for (const client of clients) {
+    const hit = subitems.get(String(client.mondayItemId))?.weeks[weekKey];
+    if (hit && !REVISE_AFTER_WINDOW_CLOSES && isAlreadySynced(hit, isSpendOnly(client))) {
+      alreadyDone.push(client.storeName);
+      continue;
+    }
+    todo.push(client);
+  }
+  if (alreadyDone.length) {
+    log.info(
+      `${alreadyDone.length} van de ${clients.length} stores stonden al gevuld -- overgeslagen`,
+    );
+  }
 
-  await inBatches(clients, SYNC_BATCH, async (client) => {
+  await inBatches(todo, SYNC_BATCH, async (client) => {
     // Vooraf filteren als het dashboard kan vertellen wat gekoppeld is.
     if (connected !== null && !connected.has(client.pinterestAdAccountId)) {
       notConnected.push(client.storeName);
@@ -1797,7 +1894,10 @@ export async function run(today?: Date): Promise<SyncSummary> {
     }
   });
 
-  log.info(`Klaar: ${ok} weggeschreven, ${failed.length} gefaald`);
+  log.info(
+    `Klaar: ${ok} weggeschreven, ${failed.length} gefaald, ` +
+      `${alreadyDone.length} stonden al gevuld`,
+  );
   if (spendOnly.length) {
     log.info(`REVENUE HANDMATIG AANVULLEN: ${spendOnly.join(', ')}`);
   }
@@ -1833,7 +1933,7 @@ export async function run(today?: Date): Promise<SyncSummary> {
   if (DRY_RUN) {
     log.info('EINDCONTROLE overgeslagen (dry run)');
   } else {
-    const key = `${isoDate(start)} - ${isoDate(end)}`;
+    const key = weekKey;
     const naSync = await loadAllWeekSubitems();
     const overgeslagen = new Set([...notConnected, ...failed]);
 
@@ -1865,17 +1965,135 @@ export async function run(today?: Date): Promise<SyncSummary> {
   // eindigt met ok:true en dan zag je in de logs nooit dat er drie stores geen
   // cijfers kregen -- dezelfde stille storing als de seed van 17-08-2026, alleen
   // kleiner.
-  return { ok, failed, spendOnly, notConnected, currencyMismatch, missing };
+  return { ok, failed, spendOnly, notConnected, currencyMismatch, alreadyDone, missing };
+}
+
+// ---------------------------------------------------------------------------
+// 7. LOSSE EINDCONTROLE (cron weekly-update-check, maandag 13:00 UTC)
+// ---------------------------------------------------------------------------
+
+export interface WeekCheck {
+  /** 'YYYY-MM-DD - YYYY-MM-DD' van de week die gecontroleerd is. */
+  week: string;
+  /** Aantal stores in de actieve groep op het klantbord. */
+  total: number;
+  /**
+   * Gekoppelde stores zonder cijfers. Dit hoort de sync gedaan te hebben, dus
+   * dit is een storing.
+   */
+  missing: string[];
+  /**
+   * Stores zonder weekregel voor die week. Twee oorzaken, allebei het melden
+   * waard: de seed van 01:00 is niet afgemaakt, of de store is ná die maandag
+   * geonboard. In beide gevallen is er geen regel waar de klantupdate in kan.
+   */
+  noRow: string[];
+  /**
+   * Nog niet gekoppelde stores zonder cijfers. Normaal tot de koppeling er is;
+   * die vult iemand met de hand. Wordt alleen meegestuurd als er toch al een
+   * melding uitgaat.
+   */
+  manual: string[];
+}
+
+/**
+ * Kijkt of de weekregels van vorige week gevuld zijn. Schrijft niets.
+ *
+ * WAAROM DIT EEN APARTE CRON IS EN NIET HET EINDE VAN DE SYNC
+ * -----------------------------------------------------------
+ * De sync heeft zelf ook een eindcontrole, en die is nuttig: hij kijkt naar het
+ * bord in plaats van naar zijn eigen tellers. Maar hij draait aan het eind van
+ * de run die hij controleert, en dat is precies het geval dat we willen vangen:
+ * wordt de run afgekapt (17-08-2026: 13 van de 37 stores, rond een minuut), dan
+ * wordt die controle nooit bereikt en blijft Slack stil. Stilte als storings-
+ * signaal werkt alleen als er iemand naar de logs kijkt.
+ *
+ * Deze controle draait daarom in een eigen invocatie, een uur later. Hij doet
+ * vier calls (klantbord + drie pagina's subitems) en is binnen ~5 seconden
+ * klaar, dus hij kán niet in dezelfde limiet lopen. Wat hij ziet is de enige
+ * vraag die telt: staan de cijfers op het bord?
+ */
+export async function checkWeekFilled(today?: Date): Promise<WeekCheck> {
+  const day = today ?? todayUtc();
+  const { start, end } = previousFullWeek(day);
+  const week = `${isoDate(start)} - ${isoDate(end)}`;
+  log.info(`Controle van week ${week}`);
+
+  const [rows, subitems, connected] = await Promise.all([
+    loadActiveClientRows(),
+    loadAllWeekSubitems(),
+    // Een ad account ID op het bord betekent nog niet dat de koppeling werkt:
+    // het dashboard weet welke accounts echt gekoppeld zijn. Zonder die vraag
+    // meldt deze controle elke maandag de stores die net geonboard zijn en
+    // waarvan het ID al wel ingevuld staat -- en dan is het kanaal binnen een
+    // maand niets meer waard.
+    connectedAdAccountIds(),
+  ]);
+
+  const missing: string[] = [];
+  const noRow: string[] = [];
+  const manual: string[] = [];
+
+  // Alles ná zondag 23:59 UTC van de gecontroleerde week. Een store die pas
+  // daarna op het bord kwam hoort geen weekregel te hebben: er valt niets over
+  // te rapporteren. Zonder deze grens meldt de controle elke store die
+  // doordeweeks geonboard wordt (Morenzio.com op 17-08, Nora Winslow op 22-08),
+  // en dat is geen storing maar groei.
+  const cutoff = addDays(end, 1).getTime();
+  let tooNew = 0;
+
+  for (const row of rows) {
+    const hit = subitems.get(String(row.mondayItemId))?.weeks[week];
+    if (!hit) {
+      if (Date.parse(row.createdAt) >= cutoff) {
+        tooNew += 1;
+        continue;
+      }
+      noRow.push(row.storeName);
+      continue;
+    }
+    if (isAlreadySynced(hit, isSpendOnlyLabel(row.attributionLabel))) {
+      continue;
+    }
+    // Zonder werkende koppeling kan de sync er niets aan doen; dat is handwerk.
+    const automatable =
+      row.adAccountId !== '' &&
+      (connected === null || connected.has(row.adAccountId));
+    if (automatable) {
+      missing.push(row.storeName);
+    } else {
+      manual.push(row.storeName);
+    }
+  }
+
+  log.info(
+    `${rows.length} actieve stores: ${missing.length} zonder cijfers, ` +
+      `${noRow.length} zonder weekregel, ${manual.length} handmatig nog leeg` +
+      (tooNew ? `, ${tooNew} pas na deze week geonboard` : ''),
+  );
+  if (missing.length) {
+    log.error(`GEEN CIJFERS: ${missing.join(', ')}`);
+  }
+  if (noRow.length) {
+    log.error(`GEEN WEEKREGEL: ${noRow.join(', ')}`);
+  }
+  if (manual.length) {
+    log.info(`HANDMATIG NOG LEEG: ${manual.join(', ')}`);
+  }
+
+  return { week, total: rows.length, missing, noRow, manual };
 }
 
 // Alleen draaien wanneer dit bestand direct wordt aangeroepen.
-// `... weekly-update-sync.ts seed` draait de 01:00-seed, zonder argument de
-// 12:00-sync.
+// `... weekly-update-sync.ts seed`  -> de seed van 01:00 UTC
+// `... weekly-update-sync.ts check` -> de losse eindcontrole van 13:00 UTC
+// zonder argument                   -> de sync van 12:00 UTC
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '')) {
-  const seedMode = process.argv[2] === 'seed';
-  const main = seedMode ? runSeed : run;
+  const mode = process.argv[2] ?? 'sync';
+  const main =
+    mode === 'seed' ? runSeed : mode === 'check' ? checkWeekFilled : run;
   main().catch((e) => {
-    log.exception(seedMode ? 'Seed gefaald' : 'Sync gefaald', e);
+    log.exception(`${mode} gefaald`, e);
     process.exit(1);
   });
 }

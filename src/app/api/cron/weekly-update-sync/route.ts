@@ -19,11 +19,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { alertCronFailure } from "@/lib/alerts";
 
-// LET OP: deze 300 is niet wat je in de praktijk krijgt. Ze is ooit gekozen op
-// een lokale meting van ~2 minuten over 47 stores, maar op 17-08-2026 12:00 UTC
+// LET OP: deze 300 is niet wat je in de praktijk krijgt. Op 17-08-2026 12:00 UTC
 // stopte de run na 13 van de 37 stores -- rond een minuut, net als de seed die
-// een week eerder na 18 van de 49 stopte. run() rekent daarom met ~60s en
-// verwerkt de stores in batches (SYNC_BATCH); reken hier niet op meer.
+// een week eerder na 18 van de 49 stopte. run() rekent daarom met ~60s: stores
+// in batches (SYNC_BATCH), de vaste vragen parallel, en de bevroren stores
+// eruit vóór de Pinterest-call. Reken hier niet op meer dan die minuut, en zie
+// de tweede cron (weekly-update-sync-retry) voor het vangnet eromheen.
 export const maxDuration = 300;
 
 function verifyCron(request: NextRequest): boolean {
@@ -80,6 +81,7 @@ async function handle(request: NextRequest) {
       ok: summary.missing.length === 0,
       elapsed_ms: Date.now() - started,
       stores_ok: summary.ok,
+      stores_already_done: summary.alreadyDone.length,
       stores_failed: summary.failed,
       stores_missing: summary.missing,
     });
