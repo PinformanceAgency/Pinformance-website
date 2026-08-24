@@ -66,7 +66,7 @@ export default async function ClientLayout({
         </div>
       ) : (
         <>
-          <ClientTabs orgId={orgId} />
+          <ClientTabs orgId={orgId} phases={header.phases} />
           <div>{children}</div>
         </>
       )}

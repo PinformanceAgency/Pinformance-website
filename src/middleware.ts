@@ -15,6 +15,10 @@ const ONBOARDING_HOSTNAMES = new Set([
 
 const ORGANIC_HOSTNAMES = new Set([
   "organic.pinformance-agency.com",
+  // Local development: `organic.localhost:3000` resolves to 127.0.0.1 in
+  // every modern browser, so the organic app is reachable locally on the
+  // same rewrite path production uses.
+  "organic.localhost",
 ]);
 
 /**

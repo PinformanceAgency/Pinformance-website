@@ -150,7 +150,7 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
       label: `${stalled.rowCount} cycle(s) stalled mid-waterfall`,
       count: stalled.rowCount ?? 0,
       detail: stalled.rows.slice(0, 5).map((r) => `${r.url_name ?? "(url gone)"} — status ${r.status} since ${r.start_date}`),
-      fix_href: `cycles`,
+      fix_href: `phase/4`,
       severity: "high",
     });
   }

@@ -67,8 +67,8 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
                 </div>
               ))}
             </div>
-            <Link href={`/client/${orgId}/tasks`} className="mt-3 inline-block text-xs font-medium text-primary hover:underline">
-              Open tasks →
+            <Link href={`/client/${orgId}/phase/1`} className="mt-3 inline-block text-xs font-medium text-primary hover:underline">
+              Open phase 1 →
             </Link>
           </div>
         </section>
@@ -78,7 +78,7 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
       <section>
         <h2 className="text-sm font-semibold text-foreground mb-2 flex items-baseline justify-between">
           <span>Active cycles <span className="text-muted-foreground font-normal">({cycles.length})</span></span>
-          <Link href={`/client/${orgId}/cycles`} className="text-xs font-medium text-primary hover:underline">Open cycles →</Link>
+          <Link href={`/client/${orgId}/phase/4`} className="text-xs font-medium text-primary hover:underline">Open phase 4 →</Link>
         </h2>
         {cycles.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-xs text-muted-foreground text-center">
