@@ -4,6 +4,7 @@ import { loadClientHeader } from "@/lib/organic/queries";
 import { loadLeaks, type Leak } from "@/lib/organic/workspace";
 import { loadCyclesForOrg } from "@/lib/organic/phase4";
 import * as P5 from "@/lib/organic/phase5";
+import { PROVENANCE_LABEL, PROVENANCE_REASON, type ProvenanceState } from "@/lib/organic/provenance";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -13,19 +14,20 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
   const today = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
 
-  const [header, leaks, cycles, baseline, pinterest] = await Promise.all([
+  const [header, leaks, cycles, baseline, pinterest, setup] = await Promise.all([
     loadClientHeader(orgId),
     loadLeaks(orgId),
     loadCyclesForOrg(orgId),
     P5.loadBaseline(orgId),
     P5.fetchOrganicAnalytics(orgId, from, today),
+    P5.loadSetupState(orgId, from, today),
   ]);
 
   const overallPct = header?.phases.length
     ? Math.round(header.phases.reduce((s, p) => s + p.pct_done, 0) / header.phases.length)
     : 0;
   const onboardingDone = header?.phases.slice(0, 3).every((p) => p.pct_done === 100) ?? false;
-  const deltas = P5.computeDeltas(baseline, pinterest.totals);
+  const deltas = P5.computeDeltas(baseline, pinterest.totals, setup);
 
   return (
     <div className="space-y-6">
@@ -161,21 +163,44 @@ function LeakCard({ orgId, leak }: { orgId: string; leak: Leak }) {
   );
 }
 
+/** Renders one figure with its provenance. A value that could not be
+ *  measured shows an em dash and the reason — never a zero. A comparison
+ *  is drawn only when both sides are real. */
 function KpiCard({ d }: { d: import("@/lib/organic/phase5").DeltaRow }) {
-  const trend = d.delta == null ? null : d.delta > 0 ? "up" : d.delta < 0 ? "down" : "flat";
+  const hasDelta = d.delta != null && d.delta_pct != null;
+  const trend = !hasDelta ? null : d.delta! > 0 ? "up" : d.delta! < 0 ? "down" : "flat";
+  const missing = d.current == null;
+  const reason = missing || !hasDelta
+    ? PROVENANCE_REASON[(d.delta_suppressed_because ?? d.state) as ProvenanceState]
+    : undefined;
+
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{d.name}</div>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className="text-lg font-semibold text-foreground tabular-nums">{d.current == null ? "—" : d.current.toLocaleString()}</span>
-        {trend && (
-          <span className={cn("text-xs tabular-nums flex items-center gap-0.5", trend === "up" ? "text-emerald-700" : trend === "down" ? "text-red-600" : "text-muted-foreground")}>
-            {trend === "up" ? <TrendingUp className="w-3 h-3" /> : trend === "down" ? <TrendingDown className="w-3 h-3" /> : null}
-            {d.delta_pct != null ? `${d.delta_pct > 0 ? "+" : ""}${d.delta_pct}%` : ""}
+    <div className="rounded-lg border border-border bg-card p-3" title={reason}>
+      <div className="flex items-baseline justify-between gap-1">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{d.name}</span>
+        {d.state !== "LIVE" && (
+          <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 shrink-0">
+            {PROVENANCE_LABEL[d.state as ProvenanceState]}
           </span>
         )}
       </div>
-      <div className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">baseline {d.baseline?.toLocaleString() ?? "—"}</div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className={cn("text-lg font-semibold tabular-nums", missing ? "text-muted-foreground/50" : "text-foreground")}>
+          {missing ? "—" : d.current!.toLocaleString()}
+        </span>
+        {trend && (
+          <span className={cn("text-xs tabular-nums flex items-center gap-0.5",
+            trend === "up" ? "text-emerald-700" : trend === "down" ? "text-red-600" : "text-muted-foreground")}>
+            {trend === "up" ? <TrendingUp className="w-3 h-3" /> : trend === "down" ? <TrendingDown className="w-3 h-3" /> : null}
+            {d.delta_pct! > 0 ? "+" : ""}{d.delta_pct}%
+          </span>
+        )}
+      </div>
+      <div className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">
+        {d.baseline != null
+          ? `baseline ${d.baseline.toLocaleString()}`
+          : <span className="text-muted-foreground/70">no baseline</span>}
+      </div>
     </div>
   );
 }

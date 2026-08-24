@@ -17,7 +17,7 @@ export default async function AnalyticsPage({
   const to = sp.to ?? new Date().toISOString().slice(0, 10);
   const from = sp.from ?? new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
 
-  const [header, pinterest, baseline, byReason, byKeyword, byBreadth, ads] = await Promise.all([
+  const [header, pinterest, baseline, byReason, byKeyword, byBreadth, ads, setup] = await Promise.all([
     loadClientHeader(orgId),
     P5.fetchOrganicAnalytics(orgId, from, to),
     P5.loadBaseline(orgId),
@@ -25,10 +25,11 @@ export default async function AnalyticsPage({
     P5.byKeyword(orgId, from, to),
     P5.byBoardBreadth(orgId, from, to),
     P5.surfaceAdsCandidates(orgId, from, to, 5),
+    P5.loadSetupState(orgId, from, to),
   ]);
   if (!header) notFound();
 
-  const deltas = P5.computeDeltas(baseline, pinterest.totals);
+  const deltas = P5.computeDeltas(baseline, pinterest.totals, setup);
 
   return (
     <div className="space-y-4">

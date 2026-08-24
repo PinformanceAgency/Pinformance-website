@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { AdsCandidate, AnalyticsFetch, BaselineRow, DeltaRow, FeedbackAggregate } from "@/lib/organic/phase5";
+import { PROVENANCE_LABEL, PROVENANCE_REASON, type ProvenanceState } from "@/lib/organic/provenance";
 
 export function AnalyticsPanel({
   orgId, from, to, pinterest, baseline, deltas,
@@ -48,36 +49,31 @@ export function AnalyticsPanel({
       )}
 
       {/* KPI deltas — the "movement, not absolute numbers" view */}
-      <Section title="13 KPIs vs P1.2.13 baseline">
-        {baseline == null ? (
-          <div className="text-xs text-neutral-500">No baseline captured yet. Complete P1.2.13 first.</div>
-        ) : (
-          <div className="rounded-md border border-neutral-200 bg-white overflow-hidden">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-500">
-                  <th className="py-1.5 px-3 font-medium">KPI</th>
-                  <th className="py-1.5 px-3 font-medium text-right">Baseline</th>
-                  <th className="py-1.5 px-3 font-medium text-right">Current</th>
-                  <th className="py-1.5 px-3 font-medium text-right">Δ</th>
-                  <th className="py-1.5 px-3 font-medium text-right">Δ %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deltas.map((d) => (
-                  <tr key={d.name} className="border-b border-neutral-100 last:border-b-0">
-                    <td className="py-1 px-3">{d.name}</td>
-                    <td className="py-1 px-3 text-right tabular-nums text-neutral-500">{fmt(d.baseline)}</td>
-                    <td className="py-1 px-3 text-right tabular-nums">{fmt(d.current)}</td>
-                    <td className={`py-1 px-3 text-right tabular-nums font-medium ${deltaColor(d.delta)}`}>{fmtSigned(d.delta)}</td>
-                    <td className={`py-1 px-3 text-right tabular-nums ${deltaColor(d.delta_pct)}`}>{d.delta_pct == null ? "—" : `${d.delta_pct}%`}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* Hard metrics — results. These carry the retainer, so they sit
+          first and separate. Impressions are not results and must not
+          share this table. */}
+      <Section title="Results vs P1.2.13 baseline">
+        {baseline == null && (
+          <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+            No phase-1 baseline captured, so nothing here can be compared against a starting point. Comparisons are suppressed rather than invented — complete P1.2.13 to enable them.
           </div>
         )}
+        <DeltaTable rows={deltas.filter((d) => d.tier === "hard")} />
       </Section>
+
+      {/* Soft metrics — distribution and reach. Real, but not results.
+          Collapsed and lower-contrast by design. */}
+      <details className="group">
+        <summary className="cursor-pointer text-sm font-semibold text-neutral-600 hover:text-neutral-900 mb-2">
+          Distribution &amp; reach
+          <span className="ml-2 text-[11px] font-normal text-neutral-400">
+            impressions, engagement, save rate — not results
+          </span>
+        </summary>
+        <div className="opacity-80">
+          <DeltaTable rows={deltas.filter((d) => d.tier === "soft")} />
+        </div>
+      </details>
 
       {/* Feedback loop — the part that matters */}
       <Section title="Feedback loop — what actually drove clicks + saves">
@@ -130,6 +126,55 @@ export function AnalyticsPanel({
           </pre>
         </details>
       )}
+    </div>
+  );
+}
+
+/** One table of figures, each carrying its provenance. A value that could
+ *  not be measured renders as an em dash with the reason on hover — never
+ *  as zero, because zero is a measurement and missing is not. */
+function DeltaTable({ rows }: { rows: DeltaRow[] }) {
+  if (rows.length === 0) return <div className="text-xs text-neutral-500">Nothing to show.</div>;
+  return (
+    <div className="rounded-md border border-neutral-200 bg-white overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-500">
+            <th className="py-1.5 px-3 font-medium">KPI</th>
+            <th className="py-1.5 px-3 font-medium text-right">Baseline</th>
+            <th className="py-1.5 px-3 font-medium text-right">Current</th>
+            <th className="py-1.5 px-3 font-medium text-right">Δ</th>
+            <th className="py-1.5 px-3 font-medium text-right">Δ %</th>
+            <th className="py-1.5 px-3 font-medium">Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((d) => {
+            const missing = d.current == null;
+            const hasDelta = d.delta != null && d.delta_pct != null;
+            const why = PROVENANCE_REASON[(d.delta_suppressed_because ?? d.state) as ProvenanceState];
+            return (
+              <tr key={d.name} className="border-b border-neutral-100 last:border-b-0">
+                <td className="py-1 px-3">{d.name}</td>
+                <td className="py-1 px-3 text-right tabular-nums text-neutral-500">{fmt(d.baseline)}</td>
+                <td className={`py-1 px-3 text-right tabular-nums ${missing ? "text-neutral-400" : ""}`} title={missing ? why : undefined}>
+                  {fmt(d.current)}
+                </td>
+                <td className={`py-1 px-3 text-right tabular-nums font-medium ${hasDelta ? deltaColor(d.delta) : "text-neutral-300"}`}>
+                  {hasDelta ? fmtSigned(d.delta) : "—"}
+                </td>
+                <td className={`py-1 px-3 text-right tabular-nums ${hasDelta ? deltaColor(d.delta_pct) : "text-neutral-300"}`}
+                    title={!hasDelta ? why : undefined}>
+                  {hasDelta ? `${d.delta_pct}%` : "—"}
+                </td>
+                <td className="py-1 px-3 text-[10px] text-neutral-400 uppercase tracking-wide" title={why}>
+                  {d.state === "LIVE" ? "" : PROVENANCE_LABEL[d.state as ProvenanceState]}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

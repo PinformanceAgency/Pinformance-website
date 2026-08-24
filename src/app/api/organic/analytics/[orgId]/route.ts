@@ -13,20 +13,22 @@ export async function GET(
   const to = url.searchParams.get("to") ?? new Date().toISOString().slice(0, 10);
   const from = url.searchParams.get("from") ?? new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   try {
-    const [pinterest, baseline, reason, keyword, breadth, ads] = await Promise.all([
+    const [pinterest, baseline, reason, keyword, breadth, ads, setup] = await Promise.all([
       P5.fetchOrganicAnalytics(orgId, from, to),
       P5.loadBaseline(orgId),
       P5.byReason(orgId, from, to),
       P5.byKeyword(orgId, from, to),
       P5.byBoardBreadth(orgId, from, to),
       P5.surfaceAdsCandidates(orgId, from, to, 5),
+      P5.loadSetupState(orgId, from, to),
     ]);
     return NextResponse.json({
       ok: true,
       from, to,
       pinterest,
       baseline,
-      deltas: P5.computeDeltas(baseline, pinterest.totals),
+      setup,
+      deltas: P5.computeDeltas(baseline, pinterest.totals, setup),
       feedback: { by_reason: reason, by_keyword: keyword, by_board_breadth: breadth },
       ads_candidates: ads,
     });

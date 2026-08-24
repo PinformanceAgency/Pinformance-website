@@ -36,7 +36,9 @@ interface ProgressRow {
   phase: number;
   total_tasks: number | string;
   done_tasks: number | string;
+  skipped_tasks: number | string;
   blocked_tasks: number | string;
+  outstanding_tasks: number | string;
   pct_done: number | string | null;
 }
 
@@ -48,7 +50,7 @@ function n(v: unknown): number {
 export async function loadClientList(): Promise<ClientListRow[]> {
   const pool = organicPool();
 
-  const [orgsRes, setRes, progRes] = await Promise.all([
+  const [orgsRes, setRes, progRes, cycleRes] = await Promise.all([
     pool.query<OrgRow>(`SELECT id::text, name FROM public.organizations ORDER BY name`),
     pool.query<SettingsRow>(
       `SELECT org_id::text, engagement_status::text AS engagement_status,
@@ -57,8 +59,14 @@ export async function loadClientList(): Promise<ClientListRow[]> {
          FROM organic.client_settings`
     ),
     pool.query<ProgressRow>(
-      `SELECT org_id::text, phase, total_tasks, done_tasks, blocked_tasks, pct_done
+      `SELECT org_id::text, phase, total_tasks, done_tasks, skipped_tasks,
+              blocked_tasks, outstanding_tasks, pct_done
          FROM organic.client_progress`
+    ),
+    pool.query<{ org_id: string; n: number }>(
+      `SELECT org_id::text, COUNT(DISTINCT cycle)::int AS n
+         FROM organic.client_tasks
+        WHERE cycle IS NOT NULL GROUP BY org_id`
     ),
   ]);
 
@@ -69,23 +77,31 @@ export async function loadClientList(): Promise<ClientListRow[]> {
     arr.push(p);
     progressByOrg.set(p.org_id, arr);
   }
+  const cyclesByOrg = new Map<string, number>(cycleRes.rows.map((r) => [r.org_id, r.n]));
 
   const rows: ClientListRow[] = [];
   for (const o of orgsRes.rows) {
     const s = settingsByOrg.get(o.id);
     const phases = (progressByOrg.get(o.id) ?? []).sort((a, b) => a.phase - b.phase);
 
-    const total = phases.reduce((sum, p) => sum + n(p.total_tasks), 0);
-    const done = phases.reduce((sum, p) => sum + n(p.done_tasks), 0);
-    const blocked = phases.reduce((sum, p) => sum + n(p.blocked_tasks), 0);
+    // Onboarding completion is phases 1–3 ONLY. The previous version summed
+    // all five phases, mixing one-time onboarding with recurring cycle work
+    // into an average that disagreed with the client detail page and told
+    // the manager nothing on either surface.
+    const onboarding = phases.filter((p) => p.phase <= 3);
+    const total   = onboarding.reduce((sum, p) => sum + n(p.total_tasks), 0);
+    const done    = onboarding.reduce((sum, p) => sum + n(p.done_tasks), 0);
+    const skipped = onboarding.reduce((sum, p) => sum + n(p.skipped_tasks), 0);
+    const blocked = onboarding.reduce((sum, p) => sum + n(p.blocked_tasks), 0);
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
-    const inProgress = phases.find((p) => n(p.pct_done) < 100);
-    const currentPhase = inProgress
-      ? inProgress.phase
-      : phases.length > 0
-      ? phases[phases.length - 1].phase
-      : null;
+    const onboardingComplete = total > 0 && onboarding.every((p) => n(p.pct_done) >= 100);
+
+    // The phase the manager should open next: the first of phases 1–3 that
+    // still has outstanding work. Once onboarding is done there is no
+    // "current phase" — the store is in recurring management.
+    const nextOpen = onboarding.find((p) => n(p.outstanding_tasks) > 0);
+    const currentPhase = nextOpen ? nextOpen.phase : onboardingComplete ? null : (onboarding[0]?.phase ?? null);
 
     rows.push({
       org_id: o.id,
@@ -100,6 +116,10 @@ export async function loadClientList(): Promise<ClientListRow[]> {
       pct_done: pct,
       blocked_tasks: blocked,
       total_tasks: total,
+      done_tasks: done,
+      skipped_tasks: skipped,
+      onboarding_complete: onboardingComplete,
+      active_cycles: cyclesByOrg.get(o.id) ?? 0,
     });
   }
 
@@ -119,7 +139,8 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
       [orgId]
     ),
     pool.query<ProgressRow>(
-      `SELECT org_id::text, phase, total_tasks, done_tasks, blocked_tasks, pct_done
+      `SELECT org_id::text, phase, total_tasks, done_tasks, skipped_tasks,
+              blocked_tasks, outstanding_tasks, pct_done
          FROM organic.client_progress WHERE org_id = $1`,
       [orgId]
     ),
@@ -132,7 +153,9 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
       phase: p.phase,
       total_tasks: n(p.total_tasks),
       done_tasks: n(p.done_tasks),
+      skipped_tasks: n(p.skipped_tasks),
       blocked_tasks: n(p.blocked_tasks),
+      outstanding_tasks: n(p.outstanding_tasks),
       pct_done: Math.round(n(p.pct_done)),
     }))
     .sort((a, b) => a.phase - b.phase);

@@ -13,6 +13,10 @@
 import { organicPool } from "./db";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
+import {
+  figure, stateForPinterestMetric, stateForConversionMetric,
+  type ProvenanceState, type SetupState,
+} from "./provenance";
 
 // ---------- Pinterest fetch --------------------------------------------------
 
@@ -207,32 +211,111 @@ async function seedBaselineFromP1_2_13(orgId: string): Promise<BaselineRow | nul
   return loadBaseline(orgId);
 }
 
-export interface DeltaRow { name: string; baseline: number | null; current: number | null; delta: number | null; delta_pct: number | null }
+export interface DeltaRow {
+  name: string;
+  baseline: number | null;
+  current: number | null;
+  delta: number | null;
+  delta_pct: number | null;
+  /** Provenance — what state this figure is in and, when the comparison is
+   *  suppressed, why. Never render a DeltaRow without reading these. */
+  state: ProvenanceState;
+  delta_suppressed_because: ProvenanceState | null;
+  /** Hard metrics sit at the top of the client report at headline size;
+   *  soft metrics collapse into "Distribution & reach". */
+  tier: "hard" | "soft";
+}
 
-/** Build the delta table by subtracting current totals from baseline. Only
- *  KPIs present in both sides are shown. */
-export function computeDeltas(baseline: BaselineRow | null, current: Record<string, number> | null): DeltaRow[] {
+/** Determine, once per report render, what can be trusted for this org.
+ *  Every figure in a family then agrees on its provenance rather than each
+ *  call site guessing. */
+export async function loadSetupState(orgId: string, from: string, to: string): Promise<SetupState> {
+  const pool = organicPool();
+  const [baseRow, tagRow, ga4Row] = await Promise.all([
+    pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM organic.baseline_kpis
+        WHERE org_id = $1 AND period = 'last_30d' AND impressions IS NOT NULL`, [orgId]),
+    // P1.3.3 verifies the Pinterest tag fires PageVisit / AddToCart / Checkout.
+    // Until that task is DONE we must not present conversion figures at all.
+    pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM organic.client_tasks
+        WHERE org_id = $1 AND task_id = 'P1.3.3' AND status = 'DONE'::organic.task_status`, [orgId]),
+    pool.query<{ ga4: boolean }>(
+      `SELECT COALESCE(ga4_access, false) AS ga4 FROM organic.client_access WHERE org_id = $1`, [orgId]),
+  ]);
+
+  // Pinterest keeps aggregating for roughly 48h; a range ending inside that
+  // window is still moving and must not be compared to a settled month.
+  const endMs = new Date(to + "T00:00:00Z").getTime();
+  const daysSinceEnd = (Date.now() - endMs) / 86_400_000;
+  const spanDays = (endMs - new Date(from + "T00:00:00Z").getTime()) / 86_400_000;
+
+  return {
+    has_baseline: baseRow.rows[0].n > 0,
+    conversion_tag_firing: tagRow.rows[0].n > 0,
+    ga4_connected: ga4Row.rows[0]?.ga4 ?? false,
+    period_is_partial: spanDays < 28,
+    period_still_processing: daysSinceEnd < 2,
+  };
+}
+
+/** Build the comparison table. Every row carries provenance; a row whose
+ *  value could not be measured renders as an em dash rather than zero, and
+ *  a comparison against an absent baseline is not computed at all. */
+export function computeDeltas(
+  baseline: BaselineRow | null,
+  current: Record<string, number> | null,
+  setup?: SetupState
+): DeltaRow[] {
   if (!current) return [];
   const b = baseline;
-  const map: Array<[string, number | null, string]> = [
-    ["Impressions",     b?.impressions ?? null,     "IMPRESSION"],
-    ["Engagements",     b?.engagements ?? null,     "ENGAGEMENT"],
-    ["Outbound clicks", b?.outbound_clicks ?? null, "OUTBOUND_CLICK"],
-    ["Pin saves",       b?.pin_saves ?? null,       "SAVE"],
-    ["Pin clicks",      null,                       "PIN_CLICK"],
-    ["Engagement rate", b?.engagement_rate ?? null, "ENGAGEMENT_RATE"],
-    ["Save rate",       null,                       "SAVE_RATE"],
+  const s: SetupState = setup ?? {
+    has_baseline: b != null, conversion_tag_firing: true, ga4_connected: true,
+    period_is_partial: false, period_still_processing: false,
+  };
+
+  const pinterestState  = stateForPinterestMetric(s);
+  const conversionState = stateForConversionMetric(s);
+
+  // [label, baseline value, Pinterest metric key, tier, family]
+  const map: Array<[string, number | null, string, "hard" | "soft", "pinterest" | "conversion"]> = [
+    // Hard — results. These carry the retainer.
+    ["Outbound clicks", b?.outbound_clicks ?? null, "OUTBOUND_CLICK", "hard", "pinterest"],
+    ["Pin saves",       b?.pin_saves ?? null,       "SAVE",           "hard", "pinterest"],
+    ["Page visits",     b?.page_visits ?? null,     "PAGE_VISIT",     "hard", "conversion"],
+    ["Add to cart",     b?.add_to_cart ?? null,     "ADD_TO_CART",    "hard", "conversion"],
+    ["Checkouts",       b?.checkouts ?? null,       "CHECKOUT",       "hard", "conversion"],
+    ["Conversions",     b?.conversions ?? null,     "CONVERSIONS",    "hard", "conversion"],
+    ["Revenue",         b?.revenue ?? null,         "REVENUE",        "hard", "conversion"],
+    // Soft — distribution and reach. Real, but not results.
+    ["Impressions",     b?.impressions ?? null,     "IMPRESSION",     "soft", "pinterest"],
+    ["Engagements",     b?.engagements ?? null,     "ENGAGEMENT",     "soft", "pinterest"],
+    ["Pin clicks",      null,                       "PIN_CLICK",      "soft", "pinterest"],
+    ["Engagement rate", b?.engagement_rate ?? null, "ENGAGEMENT_RATE","soft", "pinterest"],
+    ["Save rate",       null,                       "SAVE_RATE",      "soft", "pinterest"],
   ];
+
   const rows: DeltaRow[] = [];
-  for (const [name, baselineVal, currentKey] of map) {
-    const cur = current[currentKey] ?? null;
-    let delta: number | null = null;
-    let deltaPct: number | null = null;
-    if (baselineVal != null && cur != null) {
-      delta = cur - baselineVal;
-      deltaPct = baselineVal !== 0 ? Math.round((delta / baselineVal) * 100) : null;
-    }
-    rows.push({ name, baseline: baselineVal, current: cur, delta, delta_pct: deltaPct });
+  for (const [name, baselineVal, key, tier, family] of map) {
+    const familyState = family === "conversion" ? conversionState : pinterestState;
+
+    // A metric family that cannot be measured is never zero. Without a
+    // firing tag Pinterest reports 0 for every conversion metric, and
+    // showing that to a client states something false.
+    const measurable = family !== "conversion" || s.conversion_tag_firing;
+    const raw = measurable ? (current[key] ?? null) : null;
+
+    const f = figure(raw, s.has_baseline ? baselineVal : null, familyState);
+    rows.push({
+      name,
+      baseline: s.has_baseline ? baselineVal : null,
+      current: f.value,
+      delta: f.delta,
+      delta_pct: f.delta_pct,
+      state: f.state,
+      delta_suppressed_because: f.delta_suppressed_because,
+      tier,
+    });
   }
   return rows;
 }

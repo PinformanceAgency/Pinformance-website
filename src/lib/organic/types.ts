@@ -42,16 +42,30 @@ export interface ClientListRow {
   spacing_hours: number | null;
   daily_pin_target: number | null;
   current_phase: number | null;
+  /** Onboarding completion — phases 1–3 only. Mixing recurring cycle work
+   *  into this average produced a figure that disagreed with the client
+   *  detail page and meant nothing on either. */
   pct_done: number;
   blocked_tasks: number;
   total_tasks: number;
+  done_tasks: number;
+  skipped_tasks: number;
+  /** True once phases 1–3 are fully done — the store has moved from
+   *  onboarding into recurring monthly management. */
+  onboarding_complete: boolean;
+  /** Active phase-4 cycles, the right progress signal post-onboarding. */
+  active_cycles: number;
 }
 
 export interface PhaseProgress {
   phase: number;
   total_tasks: number;
   done_tasks: number;
+  skipped_tasks: number;
   blocked_tasks: number;
+  /** total − done − skipped: work that is genuinely still open. */
+  outstanding_tasks: number;
+  /** DONE only. Skips are reported separately rather than inflating this. */
   pct_done: number;
 }
 
