@@ -100,6 +100,40 @@ The two snapshot crons are load-bearing — most other views are computed from t
 - `benchmarks.ts` — niche/country/self benchmark math
 - `team-activity.ts` — per-store weekly paid + organic activity, cached in `team_activity_cache` table, refreshed by cron
 
+### Organic app (`src/app/organic/**`, `src/lib/organic/**`)
+
+Fifth hostname, `organic.pinformance-agency.com`. Locally it is reachable at
+`http://organic.localhost:3000` — plain `localhost:3000` serves the dashboard,
+so a route tested there is not the route you think you tested.
+
+**All organic tables live in the `organic` Postgres schema, which is NOT exposed
+via PostgREST.** Every read and write goes through `organicPool()` in
+`src/lib/organic/db.ts` (direct `pg`). Do not try to reach it with the Supabase
+JS client — it fails with `PGRST106 Invalid schema: organic`. The pool is held on
+`globalThis` under a `Symbol.for` key, deliberately: a module-level binding leaks
+a fresh pool on every HMR reload until Supabase's session-mode pooler refuses
+connections at 15, and that surfaces as an unrelated 500 on whatever page queried
+next.
+
+Surfaces:
+
+| Route | What it is |
+|---|---|
+| `/` | client list, activate |
+| `/client/[orgId]` | store overview — health, leaks, cycles |
+| `/client/[orgId]/phase/[1-5]` | the SOP made navigable; phase 4 carries cycle operations |
+| `/client/[orgId]/{boards,keywords,urls,assets,analytics}` | the library |
+| `/report/[orgId]` | **the client report — the only shareable surface** |
+| `/agency/{portfolio,execution,margin,risk,method}` | business level |
+
+The client report sits outside `/client/[orgId]` on purpose. That route carries
+the internal workspace chrome, and a document that gets exported to PDF and
+forwarded must not inherit the tool's furniture by accident.
+
+Backend modules: `status.ts` (recompute engine), `viability.ts`, `intake.ts`,
+`phase2-5.ts`, `provenance.ts`, `health.ts`, `workspace.ts`, `report.ts`,
+`internal-analytics.ts`, `agency.ts`, `method.ts`, `expansion.ts`, `ai.ts`.
+
 ### RPCs (server-side aggregation)
 
 Defined in migrations 031-041. Called from `team-activity.ts` via direct pg connection because PostgREST statement_timeout kills heavy queries.
@@ -167,6 +201,35 @@ curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/
   - **The retry at 12:30 UTC is the safety net, not a nicety.** `weekly-update-sync-retry` runs the exact same handler; the freeze rule makes it idempotent, so it does nothing (~8s, zero mutations) when the 12:00 run finished, and picks up exactly the stores it didn't reach when it was cut off. That turns "13 of 37 and silence" into "the rest lands half an hour later", well before the updates go out.
   - The sync at 12:00 UTC only backfills stores **with** an ad account, so a truncated seed leaves the hand-filled stores empty.
 - **Store count is never a constant**: stores are onboarded and offboarded continuously (47 active 14-08-2026, 49 on 16-08-2026). The seed reads the Monday group `topics` raw — deliberately *not* via `loadClients()`, which skips stores without an ad account ID. Those are exactly the freshly onboarded stores that are filled in fully by hand and need the empty row most. Any store count in a comment is a dated snapshot; don't assert on it.
+- **Organic — a missing number is never zero.** `src/lib/organic/provenance.ts`
+  is the contract: a figure that could not be measured is `null` and renders as an
+  em dash with its reason on hover, and a percentage change against an absent
+  baseline is not computed at all. This is why retainer, margin, capacity and
+  committed-pins are blank rather than 0 on the agency screens — a store nobody
+  priced is not a store on nothing, and treating it as zero sorts a healthy
+  account to the top of the loss-making list.
+- **Organic — never call `toLocaleString()` without a locale.** It formats with
+  the Node process locale on the server and the viewer's locale in the browser.
+  That is a hydration mismatch *and* a way for a client and an account manager to
+  read different numbers off the same report. Always `toLocaleString("en-US")`.
+- **Organic — cross-client aggregates are scoped to `organic.client_settings`.**
+  `organic.boards` holds rows for ~50 orgs whose boards were imported by the main
+  dashboard and that never entered the organic workflow. Aggregating over
+  `boards.org_id` reports a 51-store finding from a 1-store book. `method.ts`
+  enforces this, and also refuses to state any conclusion below 3 stores and 20
+  observations.
+- **Organic — cohort before ranking.** Portfolio comparisons are always within a
+  tenure cohort against a fitted trend, never a flat league table. A 15-month
+  store at +96% vs baseline is *underperforming*; a 2-month store at +18% is
+  ahead. A naive ranking inverts both and points attention at the wrong accounts.
+- **Pinterest will not create SECRET boards via API.** `POST /v5/boards` with
+  `privacy:"SECRET"` returns 403 code 29; `PROTECTED` and `PUBLIC` return 201.
+  Isolated by curl outside the client code — it is not a scope or app-tier
+  problem. Migrations 051/052 pivoted the whole board path to `PROTECTED`.
+- **Organic — `waiting_on` is set by a manager, never inferred.** `BLOCKED`
+  status is recomputed from SOP preconditions, which says which task is in the
+  way, not who we are waiting on. An inferred "waiting on client" ends up quoted
+  back to a client in a review, so it has to be true.
 - **Attribution**: default 30/1 (30-day click, 1-day view) unless overridden per-store in `store_settings.attribution_setting`.
 - **Supabase JS pagination**: PostgREST caps responses at 1000 rows. Paginate with `.range(offset, offset + PAGE_SIZE - 1)` in a loop if you might exceed that. Sort DESC by the most-important dimension so a hypothetical truncation drops old data instead of recent.
 
