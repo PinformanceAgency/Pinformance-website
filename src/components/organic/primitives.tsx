@@ -58,7 +58,7 @@ export function Panel({
 }) {
   return (
     <div className={cn(
-      "rounded-md border border-o-hairline",
+      "rounded-lg border border-o-hairline",
       inset ? "bg-o-sunk" : "bg-o-surface",
       className
     )}>

@@ -42,7 +42,7 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
   const nextPhase = onboarding.find((p) => p.outstanding_tasks > 0);
 
   return (
-    <div className="max-w-[1180px]">
+    <div>
       {/* The store name lives in the sidebar switcher now, so this heading
           names the screen rather than repeating the client. */}
       <header className="mb-7">

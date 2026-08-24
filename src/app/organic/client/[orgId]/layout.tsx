@@ -30,8 +30,8 @@ export default async function ClientLayout({
 
   if (!header.activated) {
     return (
-      <div className="max-w-[1180px]">
-        <div className="rounded-md border border-o-hairline bg-o-surface px-6 py-8 max-w-md">
+      <div>
+        <div className="rounded-lg border border-o-hairline bg-o-surface px-6 py-8 max-w-md">
           <h1 className="o-display text-[length:var(--text-o-figure-md)] text-o-ink leading-snug">
             {header.name} is not activated.
           </h1>
@@ -57,7 +57,7 @@ export default async function ClientLayout({
   ];
 
   return (
-    <div className="max-w-[1180px]">
+    <div>
       <dl className="flex flex-wrap gap-x-10 gap-y-3 pb-5 mb-7 border-b border-o-hairline">
         {facts.map(([k, v]) => (
           <div key={k}>

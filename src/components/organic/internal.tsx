@@ -17,7 +17,7 @@ import { DATA_COLORS } from "./charts";
 
 export function Table({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("overflow-x-auto rounded-md border border-o-hairline bg-o-surface", className)}>
+    <div className={cn("overflow-x-auto rounded-lg border border-o-hairline bg-o-surface", className)}>
       <table className="w-full text-[length:var(--text-o-body)] border-collapse">{children}</table>
     </div>
   );
@@ -96,7 +96,7 @@ export function Metric({ label, value, tone }: {
 /** Row of metrics above a working surface. */
 export function Toolbar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-start gap-x-10 gap-y-4 rounded-md border border-o-hairline bg-o-surface px-5 py-3.5 mb-5">
+    <div className="flex flex-wrap items-start gap-x-10 gap-y-4 rounded-lg border border-o-hairline bg-o-surface px-5 py-3.5 mb-5">
       {children}
     </div>
   );

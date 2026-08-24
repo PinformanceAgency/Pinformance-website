@@ -91,12 +91,13 @@ export default async function ClientReportPage({
   const hasResults = measuredMonths.length > 0;
 
   return (
-    // Full-bleed warm ground. The internal tool sits on a cool neutral; the
-    // client surface sits on warm off-white, and that contrast is itself the
-    // signal that you have crossed out of the tool and into the document.
-    // Negative margins escape the workspace padding applied by the layout.
+    // Same ground as every other screen. The report used to sit on a warmer
+    // paper tone to signal "document, not tool"; that is gone, because the
+    // organic app and the dashboard have to be one brand and a second
+    // background colour is the fastest way to look like two products. The
+    // client boundary is carried by the marked banner instead.
     <div className="o-report -mx-8 -my-7 min-h-screen bg-o-canvas px-8 py-9 print:m-0 print:p-0">
-    <div className="mx-auto max-w-[62rem] pb-24">
+    <div className="mx-auto max-w-5xl pb-24">
       {/* ---- client boundary --------------------------------------- */}
       <div className="print:hidden mb-8 flex items-center justify-between gap-4 rounded-md border border-o-accent/25 bg-o-accent/[0.04] px-4 py-2.5">
         <p className="text-[length:var(--text-o-label)] text-o-ink-2">

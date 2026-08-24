@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Paperclip, Plus, ChevronDown, ChevronRight } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { TaskWork } from "../../TaskWork";
 import type { SkipReason, TaskRow, TaskStatus, TaskType, ViabilityRow } from "@/lib/organic/types";
 import type { AssetRow } from "@/lib/organic/workspace";
 import { OWNER_LABEL, phaseMeta } from "@/lib/organic/phase-meta";
@@ -122,7 +123,6 @@ function TaskCard({
   const [expanded, setExpanded] = useState(hasCustomForm && (task.status === "TODO" || task.status === "IN_PROGRESS"));
   const [showSkip, setShowSkip] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
-  const [showDoc, setShowDoc] = useState(false);
   const [, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -197,32 +197,19 @@ function TaskCard({
             </div>
           )}
 
-          {/* Saved documents for this task */}
-          {assets.length > 0 && (
-            <div className="mt-2 space-y-0.5">
-              {assets.map((a) => (
-                <a key={a.id} href={a.url} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1.5 text-[11px] text-primary hover:underline">
-                  <Paperclip className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{a.title}</span>
-                  <span className="text-muted-foreground shrink-0">· {a.uploaded_at.slice(0, 10)}</span>
-                </a>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          <button type="button" onClick={() => setShowDoc((v) => !v)}
-            title="Save a document / URL for this step"
-            className="text-muted-foreground hover:text-primary p-1">
-            <Plus className="w-3.5 h-3.5" />
-          </button>
           <StatusSelect value={task.status} onChange={onStatusPick} disabled={disabled} submitting={submitting} />
+          {/* Labelled, not a bare chevron. This button opens a structured
+              form that writes real records, which is a different promise
+              from "expand a row", and it should say so. */}
           {hasCustomForm && (
             <button type="button" onClick={() => setExpanded((v) => !v)}
-              className="text-muted-foreground hover:text-foreground p-0.5">
-              {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors">
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              {expanded ? "Hide form" : "Fill in details"}
+              {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             </button>
           )}
         </div>
@@ -234,11 +221,18 @@ function TaskCard({
         </div>
       )}
 
-      {showDoc && (
-        <SaveDocInline orgId={orgId} taskId={task.task_id}
-          onDone={() => { setShowDoc(false); startTransition(() => router.refresh()); }}
-          onCancel={() => setShowDoc(false)} />
-      )}
+      {/* Always on screen. A note or a document is the point of most of
+          these steps, and hiding both behind an icon meant the work got
+          written down somewhere else. */}
+      <TaskWork
+        orgId={orgId}
+        clientTaskId={task.client_task_id}
+        taskId={task.task_id}
+        taskName={task.name}
+        notes={task.notes ?? null}
+        assets={assets}
+        readOnly={task.status === "BLOCKED"}
+      />
 
       {expanded && hasCustomForm && (
         <div className="mt-3">
@@ -270,48 +264,6 @@ function TaskCard({
             await patch({ status: "DONE", time_spent_min: minutes, ...(link ? { link } : {}), ...(notes ? { notes } : {}) });
           }} />
       )}
-    </div>
-  );
-}
-
-function SaveDocInline({ orgId, taskId, onDone, onCancel }: { orgId: string; taskId: string; onDone: () => void; onCancel: () => void }) {
-  const [title, setTitle] = useState("");
-  const [url, setUrl] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  async function save() {
-    if (!url.trim()) { setErr("Paste a URL."); return; }
-    setErr(null); setBusy(true);
-    try {
-      const res = await fetch(`/api/organic/assets/${orgId}`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: title.trim() || `${taskId} — document`, url: url.trim(), type: "OTHER", linked_task_id: taskId }),
-      });
-      const t = await res.text();
-      const j = t ? JSON.parse(t) : {};
-      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
-      onDone();
-    } catch (e) { setErr((e as Error).message); }
-    finally { setBusy(false); }
-  }
-  return (
-    <div className="mt-2 rounded-md border border-border bg-muted/40 p-2 space-y-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Save a document for {taskId}</div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)"
-          className="rounded-md border border-border px-2 py-1 text-xs bg-card" />
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://drive.google.com/…"
-          className="sm:col-span-2 rounded-md border border-border px-2 py-1 text-xs bg-card" />
-      </div>
-      <div className="flex items-center gap-2">
-        {err && <span className="text-[11px] text-red-600 flex-1">{err}</span>}
-        <span className="flex-1" />
-        <button type="button" onClick={onCancel} className="px-2 py-1 text-[11px] rounded border border-border hover:bg-muted">Cancel</button>
-        <button type="button" onClick={save} disabled={busy}
-          className="px-2 py-1 text-[11px] font-semibold rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
-          {busy ? "Saving…" : "Save document"}
-        </button>
-      </div>
     </div>
   );
 }

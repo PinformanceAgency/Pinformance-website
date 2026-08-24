@@ -1,28 +1,17 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { Source_Serif_4, Inter } from "next/font/google";
+import { Inter } from "next/font/google";
 import { OrganicSidebar } from "./OrganicSidebar";
 import { loadClientNav, loadSwitchableClients } from "@/lib/organic/nav";
 
 /**
- * Two families, used with intent.
+ * One family, the dashboard's.
  *
- * Display — Source Serif 4. A transitional serif with enough contrast to
- * read as editorial and enough weight to hold a 56px figure without
- * looking thin. This is the single highest-leverage choice in the design:
- * it is what makes the surface read as a report rather than a tool.
- *
- * Interface — Inter, already the dashboard's face, with tabular figures
- * switched on so numeric columns align.
+ * This app used to load Source Serif 4 for headings and headline figures.
+ * It was the single loudest way the organic app looked like a different
+ * product from the media-buying dashboard, so it is gone — everything is
+ * Inter with tabular figures, exactly as the dashboard sets it.
  */
-const displaySerif = Source_Serif_4({
-  subsets: ["latin"],
-  weight: ["400", "600", "700"],
-  style: ["normal", "italic"],
-  variable: "--font-o-serif",
-  display: "swap",
-});
-
 const interfaceSans = Inter({
   subsets: ["latin"],
   variable: "--font-o-inter",
@@ -55,10 +44,11 @@ export default async function OrganicLayout({ children }: { children: React.Reac
   ]);
 
   return (
-    <div className={`${displaySerif.variable} ${interfaceSans.variable} o-root flex h-screen overflow-hidden`}>
+    <div className={`${interfaceSans.variable} o-root flex h-screen overflow-hidden`}>
       <OrganicSidebar clients={clients} nav={nav} />
       <main className="flex-1 overflow-y-auto">
-        <div className="px-8 py-7">{children}</div>
+        {/* Same container as the dashboard: p-6, max-w-7xl, centred. */}
+        <div className="p-6 max-w-7xl mx-auto">{children}</div>
       </main>
     </div>
   );

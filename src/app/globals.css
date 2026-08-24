@@ -41,70 +41,75 @@
      ================================================================== */
 
   /* -- Surfaces --------------------------------------------------------
-     Client-facing sits on warm paper; internal sits on a cooler neutral.
-     The temperature difference is the signal that one is a document and
-     the other is a tool. */
-  --color-o-canvas:        #FAFAF8;  /* client-facing, warm off-white */
-  --color-o-canvas-cool:   #F6F7F9;  /* internal, cooler neutral */
-  --color-o-surface:       #FFFFFF;
-  --color-o-sunk:          #F1F2F4;  /* table headers, inset wells */
-  --color-o-hairline:      #E7E8EC;
-  --color-o-hairline-firm: #D5D8DE;
+     Mapped onto the dashboard's own tokens, not a parallel palette. The
+     organic app and the media-buying dashboard are one product and must
+     be indistinguishable; keeping a second set of greys here was how they
+     drifted apart in the first place. Every `o-` name below is an alias
+     so the organic components keep working unchanged. */
+  --color-o-canvas:        #f8f9fb;  /* = --color-background */
+  --color-o-canvas-cool:   #f8f9fb;  /* one ground, not two */
+  --color-o-surface:       #ffffff;  /* = --color-card */
+  --color-o-sunk:          #f0f1f5;  /* = --color-muted */
+  --color-o-hairline:      #e2e4ea;  /* = --color-border */
+  --color-o-hairline-firm: #d3d6de;  /* border, one step firmer */
 
-  /* -- Ink · exactly three levels, no more ---------------------------- */
-  --color-o-ink:    #15171C;  /* primary */
-  --color-o-ink-2:  #5B616B;  /* secondary */
-  --color-o-ink-3:  #99A0AA;  /* tertiary, and the em-dash for missing */
+  /* -- Ink · three levels, taken from the dashboard -------------------- */
+  --color-o-ink:    #0a0a0a;  /* = --color-foreground */
+  --color-o-ink-2:  #6b7280;  /* = --color-muted-foreground */
+  --color-o-ink-3:  #9ca3af;  /* tertiary, and the em-dash for missing */
 
-  /* -- Accent · a few percent of the screen, never a fill -------------- */
-  --color-o-accent: #E30613;
+  /* -- Accent · the brand red, same value the dashboard uses ----------- */
+  --color-o-accent: #E30613;  /* = --color-primary */
 
-  /* -- Data palette · desaturated and deliberate ----------------------
-     Never a library default. Ordered: primary series first. */
+  /* -- Data palette · charts only, never chrome ------------------------
+     The dashboard has no chart palette of its own, so these stay. They
+     appear inside figures, never as page furniture, which is why they
+     can be specific without breaking the shared look. */
   --color-o-teal:  #2C5F5A;
   --color-o-sand:  #C2A878;
   --color-o-clay:  #A9685C;
   --color-o-slate: #5A6672;
 
-  /* -- Movement · reserved strictly for positive and negative ---------
-     Deliberately not the brand red, so accent and negative never read
-     as the same thing. */
-  --color-o-pos: #2E6F4E;
-  --color-o-neg: #A02D22;
+  /* -- Movement · positive and negative --------------------------------
+     Deliberately not the brand red, so accent and negative never read as
+     the same thing. */
+  --color-o-pos: #15803d;
+  --color-o-neg: #dc2626;  /* = tailwind red-600, as the dashboard uses */
 
   /* -- Type ------------------------------------------------------------
-     Display serif carries headings and headline figures — it is what
-     makes the surface read as report rather than admin panel.
-     Interface sans carries labels, tables and navigation. */
-  --font-o-display: var(--font-o-serif), Georgia, "Times New Roman", serif;
+     One family. The serif display face is gone: the dashboard sets
+     everything in Inter, and a second typeface was the loudest way the
+     two apps looked like different products. */
+  --font-o-display: var(--font-o-inter), ui-sans-serif, system-ui, sans-serif;
   --font-o-sans:    var(--font-o-inter), ui-sans-serif, system-ui, sans-serif;
 
-  /* Scale is dramatic, not incremental. The gap between a headline
-     figure and its supporting label IS the hierarchy. */
-  --text-o-figure-xl: 3.5rem;    /* 56px — the one number that matters */
-  --text-o-figure-lg: 2.25rem;   /* 36px */
-  --text-o-figure-md: 1.375rem;  /* 22px */
-  --text-o-head:      1.0625rem; /* 17px — section headings, serif */
-  --text-o-body:      0.8125rem; /* 13px */
-  --text-o-label:     0.6875rem; /* 11px — uppercase micro-labels */
+  /* Scale matched to the dashboard's Tailwind steps: text-3xl / 2xl / lg
+     / base / sm / xs. Nothing here is larger than the dashboard's own
+     biggest figure. */
+  --text-o-figure-xl: 1.875rem;  /* 30px = text-3xl, the hub's stat size */
+  --text-o-figure-lg: 1.5rem;    /* 24px = text-2xl, page headings */
+  --text-o-figure-md: 1.125rem;  /* 18px = text-lg */
+  --text-o-head:      1rem;      /* 16px = text-base, section headings */
+  --text-o-body:      0.875rem;  /* 14px = text-sm */
+  --text-o-label:     0.75rem;   /* 12px = text-xs */
 }
 
 /* ====================================================================
    ORGANIC · base styles, scoped so nothing leaks into the dashboard
    ==================================================================== */
 .o-root {
-  background: var(--color-o-canvas-cool);
-  color: var(--color-o-ink);
+  background: var(--color-background);
+  color: var(--color-foreground);
   font-family: var(--font-o-sans);
 }
-/* Client-facing surfaces opt into the warm paper ground. */
-.o-root.o-client { background: var(--color-o-canvas); }
 
 /* Anything numeric aligns in columns. */
 .o-root .o-num,
 .o-root table { font-variant-numeric: tabular-nums; }
 
-.o-display { font-family: var(--font-o-display); font-feature-settings: "kern" 1; }
+/* Kept as a hook so headings can be tuned in one place, but it is the
+   same family as everything else now — the dashboard sets one face. */
+.o-display { font-family: var(--font-o-display); letter-spacing: -0.01em; }
 
 /* Motion · state changes only, and short enough to go unnoticed. */
 @media (prefers-reduced-motion: no-preference) {
@@ -129,7 +134,7 @@
 /* Skeletons, never spinners. */
 .o-skeleton {
   background: linear-gradient(90deg,
-    var(--color-o-sunk) 25%, #E9EAEE 37%, var(--color-o-sunk) 63%);
+    var(--color-o-sunk) 25%, #e6e8ee 37%, var(--color-o-sunk) 63%);
   background-size: 400% 100%;
   animation: o-shimmer 1.4s ease-in-out infinite;
 }
