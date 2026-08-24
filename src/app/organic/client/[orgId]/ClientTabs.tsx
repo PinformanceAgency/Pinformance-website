@@ -4,6 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
+export interface PhaseDetailLite {
+  phase: number;
+  time_spent_min: number | null;
+  tasks_timed: number;
+  next_task_id: string | null;
+  next_task_name: string | null;
+  all_blocked: boolean;
+}
+
 export interface PhaseProgressLite {
   phase: number;
   pct_done: number;
@@ -29,10 +38,24 @@ const REFERENCE_TABS = [
   { slug: "analytics", label: "Analytics" },
 ];
 
-export function ClientTabs({ orgId, phases }: { orgId: string; phases: PhaseProgressLite[] }) {
+/** Minutes as a manager reads them: 45m, 3h10, 12h. Never "0h" for
+ *  unrecorded — no entry and no time are different facts. */
+function fmtMins(m: number | null): string | null {
+  if (m === null || m === 0) return null;
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r === 0 ? `${h}h` : `${h}h${String(r).padStart(2, "0")}`;
+}
+
+export function ClientTabs({ orgId, phases, detail = [] }: {
+  orgId: string;
+  phases: PhaseProgressLite[];
+  detail?: PhaseDetailLite[];
+}) {
   const pathname = usePathname();
   const base = `/client/${orgId}`;
   const byPhase = new Map(phases.map((p) => [p.phase, p]));
+  const byDetail = new Map(detail.map((d) => [d.phase, d]));
 
   return (
     <div className="space-y-6">
@@ -42,6 +65,8 @@ export function ClientTabs({ orgId, phases }: { orgId: string; phases: PhaseProg
       <nav className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px bg-o-hairline border border-o-hairline rounded-md overflow-hidden">
         {PHASES.map((ph) => {
           const p = byPhase.get(ph.n);
+          const d = byDetail.get(ph.n);
+          const time = fmtMins(d?.time_spent_min ?? null);
           const href = `${base}/phase/${ph.n}`;
           const active = pathname.startsWith(href);
           const pct = p?.pct_done ?? 0;
@@ -90,11 +115,27 @@ export function ClientTabs({ orgId, phases }: { orgId: string; phases: PhaseProg
                 <div className="mt-2.5 text-[length:var(--text-o-label)] text-o-ink-3">recurring</div>
               )}
 
-              {p && p.blocked_tasks > 0 && !recurring && (
-                <div className="mt-1.5 o-num text-[length:var(--text-o-label)] text-o-clay">
-                  {p.blocked_tasks} blocked
+              {/* Blocked count, time invested, and the single next action.
+                  A percentage says where the phase is; the next action is
+                  the only part a manager can act on without opening it. */}
+              <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5
+                              text-[length:var(--text-o-label)]">
+                {p && p.blocked_tasks > 0 && (
+                  <span className="o-num text-o-clay">{p.blocked_tasks} blocked</span>
+                )}
+                {time && <span className="o-num text-o-ink-3" title={`${d?.tasks_timed} task(s) with a time entry`}>{time}</span>}
+              </div>
+
+              {d?.all_blocked ? (
+                <div className="mt-1.5 text-[length:var(--text-o-label)] text-o-clay leading-snug">
+                  Everything outstanding is blocked
                 </div>
-              )}
+              ) : d?.next_task_name ? (
+                <div className="mt-1.5 text-[length:var(--text-o-label)] text-o-ink-3 leading-snug line-clamp-2"
+                     title={`${d.next_task_id} — ${d.next_task_name}`}>
+                  Next: {d.next_task_name}
+                </div>
+              ) : null}
             </Link>
           );
         })}

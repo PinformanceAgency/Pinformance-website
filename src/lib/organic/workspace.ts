@@ -437,3 +437,87 @@ export async function createAsset(orgId: string, p: AssetInput): Promise<string>
 export async function deleteAsset(orgId: string, assetId: string): Promise<void> {
   await organicPool().query(`DELETE FROM organic.assets WHERE id = $1 AND org_id = $2`, [assetId, orgId]);
 }
+
+// ---------- PHASE DETAIL (phase strip) --------------------------------------
+
+export interface PhaseDetail {
+  phase: number;
+  /** Minutes logged against tasks in this phase. Null when nobody has
+   *  recorded any — which is different from having spent zero. */
+  time_spent_min: number | null;
+  /** How many tasks in the phase carry a time entry, so a manager can see
+   *  whether the total is the whole picture or a fifth of it. */
+  tasks_timed: number;
+  tasks_done: number;
+  /** The one task to open next: the first outstanding, unblocked task in
+   *  SOP order. A phase card that shows a percentage tells you where you
+   *  are; this tells you what to do, which is the only reason to open it. */
+  next_task_id: string | null;
+  next_task_name: string | null;
+  /** Set when every outstanding task in the phase is blocked — the phase
+   *  is stuck rather than merely unfinished, and that is a different
+   *  conversation with a different fix. */
+  all_blocked: boolean;
+}
+
+export async function loadPhaseDetail(orgId: string): Promise<PhaseDetail[]> {
+  const pool = organicPool();
+
+  const [times, next, blocked] = await Promise.all([
+    pool.query<{ phase: number; mins: string | null; timed: string; done: string }>(
+      `SELECT td.phase,
+              SUM(ct.time_spent_min)                                    AS mins,
+              COUNT(*) FILTER (WHERE ct.time_spent_min IS NOT NULL)     AS timed,
+              COUNT(*) FILTER (WHERE ct.status = 'DONE')                AS done
+         FROM organic.client_tasks ct
+         JOIN organic.task_definitions td ON td.id = ct.task_id
+        WHERE ct.org_id = $1
+        GROUP BY td.phase`, [orgId]),
+    // DISTINCT ON gives the first row per phase in SOP order — the next
+    // action — in one pass rather than a query per phase.
+    pool.query<{ phase: number; task_id: string; name: string }>(
+      `SELECT DISTINCT ON (td.phase) td.phase, ct.task_id, td.name
+         FROM organic.client_tasks ct
+         JOIN organic.task_definitions td ON td.id = ct.task_id
+        WHERE ct.org_id = $1 AND ct.status = 'TODO'
+        ORDER BY td.phase, td.sort_order`, [orgId]),
+    pool.query<{ phase: number; outstanding: string; blocked: string }>(
+      `SELECT td.phase,
+              COUNT(*) FILTER (WHERE ct.status IN ('TODO','BLOCKED')) AS outstanding,
+              COUNT(*) FILTER (WHERE ct.status = 'BLOCKED')           AS blocked
+         FROM organic.client_tasks ct
+         JOIN organic.task_definitions td ON td.id = ct.task_id
+        WHERE ct.org_id = $1
+        GROUP BY td.phase`, [orgId]),
+  ]);
+
+  const byPhase = new Map<number, PhaseDetail>();
+  const get = (p: number): PhaseDetail => {
+    let e = byPhase.get(p);
+    if (!e) {
+      e = { phase: p, time_spent_min: null, tasks_timed: 0, tasks_done: 0,
+            next_task_id: null, next_task_name: null, all_blocked: false };
+      byPhase.set(p, e);
+    }
+    return e;
+  };
+
+  for (const r of times.rows) {
+    const e = get(r.phase);
+    e.time_spent_min = r.mins === null ? null : Number(r.mins);
+    e.tasks_timed = Number(r.timed);
+    e.tasks_done = Number(r.done);
+  }
+  for (const r of next.rows) {
+    const e = get(r.phase);
+    e.next_task_id = r.task_id;
+    e.next_task_name = r.name;
+  }
+  for (const r of blocked.rows) {
+    const e = get(r.phase);
+    const outstanding = Number(r.outstanding), b = Number(r.blocked);
+    e.all_blocked = outstanding > 0 && b === outstanding;
+  }
+
+  return Array.from(byPhase.values()).sort((a, b) => a.phase - b.phase);
+}

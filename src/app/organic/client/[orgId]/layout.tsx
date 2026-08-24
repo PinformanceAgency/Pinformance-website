@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { loadClientHeader } from "@/lib/organic/queries";
+import { loadPhaseDetail } from "@/lib/organic/workspace";
 import { ClientTabs } from "./ClientTabs";
 import { Label } from "@/components/organic/primitives";
 
@@ -14,7 +15,10 @@ export default async function ClientLayout({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
-  const header = await loadClientHeader(orgId);
+  const [header, detail] = await Promise.all([
+    loadClientHeader(orgId),
+    loadPhaseDetail(orgId),
+  ]);
   if (!header) notFound();
 
   const facts: Array<[string, string | null]> = [
@@ -64,7 +68,7 @@ export default async function ClientLayout({
         </div>
       ) : (
         <>
-          <ClientTabs orgId={orgId} phases={header.phases} />
+          <ClientTabs orgId={orgId} phases={header.phases} detail={detail} />
           <div className="mt-8">{children}</div>
         </>
       )}
