@@ -90,6 +90,9 @@ export function AnalyticsPanel({
 
       {/* Ads candidates */}
       <Section title="Organic winners eligible for ads">
+        <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          <strong>Never boost an organic pin.</strong> Recreate the winner as a NEW asset inside Ads Manager. Boosting blends organic and paid data on the same pin, which then corrupts every downstream feedback loop and the ads-candidates report itself.
+        </div>
         {adsCandidates.length === 0 ? (
           <div className="text-xs text-neutral-500">No pins yet cross the (saves + outbound_clicks) ≥ 5 threshold.</div>
         ) : (
@@ -206,12 +209,13 @@ function PromoteRow({ orgId, c, onDone }: { orgId: string; c: AdsCandidate; onDo
       <td className="py-1 px-3 text-right text-neutral-500">{c.in_ads_candidates ? "✓ yes" : "—"}</td>
       <td className="py-1 px-3 text-right">
         {c.in_ads_candidates ? (
-          <span className="text-[10px] text-neutral-400">already promoted</span>
+          <span className="text-[10px] text-neutral-400">handed over</span>
         ) : (
           <>
             <button type="button" onClick={promote} disabled={busy}
+              title="Marks this pin for the paid team — they will recreate it as a NEW asset in Ads Manager. Never boost."
               className="text-[11px] px-2 py-0.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
-              {busy ? "…" : "Promote"}
+              {busy ? "…" : "Send to Ads Manager"}
             </button>
             {err && <div className="text-[10px] text-red-600 mt-0.5">{err}</div>}
           </>

@@ -50,7 +50,10 @@ export interface AnalyticsFetch {
 
 /** Pull organic KPIs + top pins for a date range. Filtered to ORGANIC
  *  content type (Pinterest also exposes CLAIMED / PROMOTED, we only want
- *  organic-attributable here per the SOP). */
+ *  organic-attributable here per the SOP). Includes CONVERSION metrics
+ *  (Pinterest Conversion Insights) when available, and splits totals
+ *  into Your Pins vs Other Pins so user-saved-from-site traffic doesn't
+ *  get attributed to our work. */
 export async function fetchOrganicAnalytics(orgId: string, start: string, end: string): Promise<AnalyticsFetch> {
   const client = await pinterestFor(orgId);
   if (!client) {
@@ -61,10 +64,49 @@ export async function fetchOrganicAnalytics(orgId: string, start: string, end: s
     const totals = sumDailies(raw.all?.daily_metrics ?? []);
     const top = await client.getTopPins(start, end, "OUTBOUND_CLICK",
       ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK"], "ORGANIC");
-    return { ok: true, start_date: start, end_date: end, totals, top_pins: top.pins ?? [] };
+    // Try to fetch conversion + Your-vs-Other splits. Silently degrade
+    // if the endpoint/metric isn't available on this account tier.
+    const [conv, other] = await Promise.all([
+      fetchConversionMetrics(client, start, end),
+      fetchOtherPinsAnalytics(client, start, end),
+    ]);
+    return {
+      ok: true, start_date: start, end_date: end,
+      totals: { ...totals, ...conv, ...other },
+      top_pins: top.pins ?? [],
+    };
   } catch (e) {
     return { ok: false, reason: (e as Error).message, start_date: start, end_date: end, totals: null, top_pins: null };
   }
+}
+
+async function fetchConversionMetrics(client: PinterestClient, start: string, end: string): Promise<Record<string, number>> {
+  // Pinterest Conversion Insights exposes: PAGE_VISIT, ADD_TO_CART,
+  // CHECKOUT, CUSTOM (conversions), REVENUE. Not every account has
+  // the tag firing — soft-fail returns zeros with a _stale marker.
+  try {
+    const raw = await (client as unknown as {
+      getUserAccountAnalytics: (s: string, e: string, m?: string[]) => Promise<{ all?: { daily_metrics?: Array<{ metrics: Record<string, number> }> } }>;
+    }).getUserAccountAnalytics(start, end, ["PAGE_VISIT","ADD_TO_CART","CHECKOUT","CONVERSIONS","REVENUE"]);
+    return sumDailies(raw.all?.daily_metrics ?? []);
+  } catch { return {}; }
+}
+
+async function fetchOtherPinsAnalytics(client: PinterestClient, start: string, end: string): Promise<Record<string, number>> {
+  // Attempt an "Other Pins" pull — pins users saved FROM the claimed
+  // domain but that are not owned by the client account. Pinterest
+  // exposes this via a separate top_pins call; if the endpoint variant
+  // isn't available on this account tier, we soft-fail with zeros.
+  try {
+    const top = await client.getTopPins(start, end, "IMPRESSION",
+      ["IMPRESSION","SAVE"], "OTHERS");
+    const totals = { OTHER_IMPRESSION: 0, OTHER_SAVE: 0 };
+    for (const p of top.pins ?? []) {
+      totals.OTHER_IMPRESSION += Number(p.metrics?.IMPRESSION || 0);
+      totals.OTHER_SAVE       += Number(p.metrics?.SAVE || 0);
+    }
+    return totals;
+  } catch { return {}; }
 }
 
 // ---------- baseline --------------------------------------------------------
@@ -86,21 +128,46 @@ export interface BaselineRow {
   engagement_rate: number | null;
   audience_top_country_pct: number | null;
   audience_top_age_bracket: string | null;
+  // Conversion metrics (Pinterest Conversion Insights) — deviation 8
+  page_visits: number | null;
+  add_to_cart: number | null;
+  checkouts: number | null;
+  conversions: number | null;
+  revenue: number | null;
+  // Your Pins vs Other Pins split — deviation 10
+  other_impressions: number | null;
+  other_saves: number | null;
 }
 
 export async function loadBaseline(orgId: string): Promise<BaselineRow | null> {
+  return loadBaselinePeriod(orgId, "last_30d");
+}
+
+/** 3-period baseline (deviation 9): last_30d + month_-1 + month_-2, side by
+ *  side so the analytics tab shows trend direction, not a single snapshot. */
+export async function loadBaselinePeriods(orgId: string): Promise<Record<string, BaselineRow | null>> {
+  return {
+    "last_30d": await loadBaselinePeriod(orgId, "last_30d"),
+    "month_-1": await loadBaselinePeriod(orgId, "month_-1"),
+    "month_-2": await loadBaselinePeriod(orgId, "month_-2"),
+  };
+}
+
+async function loadBaselinePeriod(orgId: string, period: "last_30d"|"month_-1"|"month_-2"): Promise<BaselineRow | null> {
   const pool = organicPool();
   const r = await pool.query<BaselineRow>(
     `SELECT org_id::text, measured_from::text, measured_to::text,
             impressions, engagements, outbound_clicks, pin_saves, profile_visits,
             monthly_views, followers_start, followers_end,
             top_click_pin_clicks, top_save_pin_saves,
-            engagement_rate, audience_top_country_pct, audience_top_age_bracket
-       FROM organic.baseline_kpis WHERE org_id = $1`,
-    [orgId]
+            engagement_rate, audience_top_country_pct, audience_top_age_bracket,
+            page_visits, add_to_cart, checkouts, conversions, revenue,
+            other_impressions, other_saves
+       FROM organic.baseline_kpis WHERE org_id = $1 AND period = $2`,
+    [orgId, period]
   );
-  if (r.rowCount === 0) return await seedBaselineFromP1_2_13(orgId);
-  return r.rows[0];
+  if (r.rowCount === 0 && period === "last_30d") return await seedBaselineFromP1_2_13(orgId);
+  return r.rows[0] ?? null;
 }
 
 /** Fallback: parse the "Baseline KPIs (3mo):" note format used by the

@@ -111,6 +111,10 @@ export async function upsertUrl(orgId: string, u: UrlInput): Promise<string> {
   if (!VALID_REASONS.includes(u.reason)) {
     throw new Error(`reason must be one of ${VALID_REASONS.join(", ")}`);
   }
+  // Reject shorteners + strip utm_* params (Pinterest attaches its own
+  // attribution — client-side utm pollutes the source-of-truth).
+  const clean = sanitiseUrl(u.url);
+  u = { ...u, url: clean.cleaned };
   const pool = organicPool();
   const r = await pool.query<{ id: string }>(
     `INSERT INTO organic.urls (
@@ -222,15 +226,35 @@ export interface CopyDraft {
   title: string;
   description: string;
   primary_keyword: string;
+  /** SEO-generated tagline that goes to the designer as text overlay
+   *  hook. 4–9 words (max 12), must contain primary keyword or a close
+   *  variant, no exclamation marks. Kept close in intent to the title. */
+  tagline?: string;
 }
 
 const EM_DASH = /—/;
 const EN_DASH = /–/;
 
+/** Simple stem match — the tagline may say "modern living rooms" while
+ *  the primary keyword is "modern living room". Match if any stem overlaps. */
+function containsKeywordOrVariant(text: string, kw: string): boolean {
+  if (!kw) return true;
+  const t = text.toLowerCase();
+  if (t.includes(kw)) return true;
+  // Split into words and check that ≥ ceil(kw_words × 0.7) stems appear.
+  const kwWords = kw.split(/\s+/).filter(Boolean);
+  const hits = kwWords.filter((w) => {
+    const stem = w.replace(/(ies|es|s)$/i, "").slice(0, 4);
+    return stem.length >= 3 && t.includes(stem);
+  }).length;
+  return hits >= Math.ceil(kwWords.length * 0.7);
+}
+
 export function validateCopy(c: CopyDraft): { ok: boolean; errors: string[] } {
   const errs: string[] = [];
   const title = c.title.trim();
   const desc = c.description.trim();
+  const tagline = (c.tagline ?? "").trim();
   const kw = c.primary_keyword.trim().toLowerCase();
 
   if (title.length > 100) errs.push(`title > 100 chars (${title.length})`);
@@ -243,7 +267,48 @@ export function validateCopy(c: CopyDraft): { ok: boolean; errors: string[] } {
     errs.push("no em-dash / en-dash");
   if (desc.length < 250 || desc.length > 300) errs.push(`description must be 250–300 chars (got ${desc.length})`);
 
+  // Tagline is optional at the API level but validated when present. If
+  // your workflow requires it, wrap validateCopy with a "tagline required"
+  // caller check.
+  if (tagline) {
+    const words = tagline.split(/\s+/).filter(Boolean).length;
+    if (words < 4 || words > 12) errs.push(`tagline must be 4–12 words (got ${words})`);
+    if (words > 9) errs.push(`tagline should be 4–9 words (${words} exceeds the soft ceiling of 9; hard max 12)`);
+    if (/[!]/.test(tagline)) errs.push("tagline: no exclamation marks");
+    if (kw && !containsKeywordOrVariant(tagline, kw))
+      errs.push(`tagline must contain the primary keyword "${kw}" or a close variant`);
+  }
+
   return { ok: errs.length === 0, errors: errs };
+}
+
+// ---------- URL sanitisation (deviation 6) ----------------------------------
+
+const URL_SHORTENERS = new Set([
+  "bit.ly","tinyurl.com","t.co","ow.ly","buff.ly","goo.gl","is.gd","tiny.cc",
+  "shorturl.at","rebrand.ly","cutt.ly","rb.gy","s.id","lnkd.in","fb.me",
+]);
+
+/** Returns { cleaned, warning } — throws on shortened hostnames, silently
+ *  strips utm_* params. Pinterest attaches its own attribution so utm from
+ *  the client always pollutes the source-of-truth. */
+export function sanitiseUrl(raw: string): { cleaned: string; stripped_params: string[] } {
+  const trimmed = (raw ?? "").trim();
+  if (!/^https?:\/\//i.test(trimmed)) throw new Error("url must start with http(s)://");
+  let u: URL;
+  try { u = new URL(trimmed); } catch { throw new Error(`invalid URL: ${raw}`); }
+  const host = u.hostname.toLowerCase().replace(/^www\./, "");
+  if (URL_SHORTENERS.has(host)) {
+    throw new Error(`URL shorteners are not accepted (host: ${host}). Use the destination URL directly so Pinterest can attribute correctly.`);
+  }
+  const stripped: string[] = [];
+  const keep = new URLSearchParams();
+  u.searchParams.forEach((v, k) => {
+    if (/^utm_/i.test(k)) { stripped.push(k); return; }
+    keep.append(k, v);
+  });
+  u.search = keep.toString();
+  return { cleaned: u.toString(), stripped_params: stripped };
 }
 
 // ---------- waterfall engine (P4.3.1) ---------------------------------------
