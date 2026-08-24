@@ -6,6 +6,7 @@
  */
 import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
+import { computeUrlRequirement } from "./expansion";
 import type { ViabilityRow, ViabilityVerdict } from "./types";
 
 export interface GoodFitPayload {
@@ -97,12 +98,26 @@ export async function countSitemapUrls(orgId: string, rawDomain: string, timeSpe
     `UPDATE organic.client_settings SET domain = $1, updated_at = now() WHERE org_id = $2`,
     [domain, orgId]
   );
+  // New: compare against REQUIRED URLs, not the old hardcoded "10".
+  // The requirement is derived from daily_pin_target + spacing_hours +
+  // per-client url_cooldown_days (Phase 2 frequency × Phase 3 cooldown).
+  const req = await computeUrlRequirement(orgId);
+  const under_requirement = total < req.required_urls;
+
   await completeTaskByDefinition({
     orgId, taskId: "P1.0.3", timeSpentMin,
-    notes: `Counted ${total} URLs from ${domain} sitemap`,
+    notes: `Sitemap yielded ${total} URLs; requirement ${req.required_urls} (daily=${req.daily_pin_target}, cooldown=${req.cooldown_days}d, waterfall=${req.waterfall_duration_days}d).`,
   });
   const recomputed = await recomputeAfter(orgId);
-  return { total_urls_found: total, domain, under_threshold: total < 10, recomputed };
+  return {
+    total_urls_found: total, domain,
+    required_urls: req.required_urls,
+    under_requirement,
+    /** deprecated: kept for the old phase-1 form that still reads it */
+    under_threshold: under_requirement,
+    requirement: req,
+    recomputed,
+  };
 }
 
 /** P1.0.4 — verdict + rationale. This is the gate for the rest of phase 1. */
