@@ -101,8 +101,10 @@ export function ClientTabs({ orgId, phases }: { orgId: string; phases: PhaseProg
       </nav>
 
       {/* Reference surfaces — the library, always available regardless of
-          which phase the store is in. */}
-      <nav className="flex flex-wrap gap-6 border-b border-o-hairline">
+          which phase the store is in. The client report is deliberately
+          separated from them: it is the one surface that leaves the
+          building, and nobody should have to guess which tab is shareable. */}
+      <nav className="flex flex-wrap items-center gap-6 border-b border-o-hairline">
         {REFERENCE_TABS.map((t) => {
           const href = t.slug ? `${base}/${t.slug}` : base;
           const active = t.slug
@@ -121,6 +123,18 @@ export function ClientTabs({ orgId, phases }: { orgId: string; phases: PhaseProg
             </Link>
           );
         })}
+
+        <span className="ml-auto flex items-center gap-3 pb-2.5">
+          <span className="h-4 w-px bg-o-hairline-firm" />
+          <Link href={`/report/${orgId}`}
+                className="group flex items-center gap-2 text-[length:var(--text-o-body)] text-o-ink-2 hover:text-o-ink">
+            <span className="text-[length:var(--text-o-label)] uppercase tracking-[0.08em] text-o-accent font-medium">
+              Client
+            </span>
+            Report
+            <span className="text-o-ink-3 group-hover:text-o-ink">↗</span>
+          </Link>
+        </span>
       </nav>
     </div>
   );

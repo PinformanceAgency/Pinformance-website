@@ -257,6 +257,129 @@ export function BarList({
 }
 
 /* ------------------------------------------------------------------ *
+ * Paired bars — one subject against a reference
+ * ------------------------------------------------------------------ */
+
+export interface PairedRow {
+  label: string;
+  subject: number | null;
+  reference: number | null;
+  /** Formats both values. Bounce rate wants %, duration wants m:ss. */
+  format?: (v: number) => string;
+  /** For bounce rate, lower is better — flips which side reads as good. */
+  lowerIsBetter?: boolean;
+}
+
+/**
+ * Pinterest traffic against the site average.
+ *
+ * The strongest argument the agency has, and the reason it is drawn as a
+ * pair rather than a single number: "42% engagement" means nothing until
+ * you see the site sits at 28%. Direct-labelled, no legend.
+ */
+export function PairedBars({
+  rows, subjectLabel, referenceLabel,
+}: {
+  rows: PairedRow[];
+  subjectLabel: string;
+  referenceLabel: string;
+}) {
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-5 text-[length:var(--text-o-label)]">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-[2px]" style={{ background: DATA_COLORS.teal }} />
+          <span className="text-o-ink">{subjectLabel}</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-[2px]" style={{ background: "var(--color-o-hairline-firm)" }} />
+          <span className="text-o-ink-3">{referenceLabel}</span>
+        </span>
+      </div>
+
+      {rows.map((r) => {
+        const missing = r.subject === null || r.reference === null;
+        const fmt = r.format ?? ((v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 }));
+        const ceiling = Math.max(r.subject ?? 0, r.reference ?? 0, 1);
+        const better = missing ? null
+          : r.lowerIsBetter ? (r.subject! < r.reference!) : (r.subject! > r.reference!);
+
+        return (
+          <div key={r.label}>
+            <div className="flex items-baseline justify-between gap-3 mb-1.5">
+              <span className="text-[length:var(--text-o-body)] text-o-ink">{r.label}</span>
+              {better !== null && (
+                <span className={cn(
+                  "text-[length:var(--text-o-label)] font-medium",
+                  better ? "text-o-pos" : "text-o-ink-3"
+                )}>
+                  {better ? "outperforms site average" : "below site average"}
+                </span>
+              )}
+            </div>
+            <div className="space-y-1">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-center">
+                <div className="h-[9px] rounded-[2px] bg-o-sunk overflow-hidden">
+                  <div className="h-full rounded-[2px]"
+                       style={{ width: `${((r.subject ?? 0) / ceiling) * 100}%`, background: DATA_COLORS.teal }} />
+                </div>
+                <span className={cn("o-num text-[length:var(--text-o-body)] font-semibold w-20 text-right",
+                  missing ? "text-o-ink-3" : "text-o-ink")}>
+                  {r.subject === null ? "—" : fmt(r.subject)}
+                </span>
+              </div>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-center">
+                <div className="h-[9px] rounded-[2px] bg-o-sunk overflow-hidden">
+                  <div className="h-full rounded-[2px]"
+                       style={{ width: `${((r.reference ?? 0) / ceiling) * 100}%`, background: "var(--color-o-hairline-firm)" }} />
+                </div>
+                <span className="o-num text-[length:var(--text-o-body)] text-o-ink-3 w-20 text-right">
+                  {r.reference === null ? "—" : fmt(r.reference)}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Column series — effort under the results line
+ * ------------------------------------------------------------------ */
+
+/** Monthly volume as thin columns. Sits under the trend line so the
+ *  relationship between effort and results is legible as one picture. */
+export function ColumnSeries({
+  points, color = "sand", label, height = 54,
+}: {
+  points: Array<{ x: string; y: number | null }>;
+  color?: DataColor;
+  label: string;
+  height?: number;
+}) {
+  const vals = points.map((p) => p.y ?? 0);
+  const max = Math.max(...vals, 1);
+  return (
+    <figure>
+      <div className="flex items-end gap-[3px]" style={{ height }} role="img" aria-label={label}>
+        {points.map((p) => (
+          <div key={p.x} className="flex-1 min-w-0" title={`${p.x}: ${p.y ?? "not measured"}`}>
+            <div className="rounded-t-[2px] w-full"
+                 style={{
+                   height: p.y === null ? 2 : Math.max(2, (p.y / max) * height),
+                   background: p.y === null ? "var(--color-o-hairline)" : DATA_COLORS[color],
+                 }} />
+          </div>
+        ))}
+      </div>
+      <figcaption className="mt-1.5 text-[length:var(--text-o-label)] text-o-ink-3">{label}</figcaption>
+    </figure>
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * Coverage meter — a threshold, drawn
  * ------------------------------------------------------------------ */
 
