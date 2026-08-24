@@ -82,7 +82,14 @@ export async function middleware(request: NextRequest) {
   if (isOrganicHost && !request.nextUrl.pathname.startsWith("/organic") && !request.nextUrl.pathname.startsWith("/api/organic")) {
     const url = request.nextUrl.clone();
     url.pathname = "/organic" + (request.nextUrl.pathname === "/" ? "" : request.nextUrl.pathname);
-    return NextResponse.rewrite(url);
+    // Carry the browser-visible path through to the server. The organic
+    // root layout renders a sidebar scoped to whichever client is open,
+    // and a root layout cannot see the params of nested routes — so it
+    // reads the path from here instead. Set on the rewrite (not a bare
+    // header on the response) so it arrives as a *request* header.
+    const headers = new Headers(request.headers);
+    headers.set("x-organic-path", request.nextUrl.pathname);
+    return NextResponse.rewrite(url, { request: { headers } });
   }
 
   // Gate the calculator (both the dedicated host and the /calculator path).

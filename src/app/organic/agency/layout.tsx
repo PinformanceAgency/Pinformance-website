@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { AgencyTabs } from "./AgencyTabs";
 import { Label } from "@/components/organic/primitives";
 
@@ -7,11 +6,6 @@ export const dynamic = "force-dynamic";
 export default function AgencyLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="max-w-[1180px]">
-      <Link href="/"
-        className="inline-flex items-center gap-1.5 text-[length:var(--text-o-body)] text-o-ink-3 hover:text-o-ink mb-5">
-        ← All clients
-      </Link>
-
       <header className="pb-6 mb-6 border-b border-o-hairline">
         <Label>Agency</Label>
         <h1 className="o-display mt-1.5 text-[length:var(--text-o-figure-lg)] font-semibold text-o-ink leading-none tracking-[-0.015em]">

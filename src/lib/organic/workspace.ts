@@ -643,3 +643,144 @@ export async function loadCycleOps(orgId: string): Promise<CycleOps> {
     matrix: Array.from(byWaterfall.values()),
   };
 }
+
+// ---------- TODAY -----------------------------------------------------------
+
+export interface TodayTask {
+  task_id: string;
+  phase: number;
+  step: string;
+  name: string;
+  status: string;
+  task_type: string;
+  guidance: string | null;
+}
+
+export interface TodayView {
+  /** Unblocked work, in SOP order. Blocked tasks are excluded on purpose:
+   *  this screen answers "what can I do now", and a list that mixes in
+   *  work you cannot start is a list nobody trusts twice. */
+  actionable: TodayTask[];
+  in_progress: TodayTask[];
+  in_review: TodayTask[];
+  blocked_count: number;
+  /** The store's own next step, for when everything else is clear. */
+  next_phase: number | null;
+}
+
+export async function loadToday(orgId: string): Promise<TodayView> {
+  const pool = organicPool();
+  const r = await pool.query<TodayTask>(
+    `SELECT ct.task_id, td.phase, td.step, td.name,
+            ct.status::text AS status, td.task_type::text AS task_type, td.guidance
+       FROM organic.client_tasks ct
+       JOIN organic.task_definitions td ON td.id = ct.task_id
+      WHERE ct.org_id = $1
+        AND ct.status IN ('TODO','IN_PROGRESS','REVIEW')
+        AND (ct.cycle IS NULL OR ct.cycle NOT LIKE 'URL-%')
+      ORDER BY td.phase, td.sort_order`,
+    [orgId]
+  );
+  const blocked = await pool.query<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM organic.client_tasks
+      WHERE org_id = $1 AND status = 'BLOCKED'`, [orgId]);
+
+  const rows = r.rows;
+  const actionable = rows.filter((t) => t.status === "TODO");
+  return {
+    actionable,
+    in_progress: rows.filter((t) => t.status === "IN_PROGRESS"),
+    in_review: rows.filter((t) => t.status === "REVIEW"),
+    blocked_count: Number(blocked.rows[0]?.n ?? 0),
+    next_phase: actionable[0]?.phase ?? null,
+  };
+}
+
+// ---------- STORE SETTINGS --------------------------------------------------
+
+export interface StoreSettings {
+  org_id: string;
+  name: string;
+  engagement_status: string | null;
+  niche: string | null;
+  account_class: string | null;
+  spacing_hours: number | null;
+  daily_pin_target: number | null;
+  onboarded_date: string | null;
+  domain: string | null;
+  display_name: string | null;
+  bio: string | null;
+  urls_per_month: number | null;
+  url_cooldown_days: number | null;
+  monthly_retainer: number | null;
+  retainer_currency: string | null;
+  hourly_cost: number | null;
+}
+
+export async function loadStoreSettings(orgId: string): Promise<StoreSettings | null> {
+  const pool = organicPool();
+  const r = await pool.query<StoreSettings>(
+    `SELECT cs.org_id::text, o.name,
+            cs.engagement_status::text AS engagement_status,
+            cs.niche, cs.account_class::text AS account_class,
+            cs.spacing_hours, cs.daily_pin_target,
+            cs.onboarded_date::text AS onboarded_date,
+            cs.domain, cs.display_name, cs.bio,
+            cs.urls_per_month, cs.url_cooldown_days,
+            cs.monthly_retainer, cs.retainer_currency, cs.hourly_cost
+       FROM organic.client_settings cs
+       JOIN public.organizations o ON o.id = cs.org_id
+      WHERE cs.org_id = $1`,
+    [orgId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  // pg returns numeric as string; the form needs numbers.
+  return {
+    ...row,
+    monthly_retainer: row.monthly_retainer == null ? null : Number(row.monthly_retainer),
+    hourly_cost: row.hourly_cost == null ? null : Number(row.hourly_cost),
+  };
+}
+
+/** Only these columns may be written from the settings screen. Anything
+ *  else is either derived, owned by the SOP engine, or a foot-gun. */
+const SETTABLE = [
+  "engagement_status", "niche", "account_class", "spacing_hours",
+  "daily_pin_target", "onboarded_date", "domain", "display_name", "bio",
+  "urls_per_month", "url_cooldown_days",
+  "monthly_retainer", "retainer_currency", "hourly_cost",
+] as const;
+
+const ENUM_COLUMN: Record<string, string> = {
+  engagement_status: "organic.engagement_status",
+  account_class: "organic.account_class",
+};
+
+export async function updateStoreSettings(
+  orgId: string, patch: Record<string, unknown>
+): Promise<StoreSettings | null> {
+  const pool = organicPool();
+
+  const sets: string[] = [];
+  const values: unknown[] = [orgId];
+  for (const col of SETTABLE) {
+    if (!(col in patch)) continue;
+    const raw = patch[col];
+    // "" from an empty input means "clear this", not "set empty string" —
+    // and for a numeric or date column an empty string is a cast error.
+    const value = raw === "" || raw === undefined ? null : raw;
+    values.push(value);
+    const cast = ENUM_COLUMN[col] ? `::${ENUM_COLUMN[col]}` : "";
+    sets.push(`${col} = $${values.length}${cast}`);
+  }
+  if (sets.length === 0) return loadStoreSettings(orgId);
+
+  await pool.query(
+    `UPDATE organic.client_settings
+        SET ${sets.join(", ")}, updated_at = now()
+      WHERE org_id = $1`,
+    values
+  );
+  return loadStoreSettings(orgId);
+}
