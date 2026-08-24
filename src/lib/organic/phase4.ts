@@ -70,10 +70,50 @@ export async function startCycleForUrl(orgId: string, urlId: string) {
 
 // ---------- URL candidate pool + selection ----------------------------------
 
+/** P4.1.1 — candidate URLs, already filtered by the urls_selectable view
+ *  (cooldown + topic coverage + ≥5 boards). Ranking implements two of the
+ *  spec's data flows:
+ *
+ *    P1.2.14 top pins  → P4.1.1   month-1 quick wins lead the list
+ *    P5.2 winners      → P4.1.1   later cycles lead with proven URLs
+ *
+ *  Rank order: proven winners (measured outbound clicks + saves) first,
+ *  then BEST_PERFORMER-flagged URLs from the phase-1 audit, then the rest
+ *  newest-first. Everything carries the signal that put it there so the
+ *  manager sees WHY a URL is at the top. */
 export async function candidateUrls(orgId: string) {
   const pool = organicPool();
   const r = await pool.query(
-    `SELECT * FROM organic.urls_selectable WHERE org_id = $1 ORDER BY created_at DESC`,
+    `WITH perf AS (
+       SELECT w.url_id,
+              COALESCE(SUM(pp.outbound_clicks), 0)::int AS clicks,
+              COALESCE(SUM(pp.saves), 0)::int           AS saves
+         FROM organic.pin_performance pp
+         JOIN organic.pins p       ON p.id = pp.pin_id
+         JOIN organic.waterfalls w ON w.id = p.waterfall_id
+        WHERE w.org_id = $1
+        GROUP BY w.url_id
+     )
+     SELECT u.*,
+            COALESCE(perf.clicks, 0)                    AS proven_clicks,
+            COALESCE(perf.saves, 0)                     AS proven_saves,
+            (COALESCE(perf.clicks, 0) + COALESCE(perf.saves, 0)) AS proven_score,
+            CASE
+              WHEN COALESCE(perf.clicks, 0) + COALESCE(perf.saves, 0) > 0
+                THEN 'PROVEN_WINNER'
+              WHEN u.reason = 'BEST_PERFORMER'::organic.url_reason
+                THEN 'PHASE1_TOP_PIN'
+              WHEN u.reason = 'NEW'::organic.url_reason
+                THEN 'NEW_URL'
+              ELSE NULL
+            END AS lead_signal
+       FROM organic.urls_selectable u
+       LEFT JOIN perf ON perf.url_id = u.id
+      WHERE u.org_id = $1
+      ORDER BY
+        (COALESCE(perf.clicks, 0) + COALESCE(perf.saves, 0)) DESC,
+        (u.reason = 'BEST_PERFORMER'::organic.url_reason) DESC,
+        u.created_at DESC`,
     [orgId]
   );
   return r.rows;
@@ -175,10 +215,25 @@ export interface DesignBrief {
   url_name: string;
   primary_keyword: string;
   long_tail_keywords: string[];
+  /** Overlay hook keywords — the long-tail terms picked in P4.1.8. */
+  overlay_keywords: string[];
+  /** Hex codes from the P2.1.4 grid analysis for this keyword. */
   dominant_colors: string[];
+  /** Brand colours + typography from the P1.1.6 brand book. */
+  brand_colors: string[];
+  typography: string | null;
+  tone_descriptors: string[];
+  banned_words: string[];
+  approved_ctas: string[];
+  /** Three angles / worlds / moments from P2.3.3. */
+  content_angles: string[];
+  visual_worlds: string[];
+  key_moments: string[];
   save_split_pct: number;   // 80
   click_split_pct: number;  // 20
   format_notes: string;
+  /** Non-negotiable design constraints, spelled out for the designer. */
+  constraints: string[];
 }
 
 /** P4.2.3 — assemble a brief from the DB for the design/copy stages. */
@@ -199,6 +254,8 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
   const primary = kws.rows.find((r) => r.is_primary)?.term ?? "";
   const longTail = kws.rows.filter((r) => !r.is_primary).map((r) => r.term).slice(0, 5);
 
+  // P2.1.4 dominant colours → design brief. The single most-requested
+  // cross-phase value per the spec's data-flow map.
   const colorsRow = await pool.query<{ hex_1: string | null; hex_2: string | null; hex_3: string | null }>(
     `SELECT hex_1, hex_2, hex_3 FROM organic.grid_analyses
       WHERE org_id = $1 AND target_keyword = $2 LIMIT 1`,
@@ -208,15 +265,54 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
     ? [colorsRow.rows[0].hex_1, colorsRow.rows[0].hex_2, colorsRow.rows[0].hex_3].filter(Boolean) as string[]
     : [];
 
+  // P1.1.6 brand book → design brief, and P2.3.3 angles/worlds/moments →
+  // design brief. Both are spec data-flows; without them the designer has
+  // to look the values up by hand, which is exactly what the spec forbids.
+  const [brandRow, tasteRow] = await Promise.all([
+    pool.query<{
+      dominant_colors: string[] | null; tone_descriptors: string[] | null;
+      banned_words: string[] | null; approved_ctas: string[] | null;
+      asset_locations: Record<string, unknown> | null;
+    }>(
+      `SELECT dominant_colors, tone_descriptors, banned_words, approved_ctas, asset_locations
+         FROM organic.brand_rules WHERE org_id = $1`, [orgId]
+    ),
+    pool.query<{ content_angles: string[] | null; visual_worlds: string[] | null; key_moments: string[] | null }>(
+      `SELECT content_angles, visual_worlds, key_moments
+         FROM organic.taste_graph WHERE org_id = $1`, [orgId]
+    ),
+  ]);
+  const brand = brandRow.rows[0];
+  const taste = tasteRow.rows[0];
+  const typography = (brand?.asset_locations as { typography?: string } | null)?.typography ?? null;
+
+  const overlay = longTail.slice(0, 5);
+
   return {
     url: urlRow.rows[0].url,
     url_name: urlRow.rows[0].name,
     primary_keyword: primary,
     long_tail_keywords: longTail.length >= 3 ? longTail : [...longTail, ...Array(3 - longTail.length).fill(primary)],
+    overlay_keywords: overlay.length > 0 ? overlay : [primary],
     dominant_colors: colors,
+    brand_colors: brand?.dominant_colors ?? [],
+    typography,
+    tone_descriptors: brand?.tone_descriptors ?? [],
+    banned_words: brand?.banned_words ?? [],
+    approved_ctas: brand?.approved_ctas ?? [],
+    content_angles: taste?.content_angles ?? [],
+    visual_worlds: taste?.visual_worlds ?? [],
+    key_moments: taste?.key_moments ?? [],
     save_split_pct: 80,
     click_split_pct: 20,
     format_notes: "80% save pins (2:3 lifestyle, no text). 20% click pins (9:16 with keyword-front text + CTA).",
+    constraints: [
+      "Sans-serif fonts only — Pinterest OCR fails on cursive and script.",
+      "Keep the top-left and top-right corners clear: Pinterest overlays Save / More buttons there.",
+      "No watermarks — the algorithm penalises them.",
+      "AI route: apply a 1% transparent frame before export to strip C2PA metadata, and never enable \"Mark as AI-Modified\" in the Pin Builder.",
+      "Four visually distinct designs, then three micro-crops each.",
+    ],
   };
 }
 

@@ -12,7 +12,7 @@ import {
   finaliseBoardList, checkCoverage, saveBoardDescriptions,
   generateCreationSchedule, createBoardsToday,
   proposeSeedPins, runSeeding, flipBoardsPublicAtTen,
-  searchInterests,
+  searchInterests, loadBoardListContext,
   draftDisplayName, draftBio, draftBoardDescription,
   approveAndSaveDisplayName, approveAndSaveBio, approveAndSaveBoardDescription,
   type BoardInput, type SeasonalClassification, type DescriptionRow, type SeedSelection,
@@ -80,6 +80,10 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
         notes: String(body.notes ?? "Profile photo and cover checked on desktop + mobile.") });
       return { recomputed: await recomputeAfter(orgId) };
     }
+    case "board_list_context":
+      // P2.3.3 angles/worlds/moments + Steal List + Board Gap + clusters,
+      // all on screen so P3.3.1 needs no manual lookup.
+      return { context: await loadBoardListContext(orgId) };
     case "board_list":
       return finaliseBoardList(orgId, body.boards as BoardInput[], t());
     case "coverage":

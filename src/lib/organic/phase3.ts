@@ -716,6 +716,78 @@ export interface BoardInput {
   breadth: "BROAD" | "NICHE";
 }
 
+export interface BoardListContext {
+  /** Parent-interest topics — each needs ≥5 boards to pass coverage. */
+  topics: Array<{ id: string; name: string; current_boards: number; covered: boolean }>;
+  /** Keyword clusters, each a natural niche-board candidate. */
+  clusters: Array<{ name: string; axis: string; keyword_count: number }>;
+  /** P2.3.3 distillation — the spec routes these into board naming. */
+  content_angles: string[];
+  visual_worlds: string[];
+  key_moments: string[];
+  /** Approved Steal List + Board Gap items from the P2.2.2 review. */
+  steal_list: string[];
+  board_gap: string[];
+  /** Board-name candidates assembled from all of the above. */
+  suggestions: Array<{ name: string; origin: string; topic_hint: string | null }>;
+}
+
+/** P3.3.1 — everything the manager needs on screen to finalise the board
+ *  list without looking anything up. Implements the spec data-flow
+ *  P2.3.3 angles & moments → P3.3.1 board list, plus the Steal List and
+ *  Board Gap from P2.2.2. The system proposes; the librarian decides. */
+export async function loadBoardListContext(orgId: string): Promise<BoardListContext> {
+  const pool = organicPool();
+  const [topics, clusters, taste, market] = await Promise.all([
+    pool.query<{ id: string; name: string; current_boards: number; covered: boolean }>(
+      `SELECT tc.topic_id::text AS id, tc.topic_name AS name,
+              tc.active_boards::int AS current_boards, tc.is_covered AS covered
+         FROM organic.topic_coverage tc WHERE tc.org_id = $1 ORDER BY tc.topic_name`, [orgId]
+    ),
+    pool.query<{ name: string; axis: string; keyword_count: number }>(
+      `SELECT kc.name, kc.axis::text AS axis, COUNT(k.id)::int AS keyword_count
+         FROM organic.keyword_clusters kc
+         LEFT JOIN organic.keywords k ON k.cluster_id = kc.id
+        WHERE kc.org_id = $1 GROUP BY kc.id, kc.name, kc.axis ORDER BY kc.name`, [orgId]
+    ),
+    pool.query<{ content_angles: string[] | null; visual_worlds: string[] | null; key_moments: string[] | null }>(
+      `SELECT content_angles, visual_worlds, key_moments FROM organic.taste_graph WHERE org_id = $1`, [orgId]
+    ),
+    pool.query<{ kind: string; title: string }>(
+      `SELECT kind, title FROM organic.market_analysis_items
+        WHERE org_id = $1 AND status = 'APPROVED' AND kind IN ('STEAL_LIST','BOARD_GAP')
+        ORDER BY kind, title`, [orgId]
+    ),
+  ]);
+
+  const t = taste.rows[0];
+  const angles  = t?.content_angles ?? [];
+  const worlds  = t?.visual_worlds ?? [];
+  const moments = t?.key_moments ?? [];
+  const steal   = market.rows.filter((r) => r.kind === "STEAL_LIST").map((r) => r.title);
+  const gap     = market.rows.filter((r) => r.kind === "BOARD_GAP").map((r) => r.title);
+
+  const suggestions: BoardListContext["suggestions"] = [];
+  for (const tp of topics.rows) suggestions.push({ name: tp.name, origin: "PARENT_INTEREST", topic_hint: tp.name });
+  for (const cl of clusters.rows) suggestions.push({ name: cl.name, origin: `CLUSTER_${cl.axis}`, topic_hint: null });
+  for (const w of worlds)  suggestions.push({ name: w, origin: "VISUAL_WORLD", topic_hint: null });
+  for (const m of moments) suggestions.push({ name: m, origin: "KEY_MOMENT", topic_hint: null });
+  for (const a of angles)  suggestions.push({ name: a, origin: "CONTENT_ANGLE", topic_hint: null });
+  for (const s of steal)   suggestions.push({ name: s, origin: "STEAL_LIST", topic_hint: null });
+  for (const g of gap)     suggestions.push({ name: g, origin: "BOARD_GAP", topic_hint: null });
+
+  return {
+    topics: topics.rows,
+    clusters: clusters.rows,
+    content_angles: angles,
+    visual_worlds: worlds,
+    key_moments: moments,
+    steal_list: steal,
+    board_gap: gap,
+    suggestions,
+  };
+}
+
 export async function finaliseBoardList(orgId: string, boards: BoardInput[], timeSpentMin: number) {
   if (boards.length < 20 || boards.length > 30) {
     throw new Error(`board list must be 20–30 boards (got ${boards.length})`);
