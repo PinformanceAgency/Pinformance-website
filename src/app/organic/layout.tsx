@@ -22,7 +22,6 @@ export const metadata: Metadata = {
   title: "Organic — Pinformance Agency",
   description: "Organic workflow tool for the Pinformance team.",
   robots: { index: false, follow: false },
-  icons: { icon: "/favicon.ico" },
 };
 
 /** /client/<uuid>/… and /report/<uuid> both scope the sidebar to a store. */

@@ -7,9 +7,10 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Pinformance — Pinterest Automation for E-commerce",
   description: "AI-powered Pinterest content creation and posting automation for e-commerce brands",
-  icons: {
-    icon: "/favicon.ico",
-  },
+  // Icons are not declared here on purpose. src/app/favicon.ico,
+  // icon.png and apple-icon.png are Next.js file conventions and are
+  // emitted automatically with content hashes; an explicit `icons` block
+  // overrides them and would pin us back to the .ico alone.
 };
 
 export default function RootLayout({

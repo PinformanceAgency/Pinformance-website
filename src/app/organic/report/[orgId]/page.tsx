@@ -18,6 +18,7 @@
  * measured renders as an em dash with its reason, and a comparison
  * against an absent baseline is never computed.
  */
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { loadClientHeader } from "@/lib/organic/queries";
@@ -28,6 +29,25 @@ import { TrendLine, ColumnSeries, PairedBars, BarList } from "@/components/organ
 import { Disclosure } from "@/components/organic/disclosure";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The browser tab is part of what the client sees, alongside the favicon.
+ * Inheriting the layout's "Organic — Pinformance Agency" put our internal
+ * tool's name on a page written for them; the store's own name and the
+ * month is what a forwarded tab or a saved PDF should be called.
+ */
+export async function generateMetadata(
+  { params }: { params: Promise<{ orgId: string }> }
+): Promise<Metadata> {
+  const { orgId } = await params;
+  const header = await loadClientHeader(orgId);
+  if (!header) return { title: "Pinterest report" };
+  return {
+    title: `${header.name} — Pinterest report`,
+    description: `Monthly Pinterest organic report for ${header.name}, by Pinformance Agency.`,
+    robots: { index: false, follow: false },
+  };
+}
 
 /* ------------------------------------------------------------------ */
 
