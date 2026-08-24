@@ -4,10 +4,11 @@ import { loadViability } from "@/lib/organic/viability";
 import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { loadPhase3Snapshot } from "@/lib/organic/phase3";
 import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume } from "@/lib/organic/phase4";
-import { loadAssets } from "@/lib/organic/workspace";
+import { loadAssets, loadCycleOps } from "@/lib/organic/workspace";
 import { phaseMeta } from "@/lib/organic/phase-meta";
 import { PhaseBoard } from "./PhaseBoard";
 import { Phase4Cycles } from "../../Phase4Cycles";
+import { CycleOpsPanel } from "@/components/organic/CycleOps";
 
 export const dynamic = "force-dynamic";
 
@@ -21,18 +22,23 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
   // Phase 4 is cycle-based, so it renders the cycles panel instead of a
   // flat task list.
   if (phase === 4) {
-    const [header, p4, cycles, orgBoards, orgKeywords, assets] = await Promise.all([
+    const [header, p4, cycles, orgBoards, orgKeywords, assets, ops] = await Promise.all([
       loadClientHeader(orgId),
       loadPhase4Snapshot(orgId),
       loadCyclesForOrg(orgId),
       loadOrgBoards(orgId),
       loadOrgKeywordsWithVolume(orgId),
       loadAssets(orgId),
+      loadCycleOps(orgId),
     ]);
     if (!header) notFound();
+    // Resolved server-side so the calendar's "today" column and the pin
+    // rows it is drawn from cannot disagree across a timezone boundary.
+    const today = new Date().toISOString().slice(0, 10);
     return (
       <div className="space-y-5">
         <PhaseHeader meta={meta} />
+        <CycleOpsPanel ops={ops} today={today} />
         <Phase4Cycles
           orgId={orgId}
           cycles={cycles}

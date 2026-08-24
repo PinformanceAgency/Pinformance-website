@@ -521,3 +521,125 @@ export async function loadPhaseDetail(orgId: string): Promise<PhaseDetail[]> {
 
   return Array.from(byPhase.values()).sort((a, b) => a.phase - b.phase);
 }
+
+// ---------- CYCLE OPERATIONS (phase 4) --------------------------------------
+
+export interface QueuedPin {
+  id: string;
+  content_code: string | null;
+  scheduled_time: string | null;
+  status: string;
+  board_name: string | null;
+  url_name: string | null;
+  design_number: number | null;
+  copy_variant: string | null;
+  failure_reason: string | null;
+}
+
+export interface DesignBoardCell {
+  design_number: number;
+  intent: string | null;
+  board_name: string;
+  pins: number;
+  published: number;
+  failed: number;
+}
+
+export interface CycleOps {
+  /** Pins due today. The one list a manager checks before lunch. */
+  today: QueuedPin[];
+  /** Failures across the last 14 days, newest first. Surfaced on their own
+   *  rather than mixed into the queue: a failure is not a slower success,
+   *  it needs a decision. */
+  failures: QueuedPin[];
+  /** Scheduled volume per day for the fortnight ahead — the shape of the
+   *  publishing plan, and where the gaps are. */
+  calendar: Array<{ day: string; planned: number; published: number; failed: number }>;
+  /** Design x board coverage for every running waterfall. */
+  matrix: Array<{ waterfall_id: string; url_name: string | null; cells: DesignBoardCell[] }>;
+}
+
+const PIN_SELECT = `
+  p.id::text, p.content_code, p.scheduled_time::text, p.status::text,
+  b.name AS board_name, u.name AS url_name,
+  d.design_number, p.copy_variant, p.failure_reason`;
+
+export async function loadCycleOps(orgId: string): Promise<CycleOps> {
+  const pool = organicPool();
+
+  const [today, failures, calendar, matrix] = await Promise.all([
+    pool.query<QueuedPin>(
+      `SELECT ${PIN_SELECT}
+         FROM organic.pins p
+         JOIN organic.waterfalls w ON w.id = p.waterfall_id
+         LEFT JOIN organic.boards b ON b.id = p.board_id
+         LEFT JOIN organic.urls u   ON u.id = w.url_id
+         LEFT JOIN organic.designs d ON d.id = p.design_id
+        WHERE w.org_id = $1 AND p.scheduled_date = current_date
+          AND p.status <> 'CANCELLED'
+        ORDER BY p.scheduled_time NULLS LAST`, [orgId]),
+
+    pool.query<QueuedPin>(
+      `SELECT ${PIN_SELECT}
+         FROM organic.pins p
+         JOIN organic.waterfalls w ON w.id = p.waterfall_id
+         LEFT JOIN organic.boards b ON b.id = p.board_id
+         LEFT JOIN organic.urls u   ON u.id = w.url_id
+         LEFT JOIN organic.designs d ON d.id = p.design_id
+        WHERE w.org_id = $1 AND p.status = 'FAILED'
+          AND p.scheduled_date > current_date - interval '14 days'
+        ORDER BY p.scheduled_date DESC, p.scheduled_time DESC NULLS LAST
+        LIMIT 50`, [orgId]),
+
+    // generate_series so days with nothing scheduled appear as gaps rather
+    // than vanishing — an empty Tuesday is the point of looking.
+    pool.query<{ day: string; planned: number; published: number; failed: number }>(
+      `SELECT to_char(g.day, 'YYYY-MM-DD') AS day,
+              COUNT(p.id) FILTER (WHERE p.status IN ('PLANNED','SCHEDULED'))::int AS planned,
+              COUNT(p.id) FILTER (WHERE p.status = 'PUBLISHED')::int              AS published,
+              COUNT(p.id) FILTER (WHERE p.status = 'FAILED')::int                 AS failed
+         FROM generate_series(current_date - interval '3 days',
+                              current_date + interval '13 days',
+                              interval '1 day') AS g(day)
+         LEFT JOIN organic.pins p ON p.scheduled_date = g.day::date
+                                 AND p.status <> 'CANCELLED'
+         LEFT JOIN organic.waterfalls w ON w.id = p.waterfall_id AND w.org_id = $1
+        WHERE p.id IS NULL OR w.org_id = $1
+        GROUP BY g.day ORDER BY g.day`, [orgId]),
+
+    pool.query<DesignBoardCell & { waterfall_id: string; url_name: string | null }>(
+      `SELECT w.id::text AS waterfall_id, u.name AS url_name,
+              d.design_number, d.intent::text AS intent,
+              COALESCE(b.name, '(no board)') AS board_name,
+              COUNT(p.id)::int                                        AS pins,
+              COUNT(p.id) FILTER (WHERE p.status = 'PUBLISHED')::int  AS published,
+              COUNT(p.id) FILTER (WHERE p.status = 'FAILED')::int     AS failed
+         FROM organic.waterfalls w
+         JOIN organic.pins p     ON p.waterfall_id = w.id AND p.status <> 'CANCELLED'
+         JOIN organic.designs d  ON d.id = p.design_id
+         LEFT JOIN organic.boards b ON b.id = p.board_id
+         LEFT JOIN organic.urls u   ON u.id = w.url_id
+        WHERE w.org_id = $1
+          AND w.status IN ('PRODUCTION','SCHEDULED','RUNNING')
+        GROUP BY w.id, u.name, d.design_number, d.intent, b.name
+        ORDER BY u.name, d.design_number, b.name`, [orgId]),
+  ]);
+
+  const byWaterfall = new Map<string, { waterfall_id: string; url_name: string | null; cells: DesignBoardCell[] }>();
+  for (const r of matrix.rows) {
+    const e = byWaterfall.get(r.waterfall_id)
+      ?? { waterfall_id: r.waterfall_id, url_name: r.url_name, cells: [] };
+    e.cells.push({
+      design_number: r.design_number, intent: r.intent, board_name: r.board_name,
+      pins: r.pins, published: r.published, failed: r.failed,
+    });
+    byWaterfall.set(r.waterfall_id, e);
+  }
+
+  return {
+    today: today.rows,
+    failures: failures.rows,
+    calendar: calendar.rows,
+    matrix: Array.from(byWaterfall.values()),
+  };
+}
