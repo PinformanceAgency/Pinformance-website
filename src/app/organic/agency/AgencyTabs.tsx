@@ -9,6 +9,7 @@ const TABS = [
   { slug: "execution", label: "Execution", hint: "are we delivering" },
   { slug: "margin",    label: "Capacity & margin", hint: "where the hours go" },
   { slug: "risk",      label: "Risk", hint: "churn, three months early" },
+  { slug: "method",    label: "Method", hint: "what fifty accounts know" },
 ];
 
 export function AgencyTabs() {
