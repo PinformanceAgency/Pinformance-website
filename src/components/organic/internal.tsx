@@ -225,13 +225,13 @@ export function VolumeUsageScatter({
             <circle key={`${p.label}-${i}`} cx={px(p.x)} cy={py(p.y)} r={isWaste ? 3.6 : 2.8}
                     fill={isWaste ? "var(--color-o-neg)" : DATA_COLORS.slate}
                     opacity={isWaste ? 0.9 : 0.5}>
-              <title>{`${p.label} — volume ${p.y.toLocaleString()}, used on ${p.x} URL${p.x === 1 ? "" : "s"}`}</title>
+              <title>{`${p.label} — volume ${p.y.toLocaleString("en-US")}, used on ${p.x} URL${p.x === 1 ? "" : "s"}`}</title>
             </circle>
           );
         })}
 
         <text x={PAD_L - 6} y={PAD_T + 8} textAnchor="end" fontSize={9.5} fill="var(--color-o-ink-3)">
-          {maxY.toLocaleString()}
+          {maxY.toLocaleString("en-US")}
         </text>
         <text x={PAD_L - 6} y={height - PAD_B} textAnchor="end" fontSize={9.5} fill="var(--color-o-ink-3)">0</text>
         <text x={PAD_L} y={height - 8} fontSize={9.5} fill="var(--color-o-ink-3)">0 URLs</text>

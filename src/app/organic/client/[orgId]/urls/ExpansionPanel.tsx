@@ -204,7 +204,7 @@ function ProposalCard({ orgId, p, onRefresh }: { orgId: string; p: Proposal; onR
             <div className="mt-1 text-[11px] text-muted-foreground">
               anchors: {p.supporting_keywords.slice(0, 4).join(", ")}
               {p.supporting_keywords.length > 4 && <span>, +{p.supporting_keywords.length - 4} more</span>}
-              {p.supporting_keywords_volume > 0 && <span className="ml-2 tabular-nums">· combined vol {p.supporting_keywords_volume.toLocaleString()}</span>}
+              {p.supporting_keywords_volume > 0 && <span className="ml-2 tabular-nums">· combined vol {p.supporting_keywords_volume.toLocaleString("en-US")}</span>}
             </div>
           )}
           {p.built_url && (

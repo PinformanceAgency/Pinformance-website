@@ -371,10 +371,10 @@ function ResultsBand({
               size="lg"
               movement={d.delta_pct}
               reason={PROVENANCE_REASON[(d.delta_suppressed_because ?? d.state) as ProvenanceState]}
-              movementReason={`vs baseline ${d.baseline?.toLocaleString() ?? "—"}`}
+              movementReason={`vs baseline ${d.baseline?.toLocaleString("en-US") ?? "—"}`}
               footnote={
                 d.baseline != null
-                  ? <>baseline {d.baseline.toLocaleString()}</>
+                  ? <>baseline {d.baseline.toLocaleString("en-US")}</>
                   : <span className="text-o-ink-3">no baseline</span>
               }
             />

@@ -108,12 +108,12 @@ export function composeHeadline(
   const monthName = new Date(current.month + "T00:00:00Z")
     .toLocaleDateString("en-GB", { month: "long", timeZone: "UTC" });
 
-  const parts: string[] = [`Pinterest drove ${current.outbound_clicks.toLocaleString()} outbound clicks`];
+  const parts: string[] = [`Pinterest drove ${current.outbound_clicks.toLocaleString("en-US")} outbound clicks`];
 
   if (current.revenue != null && current.revenue > 0) {
-    parts.push(`and €${Math.round(current.revenue).toLocaleString()} in attributed revenue`);
+    parts.push(`and €${Math.round(current.revenue).toLocaleString("en-US")} in attributed revenue`);
   } else if (current.pin_saves != null) {
-    parts.push(`and ${current.pin_saves.toLocaleString()} saves`);
+    parts.push(`and ${current.pin_saves.toLocaleString("en-US")} saves`);
   }
 
   let sentence = `${parts.join(" ")} in ${monthName}`;
@@ -298,7 +298,7 @@ export async function loadWhatWasBuilt(orgId: string, monthStart: string): Promi
     {
       label: "Competitors analysed",
       count: comps.rowCount ?? 0,
-      items: comps.rows.map((r) => `${r.name} — ${r.pins.toLocaleString()} pins reviewed`),
+      items: comps.rows.map((r) => `${r.name} — ${r.pins.toLocaleString("en-US")} pins reviewed`),
     },
   ];
 }

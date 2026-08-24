@@ -401,7 +401,7 @@ export default async function ClientReportPage({
                     </p>
                     <p className="mt-1 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">
                       {c.terms.slice(0, 24).map((t) =>
-                        t.volume != null ? `${t.term} (${t.volume.toLocaleString()})` : t.term
+                        t.volume != null ? `${t.term} (${t.volume.toLocaleString("en-US")})` : t.term
                       ).join(" · ")}
                       {c.terms.length > 24 && ` · +${c.terms.length - 24} more`}
                     </p>
@@ -472,10 +472,10 @@ export default async function ClientReportPage({
                       </div>
                       <figcaption className="mt-1.5">
                         <span className="block o-num text-[length:var(--text-o-body)] font-semibold text-o-ink">
-                          {p.clicks.toLocaleString()}
+                          {p.clicks.toLocaleString("en-US")}
                         </span>
                         <span className="block text-[length:var(--text-o-label)] text-o-ink-3">
-                          clicks · {p.saves.toLocaleString()} saves
+                          clicks · {p.saves.toLocaleString("en-US")} saves
                         </span>
                         {p.board && (
                           <span className="block text-[length:var(--text-o-label)] text-o-ink-3 truncate" title={p.board}>
@@ -580,8 +580,8 @@ export default async function ClientReportPage({
           </div>
           {(current.other_impressions != null || current.other_saves != null) && (
             <p className="mt-5 text-[length:var(--text-o-label)] text-o-ink-3 leading-relaxed max-w-[42rem]">
-              A further {(current.other_impressions ?? 0).toLocaleString()} impressions and{" "}
-              {(current.other_saves ?? 0).toLocaleString()} saves came from pins your own visitors
+              A further {(current.other_impressions ?? 0).toLocaleString("en-US")} impressions and{" "}
+              {(current.other_saves ?? 0).toLocaleString("en-US")} saves came from pins your own visitors
               saved from your site. Real reach, but not work we did, so it is kept out of the
               figures above.
             </p>
@@ -666,7 +666,7 @@ function WorkedPanel({ title, rows, color }: {
           data={rows.map((r) => ({
             label: r.label,
             value: r.clicks,
-            note: `${r.pins} pin${r.pins === 1 ? "" : "s"} · ${r.saves.toLocaleString()} saves`,
+            note: `${r.pins} pin${r.pins === 1 ? "" : "s"} · ${r.saves.toLocaleString("en-US")} saves`,
           }))}
         />
       </div>

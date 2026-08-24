@@ -270,14 +270,18 @@ function PromoteRow({ orgId, c, onDone }: { orgId: string; c: AdsCandidate; onDo
   );
 }
 
+// Locale is pinned deliberately. A bare toLocaleString() formats with the
+// Node process locale on the server and the viewer's locale in the
+// browser, which is both a hydration mismatch and a way for two people to
+// read different numbers off the same screen.
 function fmt(v: number | null): string {
   if (v == null) return "—";
-  return v.toLocaleString();
+  return v.toLocaleString("en-US");
 }
 function fmtSigned(v: number | null): string {
   if (v == null) return "—";
   const sign = v > 0 ? "+" : "";
-  return `${sign}${v.toLocaleString()}`;
+  return `${sign}${v.toLocaleString("en-US")}`;
 }
 function deltaColor(v: number | null): string {
   if (v == null) return "text-neutral-400";
