@@ -1,4 +1,14 @@
+/**
+ * LIBRARY · Keywords — the bank, and the waste inside it.
+ *
+ * The scatter leads because it exposes the biggest silent loss in the
+ * system: validated high-volume terms that nobody ever put on a pin. That
+ * research was paid for in hours and returns nothing while it sits in the
+ * bank, and it is invisible in a sorted table.
+ */
 import { loadKeywords } from "@/lib/organic/workspace";
+import { Band, Panel, Empty } from "@/components/organic/primitives";
+import { Table, TH, TD, Pill, Metric, Toolbar, VolumeUsageScatter } from "@/components/organic/internal";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -9,95 +19,83 @@ export default async function KeywordsPage({ params }: { params: Promise<{ orgId
 
   const withVol = rows.filter((r) => r.volume != null);
   const stale = rows.filter((r) => r.volume_stale);
-  const unused = rows.filter((r) => r.volume != null && (r.volume ?? 0) > 0 && r.used_on_urls === 0);
+  const unused = withVol.filter((r) => (r.volume ?? 0) > 0 && r.used_on_urls === 0);
 
   return (
-    <div className="space-y-6">
-      {/* Metrics */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <MetricCard label="Total keywords" value={rows.length} />
-        <MetricCard label="With cached volume" value={withVol.length} />
-        <MetricCard label="Cache stale (>180d)" value={stale.length} tone={stale.length > 0 ? "warn" : "ok"} />
-        <MetricCard label="Unused with volume" value={unused.length} tone={unused.length > 0 ? "warn" : "ok"} hint="Missed opportunity" />
-      </section>
+    <div>
+      <Toolbar>
+        <Metric label="In the bank" value={rows.length} />
+        <Metric label="Volume validated" value={withVol.length} />
+        <Metric label="Cache stale" value={stale.length} tone={stale.length ? "warn" : "good"} />
+        <Metric label="Validated, never used" value={unused.length} tone={unused.length ? "bad" : "good"} />
+      </Toolbar>
 
-      {/* Keyword table */}
-      <section>
-        <h2 className="text-sm font-semibold text-foreground mb-2">Keyword bank</h2>
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40">
-                <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <th className="py-2 px-3 font-medium">Term</th>
-                  <th className="py-2 px-3 font-medium">Type</th>
-                  <th className="py-2 px-3 font-medium">Cluster</th>
-                  <th className="py-2 px-3 font-medium">Season</th>
-                  <th className="py-2 px-3 font-medium text-right">Volume</th>
-                  <th className="py-2 px-3 font-medium">Cache age</th>
-                  <th className="py-2 px-3 font-medium text-center">Used?</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((k) => (
-                  <tr key={k.id} className={cn("border-t border-border", k.client_forbidden && "opacity-50")}>
-                    <td className="py-1.5 px-3">
-                      <span className="text-foreground">{k.term}</span>
-                      {k.client_forbidden && <span className="ml-1 text-[10px] text-red-600">(forbidden)</span>}
-                    </td>
-                    <td className="py-1.5 px-3 text-[10px] text-muted-foreground uppercase">{k.type}</td>
-                    <td className="py-1.5 px-3 text-xs text-muted-foreground">{k.cluster_name ?? "—"}</td>
-                    <td className="py-1.5 px-3 text-[10px]">
-                      {k.seasonal_type ? <span className={cn("px-1 py-0.5 rounded border", seasonCls(k.seasonal_type))}>{k.seasonal_type}</span> : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="py-1.5 px-3 text-right tabular-nums">
-                      {k.volume != null ? (
-                        <span className={cn("font-semibold", (k.volume ?? 0) > 5000 ? "text-emerald-700" : "text-foreground")}>{k.volume.toLocaleString()}</span>
-                      ) : (
-                        <span className="text-muted-foreground">not looked up</span>
-                      )}
-                    </td>
-                    <td className="py-1.5 px-3 text-[11px] tabular-nums">
-                      {k.volume_days_old != null ? (
-                        <span className={cn(k.volume_stale ? "text-amber-700 font-medium" : "text-muted-foreground")}>
-                          {k.volume_days_old}d {k.volume_stale && "· stale"}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    <td className="py-1.5 px-3 text-center">
-                      {k.used_on_urls > 0 ? (
-                        <span className="text-emerald-700 text-xs font-medium tabular-nums">✓ {k.used_on_urls}</span>
-                      ) : (k.volume ?? 0) > 0 ? (
-                        <span className="text-red-600 text-xs font-medium">missed</span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </td>
+      {withVol.length > 0 && (
+        <Band title="Volume against deployment"
+              sub="Every point is a term. The shaded corner is reach we researched and never used.">
+          <Panel className="px-5 py-5">
+            <VolumeUsageScatter
+              points={withVol.map((r) => ({ label: r.term, x: r.used_on_urls, y: r.volume }))}
+            />
+          </Panel>
+        </Band>
+      )}
+
+      <Band title="Keyword bank" sub={`${rows.length} term${rows.length === 1 ? "" : "s"}.`}>
+        {rows.length === 0 ? (
+          <Empty
+            headline="The keyword bank is empty."
+            body="Terms are harvested in phase 3 from Pinterest autocomplete, competitor annotations and the taxonomy, then each is checked for real search volume before it can be used on a pin."
+          />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <TH>Term</TH>
+                <TH>Type</TH>
+                <TH>Cluster</TH>
+                <TH>Season</TH>
+                <TH align="right">Volume</TH>
+                <TH>Cache age</TH>
+                <TH align="right">On URLs</TH>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const wasted = r.volume != null && r.volume > 0 && r.used_on_urls === 0;
+                return (
+                  <tr key={r.id} className="hover:bg-o-sunk/50">
+                    <TD>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="text-o-ink truncate max-w-[16rem]" title={r.term}>{r.term}</span>
+                        {r.client_forbidden && <Pill tone="bad">forbidden</Pill>}
+                        {r.parent_interest && <Pill tone="neutral">interest</Pill>}
+                      </span>
+                    </TD>
+                    <TD muted>{r.type.toLowerCase()}</TD>
+                    <TD muted={!r.cluster_name}>{r.cluster_name ?? "—"}</TD>
+                    <TD muted={!r.seasonal_type}>{r.seasonal_type?.toLowerCase() ?? "—"}</TD>
+                    <TD align="right">
+                      {r.volume == null
+                        ? <span className="text-o-ink-3" title="Volume has not been looked up yet">—</span>
+                        : r.volume.toLocaleString("en-US")}
+                    </TD>
+                    <TD>
+                      {r.volume_days_old == null ? <span className="text-o-ink-3">—</span>
+                        : r.volume_stale
+                          ? <Pill tone="warn">{r.volume_days_old}d</Pill>
+                          : <span className="text-o-ink-3">{r.volume_days_old}d</span>}
+                    </TD>
+                    <TD align="right">
+                      <span className={cn(wasted && "text-o-neg font-semibold")}>{r.used_on_urls}</span>
+                    </TD>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+                );
+              })}
+            </tbody>
+          </Table>
+        )}
+      </Band>
     </div>
   );
-}
-
-function MetricCard({ label, value, tone = "ok", hint }: { label: string; value: number; tone?: "ok" | "warn" | "bad"; hint?: string }) {
-  const cls = tone === "warn" ? "text-amber-700" : tone === "bad" ? "text-red-600" : "text-foreground";
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{label}</div>
-      <div className={cn("mt-1 text-2xl font-semibold tabular-nums", cls)}>{value.toLocaleString()}</div>
-      {hint && <div className="text-[10px] text-muted-foreground mt-0.5">{hint}</div>}
-    </div>
-  );
-}
-
-function seasonCls(t: string): string {
-  if (t === "EVERGREEN") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (t === "SEASONAL") return "border-purple-200 bg-purple-50 text-purple-700";
-  if (t === "MICRO_TREND") return "border-red-200 bg-red-50 text-red-700";
-  return "border-neutral-200 bg-neutral-100 text-neutral-600";
 }

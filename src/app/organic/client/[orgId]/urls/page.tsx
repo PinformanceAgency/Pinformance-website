@@ -1,9 +1,22 @@
+/**
+ * LIBRARY · URLs — the cycle-planning surface.
+ *
+ * The manager picks next month's pages from this screen and nowhere else,
+ * so the cooldown timeline leads: it answers "what can I run today" in one
+ * glance, which a sortable table never does. The full table sits below it
+ * as reference.
+ */
 import { loadUrls } from "@/lib/organic/workspace";
 import { computeUrlRequirement, assessViability, loadProposals } from "@/lib/organic/expansion";
 import { ExpansionPanel } from "./ExpansionPanel";
-import { cn } from "@/lib/utils";
+import { Band, Panel, Empty } from "@/components/organic/primitives";
+import { Table, TH, TD, Pill, Metric, Toolbar, CooldownTimeline } from "@/components/organic/internal";
 
 export const dynamic = "force-dynamic";
+
+const REASON_TONE: Record<string, "good" | "warn" | "accent" | "neutral"> = {
+  BEST_PERFORMER: "good", SEASONAL: "warn", CLIENT_REQUEST: "accent",
+};
 
 export default async function UrlsPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
@@ -18,116 +31,104 @@ export default async function UrlsPage({ params }: { params: Promise<{ orgId: st
   const running = urls.filter((u) => u.active_waterfall_status).length;
   const inCooldown = urls.filter((u) => !u.cooldown_clear).length;
 
+  // Derived on the server so the timeline's "today" matches the cooldown
+  // dates it is drawn against, whatever the viewer's clock says.
+  const today = new Date().toISOString().slice(0, 10);
+
   return (
-    <div className="space-y-6">
+    <div>
       <ExpansionPanel
         orgId={orgId}
         requirement={requirement}
-        assessment={{ buildable_pages: assessment.buildable_pages, existing_plus_buildable: assessment.existing_plus_buildable, verdict_suggested: assessment.verdict_suggested, reasoning: assessment.reasoning }}
+        assessment={{
+          buildable_pages: assessment.buildable_pages,
+          existing_plus_buildable: assessment.existing_plus_buildable,
+          verdict_suggested: assessment.verdict_suggested,
+          reasoning: assessment.reasoning,
+        }}
         proposals={proposals as Parameters<typeof ExpansionPanel>[0]["proposals"]}
       />
 
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <MetricCard label="Total URLs" value={urls.length} />
-        <MetricCard label="Selectable now" value={selectable} tone={selectable > 0 ? "primary" : "muted"} hint="Ready to pick" />
-        <MetricCard label="Running cycles" value={running} />
-        <MetricCard label="In cooldown" value={inCooldown} tone="muted" />
-      </section>
+      <div className="mt-6">
+        <Toolbar>
+          <Metric label="URLs" value={urls.length} />
+          <Metric label="Available now" value={selectable} tone={selectable ? "good" : "warn"} />
+          <Metric label="In a running cycle" value={running} />
+          <Metric label="In cooldown" value={inCooldown} />
+        </Toolbar>
+      </div>
 
-      <section>
-        <h2 className="text-sm font-semibold text-foreground mb-2">URLs</h2>
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40">
-                <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <th className="py-2 px-3 font-medium">URL</th>
-                  <th className="py-2 px-3 font-medium">Reason</th>
-                  <th className="py-2 px-3 font-medium">Funnel</th>
-                  <th className="py-2 px-3 font-medium text-right">Boards</th>
-                  <th className="py-2 px-3 font-medium text-right">Runs</th>
-                  <th className="py-2 px-3 font-medium">Cooldown / next available</th>
-                  <th className="py-2 px-3 font-medium text-right">Performance</th>
-                  <th className="py-2 px-3 font-medium">State</th>
+      <Band title="Cooldown"
+            sub="A URL rests after a waterfall so the next run is not competing with its own pins.">
+        <Panel className="px-5 py-5">
+          <CooldownTimeline
+            today={today}
+            rows={urls.map((u) => ({
+              name: u.name,
+              next_available_date: u.next_available_date,
+              clear: u.cooldown_clear,
+              active: u.active_waterfall_status,
+            }))}
+          />
+        </Panel>
+      </Band>
+
+      <Band title="All URLs" sub={`${urls.length} captured.`}>
+        {urls.length === 0 ? (
+          <Empty
+            headline="No URLs captured yet."
+            body="Pages are collected during intake and selected for production in phase 4. A store needs enough distinct URLs to keep the waterfall fed without repeating a page before its cooldown clears."
+          />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <TH>URL</TH>
+                <TH>Reason</TH>
+                <TH>Funnel</TH>
+                <TH align="right">Cycles</TH>
+                <TH align="right">Boards</TH>
+                <TH align="right">Clicks</TH>
+                <TH align="right">Saves</TH>
+                <TH>Available</TH>
+              </tr>
+            </thead>
+            <tbody>
+              {urls.map((u) => (
+                <tr key={u.id} className="hover:bg-o-sunk/50">
+                  <TD>
+                    <span className="block text-o-ink truncate max-w-[18rem]" title={u.url}>{u.name}</span>
+                    <span className="block text-[length:var(--text-o-label)] text-o-ink-3 truncate max-w-[18rem]">
+                      {u.type.toLowerCase()}
+                      {u.is_seasonal && u.peak_window_start && ` · peaks ${u.peak_window_start}`}
+                    </span>
+                  </TD>
+                  <TD>
+                    <Pill tone={REASON_TONE[u.reason] ?? "neutral"}>
+                      {u.reason.toLowerCase().replace(/_/g, " ")}
+                    </Pill>
+                  </TD>
+                  <TD muted={!u.funnel_stage}>{u.funnel_stage?.toLowerCase() ?? "—"}</TD>
+                  <TD align="right">{u.waterfalls_run}</TD>
+                  <TD align="right">
+                    {u.assigned_boards}
+                    {!u.topic_covered && <span className="ml-1 text-o-neg" title="Topic under five boards — blocks selection">!</span>}
+                  </TD>
+                  <TD align="right">{u.total_outbound_clicks.toLocaleString("en-US")}</TD>
+                  <TD align="right">{u.total_saves.toLocaleString("en-US")}</TD>
+                  <TD>
+                    {u.active_waterfall_status
+                      ? <Pill tone="accent">{u.active_waterfall_status.toLowerCase()}</Pill>
+                      : u.cooldown_clear
+                        ? <Pill tone="good">now</Pill>
+                        : <span className="text-o-ink-3">{u.cooldown_until ?? "—"}</span>}
+                  </TD>
                 </tr>
-              </thead>
-              <tbody>
-                {urls.map((u) => (
-                  <tr key={u.id} className="border-t border-border">
-                    <td className="py-1.5 px-3">
-                      <div className="text-foreground font-medium truncate max-w-[240px]" title={u.name}>{u.name}</div>
-                      <a href={u.url} target="_blank" rel="noreferrer" className="text-[10px] text-primary hover:underline truncate block max-w-[240px]">{u.url}</a>
-                    </td>
-                    <td className="py-1.5 px-3"><ReasonPill reason={u.reason} /></td>
-                    <td className="py-1.5 px-3 text-[10px] text-muted-foreground">
-                      {u.funnel_stage ?? "—"}{u.is_seasonal && <span className="ml-1 text-purple-700 font-medium">SEASONAL</span>}
-                    </td>
-                    <td className="py-1.5 px-3 text-right tabular-nums text-xs">
-                      <span className={cn(u.assigned_boards < 5 ? "text-red-600 font-semibold" : "text-foreground")}>{u.assigned_boards}</span>
-                    </td>
-                    <td className="py-1.5 px-3 text-right tabular-nums text-xs text-muted-foreground">{u.waterfalls_run}</td>
-                    <td className="py-1.5 px-3 text-xs tabular-nums">
-                      {u.cooldown_until ? (
-                        <span className={cn(u.cooldown_clear ? "text-emerald-700" : "text-amber-700")}>
-                          {u.cooldown_clear ? "clear" : `until ${u.cooldown_until}`}
-                        </span>
-                      ) : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="py-1.5 px-3 text-right text-[11px] tabular-nums text-muted-foreground">
-                      {u.total_impressions > 0 ? (
-                        <>
-                          <div>{u.total_impressions.toLocaleString()} impr</div>
-                          <div>{u.total_saves} sv / {u.total_outbound_clicks} clk</div>
-                        </>
-                      ) : "—"}
-                    </td>
-                    <td className="py-1.5 px-3">
-                      {u.active_waterfall_status ? (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-700 font-semibold">
-                          {u.active_waterfall_status}
-                        </span>
-                      ) : u.is_selectable ? (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 font-semibold">READY</span>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground">
-                          {!u.topic_covered ? "topic uncov" : u.assigned_boards < 5 ? "<5 boards" : !u.cooldown_clear ? "cooldown" : "—"}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Band>
     </div>
   );
-}
-
-function MetricCard({ label, value, tone = "ok", hint }: { label: string; value: number; tone?: "ok" | "warn" | "muted" | "primary"; hint?: string }) {
-  const cls =
-    tone === "warn" ? "text-amber-700" :
-    tone === "muted" ? "text-muted-foreground" :
-    tone === "primary" ? "text-primary" :
-    "text-foreground";
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{label}</div>
-      <div className={cn("mt-1 text-2xl font-semibold tabular-nums", cls)}>{value.toLocaleString()}</div>
-      {hint && <div className="text-[10px] text-muted-foreground mt-0.5">{hint}</div>}
-    </div>
-  );
-}
-
-function ReasonPill({ reason }: { reason: string }) {
-  const cls =
-    reason === "BEST_PERFORMER" ? "border-emerald-200 bg-emerald-50 text-emerald-700" :
-    reason === "SEASONAL"       ? "border-purple-200 bg-purple-50 text-purple-700" :
-    reason === "NEW"            ? "border-blue-200 bg-blue-50 text-blue-700" :
-    reason === "CLIENT_REQUEST" ? "border-amber-200 bg-amber-50 text-amber-700" :
-    reason === "AB_TEST"        ? "border-pink-200 bg-pink-50 text-pink-700" :
-    reason === "STOCK_PUSH"     ? "border-orange-200 bg-orange-50 text-orange-700" :
-    "border-neutral-200 bg-neutral-100 text-neutral-600";
-  return <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wide", cls)}>{reason}</span>;
 }
