@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { organicPool } from "@/lib/organic/db";
 import { recomputeStatuses } from "@/lib/organic/status";
+import { autoLinkAsset, autoLinkAssetsFromText } from "@/lib/organic/assets-auto";
 import type { SkipReason, TaskStatus } from "@/lib/organic/types";
 
 export const runtime = "nodejs";
@@ -16,6 +17,11 @@ interface Body {
   notes?: string | null;
   skip_reason?: SkipReason;
   skip_note?: string | null;
+  /** Optional URL captured with the completion. If set, auto-creates an
+   *  organic.assets row linked to this task's definition id, with type
+   *  inferred from task + hostname. */
+  link?: string | null;
+  link_title?: string | null;
 }
 
 export async function PATCH(
@@ -101,6 +107,25 @@ export async function PATCH(
     );
   }
 
+  // Auto-capture assets: any URL supplied via `link` OR pasted inline in
+  // `notes` becomes an organic.assets row linked to this task's definition.
+  // Manual entry via the Assets tab stays as a fallback.
+  const captured: string[] = [];
+  const taskDefId = (await pool.query<{ task_id: string }>(
+    `SELECT task_id FROM organic.client_tasks WHERE id = $1`, [taskId]
+  )).rows[0]?.task_id ?? null;
+  if (body.link) {
+    const id = await autoLinkAsset({
+      orgId: org_id, url: body.link, taskId: taskDefId,
+      title: body.link_title ?? null,
+    });
+    if (id) captured.push(id);
+  }
+  if (body.notes) {
+    const ids = await autoLinkAssetsFromText(org_id, taskDefId, body.notes);
+    captured.push(...ids);
+  }
+
   const { updated } = await recomputeStatuses(org_id);
-  return NextResponse.json({ ok: true, recomputed: updated });
+  return NextResponse.json({ ok: true, recomputed: updated, assets_captured: captured.length });
 }

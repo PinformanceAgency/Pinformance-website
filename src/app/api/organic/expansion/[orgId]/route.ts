@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   computeUrlRequirement, proposeExpansion, saveProposals, loadProposals,
-  markProposalStatus, assessViability,
+  markProposalStatus, markProposalBuiltWithNewUrl, assessViability,
 } from "@/lib/organic/expansion";
 
 export const runtime = "nodejs";
@@ -44,6 +44,12 @@ export async function POST(
         body.built_url_id as string | undefined,
       );
       return NextResponse.json({ ok: true });
+    }
+    if (body.action === "mark_built_with_url") {
+      // Convenience: mark proposal BUILT + auto-create organic.urls row so
+      // the new page joins the URL pool immediately.
+      const urlId = await markProposalBuiltWithNewUrl(String(body.id), String(body.built_url));
+      return NextResponse.json({ ok: true, url_id: urlId });
     }
     return NextResponse.json({ error: `unknown action: ${body.action}` }, { status: 400 });
   } catch (e) {

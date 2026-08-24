@@ -253,6 +253,55 @@ export async function markProposalStatus(id: string, status: "PROPOSED"|"SENT_TO
   await pool.query(`UPDATE organic.url_expansion_proposals SET ${sets} WHERE id = $1`, [id, ...keys.map((k) => patch[k])]);
 }
 
+/** Convenience: mark a proposal BUILT while also creating an
+ *  organic.urls row so the new page immediately joins the pool.
+ *  Returns the new url_id. */
+export async function markProposalBuiltWithNewUrl(
+  proposalId: string,
+  builtUrl: string,
+): Promise<string> {
+  if (!/^https?:\/\//i.test(builtUrl)) throw new Error("built URL must start with http(s)://");
+  const pool = organicPool();
+  const prop = await pool.query<{ org_id: string; proposed_title: string; page_type: string }>(
+    `SELECT org_id::text, proposed_title, page_type FROM organic.url_expansion_proposals WHERE id = $1`,
+    [proposalId]
+  );
+  if (prop.rowCount === 0) throw new Error("proposal not found");
+  const { org_id, proposed_title, page_type } = prop.rows[0];
+
+  // Map page_type → url_type + a sensible funnel + reason.
+  const urlType =
+    page_type === "PRODUCT_TYPE"     ? "PRODUCT" :
+    page_type === "COLOR_CATEGORY"   ? "COLLECTION" :
+    page_type === "SEASONAL_EDIT"    ? "COLLECTION" :
+    page_type === "MATERIAL"         ? "COLLECTION" :
+    page_type === "LENGTH_STYLE"     ? "COLLECTION" :
+    page_type === "BEST_OF"          ? "SELECTION" :
+    page_type === "CURATED_SELECTION"? "SELECTION" :
+    page_type === "REVIEWS_UGC"      ? "GALLERY" :
+    "COLLECTION";
+  const funnel = page_type === "REVIEWS_UGC" ? "BOTTOM" : page_type === "SEASONAL_EDIT" ? "TOP" : "MIDDLE";
+
+  const insUrl = await pool.query<{ id: string }>(
+    `INSERT INTO organic.urls (
+       id, org_id, url, name, type, reason, reason_note,
+       is_seasonal, funnel_stage, created_at
+     ) VALUES (
+       gen_random_uuid(), $1, $2, $3,
+       $4::organic.url_type, 'NEW'::organic.url_reason,
+       'Built from expansion proposal ' || $5::text,
+       $6, $7::organic.funnel_stage, now()
+     )
+     ON CONFLICT (org_id, url) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id::text`,
+    [org_id, builtUrl, proposed_title, urlType, proposalId, page_type === "SEASONAL_EDIT", funnel]
+  );
+  const urlId = insUrl.rows[0].id;
+
+  await markProposalStatus(proposalId, "BUILT", builtUrl, urlId);
+  return urlId;
+}
+
 // ---------- Verdict logic (P1.0.4 / P1.0.3 re-derivation) -------------------
 
 export type ViabilityVerdictLevel = "STRONG_FIT" | "MODERATE_FIT" | "WEAK_FIT";

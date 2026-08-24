@@ -1,11 +1,18 @@
 import { loadUrls } from "@/lib/organic/workspace";
+import { computeUrlRequirement, assessViability, loadProposals } from "@/lib/organic/expansion";
+import { ExpansionPanel } from "./ExpansionPanel";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function UrlsPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
-  const urls = await loadUrls(orgId);
+  const [urls, requirement, assessment, proposals] = await Promise.all([
+    loadUrls(orgId),
+    computeUrlRequirement(orgId),
+    assessViability(orgId),
+    loadProposals(orgId),
+  ]);
 
   const selectable = urls.filter((u) => u.is_selectable && !u.active_waterfall_status).length;
   const running = urls.filter((u) => u.active_waterfall_status).length;
@@ -13,6 +20,13 @@ export default async function UrlsPage({ params }: { params: Promise<{ orgId: st
 
   return (
     <div className="space-y-6">
+      <ExpansionPanel
+        orgId={orgId}
+        requirement={requirement}
+        assessment={{ buildable_pages: assessment.buildable_pages, existing_plus_buildable: assessment.existing_plus_buildable, verdict_suggested: assessment.verdict_suggested, reasoning: assessment.reasoning }}
+        proposals={proposals as Parameters<typeof ExpansionPanel>[0]["proposals"]}
+      />
+
       <section className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <MetricCard label="Total URLs" value={urls.length} />
         <MetricCard label="Selectable now" value={selectable} tone={selectable > 0 ? "primary" : "muted"} hint="Ready to pick" />

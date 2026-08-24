@@ -284,9 +284,9 @@ function TaskCard({
         <CompleteDialog
           taskName={task.name}
           onCancel={() => setShowComplete(false)}
-          onConfirm={async (minutes) => {
+          onConfirm={async (minutes, link) => {
             setShowComplete(false);
-            await patch({ status: "DONE", time_spent_min: minutes });
+            await patch({ status: "DONE", time_spent_min: minutes, ...(link ? { link } : {}) });
           }}
         />
       )}
@@ -357,14 +357,20 @@ function CompleteDialog({
 }: {
   taskName: string;
   onCancel: () => void;
-  onConfirm: (minutes: number) => void | Promise<void>;
+  onConfirm: (minutes: number, link?: string) => void | Promise<void>;
 }) {
   const [minutes, setMinutes] = useState("");
+  const [link, setLink] = useState("");
   const [err, setErr] = useState<string | null>(null);
   async function confirm() {
     const n = Number(minutes);
     if (!isFinite(n) || n <= 0) { setErr("Enter a positive number of minutes."); return; }
-    await onConfirm(Math.round(n));
+    const trimmedLink = link.trim();
+    if (trimmedLink && !/^https?:\/\//i.test(trimmedLink)) {
+      setErr("Link must start with http(s):// — leave empty if there is no artefact.");
+      return;
+    }
+    await onConfirm(Math.round(n), trimmedLink || undefined);
   }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onCancel}>
@@ -379,10 +385,19 @@ function CompleteDialog({
           autoFocus
           value={minutes}
           onChange={(e) => { setMinutes(e.target.value); if (err) setErr(null); }}
-          onKeyDown={(e) => { if (e.key === "Enter") confirm(); }}
           placeholder="e.g. 15"
           className="mt-3 w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm"
         />
+        <label className="mt-3 block">
+          <span className="text-xs text-neutral-500">Artefact link (optional) — auto-added to Assets</span>
+          <input
+            type="url"
+            value={link}
+            onChange={(e) => { setLink(e.target.value); if (err) setErr(null); }}
+            placeholder="https://drive.google.com/…, https://canva.com/…"
+            className="mt-1 w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs"
+          />
+        </label>
         {err && <div className="mt-1 text-xs text-red-600">{err}</div>}
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={onCancel} className="px-3 py-1.5 text-xs font-medium rounded-md border border-neutral-300 hover:bg-neutral-50">Cancel</button>

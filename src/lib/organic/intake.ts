@@ -13,6 +13,7 @@
  */
 import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
+import { autoLinkAsset } from "./assets-auto";
 import type { AccessRow, IntakeRow } from "./types";
 
 export interface IntakePayload {
@@ -193,8 +194,20 @@ export async function saveIntake(orgId: string, p: IntakePayload) {
     client.release();
   }
 
+  // Auto-capture URL-shaped intake fields as assets, linked to the task
+  // that would have collected them. Manual entry stays as a fallback.
+  const captured: string[] = [];
+  const cap = async (url: string | null | undefined, taskId: string, title: string) => {
+    if (!url) return;
+    const id = await autoLinkAsset({ orgId, url, taskId, title });
+    if (id) captured.push(id);
+  };
+  await cap(p.product_feed_url, "P1.1.11", "Product feed URL");
+  await cap(p.existing_pinterest?.match(/^https?:\/\//) ? p.existing_pinterest! : null,
+            "P1.1.5", "Existing Pinterest profile");
+
   const recomputed = await recomputeAfter(orgId);
-  return { ok: true as const, recomputed, per_task_min: Math.max(1, Math.round(p.total_time_min / P1_1_TASKS.length)) };
+  return { ok: true as const, recomputed, per_task_min: Math.max(1, Math.round(p.total_time_min / P1_1_TASKS.length)), assets_captured: captured.length };
 }
 
 // ----- read helpers ----------------------------------------------------------
