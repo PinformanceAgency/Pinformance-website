@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LayoutGrid, Search, Link2, FolderOpen, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface PhaseProgressLite {
@@ -14,19 +13,20 @@ export interface PhaseProgressLite {
 }
 
 const PHASES = [
-  { n: 1, label: "Phase 1", sub: "Onboarding & audit" },
-  { n: 2, label: "Phase 2", sub: "Research" },
-  { n: 3, label: "Phase 3", sub: "Keywords & boards" },
-  { n: 4, label: "Phase 4", sub: "Production cycles" },
-  { n: 5, label: "Phase 5", sub: "Analytics & loop" },
+  { n: 1, label: "Onboarding & audit" },
+  { n: 2, label: "Market research" },
+  { n: 3, label: "SEO architecture" },
+  { n: 4, label: "Production cycles" },
+  { n: 5, label: "Review & reporting" },
 ];
 
 const REFERENCE_TABS = [
-  { slug: "boards",    label: "Boards",    icon: LayoutGrid },
-  { slug: "keywords",  label: "Keywords",  icon: Search },
-  { slug: "urls",      label: "URLs",      icon: Link2 },
-  { slug: "assets",    label: "Assets",    icon: FolderOpen },
-  { slug: "analytics", label: "Analytics", icon: BarChart3 },
+  { slug: "",          label: "Overview" },
+  { slug: "boards",    label: "Boards" },
+  { slug: "keywords",  label: "Keywords" },
+  { slug: "urls",      label: "URLs" },
+  { slug: "assets",    label: "Assets" },
+  { slug: "analytics", label: "Analytics" },
 ];
 
 export function ClientTabs({ orgId, phases }: { orgId: string; phases: PhaseProgressLite[] }) {
@@ -35,77 +35,93 @@ export function ClientTabs({ orgId, phases }: { orgId: string; phases: PhaseProg
   const byPhase = new Map(phases.map((p) => [p.phase, p]));
 
   return (
-    <div className="space-y-3">
-      {/* Phase tabs — the primary navigation */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+    <div className="space-y-6">
+      {/* Phase path — the SOP made navigable. A row of steps rather than
+          a grid of cards, because the phases are sequential and the shape
+          should say so. */}
+      <nav className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px bg-o-hairline border border-o-hairline rounded-md overflow-hidden">
         {PHASES.map((ph) => {
           const p = byPhase.get(ph.n);
           const href = `${base}/phase/${ph.n}`;
-          const isActive = pathname.startsWith(href);
+          const active = pathname.startsWith(href);
           const pct = p?.pct_done ?? 0;
-          const done = pct >= 100;
+          const complete = pct >= 100;
+          const recurring = ph.n >= 4;
+
           return (
             <Link key={ph.n} href={href}
               className={cn(
-                "rounded-lg border p-3 transition-colors",
-                isActive
-                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                  : "border-border bg-card hover:border-primary/40 hover:bg-muted/40"
+                "group relative bg-o-surface px-4 py-3.5",
+                active ? "bg-o-sunk" : "hover:bg-o-sunk/50"
               )}>
+              {/* Active marker — one of the accent's few appearances. */}
+              {active && <span className="absolute inset-x-0 top-0 h-[2px] bg-o-accent" />}
+
               <div className="flex items-baseline justify-between gap-2">
-                <span className={cn("text-sm font-semibold", isActive ? "text-primary" : "text-foreground")}>{ph.label}</span>
-                <span className={cn("text-xs tabular-nums font-medium", done ? "text-emerald-600" : "text-muted-foreground")}>
-                  {pct}%
+                <span className={cn(
+                  "o-display text-[length:var(--text-o-body)] font-semibold",
+                  active ? "text-o-ink" : "text-o-ink-2 group-hover:text-o-ink"
+                )}>
+                  Phase {ph.n}
                 </span>
+                {p && !recurring && (
+                  <span className={cn(
+                    "o-num text-[length:var(--text-o-label)] tabular-nums",
+                    complete ? "text-o-pos" : "text-o-ink-3"
+                  )}>
+                    {pct}%
+                  </span>
+                )}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{ph.sub}</div>
-              <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
-                <div className={cn("h-full transition-all",
-                  done ? "bg-emerald-500" : pct >= 50 ? "bg-primary" : pct > 0 ? "bg-amber-500" : "bg-transparent")}
-                  style={{ width: `${Math.min(100, pct)}%` }} />
+
+              <div className="mt-0.5 text-[length:var(--text-o-label)] text-o-ink-3 truncate">
+                {ph.label}
               </div>
-              {p && (
-                <div className="mt-1.5 text-[10px] text-muted-foreground tabular-nums">
-                  {p.done_tasks}/{p.total_tasks}
-                  {p.blocked_tasks > 0 && <span className="ml-1.5 text-red-600 font-medium">{p.blocked_tasks} blocked</span>}
+
+              {/* Progress only for the one-time phases. Phases 4 and 5 are
+                  recurring, so a completion bar would be a category error. */}
+              {!recurring && (
+                <div className="mt-2.5 h-[3px] rounded-full bg-o-sunk overflow-hidden">
+                  <div className="h-full rounded-full bg-o-teal transition-[width]"
+                       style={{ width: `${Math.min(100, pct)}%` }} />
+                </div>
+              )}
+              {recurring && (
+                <div className="mt-2.5 text-[length:var(--text-o-label)] text-o-ink-3">recurring</div>
+              )}
+
+              {p && p.blocked_tasks > 0 && !recurring && (
+                <div className="mt-1.5 o-num text-[length:var(--text-o-label)] text-o-clay">
+                  {p.blocked_tasks} blocked
                 </div>
               )}
             </Link>
           );
         })}
-      </div>
+      </nav>
 
-      {/* Secondary reference tabs */}
-      <div className="border-b border-border">
-        <nav className="flex flex-wrap gap-1 -mb-px">
-          <Link href={base}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px transition-colors",
-              pathname === base
-                ? "border-primary text-foreground font-medium"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            )}>
-            <LayoutDashboard className="w-3.5 h-3.5" />
-            Overview
-          </Link>
-          {REFERENCE_TABS.map((t) => {
-            const href = `${base}/${t.slug}`;
-            const isActive = pathname.startsWith(href);
-            return (
-              <Link key={t.slug} href={href}
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px transition-colors",
-                  isActive
-                    ? "border-primary text-foreground font-medium"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                )}>
-                <t.icon className="w-3.5 h-3.5" />
-                {t.label}
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
+      {/* Reference surfaces — the library, always available regardless of
+          which phase the store is in. */}
+      <nav className="flex flex-wrap gap-6 border-b border-o-hairline">
+        {REFERENCE_TABS.map((t) => {
+          const href = t.slug ? `${base}/${t.slug}` : base;
+          const active = t.slug
+            ? pathname.startsWith(href)
+            : pathname === base || pathname === `${base}/`;
+          return (
+            <Link key={t.slug || "overview"} href={href}
+              className={cn(
+                "relative pb-2.5 -mb-px text-[length:var(--text-o-body)]",
+                active
+                  ? "text-o-ink font-medium"
+                  : "text-o-ink-3 hover:text-o-ink"
+              )}>
+              {t.label}
+              {active && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-o-accent" />}
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }

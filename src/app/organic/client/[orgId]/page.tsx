@@ -1,14 +1,23 @@
 import Link from "next/link";
-import { AlertTriangle, AlertCircle, Info, TrendingUp, TrendingDown } from "lucide-react";
 import { loadClientHeader } from "@/lib/organic/queries";
 import { loadLeaks, type Leak } from "@/lib/organic/workspace";
 import { loadCyclesForOrg } from "@/lib/organic/phase4";
+import { computeHealthScore, loadCohortContext, type HealthScore, type CohortContext } from "@/lib/organic/health";
 import * as P5 from "@/lib/organic/phase5";
-import { PROVENANCE_LABEL, PROVENANCE_REASON, type ProvenanceState } from "@/lib/organic/provenance";
+import { PROVENANCE_REASON, type ProvenanceState } from "@/lib/organic/provenance";
+import { Band, Panel, Label, Figure, Stat, Empty, AccentLink } from "@/components/organic/primitives";
+import { SegmentedScore, BarList, type Segment } from "@/components/organic/charts";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * STORE OVERVIEW — the reference screen for the organic design system.
+ *
+ * Internal surface: cooler ground, denser than the client report, built
+ * for someone holding fifty accounts. The question it answers in thirty
+ * seconds is "what needs doing on this store today".
+ */
 export default async function OverviewPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
   const today = new Date().toISOString().slice(0, 10);
@@ -23,184 +32,363 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
     P5.loadSetupState(orgId, from, today),
   ]);
 
-  const overallPct = header?.phases.length
-    ? Math.round(header.phases.reduce((s, p) => s + p.pct_done, 0) / header.phases.length)
-    : 0;
-  const onboardingDone = header?.phases.slice(0, 3).every((p) => p.pct_done === 100) ?? false;
+  const health = await computeHealthScore(orgId, leaks.length);
+  const cohort = await loadCohortContext(orgId, health);
   const deltas = P5.computeDeltas(baseline, pinterest.totals, setup);
+  const hard = deltas.filter((d) => d.tier === "hard");
+
+  const onboarding = (header?.phases ?? []).filter((p) => p.phase <= 3);
+  const onboardingDone = onboarding.length > 0 && onboarding.every((p) => p.pct_done === 100);
+  const nextPhase = onboarding.find((p) => p.outstanding_tasks > 0);
 
   return (
-    <div className="space-y-6">
-      {/* Leak panel */}
-      <section>
-        <h2 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-primary" />
-          Leaks — what needs attention
-        </h2>
-        {leaks.length === 0 ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-            No leaks detected. Everything downstream is in shape.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {leaks.map((l) => <LeakCard key={l.kind} orgId={orgId} leak={l} />)}
-          </div>
-        )}
-      </section>
-
-      {/* Onboarding progress if still running */}
-      {!onboardingDone && header && (
-        <section>
-          <h2 className="text-sm font-semibold text-foreground mb-2">Onboarding progress</h2>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <div className="flex items-baseline gap-3 mb-2">
-              <span className="text-3xl font-semibold text-foreground tabular-nums">{overallPct}%</span>
-              <span className="text-xs text-muted-foreground">across phases 1–3</span>
-            </div>
-            <div className="space-y-1.5">
-              {header.phases.slice(0, 3).map((p) => (
-                <div key={p.phase} className="flex items-center gap-3 text-xs">
-                  <span className="w-16 text-muted-foreground">Phase {p.phase}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div className={cn("h-full", p.pct_done >= 100 ? "bg-emerald-500" : p.pct_done >= 50 ? "bg-blue-500" : "bg-amber-500")}
-                      style={{ width: `${Math.min(100, p.pct_done)}%` }} />
-                  </div>
-                  <span className="tabular-nums text-muted-foreground w-16 text-right">{p.done_tasks}/{p.total_tasks} · {p.pct_done}%</span>
-                </div>
-              ))}
-            </div>
-            <Link href={`/client/${orgId}/phase/1`} className="mt-3 inline-block text-xs font-medium text-primary hover:underline">
-              Open phase 1 →
-            </Link>
-          </div>
-        </section>
-      )}
-
-      {/* Active cycles */}
-      <section>
-        <h2 className="text-sm font-semibold text-foreground mb-2 flex items-baseline justify-between">
-          <span>Active cycles <span className="text-muted-foreground font-normal">({cycles.length})</span></span>
-          <Link href={`/client/${orgId}/phase/4`} className="text-xs font-medium text-primary hover:underline">Open phase 4 →</Link>
-        </h2>
-        {cycles.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-xs text-muted-foreground text-center">
-            No cycles running. Start one from the Cycles tab.
-          </div>
-        ) : (
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40">
-                <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <th className="py-1.5 px-3 font-medium">URL</th>
-                  <th className="py-1.5 px-3 font-medium">Reason</th>
-                  <th className="py-1.5 px-3 font-medium">Waterfall</th>
-                  <th className="py-1.5 px-3 font-medium">Progress</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cycles.map((c) => (
-                  <tr key={c.cycle} className="border-t border-border">
-                    <td className="py-1.5 px-3 font-medium text-foreground">{c.url_name}</td>
-                    <td className="py-1.5 px-3 text-xs text-muted-foreground">{c.reason}</td>
-                    <td className="py-1.5 px-3 text-xs">{c.waterfall ? <span className="text-blue-700">{c.waterfall.status}</span> : <span className="text-muted-foreground">—</span>}</td>
-                    <td className="py-1.5 px-3 text-xs tabular-nums text-muted-foreground">{c.progress.done}/{c.progress.total} ({c.progress.pct}%){c.progress.blocked > 0 && <span className="ml-2 text-red-600">{c.progress.blocked} blocked</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* KPIs vs baseline */}
-      <section>
-        <h2 className="text-sm font-semibold text-foreground mb-2 flex items-baseline justify-between">
-          <span>KPIs · last 30 days vs P1.2.13 baseline</span>
-          <Link href={`/client/${orgId}/analytics`} className="text-xs font-medium text-primary hover:underline">Full analytics →</Link>
-        </h2>
-        {!pinterest.ok ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
-            Pinterest fetch failed: {pinterest.reason}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {deltas.slice(0, 4).map((d) => <KpiCard key={d.name} d={d} />)}
-          </div>
-        )}
-      </section>
+    <div className="max-w-[1180px]">
+      <HealthBand health={health} cohort={cohort} orgId={orgId} />
+      <LeakBand leaks={leaks} orgId={orgId} />
+      {!onboardingDone && <OnboardingBand phases={onboarding} nextPhase={nextPhase?.phase ?? null} orgId={orgId} />}
+      <CyclesBand cycles={cycles} orgId={orgId} onboardingDone={onboardingDone} />
+      <ResultsBand rows={hard} ok={pinterest.ok} reason={pinterest.reason} orgId={orgId} />
     </div>
   );
 }
 
-function LeakCard({ orgId, leak }: { orgId: string; leak: Leak }) {
-  const sevCls =
-    leak.severity === "high" ? "border-red-300 bg-red-50" :
-    leak.severity === "medium" ? "border-amber-300 bg-amber-50" :
-    "border-neutral-200 bg-muted/50";
-  const sevIcon =
-    leak.severity === "high" ? <AlertCircle className="w-4 h-4 text-red-600" /> :
-    leak.severity === "medium" ? <AlertTriangle className="w-4 h-4 text-amber-700" /> :
-    <Info className="w-4 h-4 text-muted-foreground" />;
+/* ------------------------------------------------------------------ *
+ * Health
+ * ------------------------------------------------------------------ */
+
+const SEGMENT_COLOR: Record<string, Segment["color"]> = {
+  execution: "teal", foundation: "sand", performance: "clay", account: "slate",
+};
+
+function HealthBand({ health, cohort, orgId }: { health: HealthScore; cohort: CohortContext; orgId: string }) {
+  const segments: Segment[] = health.components.map((c) => ({
+    label: c.label, score: c.score, weight: c.weight, color: SEGMENT_COLOR[c.key],
+  }));
+
   return (
-    <div className={cn("rounded-lg border p-3", sevCls)}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-2 flex-1 min-w-0">
-          {sevIcon}
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-foreground">{leak.label}</div>
-            {leak.detail.length > 0 && (
-              <ul className="mt-1 text-[11px] text-muted-foreground space-y-0.5">
-                {leak.detail.map((d, i) => <li key={i} className="truncate">· {d}</li>)}
-              </ul>
+    <Band title="Health" sub={cohort.note}>
+      <Panel className="px-6 py-5">
+        <div className="grid grid-cols-1 lg:grid-cols-[190px_minmax(0,1fr)] gap-7 items-start">
+          {/* The composite, or an honest refusal to publish one. */}
+          <div>
+            <Label>Composite score</Label>
+            <div className="mt-1.5">
+              <Figure
+                value={health.composite}
+                size="xl"
+                suffix={health.composite !== null ? "/100" : undefined}
+                reason={health.withheld_reason ?? undefined}
+              />
+            </div>
+            {health.withheld_reason ? (
+              <p className="mt-2 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">
+                {health.withheld_reason}
+              </p>
+            ) : (
+              <p className="mt-2 text-[length:var(--text-o-body)] text-o-ink-3">
+                Weighted across {Math.round(health.measured_weight * 100)}% of the score that is measurable.
+              </p>
             )}
           </div>
+
+          {/* Components, never a black box. */}
+          <div>
+            <SegmentedScore segments={segments} />
+            <dl className="mt-5 space-y-2 border-t border-o-hairline pt-4">
+              {health.components.map((c) => (
+                <div key={c.key} className="grid grid-cols-[124px_minmax(0,1fr)] gap-3 items-baseline">
+                  <dt className="text-[length:var(--text-o-body)] text-o-ink">{c.label}</dt>
+                  <dd className="text-[length:var(--text-o-body)] text-o-ink-2 leading-snug">{c.detail}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
-        <Link href={`/client/${orgId}/${leak.fix_href}`} className="shrink-0 text-[11px] font-medium text-primary hover:underline">
-          Fix →
-        </Link>
-      </div>
-    </div>
+      </Panel>
+    </Band>
   );
 }
 
-/** Renders one figure with its provenance. A value that could not be
- *  measured shows an em dash and the reason — never a zero. A comparison
- *  is drawn only when both sides are real. */
-function KpiCard({ d }: { d: import("@/lib/organic/phase5").DeltaRow }) {
-  const hasDelta = d.delta != null && d.delta_pct != null;
-  const trend = !hasDelta ? null : d.delta! > 0 ? "up" : d.delta! < 0 ? "down" : "flat";
-  const missing = d.current == null;
-  const reason = missing || !hasDelta
-    ? PROVENANCE_REASON[(d.delta_suppressed_because ?? d.state) as ProvenanceState]
-    : undefined;
+/* ------------------------------------------------------------------ *
+ * Leaks
+ * ------------------------------------------------------------------ */
+
+function LeakBand({ leaks, orgId }: { leaks: Leak[]; orgId: string }) {
+  if (leaks.length === 0) {
+    return (
+      <Band title="Leaks" sub="Ranked by what they cost, not by when they appeared.">
+        <Panel className="px-6 py-5">
+          <p className="text-[length:var(--text-o-body)] text-o-ink-2">
+            Nothing is leaking. Every topic is covered, no cycle is stalled, and the token is valid.
+          </p>
+        </Panel>
+      </Band>
+    );
+  }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3" title={reason}>
-      <div className="flex items-baseline justify-between gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{d.name}</span>
-        {d.state !== "LIVE" && (
-          <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 shrink-0">
-            {PROVENANCE_LABEL[d.state as ProvenanceState]}
+    <Band title="Leaks" sub="Ranked by what they cost, not by when they appeared."
+          right={<span className="o-num text-[length:var(--text-o-body)] text-o-ink-2">{leaks.length} open</span>}>
+      <Panel>
+        <ul className="divide-y divide-o-hairline">
+          {leaks.map((l) => (
+            <li key={l.kind} className="px-5 py-4">
+              <div className="flex items-start justify-between gap-5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2.5">
+                    {/* The accent earns its keep here: it marks the most
+                        expensive leaks and nothing else on the screen. */}
+                    <span className={cn(
+                      "shrink-0 w-1 h-3.5 rounded-full",
+                      l.severity === "high" ? "bg-o-accent" :
+                      l.severity === "medium" ? "bg-o-sand" : "bg-o-hairline-firm"
+                    )} />
+                    <span className="text-[length:var(--text-o-body)] font-medium text-o-ink">{l.label}</span>
+                  </div>
+                  <p className="mt-1 ml-[14px] text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">
+                    {l.cost}
+                  </p>
+                  {l.detail.length > 0 && (
+                    <ul className="mt-1.5 ml-[14px] space-y-0.5">
+                      {l.detail.slice(0, 3).map((d, i) => (
+                        <li key={i} className="text-[length:var(--text-o-label)] text-o-ink-3 truncate">{d}</li>
+                      ))}
+                      {l.detail.length > 3 && (
+                        <li className="text-[length:var(--text-o-label)] text-o-ink-3">
+                          +{l.count - 3} more
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                </div>
+                <div className="shrink-0 text-right">
+                  <AccentLink href={`/client/${orgId}/${l.fix_href}`}>Fix</AccentLink>
+                  {l.fix_task && (
+                    <div className="mt-0.5 o-num text-[length:var(--text-o-label)] text-o-ink-3">{l.fix_task}</div>
+                  )}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+    </Band>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Onboarding
+ * ------------------------------------------------------------------ */
+
+function OnboardingBand({
+  phases, nextPhase, orgId,
+}: {
+  phases: Array<{ phase: number; total_tasks: number; done_tasks: number; skipped_tasks: number; blocked_tasks: number; outstanding_tasks: number; pct_done: number }>;
+  nextPhase: number | null;
+  orgId: string;
+}) {
+  const total = phases.reduce((s, p) => s + p.total_tasks, 0);
+  const done  = phases.reduce((s, p) => s + p.done_tasks, 0);
+
+  if (total === 0) {
+    return (
+      <Band title="Onboarding">
+        <Empty
+          headline="Onboarding has not been instantiated."
+          body="This store has no task bank yet. Activating it creates the phase 1–3 checklist and unlocks the viability gate."
+          action={<AccentLink href="/">Back to client list</AccentLink>}
+        />
+      </Band>
+    );
+  }
+
+  const PHASE_NAME: Record<number, string> = {
+    1: "Onboarding & audit", 2: "Market research", 3: "SEO architecture",
+  };
+
+  return (
+    <Band
+      title="Onboarding"
+      sub="Phases 1 to 3. One-time work that gates everything downstream."
+      right={
+        nextPhase
+          ? <AccentLink href={`/client/${orgId}/phase/${nextPhase}`}>Open phase {nextPhase}</AccentLink>
+          : undefined
+      }
+    >
+      <Panel className="px-6 py-5">
+        <div className="flex items-baseline gap-3 mb-5">
+          <Figure value={total > 0 ? Math.round((done / total) * 100) : null} size="lg" suffix="%" />
+          <span className="o-num text-[length:var(--text-o-body)] text-o-ink-2">
+            {done} of {total} tasks
           </span>
+        </div>
+        <div className="space-y-3">
+          {phases.map((p) => (
+            <div key={p.phase} className="grid grid-cols-[150px_minmax(0,1fr)_auto] gap-4 items-center">
+              <div className="min-w-0">
+                <span className="text-[length:var(--text-o-body)] text-o-ink">
+                  {p.phase} · {PHASE_NAME[p.phase]}
+                </span>
+              </div>
+              <div className="h-[5px] rounded-full bg-o-sunk overflow-hidden">
+                <div className="h-full rounded-full bg-o-teal" style={{ width: `${Math.min(100, p.pct_done)}%` }} />
+              </div>
+              <div className="o-num text-[length:var(--text-o-body)] text-o-ink-2 w-40 text-right tabular-nums">
+                {p.done_tasks}/{p.total_tasks}
+                {p.skipped_tasks > 0 && <span className="text-o-ink-3"> · {p.skipped_tasks} skipped</span>}
+                {p.blocked_tasks > 0 && <span className="text-o-clay"> · {p.blocked_tasks} blocked</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </Band>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Cycles
+ * ------------------------------------------------------------------ */
+
+function CyclesBand({
+  cycles, orgId, onboardingDone,
+}: {
+  cycles: Awaited<ReturnType<typeof loadCyclesForOrg>>;
+  orgId: string;
+  onboardingDone: boolean;
+}) {
+  if (cycles.length === 0) {
+    return (
+      <Band title="Production cycles">
+        <Empty
+          headline={onboardingDone ? "No cycle is running." : "Production has not started yet."}
+          body={
+            onboardingDone
+              ? "Onboarding is complete, so this store is ready to run. A cycle takes one URL through design, copy and a sixteen-pin waterfall."
+              : "Phase 4 opens once the SEO architecture is in place — a URL cannot enter production until its topic has five boards behind it."
+          }
+          action={
+            onboardingDone
+              ? <AccentLink href={`/client/${orgId}/phase/4`}>Start a cycle</AccentLink>
+              : <AccentLink href={`/client/${orgId}/phase/3`}>Go to phase 3</AccentLink>
+          }
+        />
+      </Band>
+    );
+  }
+
+  return (
+    <Band title="Production cycles"
+          right={<AccentLink href={`/client/${orgId}/phase/4`}>All cycles</AccentLink>}>
+      <Panel>
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-o-hairline bg-o-sunk/60">
+              <th className="text-left px-5 py-2"><Label>URL</Label></th>
+              <th className="text-left px-5 py-2"><Label>Reason</Label></th>
+              <th className="text-left px-5 py-2"><Label>Waterfall</Label></th>
+              <th className="text-right px-5 py-2"><Label>Progress</Label></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-o-hairline">
+            {cycles.map((c) => (
+              <tr key={c.cycle}>
+                <td className="px-5 py-2.5 text-[length:var(--text-o-body)] text-o-ink truncate max-w-[300px]">
+                  {c.url_name}
+                </td>
+                <td className="px-5 py-2.5 text-[length:var(--text-o-label)] text-o-ink-2 uppercase tracking-wide">
+                  {c.reason}
+                </td>
+                <td className="px-5 py-2.5 text-[length:var(--text-o-body)] text-o-ink-2">
+                  {c.waterfall ? c.waterfall.status : "—"}
+                </td>
+                <td className="px-5 py-2.5 text-right o-num text-[length:var(--text-o-body)] text-o-ink-2">
+                  {c.progress.done}/{c.progress.total}
+                  {c.progress.blocked > 0 && <span className="text-o-clay"> · {c.progress.blocked} blocked</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    </Band>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Results
+ * ------------------------------------------------------------------ */
+
+function ResultsBand({
+  rows, ok, reason, orgId,
+}: {
+  rows: P5.DeltaRow[];
+  ok: boolean;
+  reason?: string;
+  orgId: string;
+}) {
+  if (!ok) {
+    return (
+      <Band title="Results" sub="Last 30 days against the phase-1 baseline.">
+        <Empty
+          headline="Pinterest could not be reached."
+          body={`The analytics fetch failed: ${reason ?? "unknown error"}. Nothing is shown rather than a stale or partial figure.`}
+        />
+      </Band>
+    );
+  }
+
+  const anyMeasured = rows.some((r) => r.current !== null);
+  if (!anyMeasured) {
+    return (
+      <Band title="Results" sub="Last 30 days against the phase-1 baseline.">
+        <Empty
+          headline="Nothing has been measured yet."
+          body="No pins have been published from this store, so there is no outbound click or save to report. Results appear once the first waterfall starts publishing."
+          action={<AccentLink href={`/client/${orgId}/analytics`}>Open analytics</AccentLink>}
+        />
+      </Band>
+    );
+  }
+
+  const lead = rows.slice(0, 4);
+  const rest = rows.slice(4).filter((r) => r.current !== null);
+
+  return (
+    <Band
+      title="Results"
+      sub="Last 30 days against the phase-1 baseline. Distribution metrics live on the analytics tab."
+      right={<AccentLink href={`/client/${orgId}/analytics`}>Full analytics</AccentLink>}
+    >
+      <Panel className="px-6 py-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-7">
+          {lead.map((d) => (
+            <Stat
+              key={d.name}
+              label={d.name}
+              value={d.current}
+              size="lg"
+              movement={d.delta_pct}
+              reason={PROVENANCE_REASON[(d.delta_suppressed_because ?? d.state) as ProvenanceState]}
+              movementReason={`vs baseline ${d.baseline?.toLocaleString() ?? "—"}`}
+              footnote={
+                d.baseline != null
+                  ? <>baseline {d.baseline.toLocaleString()}</>
+                  : <span className="text-o-ink-3">no baseline</span>
+              }
+            />
+          ))}
+        </div>
+        {rest.length > 0 && (
+          <div className="mt-7 pt-5 border-t border-o-hairline">
+            <BarList
+              data={rest.map((d) => ({ label: d.name, value: d.current }))}
+              color="slate"
+            />
+          </div>
         )}
-      </div>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className={cn("text-lg font-semibold tabular-nums", missing ? "text-muted-foreground/50" : "text-foreground")}>
-          {missing ? "—" : d.current!.toLocaleString()}
-        </span>
-        {trend && (
-          <span className={cn("text-xs tabular-nums flex items-center gap-0.5",
-            trend === "up" ? "text-emerald-700" : trend === "down" ? "text-red-600" : "text-muted-foreground")}>
-            {trend === "up" ? <TrendingUp className="w-3 h-3" /> : trend === "down" ? <TrendingDown className="w-3 h-3" /> : null}
-            {d.delta_pct! > 0 ? "+" : ""}{d.delta_pct}%
-          </span>
-        )}
-      </div>
-      <div className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">
-        {d.baseline != null
-          ? `baseline ${d.baseline.toLocaleString()}`
-          : <span className="text-muted-foreground/70">no baseline</span>}
-      </div>
-    </div>
+      </Panel>
+    </Band>
   );
 }

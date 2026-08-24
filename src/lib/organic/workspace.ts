@@ -12,8 +12,16 @@ export interface Leak {
   label: string;              // one-line human summary
   count: number;              // how many items in this leak
   detail: string[];           // up to 5 examples, human-readable
-  fix_href: string;           // deep-link to the tab where it gets fixed
+  fix_href: string;           // deep-link to where it gets fixed
+  /** The SOP task that resolves this leak, when there is one. A leak
+   *  that cannot be clicked into a fix is a complaint, not a tool. */
+  fix_task: string | null;
   severity: "high" | "medium" | "low";
+  /** Ranked by what the leak COSTS, not by when it appeared. Lower is
+   *  more expensive. Production-blocking beats cosmetic, always. */
+  cost_rank: number;
+  /** What it actually costs, in one clause. */
+  cost: string;
 }
 
 export async function loadLeaks(orgId: string): Promise<Leak[]> {
@@ -32,7 +40,10 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
       count: under10.rowCount ?? 0,
       detail: under10.rows.slice(0, 5).map((r) => `${r.name} (${r.pin_count} pins)`),
       fix_href: `boards`,
+      fix_task: "P3.3.6",
       severity: "medium",
+      cost_rank: 6,
+      cost: "Boards under ten pins give the algorithm no context, so everything pinned there under-distributes.",
     });
   }
 
@@ -49,7 +60,10 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
       count: uncovered.rowCount ?? 0,
       detail: uncovered.rows.slice(0, 5).map((r) => `${r.topic_name} (${r.active_boards}/5)`),
       fix_href: `boards`,
+      fix_task: "P3.3.1",
       severity: "high",
+      cost_rank: 2,
+      cost: "Blocks phase 4 for that topic entirely — no URL under it can enter production.",
     });
   }
 
@@ -67,7 +81,10 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
       count: idleUrls.rowCount ?? 0,
       detail: idleUrls.rows.slice(0, 5).map((r) => `${r.name}${r.last_waterfall_end ? ` (last ran ${r.last_waterfall_end})` : " (never run)"}`),
       fix_href: `urls`,
+      fix_task: "P4.1.4",
       severity: "medium",
+      cost_rank: 7,
+      cost: "Idle inventory — URLs that are cleared to run and earning nothing.",
     });
   }
 
@@ -87,7 +104,10 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
       count: unusedKws.rowCount ?? 0,
       detail: unusedKws.rows.slice(0, 5).map((r) => `${r.term} (vol ${r.volume})`),
       fix_href: `keywords`,
+      fix_task: "P4.1.6",
       severity: "medium",
+      cost_rank: 8,
+      cost: "Reach already paid for in research hours and never deployed on a pin.",
     });
   }
 
@@ -113,7 +133,10 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
       count: staleBoards.rowCount ?? 0,
       detail: staleBoards.rows.slice(0, 5).map((r) => `${r.name} (${r.pin_count} pins)`),
       fix_href: `boards`,
+      fix_task: null,
       severity: "low",
+      cost_rank: 9,
+      cost: "Dormant boards slowly lose their standing with the algorithm.",
     });
   }
 
@@ -125,13 +148,22 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
   if (tok.rowCount ?? 0 > 0) {
     const t = tok.rows[0];
     if (!t.has_token) {
-      leaks.push({ kind: "no_token", label: "No Pinterest token connected", count: 1, detail: ["Reconnect Pinterest to enable API writes"], fix_href: `../../integrations`, severity: "high" });
+      leaks.push({ kind: "no_token", label: "No Pinterest token connected", count: 1,
+        detail: ["Reconnect Pinterest to enable API writes"], fix_href: `../../integrations`,
+        fix_task: null, severity: "high", cost_rank: 1,
+        cost: "Every write stops — no boards, no pins, no publishing." });
     } else if (t.expires_at) {
       const daysLeft = Math.floor((new Date(t.expires_at).getTime() - Date.now()) / 86_400_000);
       if (daysLeft < 0) {
-        leaks.push({ kind: "token_expired", label: "Pinterest token EXPIRED", count: 1, detail: [`Expired ${-daysLeft} days ago on ${t.expires_at.slice(0, 10)}`], fix_href: `../../integrations`, severity: "high" });
-      } else if (daysLeft <= 7) {
-        leaks.push({ kind: "token_expiring", label: `Pinterest token expires in ${daysLeft} day(s)`, count: 1, detail: [`Expires ${t.expires_at.slice(0, 10)}`], fix_href: `../../integrations`, severity: "high" });
+        leaks.push({ kind: "token_expired", label: "Pinterest token EXPIRED", count: 1,
+          detail: [`Expired ${-daysLeft} days ago on ${t.expires_at.slice(0, 10)}`],
+          fix_href: `../../integrations`, fix_task: null, severity: "high", cost_rank: 1,
+          cost: "Every write stops — no boards, no pins, no publishing." });
+      } else if (daysLeft <= 14) {
+        leaks.push({ kind: "token_expiring", label: `Pinterest token expires in ${daysLeft} day(s)`, count: 1,
+          detail: [`Expires ${t.expires_at.slice(0, 10)}`], fix_href: `../../integrations`,
+          fix_task: null, severity: "high", cost_rank: 5,
+          cost: "Publishing stops the day it lapses, mid-cycle." });
       }
     }
   }
@@ -151,11 +183,43 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
       count: stalled.rowCount ?? 0,
       detail: stalled.rows.slice(0, 5).map((r) => `${r.url_name ?? "(url gone)"} — status ${r.status} since ${r.start_date}`),
       fix_href: `phase/4`,
+      fix_task: "P4.3.2",
       severity: "high",
+      cost_rank: 3,
+      cost: "Work already paid for that is not shipping — designs and copy sitting idle.",
     });
   }
 
-  return leaks;
+  // 8. Performance below baseline for two consecutive months.
+  const decline = await pool.query<{ m: string; clicks: number }>(
+    `SELECT to_char(pp.measured_on, 'YYYY-MM') AS m,
+            COALESCE(SUM(pp.outbound_clicks), 0)::int AS clicks
+       FROM organic.pin_performance pp
+       JOIN organic.pins p ON p.id = pp.pin_id
+       JOIN organic.waterfalls w ON w.id = p.waterfall_id
+      WHERE w.org_id = $1 AND pp.measured_on > current_date - interval '3 months'
+      GROUP BY 1 ORDER BY 1 DESC LIMIT 2`, [orgId]);
+  const baseClicks = await pool.query<{ c: number | null }>(
+    `SELECT outbound_clicks AS c FROM organic.baseline_kpis
+      WHERE org_id = $1 AND period = 'last_30d'`, [orgId]);
+  const bc = baseClicks.rows[0]?.c ?? null;
+  if (bc != null && bc > 0 && decline.rowCount === 2 && decline.rows.every((r) => r.clicks < bc)) {
+    leaks.push({
+      kind: "performance_below_baseline",
+      label: "Outbound clicks below baseline two months running",
+      count: 2,
+      detail: decline.rows.map((r) => `${r.m}: ${r.clicks} clicks vs baseline ${bc}`),
+      fix_href: `analytics`,
+      fix_task: "P5.2.2",
+      severity: "high",
+      cost_rank: 4,
+      cost: "Two months of decline is the point where a client starts questioning the retainer.",
+    });
+  }
+
+  // Ranked by cost, not recency. A production-blocking leak outranks a
+  // cosmetic one regardless of which was noticed first.
+  return leaks.sort((a, b) => a.cost_rank - b.cost_rank);
 }
 
 // ---------- BOARDS TAB ------------------------------------------------------

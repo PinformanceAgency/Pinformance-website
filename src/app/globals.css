@@ -33,6 +33,109 @@
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
+
+  /* ==================================================================
+     ORGANIC DESIGN SYSTEM · Stage 1
+     Additive and namespaced `o-`. Nothing above this line changes, so
+     the media-buying dashboard is untouched.
+     ================================================================== */
+
+  /* -- Surfaces --------------------------------------------------------
+     Client-facing sits on warm paper; internal sits on a cooler neutral.
+     The temperature difference is the signal that one is a document and
+     the other is a tool. */
+  --color-o-canvas:        #FAFAF8;  /* client-facing, warm off-white */
+  --color-o-canvas-cool:   #F6F7F9;  /* internal, cooler neutral */
+  --color-o-surface:       #FFFFFF;
+  --color-o-sunk:          #F1F2F4;  /* table headers, inset wells */
+  --color-o-hairline:      #E7E8EC;
+  --color-o-hairline-firm: #D5D8DE;
+
+  /* -- Ink · exactly three levels, no more ---------------------------- */
+  --color-o-ink:    #15171C;  /* primary */
+  --color-o-ink-2:  #5B616B;  /* secondary */
+  --color-o-ink-3:  #99A0AA;  /* tertiary, and the em-dash for missing */
+
+  /* -- Accent · a few percent of the screen, never a fill -------------- */
+  --color-o-accent: #E30613;
+
+  /* -- Data palette · desaturated and deliberate ----------------------
+     Never a library default. Ordered: primary series first. */
+  --color-o-teal:  #2C5F5A;
+  --color-o-sand:  #C2A878;
+  --color-o-clay:  #A9685C;
+  --color-o-slate: #5A6672;
+
+  /* -- Movement · reserved strictly for positive and negative ---------
+     Deliberately not the brand red, so accent and negative never read
+     as the same thing. */
+  --color-o-pos: #2E6F4E;
+  --color-o-neg: #A02D22;
+
+  /* -- Type ------------------------------------------------------------
+     Display serif carries headings and headline figures — it is what
+     makes the surface read as report rather than admin panel.
+     Interface sans carries labels, tables and navigation. */
+  --font-o-display: var(--font-o-serif), Georgia, "Times New Roman", serif;
+  --font-o-sans:    var(--font-o-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Scale is dramatic, not incremental. The gap between a headline
+     figure and its supporting label IS the hierarchy. */
+  --text-o-figure-xl: 3.5rem;    /* 56px — the one number that matters */
+  --text-o-figure-lg: 2.25rem;   /* 36px */
+  --text-o-figure-md: 1.375rem;  /* 22px */
+  --text-o-head:      1.0625rem; /* 17px — section headings, serif */
+  --text-o-body:      0.8125rem; /* 13px */
+  --text-o-label:     0.6875rem; /* 11px — uppercase micro-labels */
+}
+
+/* ====================================================================
+   ORGANIC · base styles, scoped so nothing leaks into the dashboard
+   ==================================================================== */
+.o-root {
+  background: var(--color-o-canvas-cool);
+  color: var(--color-o-ink);
+  font-family: var(--font-o-sans);
+}
+/* Client-facing surfaces opt into the warm paper ground. */
+.o-root.o-client { background: var(--color-o-canvas); }
+
+/* Anything numeric aligns in columns. */
+.o-root .o-num,
+.o-root table { font-variant-numeric: tabular-nums; }
+
+.o-display { font-family: var(--font-o-display); font-feature-settings: "kern" 1; }
+
+/* Motion · state changes only, and short enough to go unnoticed. */
+@media (prefers-reduced-motion: no-preference) {
+  .o-root a,
+  .o-root button,
+  .o-root [data-state-change] {
+    transition: color 140ms cubic-bezier(0.32, 0.72, 0, 1),
+                background-color 140ms cubic-bezier(0.32, 0.72, 0, 1),
+                border-color 140ms cubic-bezier(0.32, 0.72, 0, 1),
+                opacity 140ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  /* Charts draw once on load, never on re-render. */
+  .o-draw-once {
+    animation: o-draw 620ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+}
+@keyframes o-draw {
+  from { stroke-dashoffset: var(--o-len, 1000); opacity: 0; }
+  to   { stroke-dashoffset: 0; opacity: 1; }
+}
+
+/* Skeletons, never spinners. */
+.o-skeleton {
+  background: linear-gradient(90deg,
+    var(--color-o-sunk) 25%, #E9EAEE 37%, var(--color-o-sunk) 63%);
+  background-size: 400% 100%;
+  animation: o-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes o-shimmer {
+  from { background-position: 100% 50%; }
+  to   { background-position: 0 50%; }
 }
 
 @layer base {
