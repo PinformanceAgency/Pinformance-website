@@ -13,7 +13,7 @@ import { loadClientHeader, loadClientTasks } from "@/lib/organic/queries";
 import { loadViability } from "@/lib/organic/viability";
 import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { loadPhase3Snapshot } from "@/lib/organic/phase3";
-import { loadAssets } from "@/lib/organic/workspace";
+import { loadAssets, loadTaskAnswers } from "@/lib/organic/workspace";
 import { phaseMeta, stepMeta, OWNER_LABEL } from "@/lib/organic/phase-meta";
 import { PhaseBoard } from "../PhaseBoard";
 import { Panel, Label } from "@/components/organic/primitives";
@@ -33,13 +33,14 @@ export default async function StepPage({
   if (!pMeta) notFound();
   const sMeta = stepMeta(phase, step);
 
-  const [header, tasks, viability, p2, p3, assets] = await Promise.all([
+  const [header, tasks, viability, p2, p3, assets, answers] = await Promise.all([
     loadClientHeader(orgId),
     loadClientTasks(orgId),
     loadViability(orgId),
     loadPhase2Snapshot(orgId),
     loadPhase3Snapshot(orgId),
     loadAssets(orgId),
+    loadTaskAnswers(orgId),
   ]);
   if (!header) notFound();
 
@@ -93,6 +94,7 @@ export default async function StepPage({
       )}
 
       <PhaseBoard
+        answers={answers}
         orgId={orgId}
         phase={phase}
         tasks={stepTasks}

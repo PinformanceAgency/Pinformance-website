@@ -137,7 +137,7 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
             const r = rows[k];
             const setRow = (patch: Partial<Row>) => setRows({ ...rows, [k]: { ...r, ...patch } });
             return (
-              <div key={k} className="rounded border border-neutral-200 bg-white p-2 space-y-1.5">
+              <div key={k} className="rounded border border-border bg-card p-2 space-y-1.5">
                 <div className="text-xs font-medium text-neutral-800">{k}</div>
                 <div className="flex flex-wrap gap-3 text-[11px]">
                   <FormatToggle label="2:3 simple" v={r.fmt_simple_pins} on={(x) => setRow({ fmt_simple_pins: x })} />
@@ -184,7 +184,7 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
 
 function FormatToggle({ label, v, on }: { label: string; v: boolean; on: (v: boolean) => void }) {
   return (
-    <label className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 cursor-pointer ${v ? "border-blue-400 bg-blue-50 text-blue-800" : "border-neutral-300 bg-white text-neutral-600"}`}>
+    <label className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 cursor-pointer ${v ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground"}`}>
       <input type="checkbox" checked={v} onChange={(e) => on(e.target.checked)} className="sr-only" />
       {label}
     </label>
@@ -298,7 +298,7 @@ function CompetitorsForm({ orgId, snapshot, onDone }: Props) {
             </div>
           ))}
           <button type="button" onClick={() => rows.length < 10 && setRows([...rows, { name: "", handle: "", profile_url: "", niche_fit: "PARTIAL" }])}
-            className="mt-1 text-[11px] text-blue-600 hover:text-blue-800 font-medium disabled:opacity-40" disabled={rows.length >= 10}>
+            className="mt-1 text-[11px] text-primary hover:text-primary font-medium disabled:opacity-40" disabled={rows.length >= 10}>
             + Add competitor ({rows.length}/10)
           </button>
         </div>
@@ -338,7 +338,7 @@ function ImportPinsForm({ orgId, snapshot, onDone }: Props) {
             placeholder="Paste PinInspector CSV export here — first row = column headers."
             className="w-full rounded border border-neutral-300 px-2 py-1 text-[10px] font-mono" />
           {result && (
-            <div className="rounded border border-emerald-200 bg-emerald-50 text-emerald-800 px-2 py-1 text-xs">
+            <div className="rounded border border-foreground bg-foreground text-white px-2 py-1 text-xs">
               Imported <strong>{result.imported}</strong> rows.
             </div>
           )}
@@ -436,7 +436,7 @@ function ReviewItem({ it, onReview }: { it: MarketItem; onReview: (id: string, s
   const [reason, setReason] = useState("");
   const [err, setErr] = useState<string | null>(null);
   return (
-    <div className={`rounded border px-2 py-1.5 text-xs ${it.status === "APPROVED" ? "border-emerald-200 bg-emerald-50" : it.status === "REJECTED" ? "border-neutral-200 bg-neutral-100 opacity-60" : "border-neutral-200 bg-white"}`}>
+    <div className={`rounded border px-2 py-1.5 text-xs ${it.status === "APPROVED" ? "border-foreground/20 bg-muted" : it.status === "REJECTED" ? "border-border bg-muted opacity-60" : "border-border bg-card"}`}>
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <div className="font-medium">{it.title}</div>
@@ -448,7 +448,7 @@ function ReviewItem({ it, onReview }: { it: MarketItem; onReview: (id: string, s
         {it.status === "PENDING" && (
           <div className="flex gap-1 shrink-0">
             <button type="button" onClick={() => onReview(it.id, "APPROVED").catch((e) => setErr(String(e.message)))}
-              className="text-[11px] px-2 py-0.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-100">Approve</button>
+              className="text-[11px] px-2 py-0.5 rounded border border-foreground/30 text-foreground hover:bg-muted">Approve</button>
             <button type="button" onClick={() => setRejecting(true)}
               className="text-[11px] px-2 py-0.5 rounded border border-neutral-300 text-neutral-700 hover:bg-neutral-100">Reject</button>
           </div>
@@ -626,7 +626,7 @@ function FrequencyForm({ orgId, snapshot, onDone }: Props) {
           <div className="font-mono bg-white border border-neutral-200 rounded p-2 text-[11px]">
             daily_pin_target ({daily}) × 30 days ÷ {PINS_PER_URL} pins/URL
             <br />= {monthly} pins/month ÷ {PINS_PER_URL} = {(monthly / PINS_PER_URL).toFixed(2)}
-            <br />→ ceil() = <span className="font-bold text-emerald-700">{urls} URLs/month</span>
+            <br />→ ceil() = <span className="font-bold text-foreground">{urls} URLs/month</span>
           </div>
           <div className="text-neutral-500 text-[11px]">
             One URL yields 16 pin variants (design × copy). Two per day for a year beats ten per day for a week.
@@ -678,7 +678,7 @@ function FormShell({
         <span className="flex-1" />
         {err && <span className="text-xs text-red-600 mr-2 break-words max-w-md">{err}</span>}
         <button onClick={go} disabled={submitting || !time}
-          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
+          className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
           {submitting ? "Saving…" : submitLabel}
         </button>
       </div>
@@ -688,7 +688,7 @@ function FormShell({
 
 function Notice({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{children}</div>
+    <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground">{children}</div>
   );
 }
 

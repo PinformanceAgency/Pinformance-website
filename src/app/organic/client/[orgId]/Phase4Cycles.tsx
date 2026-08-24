@@ -74,7 +74,7 @@ function StartCycle({
   }
 
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-3">
+    <div className="rounded-md border border-border bg-card p-3">
       <button type="button" onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between text-xs text-neutral-600 hover:text-neutral-900">
         <span className="font-medium">+ Start new cycle</span>
@@ -123,14 +123,14 @@ function CycleCard({
   const [expanded, setExpanded] = useState(cycle.progress.pct < 100);
 
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white overflow-hidden">
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
       <button type="button" onClick={() => setExpanded((v) => !v)}
         className="w-full flex items-start justify-between gap-3 px-4 py-3 hover:bg-neutral-50 text-left">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
             <span className="text-sm font-semibold text-neutral-900">{cycle.url_name}</span>
             <ReasonPill reason={cycle.reason} />
-            {cycle.is_seasonal && <span className="text-[10px] px-1 py-0.5 rounded border border-purple-200 bg-purple-50 text-purple-700 font-medium">SEASONAL</span>}
+            {cycle.is_seasonal && <span className="text-[10px] px-1 py-0.5 rounded border border-border bg-muted text-foreground font-medium">SEASONAL</span>}
             {cycle.topic_name && <span className="text-[10px] text-neutral-500">· {cycle.topic_name}</span>}
           </div>
           <div className="text-[11px] text-neutral-500 truncate mt-0.5">{cycle.url}</div>
@@ -138,7 +138,7 @@ function CycleCard({
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-32">
             <div className="h-1.5 rounded-full bg-neutral-100 overflow-hidden">
-              <div className={`h-full ${cycle.progress.pct >= 100 ? "bg-emerald-500" : cycle.progress.pct >= 50 ? "bg-blue-500" : "bg-amber-500"}`}
+              <div className={`h-full ${cycle.progress.pct >= 100 ? "bg-foreground" : cycle.progress.pct >= 50 ? "bg-primary" : "bg-border"}`}
                 style={{ width: `${Math.min(100, cycle.progress.pct)}%` }} />
             </div>
             <div className="text-[10px] text-neutral-500 mt-0.5 tabular-nums text-right">
@@ -164,10 +164,10 @@ function CycleCard({
 
 function ReasonPill({ reason }: { reason: string }) {
   const cls =
-    reason === "BEST_PERFORMER" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-    reason === "SEASONAL"       ? "bg-purple-50 text-purple-700 border-purple-200" :
-    reason === "NEW"            ? "bg-blue-50 text-blue-700 border-blue-200" :
-    reason === "CLIENT_REQUEST" ? "bg-amber-50 text-amber-700 border-amber-200" :
+    reason === "BEST_PERFORMER" ? "bg-foreground text-white border-foreground" :
+    reason === "SEASONAL"       ? "bg-muted text-foreground border-border" :
+    reason === "NEW"            ? "bg-primary/10 text-primary border-primary/30" :
+    reason === "CLIENT_REQUEST" ? "bg-muted text-foreground border-border" :
     reason === "AB_TEST"        ? "bg-pink-50 text-pink-700 border-pink-200" :
     "bg-neutral-100 text-neutral-600 border-neutral-200";
   return <span className={`text-[10px] px-1 py-0.5 rounded border font-semibold uppercase tracking-wide ${cls}`}>{reason}</span>;
@@ -276,7 +276,7 @@ function SetupSection({
               {k.volume != null && <span className="text-neutral-400 tabular-nums">{k.volume}</span>}
               {keywordIds.has(k.id) && (
                 <button type="button" onClick={() => setPrimary(k.id)}
-                  className={`ml-1 text-[9px] px-1 rounded border ${primary === k.id ? "bg-blue-600 text-white border-blue-600" : "text-blue-600 border-blue-200"}`}
+                  className={`ml-1 text-[9px] px-1 rounded border ${primary === k.id ? "bg-primary text-primary-foreground border-primary" : "text-primary border-primary/30"}`}
                   title="Set as primary">{primary === k.id ? "★" : "☆"}</button>
               )}
             </label>
@@ -286,7 +286,7 @@ function SetupSection({
 
       <div className="flex items-center gap-2">
         <button type="button" onClick={save} disabled={saving}
-          className="px-3 py-1 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
+          className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
           {saving ? "Saving…" : "Save setup"}
         </button>
         {err && <span className="text-xs text-red-600 break-words">{err}</span>}
@@ -370,7 +370,7 @@ function CopySection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
         </div>
       </div>
 
-      <div className={`text-[11px] rounded px-2 py-1 ${validation.overall.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+      <div className={`text-[11px] rounded px-2 py-1 ${validation.overall.ok ? "bg-muted text-foreground border border-border" : "bg-red-50 text-red-700 border border-red-200"}`}>
         {validation.overall.ok ? "✓ All validators pass — copy would be committed." : "Copy would be blocked by validators."}
       </div>
     </div>
@@ -482,7 +482,7 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
             <div className="text-[11px] font-semibold text-neutral-600 mb-1">16-pin calendar</div>
             <div className="grid grid-cols-8 gap-1">
               {result.pin_schedule.map((p) => (
-                <div key={p.seq} className="rounded border border-neutral-200 bg-white p-1 text-[10px]">
+                <div key={p.seq} className="rounded border border-border bg-card p-1 text-[10px]">
                   <div className="text-neutral-400 tabular-nums">{p.date.slice(5)}</div>
                   <div className="font-semibold">D{p.design}/{p.copy}</div>
                   <div className="text-neutral-500 truncate">{boardNames[p.board_index] ?? `b${p.board_index}`}</div>
@@ -539,10 +539,10 @@ function TaskListSection({ cycle }: { cycle: CycleView }) {
 
 function StatusPill({ status }: { status: string }) {
   const cls =
-    status === "DONE" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+    status === "DONE" ? "bg-foreground text-white border-foreground" :
     status === "BLOCKED" ? "bg-red-50 text-red-700 border-red-200" :
-    status === "IN_PROGRESS" ? "bg-blue-50 text-blue-700 border-blue-200" :
-    status === "REVIEW" ? "bg-purple-50 text-purple-700 border-purple-200" :
+    status === "IN_PROGRESS" ? "bg-primary/10 text-primary border-primary/30" :
+    status === "REVIEW" ? "bg-muted text-foreground border-border" :
     status === "SKIPPED" ? "bg-neutral-100 text-neutral-500 border-neutral-200" :
     "bg-white text-neutral-600 border-neutral-200";
   return <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase ${cls}`}>{status.replace("_", " ")}</span>;

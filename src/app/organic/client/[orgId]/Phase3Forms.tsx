@@ -84,7 +84,7 @@ function FormShell({
         <span className="flex-1" />
         {err && <span className="text-xs text-red-600 mr-2 break-words max-w-md">{err}</span>}
         <button onClick={go} disabled={submitting || !time}
-          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
+          className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
           {submitting ? "Saving…" : submitLabel}
         </button>
       </div>
@@ -195,7 +195,7 @@ function InterestPicksForm({ orgId, onDone }: Props) {
               {searching ? "…" : "Search"}
             </button>
           </div>
-          <div className="max-h-56 overflow-y-auto rounded border border-neutral-200 bg-white divide-y divide-neutral-100">
+          <div className="max-h-56 overflow-y-auto rounded border border-border bg-card divide-y divide-neutral-100">
             {results.map((r) => (
               <label key={r.interest_id} className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer hover:bg-neutral-50">
                 <input type="checkbox" checked={picked.has(r.name)}
@@ -258,14 +258,14 @@ function PinClicksForm({ orgId, snapshot, onDone }: Props) {
   const [extra, setExtra] = useState("");
   const [time, setTime] = useState("");
   if (queued.length === 0) {
-    return <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">No queue items. Run P3.1.7 first.</div>;
+    return <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground">No queue items. Run P3.1.7 first.</div>;
   }
   return (
     <FormShell
       title={`P3.1.8 — PinClicks session (${queued.length} lookups)`}
       body={
         <div className="space-y-2">
-          <div className="max-h-72 overflow-y-auto rounded border border-neutral-200 bg-white divide-y divide-neutral-100">
+          <div className="max-h-72 overflow-y-auto rounded border border-border bg-card divide-y divide-neutral-100">
             {queued.map((q) => {
               const v = values[q.term] ?? { volume: "", not_found: false };
               return (
@@ -327,7 +327,7 @@ function GenericTestForm({ orgId, snapshot, onDone }: Props) {
       title={`P3.1.10 — Applies to every product? (5–10 pass)`}
       body={
         <div className="space-y-1">
-          <div className="max-h-64 overflow-y-auto rounded border border-neutral-200 bg-white divide-y divide-neutral-100">
+          <div className="max-h-64 overflow-y-auto rounded border border-border bg-card divide-y divide-neutral-100">
             {candidates.map((t) => (
               <label key={t} className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer hover:bg-neutral-50">
                 <input type="checkbox" checked={pass.has(t)} onChange={() => toggle(t)} />
@@ -363,7 +363,7 @@ function ClustersForm({ orgId, onDone }: Props) {
             const kws = r.keywords.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
             const bad = kws.length !== 0 && (kws.length < 10 || kws.length > 15);
             return (
-              <div key={i} className="rounded border border-neutral-200 bg-white p-2 space-y-1">
+              <div key={i} className="rounded border border-border bg-card p-2 space-y-1">
                 <div className="flex gap-1">
                   <input value={r.name} onChange={(e) => set(i, { name: e.target.value })} placeholder="Cluster name"
                     className="flex-1 rounded border border-neutral-300 px-2 py-1 text-xs" />
@@ -380,7 +380,7 @@ function ClustersForm({ orgId, onDone }: Props) {
             );
           })}
           <button type="button" onClick={() => setRows([...rows, { name: "", axis: "MOMENT", keywords: "" }])}
-            className="text-[11px] text-blue-600 hover:text-blue-800 font-medium">+ Add cluster</button>
+            className="text-[11px] text-primary hover:text-primary font-medium">+ Add cluster</button>
         </div>
       }
       time={time} setTime={setTime} submitLabel="Save clusters"
@@ -408,7 +408,7 @@ function SeasonalForm({ orgId, snapshot, onDone }: Props) {
     <FormShell
       title={`P3.1.12 — Seasonal classification (${classified}/${terms.length} set)`}
       body={
-        <div className="max-h-72 overflow-y-auto rounded border border-neutral-200 bg-white divide-y divide-neutral-100 text-xs">
+        <div className="max-h-72 overflow-y-auto rounded border border-border bg-card divide-y divide-neutral-100 text-xs">
           {terms.map((t) => (
             <div key={t} className="grid grid-cols-12 gap-1 px-2 py-1 items-center">
               <span className="col-span-4 truncate text-neutral-700">{t}</span>
@@ -488,7 +488,7 @@ function DisplayNameForm({ orgId, snapshot, onDone }: Props) {
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <button type="button" onClick={propose} disabled={genLoading}
-              className="px-2 py-1 rounded border border-purple-300 bg-purple-50 text-purple-700 text-[11px] font-medium hover:bg-purple-100 disabled:opacity-50">
+              className="px-2 py-1 rounded border border-border bg-muted text-foreground text-[11px] font-medium hover:bg-muted disabled:opacity-50">
               {genLoading ? "Generating…" : "🤖 Generate proposal"}
             </button>
             {genInfo && <span className="text-[10px] text-neutral-500">AI: {genInfo.attempts} attempt(s), {genInfo.failed_attempts.length} rejected by validator</span>}
@@ -534,7 +534,7 @@ function BioForm({ orgId, snapshot, onDone }: Props) {
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <button type="button" onClick={propose} disabled={genLoading}
-              className="px-2 py-1 rounded border border-purple-300 bg-purple-50 text-purple-700 text-[11px] font-medium hover:bg-purple-100 disabled:opacity-50">
+              className="px-2 py-1 rounded border border-border bg-muted text-foreground text-[11px] font-medium hover:bg-muted disabled:opacity-50">
               {genLoading ? "Generating…" : "🤖 Generate proposal"}
             </button>
             {genInfo && <span className="text-[10px] text-neutral-500">AI: {genInfo.attempts} attempt(s)</span>}
@@ -589,7 +589,7 @@ function BoardListForm({ orgId, snapshot, onDone }: Props) {
             </div>
           ))}
           <button type="button" onClick={() => rows.length < 30 && setRows([...rows, { name: "", topic_name: "", primary_keyword: "", breadth: "BROAD" }])}
-            className="mt-1 text-[11px] text-blue-600 hover:text-blue-800 font-medium disabled:opacity-40" disabled={rows.length >= 30}>
+            className="mt-1 text-[11px] text-primary hover:text-primary font-medium disabled:opacity-40" disabled={rows.length >= 30}>
             + Add board ({rows.length}/30)
           </button>
         </div>
@@ -633,7 +633,7 @@ function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <button type="button" onClick={generateAll}
-              className="px-2 py-1 rounded border border-purple-300 bg-purple-50 text-purple-700 text-[11px] font-medium hover:bg-purple-100">
+              className="px-2 py-1 rounded border border-border bg-muted text-foreground text-[11px] font-medium hover:bg-muted">
               🤖 Generate all missing (batches through the boards)
             </button>
             <span className="text-[10px] text-neutral-500">Each proposal is regenerated up to 3× until it satisfies the validators.</span>
@@ -643,11 +643,11 @@ function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
               const len = r.description.length;
               const lenOk = len >= 400 && len <= 480;
               return (
-                <div key={i} className="rounded border border-neutral-200 bg-white p-2">
+                <div key={i} className="rounded border border-border bg-card p-2">
                   <div className="flex items-center justify-between mb-1">
                     <div className="text-[11px] font-medium text-neutral-800">{r.name}</div>
                     <button type="button" onClick={() => generateOne(i)} disabled={r.generating}
-                      className="text-[10px] px-1.5 py-0.5 rounded border border-purple-300 text-purple-700 hover:bg-purple-50 disabled:opacity-50">
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-border text-foreground hover:bg-muted disabled:opacity-50">
                       {r.generating ? "…" : r.draft_id ? "↻ Regenerate" : "🤖 Generate"}
                     </button>
                   </div>

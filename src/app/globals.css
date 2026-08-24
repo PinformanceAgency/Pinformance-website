@@ -61,14 +61,15 @@
   /* -- Accent · the brand red, same value the dashboard uses ----------- */
   --color-o-accent: #E30613;  /* = --color-primary */
 
-  /* -- Data palette · charts only, never chrome ------------------------
-     The dashboard has no chart palette of its own, so these stay. They
-     appear inside figures, never as page furniture, which is why they
-     can be specific without breaking the shared look. */
-  --color-o-teal:  #2C5F5A;
-  --color-o-sand:  #C2A878;
-  --color-o-clay:  #A9685C;
-  --color-o-slate: #5A6672;
+  /* -- Data palette · the same three colours, in series order ----------
+     Red first, then black, then two greys. Categorical series are
+     separated by weight rather than by hue, which keeps charts on brand
+     and stops a four-colour palette appearing in a product that has
+     three. The names are kept so existing chart code is untouched. */
+  --color-o-teal:  #E30613;  /* primary series — brand red */
+  --color-o-sand:  #1c1f26;  /* secondary — near black */
+  --color-o-clay:  #6b7280;  /* tertiary — mid grey */
+  --color-o-slate: #b6bac3;  /* quaternary — light grey */
 
   /* -- Movement · positive and negative --------------------------------
      Deliberately not the brand red, so accent and negative never read as

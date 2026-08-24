@@ -11,11 +11,14 @@
  */
 import { cn } from "@/lib/utils";
 
+// Series order, not a rainbow: brand red, near black, then two greys.
+// The keys are historical — `teal` is now the brand red — and are kept
+// so every existing chart call site stays valid.
 export const DATA_COLORS = {
-  teal:  "var(--color-o-teal)",
-  sand:  "var(--color-o-sand)",
-  clay:  "var(--color-o-clay)",
-  slate: "var(--color-o-slate)",
+  teal:  "var(--color-o-teal)",   // primary series · brand red
+  sand:  "var(--color-o-sand)",   // secondary · near black
+  clay:  "var(--color-o-clay)",   // tertiary · mid grey
+  slate: "var(--color-o-slate)",  // quaternary · light grey
 } as const;
 export type DataColor = keyof typeof DATA_COLORS;
 

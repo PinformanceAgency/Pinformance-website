@@ -92,7 +92,7 @@ function PhaseSection({
       </h2>
       <div className="space-y-3">
         {steps.map((s) => (
-          <div key={s.step} className="rounded-lg border border-neutral-200 bg-white overflow-hidden">
+          <div key={s.step} className="rounded-lg border border-border bg-card overflow-hidden">
             <div className="px-3 py-1.5 text-[11px] font-medium text-neutral-500 bg-neutral-50 border-b border-neutral-100">
               Step {phase}.{s.step}
             </div>
@@ -190,7 +190,7 @@ function TaskCard({
               <span className="text-neutral-500">Tool:</span>
               <span className="font-medium">{task.external_tool}</span>
               {task.external_url && (
-                <a href={task.external_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                <a href={task.external_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                   Open ↗
                 </a>
               )}
@@ -219,7 +219,7 @@ function TaskCard({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
+              className="text-[10px] text-primary hover:text-primary font-medium"
             >
               {expanded ? "Close" : "Open"}
             </button>
@@ -297,9 +297,9 @@ function TaskCard({
 function TaskTypeBadge({ type }: { type: TaskType }) {
   const config: Record<TaskType, { label: string; cls: string }> = {
     AUTO: { label: "AUTO", cls: "bg-neutral-100 text-neutral-600 border-neutral-200" },
-    AI_DRAFT: { label: "AI", cls: "bg-purple-50 text-purple-700 border-purple-200" },
-    IN_DASHBOARD: { label: "DASH", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-    EXTERNAL: { label: "EXT", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+    AI_DRAFT: { label: "AI", cls: "bg-muted text-foreground border-border" },
+    IN_DASHBOARD: { label: "DASH", cls: "bg-primary/10 text-primary border-primary/30" },
+    EXTERNAL: { label: "EXT", cls: "bg-muted text-foreground border-border" },
   };
   const c = config[type];
   return (
@@ -343,12 +343,12 @@ function StatusSelect({
 
 function statusColor(s: TaskStatus): string {
   switch (s) {
-    case "DONE": return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "IN_PROGRESS": return "border-blue-200 bg-blue-50 text-blue-700";
-    case "REVIEW": return "border-purple-200 bg-purple-50 text-purple-700";
-    case "SKIPPED": return "border-neutral-200 bg-neutral-100 text-neutral-500";
+    case "DONE": return "border-foreground bg-foreground text-white";
+    case "IN_PROGRESS": return "border-primary/30 bg-primary/10 text-primary";
+    case "REVIEW": return "border-border bg-muted text-foreground";
+    case "SKIPPED": return "border-border bg-muted text-neutral-500";
     case "TODO":
-    default: return "border-neutral-200 bg-white text-neutral-700";
+    default: return "border-border bg-card text-neutral-700";
   }
 }
 
@@ -401,7 +401,7 @@ function CompleteDialog({
         {err && <div className="mt-1 text-xs text-red-600">{err}</div>}
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={onCancel} className="px-3 py-1.5 text-xs font-medium rounded-md border border-neutral-300 hover:bg-neutral-50">Cancel</button>
-          <button onClick={confirm} className="px-3 py-1.5 text-xs font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700">Mark done</button>
+          <button onClick={confirm} className="px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:opacity-90">Mark done</button>
         </div>
       </div>
     </div>

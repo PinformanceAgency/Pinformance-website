@@ -174,7 +174,7 @@ function SitemapCountForm({ orgId, viability, onDone }: FormBaseProps) {
         {running ? "Fetching sitemap…" : "Count URLs from sitemap"}
       </button>
       {result && (
-        <div className={`rounded-md border px-3 py-2 text-xs ${result.under ? "bg-red-50 border-red-200 text-red-800" : "bg-emerald-50 border-emerald-200 text-emerald-800"}`}>
+        <div className={`rounded-md border px-3 py-2 text-xs ${result.under ? "bg-red-50 border-red-200 text-red-800" : "bg-foreground border-foreground text-white"}`}>
           <span className="font-semibold">{result.total} URLs</span> found in sitemap
           {result.under ? " — under 10 is a red flag." : "."}
         </div>
@@ -200,7 +200,7 @@ function VerdictForm({ orgId, task, viability, onDone }: FormBaseProps) {
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2 text-xs">
             {(["STRONG_FIT","MODERATE_FIT","WEAK_FIT"] as ViabilityVerdict[]).map((v) => (
-              <label key={v} className={`flex items-center gap-2 rounded-md border px-2.5 py-1 cursor-pointer ${verdict === v ? "border-blue-500 bg-blue-50 text-blue-800" : "border-neutral-300 bg-white text-neutral-700"}`}>
+              <label key={v} className={`flex items-center gap-2 rounded-md border px-2.5 py-1 cursor-pointer ${verdict === v ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-foreground"}`}>
                 <input type="radio" name="verdict" value={v} checked={verdict === v} onChange={() => setVerdict(v)} />
                 <span className="font-medium">{v.replace("_", " ")}</span>
               </label>
@@ -280,12 +280,16 @@ function AnalyticsBaselineForm({ orgId, task, onDone }: FormBaseProps) {
 // --- shared shell + helpers -------------------------------------------------
 
 function FormShell({
-  title, body, time, setTime, submitLabel, onSubmit,
+  title, body, submitLabel, onSubmit,
 }: {
   title: string;
   body: React.ReactNode;
-  time: string;
-  setTime: (v: string) => void;
+  /** Kept in the signature so the many call sites still compile; the
+   *  field itself is gone. Time on task was mandatory to submit and told
+   *  us nothing anyone acts on, so it stood between a manager and
+   *  recording the work. */
+  time?: string;
+  setTime?: (v: string) => void;
   submitLabel: string;
   onSubmit: () => Promise<void>;
 }) {
@@ -299,27 +303,16 @@ function FormShell({
     finally { setSubmitting(false); }
   }
   return (
-    <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-3">
-      <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">{title}</div>
+    <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3">
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{title}</div>
       {body}
-      <div className="flex items-center gap-2 pt-1 border-t border-neutral-200">
-        <label className="text-[11px] text-neutral-600 flex items-center gap-1.5">
-          Time spent (min):
-          <input
-            type="number"
-            min={1}
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className="w-20 rounded-md border border-neutral-300 px-2 py-1 text-xs tabular-nums"
-            placeholder="15"
-          />
-        </label>
+      <div className="flex items-center gap-2 pt-3 border-t border-border">
+        {err && <span className="text-sm text-red-600 mr-2 break-words max-w-md">{err}</span>}
         <span className="flex-1" />
-        {err && <span className="text-xs text-red-600 mr-2 break-words max-w-xs">{err}</span>}
         <button
           onClick={go}
-          disabled={submitting || !time}
-          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
+          disabled={submitting}
+          className="px-3.5 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-50"
         >
           {submitting ? "Saving…" : submitLabel}
         </button>
@@ -328,10 +321,11 @@ function FormShell({
   );
 }
 
-function parseTime(s: string): number {
-  const n = Number(s);
-  if (!isFinite(n) || n <= 0) throw new Error("Enter a positive time_spent_min value.");
-  return Math.round(n);
+/** No longer collected. Returns 0 so the existing callers keep their
+ *  shape; the API treats a falsy value as "not recorded" and leaves the
+ *  column alone. */
+function parseTime(_s: string): number {
+  return 0;
 }
 
 async function postSection(orgId: string, section: string, payload: Record<string, unknown>) {

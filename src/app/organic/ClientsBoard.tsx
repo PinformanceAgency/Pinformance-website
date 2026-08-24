@@ -38,7 +38,7 @@ export function ClientsBoard({ rows }: { rows: ClientListRow[] }) {
 
 function ClientsTable({ rows }: { rows: ClientListRow[] }) {
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white overflow-hidden">
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-500">
@@ -61,7 +61,7 @@ function ClientsTable({ rows }: { rows: ClientListRow[] }) {
               <td className="py-2 px-3">
                 <Link
                   href={`/client/${r.org_id}`}
-                  className="font-medium text-neutral-900 hover:text-blue-600"
+                  className="font-medium text-neutral-900 hover:text-primary"
                 >
                   {r.name}
                 </Link>
@@ -99,7 +99,7 @@ function ClientsTable({ rows }: { rows: ClientListRow[] }) {
 
 function InactiveTable({ rows }: { rows: ClientListRow[] }) {
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white overflow-hidden">
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
       <table className="w-full text-sm">
         <tbody>
           {rows.map((r) => (
@@ -198,11 +198,11 @@ function EngagementPill({ status }: { status: ClientListRow["engagement_status"]
   if (!status) return <span className="text-neutral-400 text-xs">—</span>;
   const cls =
     status === "ACTIVE"
-      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      ? "bg-foreground text-white border-foreground"
       : status === "ONBOARDING"
-      ? "bg-blue-50 text-blue-700 border-blue-200"
+      ? "bg-primary/10 text-primary border-primary/30"
       : status === "PAUSED"
-      ? "bg-amber-50 text-amber-700 border-amber-200"
+      ? "bg-muted text-foreground border-border"
       : status === "CHURNED"
       ? "bg-neutral-100 text-neutral-500 border-neutral-200"
       : "bg-neutral-50 text-neutral-600 border-neutral-200";
@@ -226,7 +226,7 @@ function AccountCell({ klass, spacingHours }: { klass: string | null; spacingHou
 }
 
 function ProgressBar({ pct }: { pct: number }) {
-  const color = pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-blue-500" : "bg-amber-500";
+  const color = pct >= 100 ? "bg-foreground" : pct >= 50 ? "bg-primary" : "bg-border";
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden max-w-[120px]">

@@ -296,7 +296,7 @@ export function IntakeForm({
         <button
           onClick={submit}
           disabled={submitting || !v.total_time_min}
-          className="px-4 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
+          className="px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-50"
         >
           {submitting ? "Saving…" : "Save intake & complete P1.1"}
         </button>
@@ -309,7 +309,7 @@ export function IntakeForm({
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-neutral-200 bg-white p-4">
+    <section className="rounded-lg border border-border bg-card p-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-3">{title}</h2>
       {children}
     </section>
@@ -356,6 +356,6 @@ function Bool({ v, on }: { v: boolean; on: (v: boolean) => void }) {
   );
 }
 function Banner({ tone, children }: { tone: "ok" | "err"; children: React.ReactNode }) {
-  const cls = tone === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900";
+  const cls = tone === "ok" ? "border-foreground/20 bg-muted text-foreground" : "border-red-200 bg-red-50 text-red-900";
   return <div className={`rounded-md border px-3 py-2 text-xs ${cls}`} role="alert">{children}</div>;
 }

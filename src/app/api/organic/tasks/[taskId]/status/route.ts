@@ -34,12 +34,11 @@ export async function PATCH(
   if (!ALLOWED.includes(body.status)) {
     return NextResponse.json({ error: `invalid status: ${body.status}` }, { status: 400 });
   }
-  if (body.status === "DONE" && !(typeof body.time_spent_min === "number" && body.time_spent_min > 0)) {
-    return NextResponse.json(
-      { error: "time_spent_min (positive number) is required when marking DONE" },
-      { status: 400 }
-    );
-  }
+  // time_spent_min is no longer required to finish a task. It was a
+  // mandatory field that told us nothing we act on, and it stood between
+  // a manager and marking work done — which is how tasks end up finished
+  // in real life but open in here. The column stays and is still written
+  // when a value is supplied, because the margin screens read it.
   if (body.status === "SKIPPED") {
     if (!body.skip_reason || !VALID_SKIP_REASONS.includes(body.skip_reason)) {
       return NextResponse.json(
@@ -72,11 +71,11 @@ export async function PATCH(
           SET status='DONE'::organic.task_status,
               completed_at = $1::timestamptz,
               started_at   = COALESCE(started_at, $1::timestamptz),
-              time_spent_min = $2,
+              time_spent_min = COALESCE($2, time_spent_min),
               notes = COALESCE($3, notes),
               skip_reason = NULL, skip_note = NULL
         WHERE id = $4`,
-      [nowIso, body.time_spent_min, body.notes ?? null, taskId]
+      [nowIso, body.time_spent_min ?? null, body.notes ?? null, taskId]
     );
   } else if (body.status === "SKIPPED") {
     await pool.query(

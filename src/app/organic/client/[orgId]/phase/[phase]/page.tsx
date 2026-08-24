@@ -4,7 +4,7 @@ import { loadViability } from "@/lib/organic/viability";
 import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { loadPhase3Snapshot } from "@/lib/organic/phase3";
 import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume } from "@/lib/organic/phase4";
-import { loadAssets, loadCycleOps } from "@/lib/organic/workspace";
+import { loadAssets, loadCycleOps, loadTaskAnswers } from "@/lib/organic/workspace";
 import { phaseMeta } from "@/lib/organic/phase-meta";
 import { PhaseBoard } from "./PhaseBoard";
 import { Phase4Cycles } from "../../Phase4Cycles";
@@ -52,13 +52,14 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
     );
   }
 
-  const [header, tasks, viability, p2, p3, assets] = await Promise.all([
+  const [header, tasks, viability, p2, p3, assets, answers] = await Promise.all([
     loadClientHeader(orgId),
     loadClientTasks(orgId),
     loadViability(orgId),
     loadPhase2Snapshot(orgId),
     loadPhase3Snapshot(orgId),
     loadAssets(orgId),
+    loadTaskAnswers(orgId),
   ]);
   if (!header) notFound();
 
@@ -68,6 +69,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
     <div className="space-y-5">
       <PhaseHeader meta={meta} />
       <PhaseBoard
+        answers={answers}
         orgId={orgId}
         phase={phase}
         tasks={phaseTasks}
@@ -91,9 +93,9 @@ function PhaseHeader({ meta }: { meta: NonNullable<ReturnType<typeof phaseMeta>>
           <div className="text-xs text-foreground">{meta.goal}</div>
         </div>
         {meta.gate && (
-          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-amber-800 font-semibold mb-0.5">Gate</div>
-            <div className="text-xs text-amber-900">{meta.gate}</div>
+          <div className="rounded-md bg-muted border border-border px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wide text-foreground font-semibold mb-0.5">Gate</div>
+            <div className="text-xs text-foreground">{meta.gate}</div>
           </div>
         )}
       </div>

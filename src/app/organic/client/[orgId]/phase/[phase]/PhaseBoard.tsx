@@ -4,6 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ExternalLink, ChevronDown, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { TaskWork } from "../../TaskWork";
+import { TaskChecklist } from "../../TaskChecklist";
+import { fieldsFor, hasBespokeFields } from "@/lib/organic/task-fields";
+import type { TaskAnswer } from "@/lib/organic/workspace";
 import type { SkipReason, TaskRow, TaskStatus, TaskType, ViabilityRow } from "@/lib/organic/types";
 import type { AssetRow } from "@/lib/organic/workspace";
 import { OWNER_LABEL, phaseMeta } from "@/lib/organic/phase-meta";
@@ -15,8 +18,16 @@ import { cn } from "@/lib/utils";
 
 const STATUS_CHOICES: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE", "SKIPPED"];
 
+// Tasks whose old bespoke form still does work the new question set does
+// not — running a crawl, writing a related table, importing a CSV.
+//
+// P1.0.1, P1.0.2 and P1.0.4 are deliberately absent: they were nothing but
+// tick grids, the question set replaces them outright, and leaving both on
+// screen meant the same six signals appeared twice with only one of them
+// recording why. Their answers are mirrored into client_viability by the
+// answers endpoint so the phase gate still opens.
 const CUSTOM_FORM_TASKS = new Set([
-  "P1.0.1","P1.0.2","P1.0.3","P1.0.4","P1.2.13",
+  "P1.0.3","P1.2.13",
   "P2.1.1","P2.1.3","P2.1.4","P2.1.5","P2.1.6","P2.2.1","P2.2.2","P2.3.1","P2.3.3","P2.4.1","P2.4.2",
   "P3.1.1","P3.1.2","P3.1.3","P3.1.4","P3.1.5","P3.1.6","P3.1.7","P3.1.8",
   "P3.1.9","P3.1.10","P3.1.11","P3.1.12","P3.1.13","P3.1.14","P3.2.1","P3.2.2",
@@ -24,7 +35,7 @@ const CUSTOM_FORM_TASKS = new Set([
 ]);
 
 export function PhaseBoard({
-  orgId, phase, tasks, viability, phase2, phase3, assets,
+  orgId, phase, tasks, viability, phase2, phase3, assets, answers,
 }: {
   orgId: string;
   phase: number;
@@ -33,6 +44,7 @@ export function PhaseBoard({
   phase2: Phase2Snapshot;
   phase3: Phase3Snapshot;
   assets: AssetRow[];
+  answers: TaskAnswer[];
 }) {
   const meta = phaseMeta(phase);
   const steps = useMemo(() => {
@@ -97,7 +109,7 @@ export function PhaseBoard({
 
             <div className="divide-y divide-border">
               {s.tasks.map((t) => (
-                <TaskCard key={t.client_task_id} task={t} orgId={orgId}
+                <TaskCard answers={answers} key={t.client_task_id} task={t} orgId={orgId}
                   viability={viability} phase2={phase2} phase3={phase3}
                   assets={assetsByTask.get(t.task_id) ?? []} />
               ))}
@@ -110,7 +122,7 @@ export function PhaseBoard({
 }
 
 function TaskCard({
-  task, orgId, viability, phase2, phase3, assets,
+  task, orgId, viability, phase2, phase3, assets, answers,
 }: {
   task: TaskRow;
   orgId: string;
@@ -118,6 +130,7 @@ function TaskCard({
   phase2: Phase2Snapshot;
   phase3: Phase3Snapshot;
   assets: AssetRow[];
+  answers: TaskAnswer[];
 }) {
   const hasCustomForm = CUSTOM_FORM_TASKS.has(task.task_id);
   const [expanded, setExpanded] = useState(hasCustomForm && (task.status === "TODO" || task.status === "IN_PROGRESS"));
@@ -157,19 +170,33 @@ function TaskCard({
   const disabled = submitting || task.status === "BLOCKED";
 
   return (
-    <div className="px-4 py-3">
-      <div className="flex items-start gap-3">
-        <TaskTypeBadge type={task.task_type} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-[11px] text-muted-foreground tabular-nums">{task.task_id}</span>
-            <span className="text-sm font-medium text-foreground">{task.name}</span>
-          </div>
+    <div className="px-5 py-5">
+      {/* The task heading runs the full width. It used to sit in a narrow
+          column beside the controls, which squeezed the one piece of text
+          that tells you what to do into two cramped lines. */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <TaskTypeBadge type={task.task_type} />
+          <span className="text-xs font-semibold text-muted-foreground tabular-nums">{task.task_id}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 order-3 sm:order-2 ml-auto">
+          <StatusSelect value={task.status} onChange={onStatusPick} disabled={disabled} submitting={submitting} />
+          {hasCustomForm && (
+            <button type="button" onClick={() => setExpanded((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors">
+              <SlidersHorizontal className="w-4 h-4" />
+              {expanded ? "Hide form" : "Open form"}
+              {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+          )}
+        </div>
+        <div className="w-full order-2 sm:order-3">
+          <h3 className="text-lg font-semibold text-foreground leading-snug">{task.name}</h3>
           {task.guidance && (
-            <div className="mt-1 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">{task.guidance}</div>
+            <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap max-w-4xl">{task.guidance}</p>
           )}
           {task.task_type === "EXTERNAL" && task.external_tool && (
-            <div className="mt-1.5 text-xs flex items-center gap-2">
+            <div className="mt-2.5 text-sm flex items-center gap-2">
               <span className="text-muted-foreground">Tool:</span>
               <span className="font-medium text-foreground">{task.external_tool}</span>
               {task.external_url && (
@@ -181,49 +208,39 @@ function TaskCard({
             </div>
           )}
           {task.status === "BLOCKED" && task.block_reasons.length > 0 && (
-            <div className="mt-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
-              <span className="font-medium">Blocked:</span> {task.block_reasons.join(" · ")}
+            <div className="mt-2.5 text-sm text-primary bg-primary/[0.06] border-l-2 border-primary rounded-r px-3 py-2">
+              <span className="font-semibold">Blocked:</span> {task.block_reasons.join(" · ")}
             </div>
           )}
-          {task.status === "DONE" && task.time_spent_min != null && (
-            <div className="mt-1 text-[11px] text-muted-foreground">
-              Logged {task.time_spent_min} min
-              {task.notes && <span className="ml-2">· {task.notes.slice(0, 90)}</span>}
-            </div>
-          )}
+
           {task.status === "SKIPPED" && task.skip_reason && (
-            <div className="mt-1 text-[11px] text-muted-foreground">
+            <div className="mt-2 text-sm text-muted-foreground">
               Skipped: {task.skip_reason}{task.skip_note ? ` — ${task.skip_note}` : ""}
             </div>
           )}
 
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          <StatusSelect value={task.status} onChange={onStatusPick} disabled={disabled} submitting={submitting} />
-          {/* Labelled, not a bare chevron. This button opens a structured
-              form that writes real records, which is a different promise
-              from "expand a row", and it should say so. */}
-          {hasCustomForm && (
-            <button type="button" onClick={() => setExpanded((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors">
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              {expanded ? "Hide form" : "Fill in details"}
-              {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-            </button>
-          )}
-        </div>
       </div>
 
       {error && (
-        <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 break-words" role="alert">
-          <span className="font-medium">Update failed:</span> {error}
+        <div className="mt-3 text-sm text-primary bg-primary/[0.06] border-l-2 border-primary rounded-r px-3 py-2 break-words" role="alert">
+          <span className="font-semibold">Update failed:</span> {error}
         </div>
       )}
 
-      {/* Always on screen. A note or a document is the point of most of
-          these steps, and hiding both behind an icon meant the work got
-          written down somewhere else. */}
+      {/* The questions. Bespoke where they have been written, a structured
+          what/found/decided fallback everywhere else — so every task takes
+          real data instead of a bare tick. */}
+      <TaskChecklist
+        orgId={orgId}
+        taskId={task.task_id}
+        set={fieldsFor(task.task_id)}
+        answers={answers}
+        readOnly={task.status === "BLOCKED"}
+      />
+
+      {/* Free-form note and documents, on top of the structured answers. */}
       <TaskWork
         orgId={orgId}
         clientTaskId={task.client_task_id}
@@ -259,9 +276,9 @@ function TaskCard({
 
       {showComplete && (
         <CompleteDialog taskName={task.name} onCancel={() => setShowComplete(false)}
-          onConfirm={async (minutes, link, notes) => {
+          onConfirm={async (link, notes) => {
             setShowComplete(false);
-            await patch({ status: "DONE", time_spent_min: minutes, ...(link ? { link } : {}), ...(notes ? { notes } : {}) });
+            await patch({ status: "DONE", ...(link ? { link } : {}), ...(notes ? { notes } : {}) });
           }} />
       )}
     </div>
@@ -269,15 +286,22 @@ function TaskCard({
 }
 
 function TaskTypeBadge({ type }: { type: TaskType }) {
-  const config: Record<TaskType, { label: string; cls: string }> = {
-    AUTO:         { label: "AUTO", cls: "bg-muted text-muted-foreground border-border" },
-    AI_DRAFT:     { label: "AI",   cls: "bg-purple-50 text-purple-700 border-purple-200" },
-    IN_DASHBOARD: { label: "DASH", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-    EXTERNAL:     { label: "EXT",  cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  // Red, white and black. The palette used to run purple / blue / amber
+  // per type, which is four brand colours the brand does not have —
+  // difference is carried by fill and weight instead.
+  const config: Record<TaskType, { label: string; cls: string; title: string }> = {
+    AUTO:         { label: "AUTO", cls: "bg-muted text-muted-foreground border-border",
+                    title: "Runs automatically" },
+    AI_DRAFT:     { label: "AI",   cls: "bg-foreground text-white border-foreground",
+                    title: "AI drafts it, you approve" },
+    IN_DASHBOARD: { label: "HERE", cls: "bg-primary text-primary-foreground border-primary",
+                    title: "Done in this dashboard" },
+    EXTERNAL:     { label: "EXT",  cls: "bg-card text-foreground border-foreground",
+                    title: "Done in an external tool" },
   };
   const c = config[type];
   return (
-    <span className={cn("shrink-0 mt-0.5 inline-flex items-center justify-center w-14 rounded border px-1 py-0.5 text-[9px] font-semibold tracking-wider", c.cls)} title={type}>
+    <span className={cn("shrink-0 inline-flex items-center justify-center w-14 rounded border px-1 py-1 text-[10px] font-bold tracking-wider", c.cls)} title={c.title}>
       {c.label}
     </span>
   );
@@ -288,16 +312,16 @@ function StatusSelect({ value, onChange, disabled, submitting }: {
 }) {
   if (value === "BLOCKED") {
     return (
-      <span className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+      <span className="inline-flex items-center rounded-md border border-primary bg-primary/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-primary">
         Blocked
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1.5">
-      {submitting && <span className="text-[10px] text-muted-foreground" aria-live="polite">saving…</span>}
+      {submitting && <span className="text-xs text-muted-foreground" aria-live="polite">saving…</span>}
       <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as TaskStatus)}
-        className={cn("text-xs rounded-md border px-2 py-1 font-medium disabled:opacity-50 disabled:cursor-wait", statusColor(value))}>
+        className={cn("text-sm rounded-md border px-3 py-2 font-medium disabled:opacity-50 disabled:cursor-wait", statusColor(value))}>
         {STATUS_CHOICES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
       </select>
     </span>
@@ -305,10 +329,13 @@ function StatusSelect({ value, onChange, disabled, submitting }: {
 }
 
 function statusColor(s: TaskStatus): string {
+  // Done is the settled state and reads black-on-white; anything the
+  // manager still owns carries the accent. Green and purple were doing a
+  // job the brand's own two colours can do.
   switch (s) {
-    case "DONE":        return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "IN_PROGRESS": return "border-blue-200 bg-blue-50 text-blue-700";
-    case "REVIEW":      return "border-purple-200 bg-purple-50 text-purple-700";
+    case "DONE":        return "border-foreground bg-foreground text-white";
+    case "IN_PROGRESS": return "border-primary bg-primary/10 text-primary font-semibold";
+    case "REVIEW":      return "border-primary bg-primary text-primary-foreground";
     case "SKIPPED":     return "border-border bg-muted text-muted-foreground";
     default:            return "border-border bg-card text-foreground";
   }
@@ -317,47 +344,44 @@ function statusColor(s: TaskStatus): string {
 function CompleteDialog({ taskName, onCancel, onConfirm }: {
   taskName: string;
   onCancel: () => void;
-  onConfirm: (minutes: number, link?: string, notes?: string) => void | Promise<void>;
+  onConfirm: (link?: string, notes?: string) => void | Promise<void>;
 }) {
-  const [minutes, setMinutes] = useState("");
   const [link, setLink] = useState("");
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState<string | null>(null);
   async function confirm() {
-    const n = Number(minutes);
-    if (!isFinite(n) || n <= 0) { setErr("Enter a positive number of minutes."); return; }
     const l = link.trim();
     if (l && !/^https?:\/\//i.test(l)) { setErr("Link must start with http(s)://"); return; }
-    await onConfirm(Math.round(n), l || undefined, notes.trim() || undefined);
+    await onConfirm(l || undefined, notes.trim() || undefined);
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
-      <div className="w-full max-w-md rounded-lg bg-card shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-sm font-semibold text-foreground">Complete &ldquo;{taskName}&rdquo;</h3>
-        <label className="mt-3 block">
-          <span className="text-xs text-muted-foreground">Time spent (minutes, required)</span>
-          <input type="number" min={1} autoFocus value={minutes}
-            onChange={(e) => { setMinutes(e.target.value); if (err) setErr(null); }}
-            placeholder="15"
-            className="mt-1 w-full rounded-md border border-border px-2.5 py-1.5 text-sm bg-card" />
-        </label>
-        <label className="mt-3 block">
-          <span className="text-xs text-muted-foreground">Document / URL (optional — saved to Assets)</span>
-          <input type="url" value={link}
-            onChange={(e) => { setLink(e.target.value); if (err) setErr(null); }}
-            placeholder="https://drive.google.com/…"
-            className="mt-1 w-full rounded-md border border-border px-2.5 py-1.5 text-xs bg-card" />
-        </label>
-        <label className="mt-3 block">
-          <span className="text-xs text-muted-foreground">Result / notes (optional)</span>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
-            placeholder="What did you find? Any URLs pasted here are also saved to Assets."
-            className="mt-1 w-full rounded-md border border-border px-2.5 py-1.5 text-xs bg-card" />
-        </label>
-        {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
-        <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onCancel} className="px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted">Cancel</button>
-          <button onClick={confirm} className="px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:opacity-90">Mark done</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onCancel}>
+      <div className="w-full max-w-lg rounded-lg bg-card shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b-2 border-primary">
+          <h3 className="text-base font-semibold text-foreground">Finish &ldquo;{taskName}&rdquo;</h3>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Everything below is optional — the task closes either way.
+          </p>
+        </div>
+        <div className="p-5 space-y-4">
+          <label className="block">
+            <span className="text-sm font-medium text-foreground">What was the result?</span>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} autoFocus
+              placeholder="What you found or decided. Any link pasted here is saved to the Assets library."
+              className="mt-1.5 w-full rounded-md border border-border px-3 py-2 text-sm bg-card focus:outline-none focus:border-primary" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-foreground">Attach a document</span>
+            <input type="url" value={link}
+              onChange={(e) => { setLink(e.target.value); if (err) setErr(null); }}
+              placeholder="https://drive.google.com/…"
+              className="mt-1.5 w-full rounded-md border border-border px-3 py-2 text-sm bg-card focus:outline-none focus:border-primary" />
+          </label>
+          {err && <div className="text-sm text-red-600">{err}</div>}
+        </div>
+        <div className="px-5 py-4 bg-muted/40 border-t border-border flex justify-end gap-2">
+          <button onClick={onCancel} className="px-3.5 py-2 text-sm font-medium rounded-md border border-border bg-card hover:bg-muted">Cancel</button>
+          <button onClick={confirm} className="px-3.5 py-2 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:opacity-90">Mark done</button>
         </div>
       </div>
     </div>

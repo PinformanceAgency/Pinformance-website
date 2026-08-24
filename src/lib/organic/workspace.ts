@@ -784,3 +784,78 @@ export async function updateStoreSettings(
   );
   return loadStoreSettings(orgId);
 }
+
+// ---------- TASK ANSWERS (per checklist item) -------------------------------
+
+export interface TaskAnswer {
+  task_id: string;
+  field_key: string;
+  answer_bool: boolean | null;
+  answer_text: string | null;
+  answer_number: number | null;
+  evidence: string | null;
+  answered_at: string;
+}
+
+export async function loadTaskAnswers(orgId: string): Promise<TaskAnswer[]> {
+  const pool = organicPool();
+  const r = await pool.query<TaskAnswer>(
+    `SELECT task_id, field_key, answer_bool, answer_text,
+            answer_number, evidence, answered_at::text
+       FROM organic.task_answers
+      WHERE org_id = $1`,
+    [orgId]
+  );
+  return r.rows.map((a) => ({
+    ...a,
+    // pg hands numeric back as a string; the form needs a number.
+    answer_number: a.answer_number == null ? null : Number(a.answer_number),
+  }));
+}
+
+export interface AnswerInput {
+  task_id: string;
+  field_key: string;
+  answer_bool?: boolean | null;
+  answer_text?: string | null;
+  answer_number?: number | null;
+  evidence?: string | null;
+}
+
+export async function saveTaskAnswer(orgId: string, a: AnswerInput): Promise<void> {
+  const pool = organicPool();
+  // Upsert on the natural key. COALESCE on update so a form that only
+  // sends the evidence does not blank the answer it belongs to, and vice
+  // versa — the two halves are edited independently in the UI.
+  await pool.query(
+    `INSERT INTO organic.task_answers
+       (org_id, task_id, field_key, answer_bool, answer_text, answer_number, evidence, answered_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+     ON CONFLICT (org_id, task_id, field_key) DO UPDATE SET
+       answer_bool   = COALESCE(EXCLUDED.answer_bool,   organic.task_answers.answer_bool),
+       answer_text   = COALESCE(EXCLUDED.answer_text,   organic.task_answers.answer_text),
+       answer_number = COALESCE(EXCLUDED.answer_number, organic.task_answers.answer_number),
+       evidence      = COALESCE(EXCLUDED.evidence,      organic.task_answers.evidence),
+       answered_at   = now()`,
+    [orgId, a.task_id, a.field_key,
+     a.answer_bool ?? null, a.answer_text ?? null,
+     a.answer_number ?? null, a.evidence ?? null]
+  );
+}
+
+/** Clearing a field has to be explicit, because COALESCE on save means an
+ *  omitted value keeps the old one. */
+export async function clearTaskAnswerField(
+  orgId: string, taskId: string, fieldKey: string, part: "answer" | "evidence" | "all"
+): Promise<void> {
+  const pool = organicPool();
+  const sets =
+    part === "evidence" ? "evidence = NULL"
+    : part === "answer" ? "answer_bool = NULL, answer_text = NULL, answer_number = NULL"
+    : "answer_bool = NULL, answer_text = NULL, answer_number = NULL, evidence = NULL";
+  await pool.query(
+    `UPDATE organic.task_answers SET ${sets}, answered_at = now()
+      WHERE org_id = $1 AND task_id = $2 AND field_key = $3`,
+    [orgId, taskId, fieldKey]
+  );
+}

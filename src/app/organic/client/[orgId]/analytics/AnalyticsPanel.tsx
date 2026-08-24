@@ -43,7 +43,7 @@ export function AnalyticsPanel({
 
       {/* Pinterest fetch status */}
       {!pinterest.ok && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground">
           Pinterest fetch failed: <span className="font-mono">{pinterest.reason}</span>. Feedback loop below still runs on stored pin_performance rows.
         </div>
       )}
@@ -54,7 +54,7 @@ export function AnalyticsPanel({
           share this table. */}
       <Section title="Results vs P1.2.13 baseline">
         {baseline == null && (
-          <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          <div className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-[11px] text-foreground">
             No phase-1 baseline captured, so nothing here can be compared against a starting point. Comparisons are suppressed rather than invented — complete P1.2.13 to enable them.
           </div>
         )}
@@ -86,13 +86,13 @@ export function AnalyticsPanel({
 
       {/* Ads candidates */}
       <Section title="Organic winners eligible for ads">
-        <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+        <div className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-[11px] text-foreground">
           <strong>Never boost an organic pin.</strong> Recreate the winner as a NEW asset inside Ads Manager. Boosting blends organic and paid data on the same pin, which then corrupts every downstream feedback loop and the ads-candidates report itself.
         </div>
         {adsCandidates.length === 0 ? (
           <div className="text-xs text-neutral-500">No pins yet cross the (saves + outbound_clicks) ≥ 5 threshold.</div>
         ) : (
-          <div className="rounded-md border border-neutral-200 bg-white overflow-hidden">
+          <div className="rounded-md border border-border bg-card overflow-hidden">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-500">
@@ -136,7 +136,7 @@ export function AnalyticsPanel({
 function DeltaTable({ rows }: { rows: DeltaRow[] }) {
   if (rows.length === 0) return <div className="text-xs text-neutral-500">Nothing to show.</div>;
   return (
-    <div className="rounded-md border border-neutral-200 bg-white overflow-hidden">
+    <div className="rounded-md border border-border bg-card overflow-hidden">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-500">
@@ -190,7 +190,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function AggregateCard({ title, rows }: { title: string; rows: FeedbackAggregate[] }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white overflow-hidden">
+    <div className="rounded-md border border-border bg-card overflow-hidden">
       <div className="px-3 py-2 border-b border-neutral-100 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{title}</div>
       {rows.length === 0 ? (
         <div className="p-3 text-xs text-neutral-500">No pin_performance rows yet.</div>
@@ -250,7 +250,7 @@ function PromoteRow({ orgId, c, onDone }: { orgId: string; c: AdsCandidate; onDo
       <td className="py-1 px-3 text-right tabular-nums text-neutral-500">{c.impressions}</td>
       <td className="py-1 px-3 text-right tabular-nums">{c.saves}</td>
       <td className="py-1 px-3 text-right tabular-nums font-medium">{c.outbound_clicks}</td>
-      <td className="py-1 px-3 text-right tabular-nums font-semibold text-emerald-700">{c.score}</td>
+      <td className="py-1 px-3 text-right tabular-nums font-semibold text-foreground">{c.score}</td>
       <td className="py-1 px-3 text-right text-neutral-500">{c.in_ads_candidates ? "✓ yes" : "—"}</td>
       <td className="py-1 px-3 text-right">
         {c.in_ads_candidates ? (
@@ -259,7 +259,7 @@ function PromoteRow({ orgId, c, onDone }: { orgId: string; c: AdsCandidate; onDo
           <>
             <button type="button" onClick={promote} disabled={busy}
               title="Marks this pin for the paid team — they will recreate it as a NEW asset in Ads Manager. Never boost."
-              className="text-[11px] px-2 py-0.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
+              className="text-[11px] px-2 py-0.5 rounded border border-foreground/30 text-foreground hover:bg-muted disabled:opacity-50">
               {busy ? "…" : "Send to Ads Manager"}
             </button>
             {err && <div className="text-[10px] text-red-600 mt-0.5">{err}</div>}
@@ -285,7 +285,7 @@ function fmtSigned(v: number | null): string {
 }
 function deltaColor(v: number | null): string {
   if (v == null) return "text-neutral-400";
-  if (v > 0) return "text-emerald-700";
+  if (v > 0) return "text-foreground";
   if (v < 0) return "text-red-600";
   return "text-neutral-500";
 }

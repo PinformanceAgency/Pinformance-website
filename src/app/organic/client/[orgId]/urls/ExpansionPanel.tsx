@@ -72,8 +72,8 @@ export function ExpansionPanel({
   }
 
   const verdictClass =
-    assessment.verdict_suggested === "STRONG_FIT"    ? "border-emerald-200 bg-emerald-50 text-emerald-900" :
-    assessment.verdict_suggested === "MODERATE_FIT"  ? "border-amber-200 bg-amber-50 text-amber-900" :
+    assessment.verdict_suggested === "STRONG_FIT"    ? "border-foreground/20 bg-muted text-foreground" :
+    assessment.verdict_suggested === "MODERATE_FIT"  ? "border-border bg-muted text-foreground" :
                                                        "border-red-200 bg-red-50 text-red-900";
 
   return (
@@ -185,9 +185,9 @@ function ProposalCard({ orgId, p, onRefresh }: { orgId: string; p: Proposal; onR
   }
 
   const statusCls =
-    p.status === "BUILT"          ? "border-emerald-300 bg-emerald-50 text-emerald-800" :
-    p.status === "BUILDING"       ? "border-blue-300 bg-blue-50 text-blue-800" :
-    p.status === "SENT_TO_CLIENT" ? "border-amber-300 bg-amber-50 text-amber-800" :
+    p.status === "BUILT"          ? "border-foreground/30 bg-muted text-foreground" :
+    p.status === "BUILDING"       ? "border-primary/30 bg-primary/10 text-primary" :
+    p.status === "SENT_TO_CLIENT" ? "border-border bg-muted text-foreground" :
     p.status === "REJECTED"       ? "border-neutral-200 bg-muted text-neutral-500" :
                                     "border-border bg-card text-foreground";
 
@@ -219,14 +219,14 @@ function ProposalCard({ orgId, p, onRefresh }: { orgId: string; p: Proposal; onR
           {p.status === "PROPOSED" && (
             <>
               <button type="button" onClick={() => setStatus("SENT_TO_CLIENT")} disabled={busy}
-                className="text-[10px] px-2 py-0.5 rounded border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-50">Sent to client</button>
+                className="text-[10px] px-2 py-0.5 rounded border border-border text-foreground hover:bg-muted disabled:opacity-50">Sent to client</button>
               <button type="button" onClick={() => setStatus("REJECTED")} disabled={busy}
                 className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50">Reject</button>
             </>
           )}
           {p.status === "SENT_TO_CLIENT" && (
             <button type="button" onClick={() => setStatus("BUILDING")} disabled={busy}
-              className="text-[10px] px-2 py-0.5 rounded border border-blue-300 text-blue-800 hover:bg-blue-50 disabled:opacity-50">Building</button>
+              className="text-[10px] px-2 py-0.5 rounded border border-primary/30 text-primary hover:bg-primary/10 disabled:opacity-50">Building</button>
           )}
           {(p.status === "BUILDING" || p.status === "SENT_TO_CLIENT") && (
             <button type="button" onClick={() => setShowBuildInput((v) => !v)}

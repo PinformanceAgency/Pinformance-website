@@ -61,15 +61,18 @@ function NavLink({ item, active }: { item: Item; active: boolean }) {
   );
 }
 
+// Same three-colour logic as the light surfaces, inverted for the dark
+// sidebar: red still means "yours to act on", but "settled" has to be
+// white here — near-black on a #0f1117 ground is an invisible dot.
 const STATUS_DOT: Record<string, string> = {
-  DONE: "bg-emerald-500/70",
-  BLOCKED: "bg-red-500/70",
-  IN_PROGRESS: "bg-amber-400/70",
-  REVIEW: "bg-amber-400/70",
-  SKIPPED: "bg-white/15",
-  TODO: "bg-white/25",
+  DONE:        "bg-white/80",
+  BLOCKED:     "bg-primary",
+  IN_PROGRESS: "bg-primary/70",
+  REVIEW:      "bg-primary/70",
+  SKIPPED:     "bg-white/15",
+  TODO:        "bg-white/30",
   // Defined in the SOP but not instantiated for this store yet.
-  PENDING: "bg-white/10",
+  PENDING:     "bg-white/10",
 };
 
 /** One phase, expandable to steps, each step expandable to its tasks. */
@@ -172,14 +175,14 @@ function StepTree({
           </span>
           <span className="flex-1 truncate">{short}</span>
           {step.blocked > 0 && (
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500/70 flex-shrink-0"
+            <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0"
                   title={`${step.blocked} blocked`} />
           )}
           {/* Complete only if the step actually ran. A phase-4 step whose
               tasks are not instantiated yet has nothing outstanding either,
               and marking that green would report unstarted work as done. */}
           {step.blocked === 0 && step.outstanding === 0 && step.instantiated > 0 && (
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60 flex-shrink-0" title="Complete" />
+            <span className="w-1.5 h-1.5 rounded-full bg-white/70 flex-shrink-0" title="Complete" />
           )}
           {step.instantiated === 0 && (
             <span className="text-[9px] uppercase tracking-wider text-white/20 flex-shrink-0">soon</span>
