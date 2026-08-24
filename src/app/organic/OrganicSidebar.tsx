@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, LayoutDashboard } from "lucide-react";
+import { Users, LayoutDashboard, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function OrganicSidebar() {
   const pathname = usePathname();
-  const isClients = pathname === "/" || pathname.startsWith("/client");
+  const isClients = pathname === "/" || pathname.startsWith("/client") || pathname.startsWith("/report");
+  const isAgency = pathname.startsWith("/agency");
 
   return (
     <aside className="w-64 sidebar-gradient h-screen flex flex-col relative overflow-hidden shrink-0">
@@ -43,6 +44,18 @@ export function OrganicSidebar() {
         >
           <Users className="w-4 h-4" />
           Clients
+        </Link>
+        <Link
+          href="/agency/portfolio"
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+            isAgency
+              ? "bg-sidebar-muted text-sidebar-foreground font-medium"
+              : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-muted/60"
+          )}
+        >
+          <Building2 className="w-4 h-4" />
+          Agency
         </Link>
       </nav>
 

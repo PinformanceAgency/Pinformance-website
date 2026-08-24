@@ -344,3 +344,150 @@ export function CooldownTimeline({
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * Cohort scatter — tenure against performance
+ * ------------------------------------------------------------------ */
+
+export interface CohortPoint {
+  label: string;
+  /** Months since onboarding. */
+  x: number;
+  /** Performance against baseline, as a percentage. May be negative. */
+  y: number | null;
+  href?: string;
+}
+
+/**
+ * Tenure on the x-axis, performance against baseline on the y-axis.
+ *
+ * The zero line is drawn because it is the only reference that matters
+ * here: everything below it is a store performing worse than before we
+ * started. Outliers below the cohort trend are the accounts that need
+ * intervention, which is the entire reason this chart exists rather than
+ * a ranked list.
+ */
+export function CohortScatter({
+  points, height = 240,
+}: {
+  points: CohortPoint[];
+  height?: number;
+}) {
+  const real = points.filter((p) => p.y !== null) as Array<CohortPoint & { y: number }>;
+  if (real.length < 2) {
+    return (
+      <p className="text-[length:var(--text-o-body)] text-o-ink-3">
+        Not enough stores with both a tenure and a captured baseline to plot.
+        A store appears here once its phase-1 baseline exists and a month of
+        performance has been measured against it.
+      </p>
+    );
+  }
+
+  const W = 660, PAD_L = 46, PAD_R = 16, PAD_T = 16, PAD_B = 30;
+  const maxX = Math.max(...real.map((p) => p.x), 6);
+  const ys = real.map((p) => p.y);
+  const maxY = Math.max(...ys, 10);
+  const minY = Math.min(...ys, -10);
+
+  const px = (v: number) => PAD_L + (v / maxX) * (W - PAD_L - PAD_R);
+  const py = (v: number) => PAD_T + (1 - (v - minY) / (maxY - minY)) * (height - PAD_T - PAD_B);
+
+  // Least-squares fit. With two points it is the line through them, which
+  // is honest — the caption says how many stores it is drawn from so
+  // nobody reads a trend into a handful of accounts.
+  const n = real.length;
+  const sx = real.reduce((a, p) => a + p.x, 0);
+  const sy = real.reduce((a, p) => a + p.y, 0);
+  const sxy = real.reduce((a, p) => a + p.x * p.y, 0);
+  const sxx = real.reduce((a, p) => a + p.x * p.x, 0);
+  const denom = n * sxx - sx * sx;
+  const slope = denom === 0 ? 0 : (n * sxy - sx * sy) / denom;
+  const intercept = (sy - slope * sx) / n;
+  const fit = (x: number) => intercept + slope * x;
+
+  return (
+    <figure>
+      <svg viewBox={`0 0 ${W} ${height}`} width="100%" height={height} role="img"
+           aria-label="Store tenure against performance versus baseline">
+        {/* Zero line — worse than before we started begins here. */}
+        {minY < 0 && maxY > 0 && (
+          <>
+            <line x1={PAD_L} x2={W - PAD_R} y1={py(0)} y2={py(0)}
+                  stroke="var(--color-o-hairline-firm)" strokeWidth={1} />
+            <text x={W - PAD_R} y={py(0) - 4} textAnchor="end" fontSize={9.5}
+                  fill="var(--color-o-ink-3)">baseline</text>
+          </>
+        )}
+
+        <line x1={PAD_L} x2={PAD_L} y1={PAD_T} y2={height - PAD_B}
+              stroke="var(--color-o-hairline-firm)" />
+
+        {/* Cohort trend. Dashed, because it is a reference, not a series. */}
+        <line x1={px(0)} x2={px(maxX)} y1={py(fit(0))} y2={py(fit(maxX))}
+              stroke={DATA_COLORS.slate} strokeWidth={1} strokeDasharray="4 3" opacity={0.6} />
+
+        {real.map((p, i) => {
+          const below = p.y < fit(p.x);
+          return (
+            <g key={`${p.label}-${i}`}>
+              <circle cx={px(p.x)} cy={py(p.y)} r={below ? 4 : 3.2}
+                      fill={below ? "var(--color-o-neg)" : DATA_COLORS.teal}
+                      opacity={below ? 0.9 : 0.65}>
+                <title>{`${p.label} — month ${p.x}, ${p.y > 0 ? "+" : ""}${p.y}% vs baseline${below ? " (below cohort trend)" : ""}`}</title>
+              </circle>
+            </g>
+          );
+        })}
+
+        <text x={PAD_L - 6} y={PAD_T + 8} textAnchor="end" fontSize={9.5}
+              fill="var(--color-o-ink-3)">{maxY > 0 ? `+${Math.round(maxY)}%` : `${Math.round(maxY)}%`}</text>
+        <text x={PAD_L - 6} y={height - PAD_B} textAnchor="end" fontSize={9.5}
+              fill="var(--color-o-ink-3)">{Math.round(minY)}%</text>
+        <text x={PAD_L} y={height - 9} fontSize={9.5} fill="var(--color-o-ink-3)">month 0</text>
+        <text x={W - PAD_R} y={height - 9} textAnchor="end" fontSize={9.5}
+              fill="var(--color-o-ink-3)">month {maxX}</text>
+      </svg>
+      <figcaption className="mt-2 text-[length:var(--text-o-label)] text-o-ink-3">
+        {real.length} store{real.length === 1 ? "" : "s"} plotted.
+        Points below the dashed cohort trend are the accounts to look at first.
+      </figcaption>
+    </figure>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Distribution
+ * ------------------------------------------------------------------ */
+
+/** Is the book healthy, or carried by three accounts? A histogram answers
+ *  that; an average actively hides it. */
+export function Histogram({
+  buckets, height = 90,
+}: {
+  buckets: Array<{ label: string; count: number; tone?: "good" | "bad" | "neutral" }>;
+  height?: number;
+}) {
+  const max = Math.max(1, ...buckets.map((b) => b.count));
+  return (
+    <div className="flex items-end gap-2">
+      {buckets.map((b) => (
+        <div key={b.label} className="flex-1 flex flex-col items-center gap-1.5">
+          <span className="o-num text-[length:var(--text-o-label)] tabular-nums text-o-ink-2">
+            {b.count || ""}
+          </span>
+          <div className="w-full rounded-t-[2px]"
+               style={{
+                 height: Math.max(2, (b.count / max) * height),
+                 background: b.tone === "bad" ? "var(--color-o-neg)"
+                   : b.tone === "good" ? DATA_COLORS.teal
+                   : "var(--color-o-hairline-firm)",
+               }} />
+          <span className="text-[length:var(--text-o-label)] text-o-ink-3 text-center leading-tight">
+            {b.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
