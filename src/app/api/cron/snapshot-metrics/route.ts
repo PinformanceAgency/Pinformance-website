@@ -137,6 +137,23 @@ async function run(request: NextRequest) {
     0,
     Math.min(30, Number(url.searchParams.get("heal_days") ?? 7))
   );
+  // Account-level refresh window.
+  //
+  // Healing only ever filled *holes*: a date that already had a row was
+  // never fetched again. With a 30-day click window a day's revenue keeps
+  // maturing for a month, so writing it once — the day after — froze it at
+  // a near-empty value and left it there. Measured against Pinterest, that
+  // put revenue anywhere from -34% to +100% out, in both directions,
+  // because every day was frozen at a different point in its maturation.
+  //
+  // The account-level call costs one request regardless of how many days
+  // it spans, so re-reading the whole attribution window every run is
+  // nearly free. Entity-level pulls keep the narrow window — those are per
+  // campaign/ad-group/ad and widening them would multiply the run.
+  const refreshDays = Math.max(
+    1,
+    Math.min(90, Number(url.searchParams.get("refresh_days") ?? 30))
+  );
   // Pinterest DAY granularity is inclusive on both ends; we always end at
   // "yesterday" so we don't capture a partial-day today.
   const endDate = new Date();
@@ -150,6 +167,9 @@ async function run(request: NextRequest) {
   const healStart = new Date(endDate);
   healStart.setUTCDate(healStart.getUTCDate() - (healDays - 1));
   const healStartISO = healStart.toISOString().slice(0, 10);
+  const refreshStart = new Date(endDate);
+  refreshStart.setUTCDate(refreshStart.getUTCDate() - (refreshDays - 1));
+  const refreshStartISO = refreshStart.toISOString().slice(0, 10);
 
   const admin = createAdminClient();
   const { data: orgs } = await admin
@@ -175,6 +195,10 @@ async function run(request: NextRequest) {
     row_count?: number;
     error?: string;
     healed_from?: string;
+    /** How far back the account-level refresh actually read. Worth having
+     *  in the response: if this ever silently narrows, revenue starts
+     *  freezing again and nothing else would show it. */
+    account_refreshed_from?: string;
   };
 
   // Per-org processing extracted so we can run several orgs concurrently.
@@ -225,6 +249,12 @@ async function run(request: NextRequest) {
         clickWindowDays: attr.click,
         viewWindowDays: attr.view,
         columns: ANALYTICS_COLUMNS,
+        // Credit a conversion to the day of the click that drove it, which
+        // is how Ads Manager reports by default. The client falls back to
+        // TIME_OF_CONVERSION when this is omitted, which books revenue on
+        // the purchase date instead — a different metric that measured
+        // 17-27% away from the platform on live accounts.
+        conversionReportTime: "TIME_OF_AD_ACTION" as const,
       };
 
       // Self-heal: if any dates in [healStartISO, endISO] have no account
@@ -262,9 +292,15 @@ async function run(request: NextRequest) {
       }
 
       // ── 1. Account-level daily ──────────────────────────────────────────
+      // Always the full refresh window, never just the holes — see
+      // refreshDays above. One request whatever the span, and the upsert
+      // overwrites on (org, type, entity, date), so maturing days correct
+      // themselves on every run instead of staying frozen.
+      const accountStartISO =
+        refreshStartISO < fetchStartISO ? refreshStartISO : fetchStartISO;
       const accountResp = (await client.getAdAccountAnalytics(
         adAccount.id,
-        fetchStartISO,
+        accountStartISO,
         fetchEndISO,
         analyticsOpts
       )) as unknown;
@@ -422,6 +458,7 @@ async function run(request: NextRequest) {
         // Was the range widened beyond the requested `days` because holes
         // were detected? Surfaces silent self-heal activity in logs.
         healed_from: fetchStartISO !== startISO ? fetchStartISO : undefined,
+        account_refreshed_from: accountStartISO,
       };
     } catch (e) {
       results[orgIndex] = {
