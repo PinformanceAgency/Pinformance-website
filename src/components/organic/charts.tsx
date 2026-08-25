@@ -42,7 +42,17 @@ export interface Segment {
  * average. Unmeasurable components are drawn as hatched voids — present,
  * clearly not counted.
  */
-export function SegmentedScore({ segments, height = 10 }: { segments: Segment[]; height?: number }) {
+export function SegmentedScore({
+  segments, height = 10, dark = false,
+}: {
+  segments: Segment[];
+  height?: number;
+  /** On the near-black focus panel. The ink levels and the empty-track
+   *  colour both have to invert — near-black labels on a dark ground are
+   *  simply invisible, which is what happened when this was first put
+   *  there. */
+  dark?: boolean;
+}) {
   const totalWeight = segments.reduce((s, x) => s + x.weight, 0) || 1;
   return (
     <div>
@@ -54,7 +64,8 @@ export function SegmentedScore({ segments, height = 10 }: { segments: Segment[];
             <div
               key={s.label}
               style={{ width: `${widthPct}%` }}
-              className="relative rounded-[2px] overflow-hidden bg-o-sunk"
+              className={cn("relative rounded-[2px] overflow-hidden",
+                dark ? "bg-white/[0.09]" : "bg-o-sunk")}
               title={measurable
                 ? `${s.label}: ${Math.round(s.score!)} / 100 · ${Math.round(s.weight * 100)}% of the score`
                 : `${s.label}: not yet measurable · ${Math.round(s.weight * 100)}% of the score`}
@@ -68,8 +79,9 @@ export function SegmentedScore({ segments, height = 10 }: { segments: Segment[];
                 <div
                   className="absolute inset-0"
                   style={{
-                    backgroundImage:
-                      "repeating-linear-gradient(45deg, var(--color-o-hairline-firm) 0 2px, transparent 2px 5px)",
+                    backgroundImage: dark
+                      ? "repeating-linear-gradient(45deg, rgba(255,255,255,.20) 0 2px, transparent 2px 5px)"
+                      : "repeating-linear-gradient(45deg, var(--color-o-hairline-firm) 0 2px, transparent 2px 5px)",
                   }}
                 />
               )}
@@ -81,12 +93,15 @@ export function SegmentedScore({ segments, height = 10 }: { segments: Segment[];
       <div className="flex gap-[3px] w-full mt-1.5">
         {segments.map((s) => (
           <div key={s.label} style={{ width: `${(s.weight / totalWeight) * 100}%` }} className="min-w-0">
-            <div className="text-[length:var(--text-o-label)] text-o-ink-2 truncate">{s.label}</div>
-            <div className="o-num text-[length:var(--text-o-body)] font-medium text-o-ink">
+            <div className={cn("text-[length:var(--text-o-label)] truncate",
+              dark ? "text-white/45" : "text-o-ink-2")}>{s.label}</div>
+            <div className={cn("o-figure text-[length:var(--text-o-body)]",
+              dark ? "text-white" : "text-o-ink")}>
               {s.score === null
-                ? <span className="text-o-ink-3 font-normal">—</span>
+                ? <span className={cn("font-normal", dark ? "text-white/25" : "text-o-ink-3")}>—</span>
                 : Math.round(s.score)}
-              <span className="text-o-ink-3 font-normal ml-1">
+              <span className={cn("font-normal ml-1",
+                dark ? "text-white/30" : "text-o-ink-3")}>
                 ·{Math.round(s.weight * 100)}%
               </span>
             </div>

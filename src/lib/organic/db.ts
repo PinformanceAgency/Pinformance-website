@@ -42,17 +42,32 @@ export function organicPool(): Pool {
   const cs = process.env.DATABASE_URL;
   if (!cs) throw new Error("DATABASE_URL not set");
 
+  // Supabase's session-mode pooler caps the whole project at 15 clients,
+  // and that budget is shared with the media-buying dashboard, the crons
+  // and every other dev machine. Holding four per process is fine for one
+  // process and ruinous across several: a dev server killed mid-request
+  // leaves its sockets on the pooler until they are reaped, so a few
+  // restarts in a row exhaust the cap and every page 500s at once.
+  //
+  // Two per process in development keeps a restart cheap; production
+  // keeps four because a serverless instance handles real concurrency.
+  const isDev = process.env.NODE_ENV !== "production";
+
   const created = new Pool({
     connectionString: cs,
     ssl: { rejectUnauthorized: false },
-    max: 4,
+    max: isDev ? 2 : 4,
     // Hand a connection back promptly. Screens that fan out across five
     // aggregates queue on the pool rather than opening five sockets, and
-    // an idle one should not sit against the pooler's cap.
-    idleTimeoutMillis: 10_000,
+    // an idle one should not sit against the pooler's cap. Short in dev so
+    // an abandoned server releases its share quickly.
+    idleTimeoutMillis: isDev ? 4_000 : 10_000,
     connectionTimeoutMillis: 10_000,
     statement_timeout: 30_000,
     query_timeout: 30_000,
+    // Bound how long a socket lives at all, so a connection the pooler has
+    // quietly dropped is replaced rather than sat on.
+    maxLifetimeSeconds: isDev ? 60 : 600,
   });
   // A pool-level error must never take the process down: the pooler drops
   // idle connections routinely, and pg surfaces that as an 'error' event.

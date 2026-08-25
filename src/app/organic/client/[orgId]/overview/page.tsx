@@ -89,7 +89,8 @@ function HealthBand({ health, cohort, orgId }: { health: HealthScore; cohort: Co
             <span className="o-eyebrow">Composite health</span>
             <div className="mt-3 flex items-baseline gap-2">
               {health.composite === null ? (
-                <span className="o-hero-sm text-white/35" title={health.withheld_reason ?? undefined}>—</span>
+                <span className="o-hero text-white/22 leading-none"
+                      title={health.withheld_reason ?? undefined}>—</span>
               ) : (
                 <>
                   <span className="o-hero text-white">{health.composite}</span>
@@ -109,7 +110,7 @@ function HealthBand({ health, cohort, orgId }: { health: HealthScore; cohort: Co
 
           {/* Components, never a black box. */}
           <div>
-            <SegmentedScore segments={segments} />
+            <SegmentedScore segments={segments} dark />
             <dl className="mt-7 divide-y divide-white/[0.07]">
               {health.components.map((c) => (
                 <div key={c.key} className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] gap-4 items-baseline py-3 first:pt-0">
