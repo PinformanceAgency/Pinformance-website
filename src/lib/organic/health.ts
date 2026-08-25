@@ -45,7 +45,11 @@ export interface CohortContext {
   note: string;
 }
 
-const CLAMP = (n: number) => Math.max(0, Math.min(100, n));
+// Rounds as well as clamps. These are 0-100 scores read off a screen, not
+// intermediate values — letting 19/3 through renders as
+// "6.333333333333336" next to a bar drawn at 6, which is both ugly and
+// two different numbers for one thing.
+const CLAMP = (n: number) => Math.round(Math.max(0, Math.min(100, n)));
 
 /* ------------------------------------------------------------------ */
 
@@ -256,9 +260,13 @@ export async function loadCohortContext(orgId: string, own: HealthScore): Promis
   }
 
   const peers = await pool.query<{ org_id: string }>(
+    // date - date already yields an integer number of days in Postgres,
+    // so there is no interval for EXTRACT(EPOCH …) to read. This threw
+    // for every store that had an onboarding date — which, until the demo
+    // store existed, was none of them, so it never ran.
     `SELECT org_id::text FROM organic.client_settings
       WHERE org_id <> $1 AND onboarded_date IS NOT NULL
-        AND ABS(EXTRACT(EPOCH FROM (current_date - onboarded_date)) / 2592000 - $2) <= 1`,
+        AND ABS((current_date - onboarded_date) / 30.0 - $2) <= 1`,
     [orgId, tenure]);
 
   // Fewer than three peers has no median worth quoting. Saying so is

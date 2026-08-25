@@ -286,7 +286,7 @@ export async function loadCacheHealth(): Promise<CacheHealth> {
       stale: string; not_found: string; median_age: string | null;
     }>(
       `SELECT COUNT(*)                                                              AS terms,
-              COUNT(DISTINCT looked_up_by)                                          AS contributors,
+              COUNT(DISTINCT looked_up_for_org)                                     AS contributors,
               COUNT(*) FILTER (WHERE looked_up_at > now() - interval '90 days')      AS fresh,
               COUNT(*) FILTER (WHERE looked_up_at <= now() - interval '90 days'
                                  AND looked_up_at > now() - interval '180 days')     AS ageing,

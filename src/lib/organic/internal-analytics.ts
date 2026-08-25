@@ -233,7 +233,9 @@ export async function loadDraftEditStats(orgId: string): Promise<DraftEditStat[]
  * ------------------------------------------------------------------ */
 
 export interface CacheContribution {
-  /** Volume lookups this store paid for. */
+  /** Volume lookups this store paid for. Attributed via
+   *  looked_up_for_org — looked_up_by is the person, not the store, and
+   *  comparing that against an org id is why this read 0 for everyone. */
   looked_up: number;
   /** Of those, how many other stores now hold in their own keyword bank —
    *  work this store did that the rest of the portfolio reused. */
@@ -251,12 +253,12 @@ export async function loadCacheContribution(orgId: string): Promise<CacheContrib
 
   const [mine, reuse, received] = await Promise.all([
     pool.query<{ n: string }>(
-      `SELECT COUNT(*) AS n FROM organic.keyword_volume_cache WHERE looked_up_by = $1`, [orgId]),
+      `SELECT COUNT(*) AS n FROM organic.keyword_volume_cache WHERE looked_up_for_org = $1`, [orgId]),
     pool.query<{ term: string; volume: number | null; orgs: string }>(
       `SELECT c.term, c.volume, COUNT(DISTINCT k.org_id) AS orgs
          FROM organic.keyword_volume_cache c
          JOIN organic.keywords k ON k.term = c.term AND k.org_id <> $1
-        WHERE c.looked_up_by = $1
+        WHERE c.looked_up_for_org = $1
         GROUP BY c.term, c.volume
         ORDER BY COUNT(DISTINCT k.org_id) DESC, c.volume DESC NULLS LAST
         LIMIT 10`, [orgId]),
@@ -265,7 +267,7 @@ export async function loadCacheContribution(orgId: string): Promise<CacheContrib
          FROM organic.keywords k
          JOIN organic.keyword_volume_cache c ON c.term = k.term
         WHERE k.org_id = $1
-          AND c.looked_up_by IS DISTINCT FROM $1`, [orgId]),
+          AND c.looked_up_for_org IS DISTINCT FROM $1`, [orgId]),
   ]);
 
   const looked_up = Number(mine.rows[0]?.n ?? 0);

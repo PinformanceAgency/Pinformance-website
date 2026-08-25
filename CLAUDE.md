@@ -168,6 +168,28 @@ UPDATE store_settings s
 ```
 Data preserved. Store disappears from Hub / Zones / Benchmarks / Team Activity. Reversible via `is_active = true` again.
 
+### Demo store (organic)
+
+The organic screens are built for a store with history — cohorts, sparklines,
+coverage matrices, margin. No real client has that yet, so they were only ever
+seen empty, which is the wrong thing to design or review against.
+
+```bash
+DOTENV_CONFIG_PATH=.env.local npx tsx scripts/demo-store.ts           # seed
+DOTENV_CONFIG_PATH=.env.local npx tsx scripts/demo-store.ts --remove  # delete
+```
+
+Seeds `DEMO · Vellora Atelier` (fixed uuid `d3e70000-…de00`): 7 months of
+monthly KPIs, 6.5k rows of daily pin performance, 24 boards, 12 URLs, 6
+waterfalls, 96 pins, the full task bank and an answered viability gate. Seeding
+is idempotent — it removes and rebuilds, and the RNG is seeded so the store has
+the same shape every run.
+
+The defects in it are deliberate: one topic short of board coverage, high-volume
+keywords never deployed, two failed pins, a client sitting on an approval for
+three weeks. A demo where everything is green exercises none of the screens that
+matter. **Remove it before any client sees the client list.**
+
 ### Refresh Team Activity cache manually
 
 ```bash

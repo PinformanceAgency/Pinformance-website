@@ -73,7 +73,25 @@ export async function loadMonthlySeries(orgId: string, months = 12): Promise<Mon
       LIMIT $2`,
     [orgId, months]
   );
-  return r.rows;
+  // pg hands numeric columns back as strings. Every rate and revenue field
+  // on this table is numeric, and the report formats them with toFixed —
+  // which is a runtime error on a string, reachable only once a store
+  // actually has a measured month.
+  const num = (v: unknown) => (v == null ? null : Number(v));
+  return r.rows.map((m) => ({
+    ...m,
+    revenue: num(m.revenue),
+    engagement_rate: num(m.engagement_rate),
+    save_rate: num(m.save_rate),
+    ga4_engagement_rate: num(m.ga4_engagement_rate),
+    ga4_session_seconds: num(m.ga4_session_seconds),
+    ga4_pages_per_session: num(m.ga4_pages_per_session),
+    ga4_bounce_rate: num(m.ga4_bounce_rate),
+    ga4_site_engagement_rate: num(m.ga4_site_engagement_rate),
+    ga4_site_session_seconds: num(m.ga4_site_session_seconds),
+    ga4_site_pages_per_session: num(m.ga4_site_pages_per_session),
+    ga4_site_bounce_rate: num(m.ga4_site_bounce_rate),
+  }));
 }
 
 /* ------------------------------------------------------------------ *
