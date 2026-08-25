@@ -43,6 +43,17 @@ const SPEND_TOLERANCE_PCT = 1;
 const REVENUE_TOLERANCE_PCT = 5;
 /** Below this, a percentage on a near-zero base is noise, not a finding. */
 const MIN_MATERIAL_SPEND = 50;
+/**
+ * How long a confirmed attribution window is trusted.
+ *
+ * The comparison below cannot catch a *wrong* window: the dashboard and
+ * the API both read store_settings.attribution_setting, so they agree with
+ * each other while disagreeing with Campaign Manager. Icon Amsterdam sat
+ * at 30/1 for months against an account configured 1/1 and every automated
+ * check passed. The only answerable question is "has a person confirmed
+ * this recently", so that is what gets asked.
+ */
+const ATTRIBUTION_STALE_DAYS = 90;
 
 interface Check {
   store: string;
@@ -53,6 +64,9 @@ interface Check {
   revenue_db: number;
   revenue_api: number;
   revenue_gap_pct: number | null;
+  attribution?: string;
+  /** null = never confirmed. */
+  attribution_verified_days_ago?: number | null;
   problem: string | null;
 }
 
@@ -79,7 +93,7 @@ export async function GET(req: NextRequest) {
 
   const { data: settingsRows } = await admin
     .from("store_settings")
-    .select("org_id, attribution_setting, is_active, department, breakeven_roas");
+    .select("org_id, attribution_setting, is_active, department, breakeven_roas, attribution_verified_at");
   const settingsByOrg = new Map(
     (settingsRows ?? []).map((s) => [s.org_id as string, s])
   );
@@ -109,12 +123,30 @@ export async function GET(req: NextRequest) {
       if (!acct) { row.problem = "no ad account resolved"; checks.push(row); continue; }
       row.ad_account = acct.name;
 
+      const notes: string[] = [];
+
       // An unpinned store whose token can see several accounts is one
       // rename away from silently reporting the wrong one. That is how
       // Joseph Violet and Kate & Wendy sat at zero for months.
       if (!settings.pinterest_ad_account_id && all.length > 1) {
-        row.problem = `${all.length} ad accounts visible and none pinned — matched "${acct.name}" by name`;
+        notes.push(`${all.length} ad accounts visible, none pinned — matched "${acct.name}" by name`);
       }
+
+      // The window nothing else can verify.
+      const verifiedAt = st.attribution_verified_at
+        ? new Date(st.attribution_verified_at as string)
+        : null;
+      const ageDays = verifiedAt
+        ? Math.floor((Date.now() - verifiedAt.getTime()) / 86_400_000)
+        : null;
+      row.attribution = (st.attribution_setting as string) ?? DEFAULT_ATTRIBUTION_SETTING;
+      row.attribution_verified_days_ago = ageDays;
+      if (ageDays === null) {
+        notes.push(`attribution ${row.attribution} never confirmed against Campaign Manager`);
+      } else if (ageDays > ATTRIBUTION_STALE_DAYS) {
+        notes.push(`attribution ${row.attribution} last confirmed ${ageDays}d ago`);
+      }
+      if (notes.length) row.problem = notes.join(" · ");
 
       const attr = attributionToDays(st.attribution_setting ?? DEFAULT_ATTRIBUTION_SETTING);
       const resp = await client.getAdAccountAnalytics(acct.id, startISO, endISO, {
@@ -164,23 +196,44 @@ export async function GET(req: NextRequest) {
     checks.push(row);
   }
 
-  const problems = checks.filter((c) => c.problem);
-  // Worst first, so the Slack line names the store that matters.
-  problems.sort((a, b) =>
+  // A live mismatch means the pipeline is broken right now. An unconfirmed
+  // window means nobody has checked a setting. Both matter; alerting on
+  // them in one breath makes the urgent one easy to miss.
+  const mismatched = checks.filter((c) => c.problem?.includes("out of line"));
+  const unconfirmed = checks.filter((c) => c.problem && !c.problem.includes("out of line"));
+
+  mismatched.sort((a, b) =>
     Math.abs(b.revenue_gap_pct ?? 999) - Math.abs(a.revenue_gap_pct ?? 999));
 
-  if (problems.length > 0) {
-    const top = problems.slice(0, 5)
-      .map((p) => `${p.store}: ${p.problem}`).join(" | ");
+  if (mismatched.length > 0) {
+    const top = mismatched.slice(0, 5).map((p) => `${p.store}: ${p.problem}`).join(" | ");
     await alertCronFailure({
       cron: "verify-metrics",
       level: "attention",
       message:
-        `${problems.length} of ${checks.length} stores disagree with Pinterest ` +
+        `${mismatched.length} of ${checks.length} stores disagree with Pinterest ` +
         `for ${startISO}..${endISO}. ${top}` +
-        (problems.length > 5 ? ` (+${problems.length - 5} more)` : ""),
+        (mismatched.length > 5 ? ` (+${mismatched.length - 5} more)` : ""),
     });
   }
+
+  // Weekly, not daily: this is a checklist, and a channel that repeats the
+  // same chore every morning stops being read.
+  if (unconfirmed.length > 0 && new Date().getUTCDay() === 1) {
+    await alertCronFailure({
+      cron: "verify-metrics",
+      level: "attention",
+      message:
+        `${unconfirmed.length} store(s) need their Pinterest settings confirmed by hand — ` +
+        `attribution window or ad account. ` +
+        unconfirmed.slice(0, 6).map((p) => p.store).join(", ") +
+        (unconfirmed.length > 6 ? ` (+${unconfirmed.length - 6})` : "") +
+        `. Read "Conversion settings" from the Campaign Manager header, then ` +
+        `run scripts/confirm-attribution.ts.`,
+    });
+  }
+
+  const problems = [...mismatched, ...unconfirmed];
 
   return NextResponse.json({
     ok: problems.length === 0,
