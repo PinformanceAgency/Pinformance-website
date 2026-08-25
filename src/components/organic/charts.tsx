@@ -420,3 +420,94 @@ export function CoverageMeter({
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * Sparkline — the shape of a number, next to the number
+ * ------------------------------------------------------------------ */
+
+/**
+ * A figure without its trend is a snapshot; nobody can tell whether 585
+ * is a recovery or a collapse. Every KPI tile carries one of these, which
+ * is the single biggest difference between a page of counts and a
+ * dashboard.
+ *
+ * Deliberately axis-less and label-less. At this size the shape is the
+ * only readable thing, and gridlines would be noise pretending to be
+ * precision.
+ */
+export function Sparkline({
+  points, color = "teal", height = 30, showArea = true, className,
+}: {
+  points: Array<number | null>;
+  color?: DataColor;
+  height?: number;
+  showArea?: boolean;
+  className?: string;
+}) {
+  const real = points.filter((p): p is number => p !== null);
+  if (real.length < 2) {
+    return (
+      <div className={cn("flex items-end", className)} style={{ height }} aria-hidden>
+        {/* A flat rule, not an empty box: it holds the slot so a tile with
+            no history lines up with one that has it. */}
+        <div className="w-full border-b border-dashed border-o-hairline-firm/70" />
+      </div>
+    );
+  }
+
+  const W = 120;
+  const min = Math.min(...real), max = Math.max(...real);
+  const span = max - min || 1;
+  const step = W / (points.length - 1 || 1);
+  const y = (v: number) => height - 2 - ((v - min) / span) * (height - 4);
+
+  const coords: string[] = [];
+  points.forEach((p, i) => { if (p !== null) coords.push(`${i * step},${y(p)}`); });
+  const line = coords.map((c, i) => (i === 0 ? `M${c}` : `L${c}`)).join(" ");
+  const area = `${line} L${W},${height} L0,${height} Z`;
+  const last = real[real.length - 1];
+  const lastIdx = points.length - 1 - [...points].reverse().findIndex((p) => p !== null);
+  const id = `sp-${color}-${Math.round(min)}-${Math.round(max)}-${points.length}`;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" height={height} preserveAspectRatio="none"
+         className={cn("overflow-visible", className)} aria-hidden>
+      {showArea && (
+        <>
+          <defs>
+            <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor={DATA_COLORS[color]} stopOpacity="0.20" />
+              <stop offset="100%" stopColor={DATA_COLORS[color]} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path d={area} fill={`url(#${id})`} />
+        </>
+      )}
+      <path d={line} fill="none" stroke={DATA_COLORS[color]} strokeWidth={1.75}
+            strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <circle cx={lastIdx * step} cy={y(last)} r={2.25} fill={DATA_COLORS[color]}
+              vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Meter — a share of something, at tile size
+ * ------------------------------------------------------------------ */
+
+export function Meter({
+  value, max = 100, color = "teal", label,
+}: {
+  value: number | null; max?: number; color?: DataColor; label?: string;
+}) {
+  const pct = value === null ? 0 : Math.max(0, Math.min(100, (value / max) * 100));
+  return (
+    <div>
+      <div className="h-1.5 rounded-full bg-o-sunk overflow-hidden">
+        <div className="h-full rounded-full transition-[width] duration-500"
+             style={{ width: `${pct}%`, background: DATA_COLORS[color] }} />
+      </div>
+      {label && <p className="mt-1.5 text-[length:var(--text-o-label)] text-o-ink-3">{label}</p>}
+    </div>
+  );
+}

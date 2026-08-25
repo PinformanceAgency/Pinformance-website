@@ -859,3 +859,87 @@ export async function clearTaskAnswerField(
     [orgId, taskId, fieldKey]
   );
 }
+
+// ---------- TREND SERIES (KPI sparklines) -----------------------------------
+
+export interface TrendSeries {
+  /** Oldest first, one entry per day over the window. Days with no
+   *  measurement are null rather than 0 — a gap in reporting is not a day
+   *  of zero clicks, and a sparkline that dips to the floor on missing
+   *  data tells the opposite of the truth. */
+  days: string[];
+  outbound_clicks: Array<number | null>;
+  saves: Array<number | null>;
+  impressions: Array<number | null>;
+  pins_published: Array<number | null>;
+  /** Sum over the window and over the window before it, for the delta. */
+  totals: { clicks: number | null; saves: number | null; impressions: number | null; pins: number };
+  previous: { clicks: number | null; saves: number | null; impressions: number | null; pins: number };
+}
+
+export async function loadTrendSeries(orgId: string, windowDays = 30): Promise<TrendSeries> {
+  const pool = organicPool();
+
+  const [daily, prev] = await Promise.all([
+    pool.query<{ day: string; clicks: string | null; saves: string | null; impressions: string | null; pins: string }>(
+      `SELECT to_char(g.day, 'YYYY-MM-DD') AS day,
+              SUM(pp.outbound_clicks)      AS clicks,
+              SUM(pp.saves)                AS saves,
+              SUM(pp.impressions)          AS impressions,
+              COUNT(DISTINCT pub.id)       AS pins
+         FROM generate_series(current_date - ($2::int - 1), current_date, interval '1 day') AS g(day)
+         LEFT JOIN organic.pin_performance pp ON pp.measured_on = g.day::date
+              AND pp.pin_id IN (SELECT p.id FROM organic.pins p
+                                  JOIN organic.waterfalls w ON w.id = p.waterfall_id
+                                 WHERE w.org_id = $1)
+         LEFT JOIN organic.pins pub ON pub.scheduled_date = g.day::date
+              AND pub.status = 'PUBLISHED'
+              AND pub.waterfall_id IN (SELECT id FROM organic.waterfalls WHERE org_id = $1)
+        GROUP BY g.day ORDER BY g.day`,
+      [orgId, windowDays]),
+    pool.query<{ clicks: string | null; saves: string | null; impressions: string | null; pins: string }>(
+      `SELECT SUM(pp.outbound_clicks) AS clicks, SUM(pp.saves) AS saves,
+              SUM(pp.impressions) AS impressions,
+              (SELECT COUNT(*) FROM organic.pins p
+                 JOIN organic.waterfalls w ON w.id = p.waterfall_id
+                WHERE w.org_id = $1 AND p.status = 'PUBLISHED'
+                  AND p.scheduled_date >  current_date - ($2::int * 2)
+                  AND p.scheduled_date <= current_date - $2::int) AS pins
+         FROM organic.pin_performance pp
+         JOIN organic.pins p ON p.id = pp.pin_id
+         JOIN organic.waterfalls w ON w.id = p.waterfall_id
+        WHERE w.org_id = $1
+          AND pp.measured_on >  current_date - ($2::int * 2)
+          AND pp.measured_on <= current_date - $2::int`,
+      [orgId, windowDays]),
+  ]);
+
+  const n = (v: string | null) => (v == null ? null : Number(v));
+  const sum = (a: Array<number | null>) =>
+    a.some((x) => x !== null) ? a.reduce<number>((t, x) => t + (x ?? 0), 0) : null;
+
+  const clicks = daily.rows.map((r) => n(r.clicks));
+  const saves = daily.rows.map((r) => n(r.saves));
+  const impressions = daily.rows.map((r) => n(r.impressions));
+  const pins = daily.rows.map((r) => Number(r.pins));
+  const p = prev.rows[0];
+
+  return {
+    days: daily.rows.map((r) => r.day),
+    outbound_clicks: clicks, saves, impressions, pins_published: pins,
+    totals: {
+      clicks: sum(clicks), saves: sum(saves), impressions: sum(impressions),
+      pins: pins.reduce<number>((t, x) => t + (x ?? 0), 0),
+    },
+    previous: {
+      clicks: n(p?.clicks ?? null), saves: n(p?.saves ?? null),
+      impressions: n(p?.impressions ?? null), pins: Number(p?.pins ?? 0),
+    },
+  };
+}
+
+/** Percentage movement, or null when there is nothing honest to compare. */
+export function pctChange(now: number | null, before: number | null): number | null {
+  if (now == null || before == null || before === 0) return null;
+  return Math.round(((now - before) / before) * 100);
+}

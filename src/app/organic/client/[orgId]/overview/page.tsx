@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { loadClientHeader } from "@/lib/organic/queries";
-import { loadLeaks, type Leak } from "@/lib/organic/workspace";
+import { loadLeaks, loadTrendSeries, pctChange, type Leak, type TrendSeries } from "@/lib/organic/workspace";
 import { loadCyclesForOrg } from "@/lib/organic/phase4";
 import { computeHealthScore, loadCohortContext, type HealthScore, type CohortContext } from "@/lib/organic/health";
 import * as P5 from "@/lib/organic/phase5";
 import { PROVENANCE_REASON, type ProvenanceState } from "@/lib/organic/provenance";
 import { Band, Panel, Label, Figure, Stat, Empty, AccentLink } from "@/components/organic/primitives";
 import { SegmentedScore, BarList, type Segment } from "@/components/organic/charts";
+import { Kpi, KpiGrid } from "@/components/organic/kpi";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +24,14 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
   const today = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
 
-  const [header, leaks, cycles, baseline, pinterest, setup] = await Promise.all([
+  const [header, leaks, cycles, baseline, pinterest, setup, trend] = await Promise.all([
     loadClientHeader(orgId),
     loadLeaks(orgId),
     loadCyclesForOrg(orgId),
     P5.loadBaseline(orgId),
     P5.fetchOrganicAnalytics(orgId, from, today),
     P5.loadSetupState(orgId, from, today),
+    loadTrendSeries(orgId, 30),
   ]);
 
   const health = await computeHealthScore(orgId, leaks.length);
@@ -53,6 +55,7 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
         </p>
       </header>
       <HealthBand health={health} cohort={cohort} orgId={orgId} />
+      <TrendBand trend={trend} />
       <LeakBand leaks={leaks} orgId={orgId} />
       {!onboardingDone && <OnboardingBand phases={onboarding} nextPhase={nextPhase?.phase ?? null} orgId={orgId} />}
       <CyclesBand cycles={cycles} orgId={orgId} onboardingDone={onboardingDone} />
@@ -124,6 +127,55 @@ function HealthBand({ health, cohort, orgId }: { health: HealthScore; cohort: Co
         </div>
       </div>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Trend
+ * ------------------------------------------------------------------ */
+
+/**
+ * The last thirty days, as shape rather than as a table of counts.
+ *
+ * Every tile carries its figure, its movement against the thirty days
+ * before it, and the daily series behind both. A count on its own cannot
+ * tell you whether it is a recovery or a collapse, which is the whole
+ * reason this sits at the top of the screen.
+ */
+function TrendBand({ trend }: { trend: TrendSeries }) {
+  const anyData = trend.totals.clicks !== null || trend.totals.impressions !== null || trend.totals.pins > 0;
+
+  return (
+    <Band title="Last 30 days"
+          sub="Movement is against the thirty days before this window. Days we did not receive data are gaps, not zeroes."
+          right={
+            <span className="o-eyebrow">
+              {trend.days[0]} — {trend.days[trend.days.length - 1]}
+            </span>
+          }>
+      <KpiGrid cols={4}>
+        <Kpi label="Outbound clicks" color="teal"
+             value={trend.totals.clicks}
+             delta={pctChange(trend.totals.clicks, trend.previous.clicks)}
+             series={trend.outbound_clicks}
+             reason="Pinterest has not reported clicks for this store yet" />
+        <Kpi label="Saves" color="sand"
+             value={trend.totals.saves}
+             delta={pctChange(trend.totals.saves, trend.previous.saves)}
+             series={trend.saves}
+             reason="Pinterest has not reported saves for this store yet" />
+        <Kpi label="Impressions" color="slate"
+             value={trend.totals.impressions}
+             delta={pctChange(trend.totals.impressions, trend.previous.impressions)}
+             series={trend.impressions}
+             reason="Pinterest has not reported impressions for this store yet" />
+        <Kpi label="Pins published" color="clay"
+             value={trend.totals.pins}
+             delta={pctChange(trend.totals.pins, trend.previous.pins)}
+             series={trend.pins_published}
+             foot={anyData ? undefined : "Nothing has published in this window."} />
+      </KpiGrid>
+    </Band>
   );
 }
 
