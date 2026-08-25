@@ -49,8 +49,8 @@ const START = process.argv[3] ?? new Date(Date.now() - 7 * 86400000).toISOString
           revenue: Number(m.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR ?? 0) / 1_000_000,
         };
       };
-      const action = await call("TIME_OF_AD_ACTION");
-      const conv = await call("TIME_OF_CONVERSION");
+      const conv = await call("TIME_OF_CONVERSION");   // what the platform shows
+      const action = await call("TIME_OF_AD_ACTION");  // kept for contrast
       const db = (await c.query<{ s: string; r: string }>(
         `SELECT COALESCE(SUM(spend),0)::text s, COALESCE(SUM(revenue),0)::text r
            FROM public.pinterest_metrics_snapshots
@@ -62,12 +62,12 @@ const START = process.argv[3] ?? new Date(Date.now() - 7 * 86400000).toISOString
         store: o.name.slice(0, 22),
         attr: o.attr ?? "30/1",
         spend_db: dbS.toFixed(0),
-        spend_api: action.spend.toFixed(0),
-        "spend_%": gap(dbS, action.spend).toFixed(1),
+        spend_api: conv.spend.toFixed(0),
+        "spend_%": gap(dbS, conv.spend).toFixed(1),
         rev_db: dbR.toFixed(0),
+        rev_platform: conv.revenue.toFixed(0),
+        "rev_%": gap(dbR, conv.revenue).toFixed(1),
         rev_action: action.revenue.toFixed(0),
-        "rev_%": gap(dbR, action.revenue).toFixed(1),
-        rev_conv: conv.revenue.toFixed(0),
       });
     } catch (e) {
       out.push({ store: o.name.slice(0, 22), note: (e as Error).message.slice(0, 40) });

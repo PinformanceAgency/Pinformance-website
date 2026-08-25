@@ -55,7 +55,7 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
       const attr = attributionToDays(o.attr ?? DEFAULT_ATTRIBUTION_SETTING);
       const resp = await pin.getAdAccountAnalytics(acct.id, iso(start), iso(end), {
         granularity: "DAY", clickWindowDays: attr.click, viewWindowDays: attr.view,
-        columns: COLS, conversionReportTime: "TIME_OF_AD_ACTION",
+        columns: COLS, conversionReportTime: "TIME_OF_CONVERSION",
       });
       const days: Array<Record<string, number | string>> = Array.isArray(resp)
         ? (resp as Array<Record<string, number | string>>)

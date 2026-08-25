@@ -249,12 +249,13 @@ async function run(request: NextRequest) {
         clickWindowDays: attr.click,
         viewWindowDays: attr.view,
         columns: ANALYTICS_COLUMNS,
-        // Credit a conversion to the day of the click that drove it, which
-        // is how Ads Manager reports by default. The client falls back to
-        // TIME_OF_CONVERSION when this is omitted, which books revenue on
-        // the purchase date instead — a different metric that measured
-        // 17-27% away from the platform on live accounts.
-        conversionReportTime: "TIME_OF_AD_ACTION" as const,
+        // TIME_OF_CONVERSION, verified against Campaign Manager rather than
+        // assumed. MayCosmetics reads 272 checkouts / EUR 10,719.11 on the
+        // platform for 2026-08-18..24 and 30/1 TIME_OF_CONVERSION returns
+        // exactly that; Fit Cherries 85 / USD 5,922.96 likewise.
+        // TIME_OF_AD_ACTION returns 187 and 73 for the same accounts — it
+        // is the wrong metric and reports revenue low.
+        conversionReportTime: "TIME_OF_CONVERSION" as const,
       };
 
       // Self-heal: if any dates in [healStartISO, endISO] have no account

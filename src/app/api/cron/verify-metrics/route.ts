@@ -122,10 +122,11 @@ export async function GET(req: NextRequest) {
         clickWindowDays: attr.click,
         viewWindowDays: attr.view,
         columns: COLS,
-        // The same setting the snapshot cron uses. If these ever drift
-        // apart this check becomes meaningless, which is why it is stated
-        // here rather than left to a default.
-        conversionReportTime: "TIME_OF_AD_ACTION",
+        // The same setting the snapshot cron uses, and the one Campaign
+        // Manager renders. If these ever drift apart this check becomes
+        // meaningless, which is why it is stated here rather than left to
+        // a default.
+        conversionReportTime: "TIME_OF_CONVERSION",
       });
       const m = (Array.isArray(resp) ? resp[0] : {}) as Record<string, number>;
       row.spend_api = Number(m.SPEND_IN_DOLLAR ?? 0);

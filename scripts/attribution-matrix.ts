@@ -51,7 +51,7 @@ const WINDOWS: Array<{ label: string; click: 1|7|30|60; view: 1|7|30|60 }> = [
       for (const w of WINDOWS) {
         const r = await pin.getAdAccountAnalytics(acct.id, START, END, {
           granularity: "TOTAL", clickWindowDays: w.click, viewWindowDays: w.view,
-          columns: COLS, conversionReportTime: "TIME_OF_AD_ACTION" });
+          columns: COLS, conversionReportTime: "TIME_OF_CONVERSION" });
         const m = (Array.isArray(r) ? r[0] : {}) as Record<string, number>;
         row[w.label] = (Number(m.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR ?? 0) / 1e6).toFixed(0);
       }
