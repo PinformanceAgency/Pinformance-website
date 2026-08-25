@@ -17,8 +17,12 @@ import { DATA_COLORS } from "./charts";
 
 export function Table({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("overflow-x-auto rounded-lg border border-o-hairline bg-o-surface", className)}>
-      <table className="w-full text-[length:var(--text-o-body)] border-collapse">{children}</table>
+    // Scrolls inside its own surface rather than pushing the page sideways,
+    // and the header stays put while the body moves under it.
+    <div className={cn("o-card overflow-hidden", className)}>
+      <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
+        <table className="o-table">{children}</table>
+      </div>
     </div>
   );
 }
@@ -28,8 +32,6 @@ export function TH({ children, align = "left", className }: {
 }) {
   return (
     <th className={cn(
-      "sticky top-0 z-10 bg-o-surface px-3 py-2 font-medium text-o-ink-3 whitespace-nowrap",
-      "text-[length:var(--text-o-label)] uppercase tracking-[0.06em] border-b border-o-hairline-firm",
       align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left",
       className
     )}>
@@ -42,12 +44,13 @@ export function TD({ children, align = "left", muted, className }: {
   children?: React.ReactNode; align?: "left" | "right" | "center"; muted?: boolean; className?: string;
 }) {
   return (
-    <td className={cn(
-      "px-3 py-1.5 border-b border-o-hairline align-middle",
-      muted ? "text-o-ink-3" : "text-o-ink-2",
-      align === "right" ? "text-right o-num tabular-nums" : align === "center" ? "text-center" : "",
-      className
-    )}>
+    <td
+      data-num={align === "right" ? "" : undefined}
+      className={cn(
+        muted ? "text-o-ink-3" : "text-o-ink-2",
+        align === "center" && "text-center",
+        className
+      )}>
       {children}
     </td>
   );
@@ -59,45 +62,67 @@ export function Pill({ children, tone = "neutral" }: {
   tone?: "neutral" | "good" | "warn" | "bad" | "accent";
 }) {
   return (
+    // Tint plus a matching inset ring. A flat tint alone reads as a
+    // highlighter mark; the ring is what makes it a component.
     <span className={cn(
-      "inline-flex items-center rounded-sm px-1.5 py-0.5 whitespace-nowrap",
-      "text-[length:var(--text-o-label)] font-medium leading-none",
-      tone === "good"   && "bg-o-pos/10 text-o-pos",
-      tone === "warn"   && "bg-o-sand/20 text-o-clay",
-      tone === "bad"    && "bg-o-neg/10 text-o-neg",
-      tone === "accent" && "bg-o-accent/10 text-o-accent",
-      tone === "neutral" && "bg-o-sunk text-o-ink-3",
+      "inline-flex items-center rounded-md px-2 py-[3px] whitespace-nowrap",
+      "text-[length:var(--text-o-label)] font-semibold leading-none",
+      "ring-1 ring-inset",
+      tone === "good"    && "bg-o-pos/[0.08] text-o-pos ring-o-pos/20",
+      tone === "warn"    && "bg-o-accent/[0.07] text-o-clay ring-o-clay/25",
+      tone === "bad"     && "bg-o-neg/[0.08] text-o-neg ring-o-neg/25",
+      tone === "accent"  && "bg-o-accent/[0.08] text-o-accent ring-o-accent/25",
+      tone === "neutral" && "bg-o-sunk text-o-ink-2 ring-o-hairline-firm/60",
     )}>
       {children}
     </span>
   );
 }
 
-/** A count with its label, sized for a toolbar rather than a headline. */
-export function Metric({ label, value, tone }: {
-  label: string; value: number | string | null; tone?: "good" | "warn" | "bad";
+/**
+ * A stat tile.
+ *
+ * The number leads and the label sits under it, not above — a column of
+ * figures should be scannable down the digits, and a label on top pushes
+ * every number to a different optical baseline.
+ */
+export function Metric({ label, value, tone, hint }: {
+  label: string; value: number | string | null;
+  tone?: "good" | "warn" | "bad";
+  /** One clause under the number, where the figure needs a qualifier. */
+  hint?: string;
 }) {
   return (
     <div className="min-w-0">
-      <span className="block text-[length:var(--text-o-label)] uppercase tracking-[0.06em] text-o-ink-3">
-        {label}
-      </span>
       <span className={cn(
-        "block o-num text-[length:var(--text-o-figure-md)] font-semibold tabular-nums leading-tight",
+        "block o-figure text-[length:var(--text-o-figure-lg)] leading-none",
         tone === "good" ? "text-o-pos" : tone === "warn" ? "text-o-clay"
           : tone === "bad" ? "text-o-neg" : "text-o-ink"
       )}>
-        {value === null ? "—" : value}
+        {value === null ? <span className="text-o-ink-3 font-normal">—</span> : value}
       </span>
+      <span className="o-eyebrow block mt-2">{label}</span>
+      {hint && <span className="block mt-1 text-[length:var(--text-o-label)] text-o-ink-3">{hint}</span>}
     </div>
   );
 }
 
-/** Row of metrics above a working surface. */
+/**
+ * The stat strip above a working surface.
+ *
+ * Vertical rules between the tiles rather than whitespace alone: at four
+ * or five figures across, gaps stop reading as separation and the row
+ * turns into a smear of numbers.
+ */
 export function Toolbar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-start gap-x-10 gap-y-4 rounded-lg border border-o-hairline bg-o-surface px-5 py-3.5 mb-5">
-      {children}
+    <div className="o-card mb-6 px-6 py-5">
+      <div className="flex flex-wrap items-start gap-y-5
+                      [&>*]:pr-8 [&>*]:border-r [&>*]:border-o-hairline
+                      [&>*]:mr-8 [&>*:last-child]:border-r-0
+                      [&>*:last-child]:pr-0 [&>*:last-child]:mr-0">
+        {children}
+      </div>
     </div>
   );
 }

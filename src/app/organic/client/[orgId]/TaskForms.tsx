@@ -312,7 +312,7 @@ function FormShell({
         <button
           onClick={go}
           disabled={submitting}
-          className="px-3.5 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+          className="o-btn o-btn-primary"
         >
           {submitting ? "Saving…" : submitLabel}
         </button>

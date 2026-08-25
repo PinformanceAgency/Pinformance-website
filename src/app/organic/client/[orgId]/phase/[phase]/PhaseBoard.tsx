@@ -35,7 +35,7 @@ const CUSTOM_FORM_TASKS = new Set([
 ]);
 
 export function PhaseBoard({
-  orgId, phase, tasks, viability, phase2, phase3, assets, answers,
+  orgId, phase, tasks, viability, phase2, phase3, assets, answers, showStepHeaders = true,
 }: {
   orgId: string;
   phase: number;
@@ -45,6 +45,10 @@ export function PhaseBoard({
   phase3: Phase3Snapshot;
   assets: AssetRow[];
   answers: TaskAnswer[];
+  /** The step route renders the step's own title and context panel above
+   *  the board, so it turns this off — two headers for one step is the
+   *  kind of duplication that makes a screen look unconsidered. */
+  showStepHeaders?: boolean;
 }) {
   const meta = phaseMeta(phase);
   const steps = useMemo(() => {
@@ -84,32 +88,36 @@ export function PhaseBoard({
         const sm = meta?.steps[s.step] ?? null;
         const done = s.tasks.filter((t) => t.status === "DONE").length;
         return (
-          <section key={s.step} className="rounded-lg border border-border bg-card overflow-hidden">
-            {/* Step header with what / where / who */}
-            <div className="px-4 py-3 bg-muted/40 border-b border-border">
-              <div className="flex items-baseline justify-between gap-3 flex-wrap">
-                <h3 className="text-sm font-semibold text-foreground">{sm?.title ?? `Step ${phase}.${s.step}`}</h3>
-                <div className="flex items-center gap-2 text-[11px]">
-                  {sm && (
-                    <span className="px-1.5 py-0.5 rounded border border-border bg-card text-muted-foreground font-medium">
-                      {OWNER_LABEL[sm.owner]}
-                    </span>
-                  )}
-                  <span className="tabular-nums text-muted-foreground">{done}/{s.tasks.length} done</span>
+          <section key={s.step} className={cn(showStepHeaders && "o-card overflow-hidden")}>
+            {showStepHeaders && (
+              <div className="o-card-head px-6 py-5">
+                <div className="flex items-baseline justify-between gap-4 flex-wrap">
+                  <h3 className="o-h3 text-foreground">{sm?.title ?? `Step ${phase}.${s.step}`}</h3>
+                  <div className="flex items-center gap-2.5">
+                    {sm && (
+                      <span className="inline-flex items-center rounded-md px-2 py-[3px] text-[11px] font-semibold bg-o-sunk text-o-ink-2 ring-1 ring-inset ring-o-hairline-firm/60">
+                        {OWNER_LABEL[sm.owner]}
+                      </span>
+                    )}
+                    <span className="o-figure text-[11px] text-o-ink-3">{done}/{s.tasks.length} done</span>
+                  </div>
                 </div>
+                {sm && (
+                  <dl className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-px bg-o-hairline rounded-lg overflow-hidden">
+                    {([["What", sm.what], ["Where", sm.where], ["Output", sm.output]] as const).map(([k, v]) => (
+                      <div key={k} className="bg-o-surface px-4 py-3">
+                        <dt className="o-eyebrow">{k}</dt>
+                        <dd className="mt-1.5 text-sm text-o-ink-2 leading-relaxed">{v}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
               </div>
-              {sm && (
-                <dl className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-1 text-[11px]">
-                  <div><dt className="text-muted-foreground">What</dt><dd className="text-foreground mt-0.5">{sm.what}</dd></div>
-                  <div><dt className="text-muted-foreground">Where</dt><dd className="text-foreground mt-0.5">{sm.where}</dd></div>
-                  <div><dt className="text-muted-foreground">Output</dt><dd className="text-foreground mt-0.5">{sm.output}</dd></div>
-                </dl>
-              )}
-            </div>
+            )}
 
-            <div className="divide-y divide-border">
+            <div className={cn(showStepHeaders ? "divide-y divide-o-hairline" : "space-y-4")}>
               {s.tasks.map((t) => (
-                <TaskCard answers={answers} key={t.client_task_id} task={t} orgId={orgId}
+                <TaskCard answers={answers} standalone={!showStepHeaders} key={t.client_task_id} task={t} orgId={orgId}
                   viability={viability} phase2={phase2} phase3={phase3}
                   assets={assetsByTask.get(t.task_id) ?? []} />
               ))}
@@ -122,7 +130,7 @@ export function PhaseBoard({
 }
 
 function TaskCard({
-  task, orgId, viability, phase2, phase3, assets, answers,
+  task, orgId, viability, phase2, phase3, assets, answers, standalone,
 }: {
   task: TaskRow;
   orgId: string;
@@ -131,6 +139,10 @@ function TaskCard({
   phase3: Phase3Snapshot;
   assets: AssetRow[];
   answers: TaskAnswer[];
+  /** On the step route there is no step card wrapping the list, so each
+   *  task carries its own surface instead of being a divider-separated
+   *  row inside one. */
+  standalone?: boolean;
 }) {
   const hasCustomForm = CUSTOM_FORM_TASKS.has(task.task_id);
   const [expanded, setExpanded] = useState(hasCustomForm && (task.status === "TODO" || task.status === "IN_PROGRESS"));
@@ -170,7 +182,7 @@ function TaskCard({
   const disabled = submitting || task.status === "BLOCKED";
 
   return (
-    <div className="px-5 py-5">
+    <div className={cn("px-6 py-6", standalone && "o-card")}>
       {/* The task heading runs the full width. It used to sit in a narrow
           column beside the controls, which squeezed the one piece of text
           that tells you what to do into two cramped lines. */}
@@ -183,7 +195,7 @@ function TaskCard({
           <StatusSelect value={task.status} onChange={onStatusPick} disabled={disabled} submitting={submitting} />
           {hasCustomForm && (
             <button type="button" onClick={() => setExpanded((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors">
+              className="o-btn">
               <SlidersHorizontal className="w-4 h-4" />
               {expanded ? "Hide form" : "Open form"}
               {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -208,8 +220,11 @@ function TaskCard({
             </div>
           )}
           {task.status === "BLOCKED" && task.block_reasons.length > 0 && (
-            <div className="mt-2.5 text-sm text-primary bg-primary/[0.06] border-l-2 border-primary rounded-r px-3 py-2">
-              <span className="font-semibold">Blocked:</span> {task.block_reasons.join(" · ")}
+            <div className="mt-3 flex gap-2.5 rounded-lg bg-o-accent/[0.05] ring-1 ring-inset ring-o-accent/15 px-3.5 py-2.5">
+              <span aria-hidden className="w-[3px] rounded-full bg-o-accent shrink-0" />
+              <p className="text-sm text-o-ink-2">
+                <span className="font-semibold text-o-accent">Blocked</span> · {task.block_reasons.join(" · ")}
+              </p>
             </div>
           )}
 
@@ -224,8 +239,8 @@ function TaskCard({
       </div>
 
       {error && (
-        <div className="mt-3 text-sm text-primary bg-primary/[0.06] border-l-2 border-primary rounded-r px-3 py-2 break-words" role="alert">
-          <span className="font-semibold">Update failed:</span> {error}
+        <div className="mt-3 rounded-lg bg-o-neg/[0.06] ring-1 ring-inset ring-o-neg/20 px-3.5 py-2.5 text-sm text-o-neg break-words" role="alert">
+          <span className="font-semibold">Update failed.</span> {error}
         </div>
       )}
 
@@ -290,18 +305,21 @@ function TaskTypeBadge({ type }: { type: TaskType }) {
   // per type, which is four brand colours the brand does not have —
   // difference is carried by fill and weight instead.
   const config: Record<TaskType, { label: string; cls: string; title: string }> = {
-    AUTO:         { label: "AUTO", cls: "bg-muted text-muted-foreground border-border",
+    AUTO:         { label: "AUTO", cls: "bg-o-sunk text-o-ink-3 ring-o-hairline-firm/60",
                     title: "Runs automatically" },
-    AI_DRAFT:     { label: "AI",   cls: "bg-foreground text-white border-foreground",
+    AI_DRAFT:     { label: "AI",   cls: "bg-o-ink text-white ring-o-ink",
                     title: "AI drafts it, you approve" },
-    IN_DASHBOARD: { label: "HERE", cls: "bg-primary text-primary-foreground border-primary",
+    IN_DASHBOARD: { label: "HERE", cls: "bg-o-accent text-white ring-o-accent",
                     title: "Done in this dashboard" },
-    EXTERNAL:     { label: "EXT",  cls: "bg-card text-foreground border-foreground",
+    EXTERNAL:     { label: "EXT",  cls: "bg-o-surface text-o-ink ring-o-ink/35",
                     title: "Done in an external tool" },
   };
   const c = config[type];
   return (
-    <span className={cn("shrink-0 inline-flex items-center justify-center w-14 rounded border px-1 py-1 text-[10px] font-bold tracking-wider", c.cls)} title={c.title}>
+    <span className={cn(
+      "shrink-0 inline-flex items-center justify-center w-[3.25rem] rounded-md px-1 py-1",
+      "text-[10px] font-bold tracking-[0.08em] ring-1 ring-inset", c.cls
+    )} title={c.title}>
       {c.label}
     </span>
   );
@@ -321,7 +339,7 @@ function StatusSelect({ value, onChange, disabled, submitting }: {
     <span className="inline-flex items-center gap-1.5">
       {submitting && <span className="text-xs text-muted-foreground" aria-live="polite">saving…</span>}
       <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as TaskStatus)}
-        className={cn("text-sm rounded-md border px-3 py-2 font-medium disabled:opacity-50 disabled:cursor-wait", statusColor(value))}>
+        className={cn("o-input w-auto font-medium pr-8 disabled:cursor-wait", statusColor(value))}>
         {STATUS_CHOICES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
       </select>
     </span>
@@ -333,11 +351,11 @@ function statusColor(s: TaskStatus): string {
   // manager still owns carries the accent. Green and purple were doing a
   // job the brand's own two colours can do.
   switch (s) {
-    case "DONE":        return "border-foreground bg-foreground text-white";
-    case "IN_PROGRESS": return "border-primary bg-primary/10 text-primary font-semibold";
-    case "REVIEW":      return "border-primary bg-primary text-primary-foreground";
-    case "SKIPPED":     return "border-border bg-muted text-muted-foreground";
-    default:            return "border-border bg-card text-foreground";
+    case "DONE":        return "!bg-o-ink !border-o-ink !text-white";
+    case "IN_PROGRESS": return "!bg-o-accent/[0.08] !border-o-accent/40 !text-o-accent";
+    case "REVIEW":      return "!bg-o-accent !border-o-accent !text-white";
+    case "SKIPPED":     return "!bg-o-sunk !text-o-ink-3";
+    default:            return "";
   }
 }
 
@@ -368,20 +386,20 @@ function CompleteDialog({ taskName, onCancel, onConfirm }: {
             <span className="text-sm font-medium text-foreground">What was the result?</span>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} autoFocus
               placeholder="What you found or decided. Any link pasted here is saved to the Assets library."
-              className="mt-1.5 w-full rounded-md border border-border px-3 py-2 text-sm bg-card focus:outline-none focus:border-primary" />
+              className="o-input mt-1.5" />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-foreground">Attach a document</span>
             <input type="url" value={link}
               onChange={(e) => { setLink(e.target.value); if (err) setErr(null); }}
               placeholder="https://drive.google.com/…"
-              className="mt-1.5 w-full rounded-md border border-border px-3 py-2 text-sm bg-card focus:outline-none focus:border-primary" />
+              className="o-input mt-1.5" />
           </label>
           {err && <div className="text-sm text-red-600">{err}</div>}
         </div>
         <div className="px-5 py-4 bg-muted/40 border-t border-border flex justify-end gap-2">
-          <button onClick={onCancel} className="px-3.5 py-2 text-sm font-medium rounded-md border border-border bg-card hover:bg-muted">Cancel</button>
-          <button onClick={confirm} className="px-3.5 py-2 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:opacity-90">Mark done</button>
+          <button onClick={onCancel} className="o-btn">Cancel</button>
+          <button onClick={confirm} className="o-btn o-btn-primary">Mark done</button>
         </div>
       </div>
     </div>

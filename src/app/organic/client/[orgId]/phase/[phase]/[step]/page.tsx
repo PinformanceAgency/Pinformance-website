@@ -16,7 +16,7 @@ import { loadPhase3Snapshot } from "@/lib/organic/phase3";
 import { loadAssets, loadTaskAnswers } from "@/lib/organic/workspace";
 import { phaseMeta, stepMeta, OWNER_LABEL } from "@/lib/organic/phase-meta";
 import { PhaseBoard } from "../PhaseBoard";
-import { Panel, Label } from "@/components/organic/primitives";
+import { Panel } from "@/components/organic/primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -56,44 +56,46 @@ export default async function StepPage({
     <div className="space-y-6">
       <header>
         <Link href={`/client/${orgId}/phase/${phase}`}
-              className="text-[length:var(--text-o-label)] text-o-ink-3 hover:text-o-ink">
+              className="o-eyebrow hover:text-o-ink transition-colors">
           ← {pMeta.title}
         </Link>
-        <h1 className="o-display mt-2 text-[length:var(--text-o-figure-md)] font-semibold text-o-ink leading-snug">
-          {sMeta?.title ?? `Step ${phase}.${step}`}
-        </h1>
-        <p className="mt-1.5 text-[length:var(--text-o-body)] text-o-ink-3">
-          {done} of {stepTasks.length} done
-          {blocked > 0 && <span className="text-o-clay"> · {blocked} blocked</span>}
-        </p>
+        <div className="mt-2.5 flex items-baseline justify-between gap-6 flex-wrap">
+          <h1 className="o-h1 text-o-ink">{sMeta?.title ?? `Step ${phase}.${step}`}</h1>
+          <div className="flex items-center gap-3">
+            <span className="o-figure text-[length:var(--text-o-body)] text-o-ink-2">
+              {done}<span className="text-o-ink-3 font-normal"> / {stepTasks.length} done</span>
+            </span>
+            {blocked > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-[3px] text-[11px] font-semibold bg-o-accent/[0.08] text-o-accent ring-1 ring-inset ring-o-accent/25">
+                <span className="w-1.5 h-1.5 rounded-full bg-o-accent" /> {blocked} blocked
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Completion as a hairline under the title — a bar you read
+            without looking at it. */}
+        <div className="mt-4 h-[3px] rounded-full bg-o-hairline overflow-hidden max-w-md">
+          <div className="h-full rounded-full bg-o-accent transition-[width] duration-500"
+               style={{ width: `${stepTasks.length ? (done / stepTasks.length) * 100 : 0}%` }} />
+        </div>
       </header>
 
       {sMeta && (
-        <Panel className="px-5 py-5">
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-5">
-            <div>
-              <Label>What happens</Label>
-              <p className="mt-1 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">{sMeta.what}</p>
-            </div>
-            <div>
-              <Label>Where</Label>
-              <p className="mt-1 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">{sMeta.where}</p>
-            </div>
-            <div>
-              <Label>Owner</Label>
-              <p className="mt-1 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">
-                {OWNER_LABEL[sMeta.owner]}
-              </p>
-            </div>
-            <div>
-              <Label>Done when</Label>
-              <p className="mt-1 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">{sMeta.output}</p>
-            </div>
-          </div>
+        <Panel className="overflow-hidden">
+          <dl className="grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-o-hairline">
+            {([["What happens", sMeta.what], ["Where", sMeta.where],
+               ["Owner", OWNER_LABEL[sMeta.owner]], ["Done when", sMeta.output]] as const).map(([k, v]) => (
+              <div key={k} className="bg-o-surface px-5 py-4">
+                <dt className="o-eyebrow">{k}</dt>
+                <dd className="mt-2 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">{v}</dd>
+              </div>
+            ))}
+          </dl>
         </Panel>
       )}
 
       <PhaseBoard
+        showStepHeaders={false}
         answers={answers}
         orgId={orgId}
         phase={phase}

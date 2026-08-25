@@ -16,8 +16,9 @@ import { cn } from "@/lib/utils";
  * Structure
  * ------------------------------------------------------------------ */
 
-/** A titled band. One idea per band; the serif heading is what makes the
- *  page read as a document rather than a grid of widgets. */
+/** A titled band. One idea per band. The heading sits on a short accent
+ *  rule rather than floating — it is what gives a long page a spine to
+ *  scan down instead of a stack of equally-weighted blocks. */
 export function Band({
   title, sub, right, children, className,
 }: {
@@ -28,16 +29,23 @@ export function Band({
   className?: string;
 }) {
   return (
-    <section className={cn("mb-9", className)}>
+    <section className={cn("mb-10", className)}>
       {(title || right) && (
-        <header className="flex items-baseline justify-between gap-4 mb-3">
-          <div className="min-w-0">
+        <header className="flex items-baseline justify-between gap-4 mb-4">
+          <div className="min-w-0 flex items-baseline gap-3">
             {title && (
-              <h2 className="o-display text-[length:var(--text-o-head)] font-semibold text-o-ink leading-tight">
-                {title}
-              </h2>
+              <>
+                <span aria-hidden className="mt-[0.45rem] h-3.5 w-[3px] rounded-full bg-o-accent shrink-0 self-start" />
+                <div className="min-w-0">
+                  <h2 className="o-h2 text-o-ink">{title}</h2>
+                  {sub && (
+                    <p className="mt-1 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed max-w-3xl">
+                      {sub}
+                    </p>
+                  )}
+                </div>
+              </>
             )}
-            {sub && <p className="text-[length:var(--text-o-body)] text-o-ink-2 mt-0.5">{sub}</p>}
           </div>
           {right && <div className="shrink-0">{right}</div>}
         </header>
@@ -47,19 +55,29 @@ export function Band({
   );
 }
 
-/** A plain white panel. Hairline border, no shadow — shadows are what
- *  make dashboards look cheap. */
+/**
+ * A surface.
+ *
+ * This used to be a bare 1px rectangle, on the theory that shadows make a
+ * dashboard look cheap. Heavy shadows do; none at all just reads as a
+ * wireframe. It now carries the two-layer elevation from the surface
+ * system — a tight contact shadow plus a wider ambient one, each almost
+ * invisible alone.
+ */
 export function Panel({
-  children, className, inset = false,
+  children, className, inset = false, raised = false,
 }: {
   children: React.ReactNode;
   className?: string;
+  /** Sits *into* the page rather than on it — for wells and asides. */
   inset?: boolean;
+  /** One step further off the page, for things that float above content. */
+  raised?: boolean;
 }) {
   return (
     <div className={cn(
-      "rounded-lg border border-o-hairline",
-      inset ? "bg-o-sunk" : "bg-o-surface",
+      inset ? "rounded-[10px] border border-o-hairline bg-o-sunk" : "o-card",
+      raised && "o-card-raised",
       className
     )}>
       {children}
@@ -71,7 +89,7 @@ export function Panel({
 export function Label({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <span className={cn(
-      "block text-[length:var(--text-o-label)] uppercase tracking-[0.08em] text-o-ink-3 font-medium",
+      "o-eyebrow block",
       className
     )}>
       {children}
@@ -133,7 +151,7 @@ export function Figure({
     ? value.toLocaleString("en-US", { maximumFractionDigits: 2 })
     : value;
   return (
-    <span className={cn("o-display o-num font-semibold text-o-ink", FIGURE_CLASS[size], className)}>
+    <span className={cn("o-figure text-o-ink", FIGURE_CLASS[size], className)}>
       {prefix}
       {text}
       {suffix && (
@@ -216,15 +234,16 @@ export function Empty({
   action?: React.ReactNode;
 }) {
   return (
-    <Panel className="px-6 py-8">
-      <div className="max-w-md">
-        <p className="o-display text-[length:var(--text-o-figure-md)] text-o-ink leading-snug">
-          {headline}
-        </p>
+    // A dashed inner rule rather than a solid card. An empty state that
+    // looks identical to a populated one reads as a loading failure; the
+    // dashed edge says "nothing here yet" before the words do.
+    <div className="rounded-[10px] border border-dashed border-o-hairline-firm bg-o-sunk/40 px-7 py-9">
+      <div className="max-w-xl">
+        <p className="o-h3 text-o-ink">{headline}</p>
         <p className="mt-2 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">{body}</p>
-        {action && <div className="mt-4">{action}</div>}
+        {action && <div className="mt-5">{action}</div>}
       </div>
-    </Panel>
+    </div>
   );
 }
 
