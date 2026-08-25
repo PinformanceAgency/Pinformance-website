@@ -139,6 +139,50 @@
   border-bottom: 1px solid var(--o-line);
 }
 
+/* -- Display figures --------------------------------------------------
+   The type scale was flattened to the dashboard's steps when the two apps
+   were brought onto one brand. That was the wrong trade: brand parity is
+   the palette, the typeface and the logo — not the same restrained scale
+   on every surface. A number that carries a screen has to be allowed to
+   carry it, and 30px does not.
+
+   These are display sizes, used for the one or two figures a screen is
+   actually about. Everything else stays on the shared scale. */
+.o-hero      { font-size: clamp(3rem, 5.5vw, 4.25rem); line-height: 0.94; letter-spacing: -0.038em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.o-hero-sm   { font-size: 2.5rem;  line-height: 1;    letter-spacing: -0.03em;  font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* -- Focus panel ------------------------------------------------------
+   One near-black surface per screen, for the thing the screen is about.
+   A page of uniformly light cards has no focal point — every block asks
+   for the same amount of attention, which is the flattest thing a layout
+   can do. This is the sidebar's ground brought into the content area so
+   the two read as one product. */
+.o-focus {
+  background: linear-gradient(160deg, #14161c 0%, #0f1117 55%, #121419 100%);
+  color: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16,24,40,.10), 0 18px 40px -16px rgba(16,24,40,.34);
+  position: relative;
+  overflow: hidden;
+}
+/* The same radial the sidebar carries, so the brand red is present as
+   light rather than as another red rectangle. */
+.o-focus::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(60% 110% at 12% 0%, rgba(227,6,19,.16), transparent 62%);
+}
+.o-focus > * { position: relative; }
+.o-focus .o-eyebrow { color: rgba(255,255,255,.42); }
+.o-focus-line { border-color: rgba(255,255,255,.10) !important; }
+
+/* -- Section rule -----------------------------------------------------
+   Sections divided by a rule and real space rather than each being put in
+   its own box. Fewer edges, more hierarchy. */
+.o-section + .o-section {
+  margin-top: 2.75rem; padding-top: 2.75rem;
+  border-top: 1px solid var(--o-line);
+}
+
 /* -- Type ------------------------------------------------------------
    Optical tracking. Large text needs negative tracking to stop looking
    loose; micro-labels need positive tracking to stay readable at 11px. */

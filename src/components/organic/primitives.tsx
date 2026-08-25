@@ -29,13 +29,13 @@ export function Band({
   className?: string;
 }) {
   return (
-    <section className={cn("mb-10", className)}>
+    <section className={cn("o-section", className)}>
       {(title || right) && (
         <header className="flex items-baseline justify-between gap-4 mb-4">
-          <div className="min-w-0 flex items-baseline gap-3">
+          <div className="min-w-0 flex items-baseline gap-3.5">
             {title && (
               <>
-                <span aria-hidden className="mt-[0.45rem] h-3.5 w-[3px] rounded-full bg-o-accent shrink-0 self-start" />
+                <span aria-hidden className="mt-[0.5rem] h-4 w-[3px] rounded-full bg-o-accent shrink-0 self-start" />
                 <div className="min-w-0">
                   <h2 className="o-h2 text-o-ink">{title}</h2>
                   {sub && (

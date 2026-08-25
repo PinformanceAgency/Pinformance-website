@@ -45,11 +45,10 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
     <div>
       {/* The store name lives in the sidebar switcher now, so this heading
           names the screen rather than repeating the client. */}
-      <header className="mb-7">
-        <h1 className="o-display text-[length:var(--text-o-figure-md)] font-semibold text-o-ink leading-snug">
-          Overview
-        </h1>
-        <p className="mt-1.5 text-[length:var(--text-o-body)] text-o-ink-2">
+      <header className="mb-9">
+        <span className="o-eyebrow">Store</span>
+        <h1 className="o-h1 mt-2 text-o-ink">Overview</h1>
+        <p className="mt-2 text-[length:var(--text-o-body)] text-o-ink-2 max-w-2xl leading-relaxed">
           Where this store stands, and what it is losing while it stands there.
         </p>
       </header>
@@ -76,27 +75,31 @@ function HealthBand({ health, cohort, orgId }: { health: HealthScore; cohort: Co
   }));
 
   return (
-    <Band title="Health" sub={cohort.note}>
-      <Panel className="px-6 py-5">
-        <div className="grid grid-cols-1 lg:grid-cols-[190px_minmax(0,1fr)] gap-7 items-start">
-          {/* The composite, or an honest refusal to publish one. */}
+    <section className="o-section">
+      {/* The one thing this screen is about, on the one dark surface. A
+          page of uniformly light cards has no focal point — every block
+          asks for the same attention, which is the flattest a layout can
+          be. */}
+      <div className="o-focus px-8 py-8 lg:px-10 lg:py-9">
+        <div className="grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] gap-10 lg:gap-14 items-start">
           <div>
-            <Label>Composite score</Label>
-            <div className="mt-1.5">
-              <Figure
-                value={health.composite}
-                size="xl"
-                suffix={health.composite !== null ? "/100" : undefined}
-                reason={health.withheld_reason ?? undefined}
-              />
+            <span className="o-eyebrow">Composite health</span>
+            <div className="mt-3 flex items-baseline gap-2">
+              {health.composite === null ? (
+                <span className="o-hero-sm text-white/35" title={health.withheld_reason ?? undefined}>—</span>
+              ) : (
+                <>
+                  <span className="o-hero text-white">{health.composite}</span>
+                  <span className="text-white/40 text-xl font-medium">/100</span>
+                </>
+              )}
             </div>
-            {health.withheld_reason ? (
-              <p className="mt-2 text-[length:var(--text-o-body)] text-o-ink-2 leading-relaxed">
-                {health.withheld_reason}
-              </p>
-            ) : (
-              <p className="mt-2 text-[length:var(--text-o-body)] text-o-ink-3">
-                Weighted across {Math.round(health.measured_weight * 100)}% of the score that is measurable.
+            <p className="mt-4 text-sm leading-relaxed text-white/55 max-w-sm">
+              {health.withheld_reason ?? `Weighted across ${Math.round(health.measured_weight * 100)}% of the score that is measurable.`}
+            </p>
+            {cohort.note && (
+              <p className="mt-5 pt-5 border-t o-focus-line text-sm text-white/70 max-w-sm">
+                {cohort.note}
               </p>
             )}
           </div>
@@ -104,18 +107,23 @@ function HealthBand({ health, cohort, orgId }: { health: HealthScore; cohort: Co
           {/* Components, never a black box. */}
           <div>
             <SegmentedScore segments={segments} />
-            <dl className="mt-5 space-y-2 border-t border-o-hairline pt-4">
+            <dl className="mt-7 divide-y divide-white/[0.07]">
               {health.components.map((c) => (
-                <div key={c.key} className="grid grid-cols-[124px_minmax(0,1fr)] gap-3 items-baseline">
-                  <dt className="text-[length:var(--text-o-body)] text-o-ink">{c.label}</dt>
-                  <dd className="text-[length:var(--text-o-body)] text-o-ink-2 leading-snug">{c.detail}</dd>
+                <div key={c.key} className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] gap-4 items-baseline py-3 first:pt-0">
+                  <dt className="text-sm font-medium text-white/85">{c.label}</dt>
+                  <dd className="text-sm text-white/45 leading-snug">{c.detail}</dd>
+                  <dd className="o-figure text-base text-white/90 tabular-nums text-right">
+                    {c.score === null
+                      ? <span className="text-white/25 font-normal">—</span>
+                      : c.score}
+                  </dd>
                 </div>
               ))}
             </dl>
           </div>
         </div>
-      </Panel>
-    </Band>
+      </div>
+    </section>
   );
 }
 
