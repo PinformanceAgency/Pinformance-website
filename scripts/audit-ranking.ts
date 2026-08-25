@@ -21,8 +21,8 @@ const START = process.argv[3] ?? new Date(Date.now() - 7 * 86400000).toISOString
 (async () => {
   const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
   await c.connect();
-  const orgs = await c.query<{ id: string; name: string; tok: string; attr: string | null }>(
-    `SELECT o.id::text, o.name, o.pinterest_access_token_encrypted tok, st.attribution_setting attr
+  const orgs = await c.query<{ id: string; name: string; tok: string; attr: string | null; settings: Record<string, unknown> | null }>(
+    `SELECT o.id::text, o.name, o.pinterest_access_token_encrypted tok, o.settings, st.attribution_setting attr
        FROM public.organizations o
        JOIN public.store_settings st ON st.org_id = o.id
       WHERE o.pinterest_access_token_encrypted IS NOT NULL
@@ -35,7 +35,8 @@ const START = process.argv[3] ?? new Date(Date.now() - 7 * 86400000).toISOString
   for (const o of orgs.rows) {
     try {
       const pin = new PinterestClient(decrypt(o.tok));
-      const acct = (await selectAdAccount(pin, o.id)).chosen;
+      const pref = (o.settings?.pinterest_ad_account_id as string | undefined) ?? null;
+      const acct = (await selectAdAccount(pin, o.name, pref)).chosen;
       if (!acct) { out.push({ store: o.name, note: "no ad account" }); continue; }
       const attr = attributionToDays(o.attr ?? DEFAULT_ATTRIBUTION_SETTING);
       const call = async (crt: "TIME_OF_AD_ACTION" | "TIME_OF_CONVERSION") => {

@@ -62,6 +62,10 @@
     {
       "path": "/api/cron/fx-rates",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/verify-metrics",
+      "schedule": "0 5 * * *"
     }
   ]
 }
