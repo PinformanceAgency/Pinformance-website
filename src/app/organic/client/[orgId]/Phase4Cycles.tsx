@@ -2,7 +2,10 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { CycleView } from "@/lib/organic/phase4";
+import type { Deviation } from "@/lib/organic/structure";
 
 interface OrgBoard { id: string; name: string; status: string; topic_name: string | null }
 interface OrgKeyword { id: string; term: string; volume: number | null; type: string }
@@ -232,6 +235,8 @@ function SetupSection({
   return (
     <div className="p-4 space-y-3">
       <SectionTitle text="1 · Setup — reason, boards, keywords (P4.1.5 / P4.1.6 / P4.1.7)" />
+
+      <DeviationPanel deviations={cycle.deviations} />
 
       {/* Reason */}
       <div className="grid grid-cols-3 gap-2">
@@ -566,4 +571,50 @@ async function callP4(orgId: string, body: Record<string, unknown>): Promise<unk
   try { data = JSON.parse(text); } catch { /* keep raw */ }
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status} — ${text.slice(0, 160)}`);
   return data;
+}
+
+
+/**
+ * What this selection does differently, and what it goes against.
+ *
+ * Advisory by design. Nothing here disables a control or stops a save — the
+ * media buyer regularly knows something the research does not, and a tool
+ * that argues with them is a tool they work around. What it will not do is
+ * let a departure go unmarked: three months on, a deliberate exception and
+ * an oversight look identical, and nobody remembers which it was.
+ *
+ * The two kinds are separated because they are answered differently. A
+ * structure deviation is a rule of the method; a research deviation
+ * contradicts what this account's own research found, and the manager is
+ * often the one who knows why that research is out of date.
+ */
+function DeviationPanel({ deviations }: { deviations: Deviation[] }) {
+  if (deviations.length === 0) return null;
+  return (
+    <div className="rounded-lg ring-1 ring-inset ring-o-accent/25 bg-o-accent/[0.04] px-3.5 py-3">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="w-3.5 h-3.5 text-o-accent shrink-0" />
+        <span className="o-eyebrow text-o-accent">
+          {deviations.length} thing{deviations.length === 1 ? "" : "s"} here differ from the structure
+        </span>
+        <span className="text-[11px] text-muted-foreground">— you can proceed anyway</span>
+      </div>
+      <ul className="mt-2.5 space-y-2">
+        {deviations.map((d, i) => (
+          <li key={i} className="text-xs leading-relaxed">
+            <span className={cn(
+              "inline-block rounded px-1.5 py-[1px] mr-2 text-[10px] font-semibold uppercase tracking-wide align-middle",
+              d.kind === "research"
+                ? "bg-o-accent text-white"
+                : "bg-o-sunk text-o-ink-2 ring-1 ring-inset ring-o-hairline-firm"
+            )}>
+              {d.kind}
+            </span>
+            <span className="font-medium text-foreground">{d.what}</span>
+            <span className="block mt-0.5 ml-[3.6rem] text-muted-foreground">{d.why}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }

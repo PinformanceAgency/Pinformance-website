@@ -39,6 +39,8 @@ import type { PoolClient } from "pg";
 import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
 import { loadAccountBrief, splitFromGrid, formatNotesFromGrid } from "./brief";
+import { adviseBoards, adviseKeywords, checkBoards, checkKeywords } from "./structure";
+import type { Deviation } from "./structure";
 
 const PHASE_4_TASK_IDS = [
   "P4.1.1","P4.1.2","P4.1.3","P4.1.4","P4.1.5","P4.1.6","P4.1.7","P4.1.8",
@@ -183,8 +185,17 @@ export async function upsertUrl(orgId: string, u: UrlInput): Promise<string> {
   return r.rows[0].id;
 }
 
+/**
+ * Boards for a URL. Never refuses.
+ *
+ * This used to throw below five boards. That is the method's rule, not a
+ * data constraint, and enforcing it here meant a manager who had a reason —
+ * a topic genuinely short of boards, a deliberate small test — could not
+ * proceed at all. The rule still exists; it is reported by checkBoards()
+ * wherever the assignment is shown, so the deviation is visible without the
+ * tool arguing with the person using it.
+ */
 export async function assignBoardsToUrl(urlId: string, boardIds: string[]): Promise<void> {
-  if (boardIds.length < 5) throw new Error(`at least 5 boards required (got ${boardIds.length})`);
   const pool = organicPool();
   // Wipe + re-insert so re-runs replace the mapping.
   await pool.query(`DELETE FROM organic.url_boards WHERE url_id = $1`, [urlId]);
@@ -196,8 +207,17 @@ export async function assignBoardsToUrl(urlId: string, boardIds: string[]): Prom
   }
 }
 
+/**
+ * Keywords for a URL. Refuses one thing only.
+ *
+ * The five-keyword cap is the method's rule and is reported by
+ * checkKeywords() rather than enforced here — same reasoning as boards.
+ * A primary that is not among the selected keywords is different: that is
+ * incoherent rather than unconventional, and it would write a url_keywords
+ * set with no primary at all, which the design brief then reads as an empty
+ * keyword.
+ */
 export async function assignKeywordsToUrl(urlId: string, keywordIds: string[], primaryId: string): Promise<void> {
-  if (keywordIds.length > 5) throw new Error(`max 5 keywords per URL (got ${keywordIds.length})`);
   if (!keywordIds.includes(primaryId)) throw new Error(`primary keyword id must be in keywordIds`);
   const pool = organicPool();
   await pool.query(`DELETE FROM organic.url_keywords WHERE url_id = $1`, [urlId]);
@@ -230,6 +250,11 @@ export interface DesignBrief {
   content_angles: string[];
   visual_worlds: string[];
   key_moments: string[];
+  /** What has already worked on this account, from the phase-5
+   *  winning_combinations view. Month two designing as if month one never
+   *  happened is the difference between a recurring service that improves
+   *  and one that repeats. */
+  proven: string[];
   save_split_pct: number;   // 80
   click_split_pct: number;  // 20
   format_notes: string;
@@ -294,13 +319,17 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
     content_angles: taste?.content_angles ?? [],
     visual_worlds: taste?.visual_worlds ?? [],
     key_moments: taste?.key_moments ?? [],
+    proven: (brief.proven.value ?? []).slice(0, 6).map(
+      (p) => `${p.intent ?? "?"} pin, ${p.route === "AI_GENERATED" ? "AI route" : "direct"}, on "${p.board_name}" — ` +
+             `${p.clicks.toLocaleString("en-US")} clicks / ${p.saves.toLocaleString("en-US")} saves`
+    ),
     save_split_pct: split.save_split_pct,
     click_split_pct: split.click_split_pct,
     format_notes: formatNotesFromGrid(exact ?? finding, split),
     // What the research could not tell us, named rather than defaulted.
     // A designer reading "no brand book" behaves differently from one who
     // assumes the palette below is the brand's.
-    gaps: [brief.grid, brief.brand, brief.taste, brief.market]
+    gaps: [brief.grid, brief.brand, brief.taste, brief.market, brief.proven]
       .filter((k) => !k.known)
       .map((k) => (k as { why: string }).why),
     constraints: [
@@ -659,6 +688,11 @@ export interface CycleView {
   waterfall: { id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number } | null;
   tasks: CycleTaskRow[];
   progress: { total: number; done: number; blocked: number; pct: number };
+  /** Where this cycle's selection departs from the method or from the
+   *  account's own research. Never blocks anything — the manager may always
+   *  overrule — but an unmarked deviation is indistinguishable from a
+   *  mistake by the time anyone reads it back. */
+  deviations: Deviation[];
 }
 
 /** Returns every URL-scoped Phase 4 cycle for this org, hydrated with the
@@ -744,6 +778,27 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
     kwsByUrl.set(k.url_id, arr);
   }
 
+  // One brief for the whole org, then checked per cycle. Loading it per
+  // cycle would multiply ten queries by however many URLs are running.
+  const brief = await loadAccountBrief(orgId);
+  const kwMeta = new Map<string, { volume: number | null; forbidden: boolean }>();
+  if (brief) {
+    const meta = await pool.query<{ id: string; volume: string | null; client_forbidden: boolean | null }>(
+      `SELECT k.id::text, c.volume, k.client_forbidden
+         FROM organic.keywords k
+         LEFT JOIN organic.keyword_volume_cache c ON c.term = k.term
+        WHERE k.org_id = $1`, [orgId]);
+    for (const m of meta.rows) {
+      kwMeta.set(m.id, { volume: m.volume == null ? null : Number(m.volume), forbidden: !!m.client_forbidden });
+    }
+  }
+  const boardMeta = new Map<string, { topic_id: string | null; pin_count: number | null; status: string | null }>();
+  if (brief) {
+    const bm = await pool.query<{ id: string; topic_id: string | null; pin_count: number | null; status: string | null }>(
+      `SELECT id::text, topic_id::text, pin_count, status::text FROM organic.boards WHERE org_id = $1`, [orgId]);
+    for (const b of bm.rows) boardMeta.set(b.id, { topic_id: b.topic_id, pin_count: b.pin_count, status: b.status });
+  }
+
   const out: CycleView[] = [];
   for (const cycleKey of cycleKeys) {
     const shortId = cycleKey.replace(/^URL-/, "");
@@ -752,6 +807,33 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
     const tasks = tasksByCycle.get(cycleKey) ?? [];
     const done = tasks.filter((t) => t.status === "DONE").length;
     const blocked = tasks.filter((t) => t.status === "BLOCKED").length;
+
+    const cycleBoards = boardsByUrl.get(u.id) ?? [];
+    const cycleKws = kwsByUrl.get(u.id) ?? [];
+    const deviations = brief
+      ? [
+          ...checkBoards(
+            brief,
+            cycleBoards.map((b) => ({
+              id: b.board_id, name: b.board_name,
+              topic_id: boardMeta.get(b.board_id)?.topic_id ?? null,
+              status: boardMeta.get(b.board_id)?.status ?? null,
+              pin_count: boardMeta.get(b.board_id)?.pin_count ?? null,
+            })),
+            u.topic_id
+          ),
+          ...checkKeywords(
+            brief,
+            cycleKws.map((k) => ({
+              id: k.keyword_id, term: k.term, type: null,
+              volume: kwMeta.get(k.keyword_id)?.volume ?? k.volume ?? null,
+              client_forbidden: kwMeta.get(k.keyword_id)?.forbidden ?? false,
+            })),
+            cycleKws.find((k) => k.is_primary)?.keyword_id ?? null
+          ),
+        ]
+      : [];
+
     out.push({
       cycle: cycleKey,
       url_id: u.id,
@@ -775,6 +857,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
         blocked,
         pct: tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0,
       },
+      deviations,
     });
   }
   return out;
@@ -816,4 +899,95 @@ export async function hasGridAnalysisForKeyword(orgId: string, keyword: string):
     [orgId, keyword]
   );
   return (r.rowCount ?? 0) > 0;
+}
+
+
+// ---------- deviations (the manager may overrule, visibly) -------------------
+
+export interface CycleDeviations {
+  boards: Deviation[];
+  keywords: Deviation[];
+}
+
+/**
+ * What about this URL's current selection departs from the method or from
+ * this account's research.
+ *
+ * Computed on read rather than stored at save time, deliberately. A stored
+ * warning goes stale the moment a board gets pinned past ten, or a keyword
+ * finally gets its volume — and a stale warning is worse than none, because
+ * people learn to dismiss the whole panel.
+ */
+export async function loadCycleDeviations(orgId: string, urlId: string): Promise<CycleDeviations> {
+  const pool = organicPool();
+  const brief = await loadAccountBrief(orgId);
+  if (!brief) return { boards: [], keywords: [] };
+
+  const [urlRow, boards, kws] = await Promise.all([
+    pool.query<{ topic_id: string | null }>(
+      `SELECT topic_id::text FROM organic.urls WHERE id = $1 AND org_id = $2`, [urlId, orgId]),
+    pool.query(
+      `SELECT b.id::text, b.name, b.topic_id::text, b.status::text, b.pin_count
+         FROM organic.url_boards ub JOIN organic.boards b ON b.id = ub.board_id
+        WHERE ub.url_id = $1 ORDER BY ub.position`, [urlId]),
+    pool.query(
+      `SELECT k.id::text, k.term, k.type::text, k.client_forbidden, uk.is_primary,
+              c.volume
+         FROM organic.url_keywords uk
+         JOIN organic.keywords k ON k.id = uk.keyword_id
+         LEFT JOIN organic.keyword_volume_cache c ON c.term = k.term
+        WHERE uk.url_id = $1`, [urlId]),
+  ]);
+
+  const topicId = urlRow.rows[0]?.topic_id ?? null;
+  const chosenBoards = boards.rows.map((b) => ({
+    id: b.id, name: b.name, topic_id: b.topic_id, status: b.status, pin_count: b.pin_count,
+  }));
+  const chosenKws = kws.rows.map((k) => ({
+    id: k.id, term: k.term, type: k.type,
+    volume: k.volume == null ? null : Number(k.volume),
+    client_forbidden: k.client_forbidden,
+  }));
+  const primaryId = kws.rows.find((k) => k.is_primary)?.id ?? null;
+
+  return {
+    boards: checkBoards(brief, chosenBoards, topicId),
+    keywords: checkKeywords(brief, chosenKws, primaryId),
+  };
+}
+
+/** The ranked suggestions for a URL, with the reason for each. */
+export async function loadCycleAdvice(orgId: string, urlId: string) {
+  const pool = organicPool();
+  const brief = await loadAccountBrief(orgId);
+  if (!brief) return null;
+
+  const [urlRow, boards, kws] = await Promise.all([
+    pool.query<{ topic_id: string | null }>(
+      `SELECT topic_id::text FROM organic.urls WHERE id = $1 AND org_id = $2`, [urlId, orgId]),
+    pool.query(
+      `SELECT id::text, name, topic_id::text, status::text, pin_count
+         FROM organic.boards WHERE org_id = $1`, [orgId]),
+    pool.query(
+      `SELECT k.id::text, k.term, k.type::text, k.client_forbidden, c.volume
+         FROM organic.keywords k
+         LEFT JOIN organic.keyword_volume_cache c ON c.term = k.term
+        WHERE k.org_id = $1`, [orgId]),
+  ]);
+
+  return {
+    boards: adviseBoards(
+      brief,
+      boards.rows.map((b) => ({ id: b.id, name: b.name, topic_id: b.topic_id, status: b.status, pin_count: b.pin_count })),
+      urlRow.rows[0]?.topic_id ?? null
+    ),
+    keywords: adviseKeywords(
+      brief,
+      kws.rows.map((k) => ({
+        id: k.id, term: k.term, type: k.type,
+        volume: k.volume == null ? null : Number(k.volume),
+        client_forbidden: k.client_forbidden,
+      }))
+    ),
+  };
 }

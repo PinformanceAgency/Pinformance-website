@@ -504,6 +504,35 @@ async function seed(c: Client) {
       WHERE org_id = $1 AND task_id IN ('P3.3.6','P3.3.7')`,
     [ORG_ID, iso(daysAgo(23))]);
 
+  /* ---- two live phase-4 cycles -----------------------------------
+     The store had six waterfalls but zero cycle-scoped client_tasks, so
+     loadCyclesForOrg() returned nothing and the whole Cycles panel — the
+     setup card, the board and keyword pickers, the deviation warnings —
+     rendered as "no active cycles". Six months of pins with no cycle to
+     show them in.
+
+     One cycle is deliberately off-structure: four boards where the method
+     asks five, three of them from another topic. That is what the
+     deviation panel exists to say out loud, and a demo where every cycle
+     is clean never shows it. */
+  {
+    const urlRows = await c.query<{ id: string; name: string }>(
+      `SELECT id::text, name FROM organic.urls WHERE org_id = $1 ORDER BY name LIMIT 2`, [ORG_ID]);
+    for (const u of urlRows.rows) {
+      await c.query(
+        `INSERT INTO organic.client_tasks (org_id, task_id, cycle, status, completed_at)
+         SELECT $1, td.id, $2,
+                CASE WHEN td.step = '1' THEN 'DONE'::organic.task_status
+                     ELSE 'TODO'::organic.task_status END,
+                CASE WHEN td.step = '1' THEN now() - interval '6 days' ELSE NULL END
+           FROM organic.task_definitions td
+          WHERE td.phase = 4 AND td.active`,
+        // The cycle key is URL- plus the first eight characters of the URL
+        // id, matching startCycleForUrl(); the full uuid resolves to nothing.
+        [ORG_ID, `URL-${u.id.slice(0, 8)}`]);
+    }
+  }
+
   /* ---- the research phase 4 actually reads ------------------------
      Without these the store demonstrates only the empty half of every
      screen: no brand book, no grid, no intake. The three grid rows carry
