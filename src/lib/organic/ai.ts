@@ -17,7 +17,15 @@ const MODEL_ID = "claude-haiku-4-5-20251001";
 const PROMPT_VERSION = "v1-2026-08";
 const MAX_ATTEMPTS = 3;
 
-export type DraftKind = "DISPLAY_NAME" | "BIO" | "BOARD_DESCRIPTION" | "MARKET_ANALYSIS";
+export type DraftKind =
+  | "DISPLAY_NAME"
+  | "BIO"
+  | "BOARD_DESCRIPTION"
+  | "MARKET_ANALYSIS"
+  /** P4.2.8 — the four copy sets for one URL's designs. */
+  | "PIN_COPY"
+  /** P4.2.4, AI route — the prompt a designer or an image model runs. */
+  | "IMAGE_PROMPT";
 
 function anthropicClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPHIC_API_KEY;

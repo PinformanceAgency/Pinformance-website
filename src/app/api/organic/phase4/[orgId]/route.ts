@@ -37,6 +37,16 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       return { ok: true };
     case "brief":
       return { brief: await P4.generateDesignBrief(orgId, String(body.url_id)) };
+    case "advice":
+      return { advice: await P4.loadCycleAdvice(orgId, String(body.url_id)) };
+    case "deviations":
+      return { deviations: await P4.loadCycleDeviations(orgId, String(body.url_id)) };
+    // Both draft only. Nothing here publishes or approves — a human still
+    // signs off, which is what AI_DRAFT means in the SOP.
+    case "generate_copy":
+      return await P4.generateCopyForDesign(orgId, String(body.design_id));
+    case "generate_image_prompt":
+      return await P4.generateImagePromptForDesign(orgId, String(body.design_id));
     case "validate_copy":
       return P4.validateCopy(body as unknown as P4.CopyDraft);
     case "waterfall":

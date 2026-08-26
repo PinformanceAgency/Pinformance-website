@@ -117,6 +117,13 @@ async function remove(c: Client) {
     ["pin_performance", `DELETE FROM organic.pin_performance WHERE pin_id IN (
         SELECT p.id FROM organic.pins p JOIN organic.waterfalls w ON w.id = p.waterfall_id WHERE w.org_id = $1)`],
     ["pins",            `DELETE FROM organic.pins WHERE waterfall_id IN (SELECT id FROM organic.waterfalls WHERE org_id = $1)`],
+    // Generated copy and AI drafts hang off designs, so they have to go
+    // before the designs do — and they were absent from this list entirely,
+    // which meant a reseed left orphaned copy behind pointing at designs
+    // that no longer existed.
+    ["copy_sets",       `DELETE FROM organic.copy_sets WHERE design_id IN (
+        SELECT d.id FROM organic.designs d JOIN organic.waterfalls w ON w.id = d.waterfall_id WHERE w.org_id = $1)`],
+    ["ai_drafts",       `DELETE FROM organic.ai_drafts WHERE org_id = $1`],
     ["designs",         `DELETE FROM organic.designs WHERE waterfall_id IN (SELECT id FROM organic.waterfalls WHERE org_id = $1)`],
     ["waterfalls",      `DELETE FROM organic.waterfalls WHERE org_id = $1`],
     ["url_boards",      `DELETE FROM organic.url_boards WHERE url_id IN (SELECT id FROM organic.urls WHERE org_id = $1)`],

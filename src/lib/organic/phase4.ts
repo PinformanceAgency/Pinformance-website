@@ -40,7 +40,12 @@ import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
 import { loadAccountBrief, splitFromGrid, formatNotesFromGrid } from "./brief";
 import { adviseBoards, adviseKeywords, checkBoards, checkKeywords } from "./structure";
+import { generateWithValidator, persistDraft } from "./ai";
 import type { Deviation } from "./structure";
+
+/** Stamped on every generated copy set so a regression can be traced to
+ *  the model that produced it. */
+const MODEL_VERSION = "claude-sonnet-4-5";
 
 const PHASE_4_TASK_IDS = [
   "P4.1.1","P4.1.2","P4.1.3","P4.1.4","P4.1.5","P4.1.6","P4.1.7","P4.1.8",
@@ -373,7 +378,19 @@ function containsKeywordOrVariant(text: string, kw: string): boolean {
   return hits >= Math.ceil(kwWords.length * 0.7);
 }
 
-export function validateCopy(c: CopyDraft): { ok: boolean; errors: string[] } {
+/**
+ * `banned` and `neverInclude` come from the brand book (P1.1.6) via
+ * brand_rules. They were collected in phase 1 and then checked by nobody —
+ * the validator enforced Pinterest's rules and left the client's own to
+ * whoever happened to remember them. A word the client explicitly rejected
+ * reaching a published pin is the one copy failure they will actually see.
+ */
+export interface CopyRules {
+  bannedWords?: string[];
+  neverInclude?: string[];
+}
+
+export function validateCopy(c: CopyDraft, rules: CopyRules = {}): { ok: boolean; errors: string[] } {
   const errs: string[] = [];
   const title = c.title.trim();
   const desc = c.description.trim();
@@ -402,7 +419,27 @@ export function validateCopy(c: CopyDraft): { ok: boolean; errors: string[] } {
       errs.push(`tagline must contain the primary keyword "${kw}" or a close variant`);
   }
 
+  // Whole-word matching: a brand that bans "sale" must not trip on
+  // "wholesale", and one that bans "cheap" should still catch "Cheap".
+  const haystack = `${title} ${desc} ${tagline}`.toLowerCase();
+  for (const w of rules.bannedWords ?? []) {
+    const t = w.trim().toLowerCase();
+    if (t && new RegExp(`\\b${escapeRe(t)}\\b`).test(haystack)) {
+      errs.push(`banned word from the brand book: "${w}"`);
+    }
+  }
+  for (const n of rules.neverInclude ?? []) {
+    const t = n.trim().toLowerCase();
+    if (t && haystack.includes(t)) {
+      errs.push(`the brand book says never include: "${n}"`);
+    }
+  }
+
   return { ok: errs.length === 0, errors: errs };
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ---------- URL sanitisation (deviation 6) ----------------------------------
@@ -990,4 +1027,257 @@ export async function loadCycleAdvice(orgId: string, urlId: string) {
       }))
     ),
   };
+}
+
+// ---------- P4.2.8 copy + P4.2.4 image prompts ------------------------------
+//
+// Both were the same hole: the waterfall created four copy_sets rows with a
+// primary keyword and nothing else, and the AI route had no prompt at all.
+// Three months of research decided which URL and which boards, and then the
+// thing the client actually sees — the words on the pin and the picture —
+// was written from scratch by whoever was free, with the brand book open in
+// another tab if they remembered.
+//
+// Both now read the account brief. Nothing here publishes: a draft is
+// written, a human approves it. That is what AI_DRAFT means in the SOP and
+// it is the right shape — the model is good at holding forty constraints at
+// once and bad at knowing which of them the client stopped caring about.
+
+interface DesignContext {
+  design_id: string;
+  design_number: number;
+  intent: string;
+  route: string;
+  text_overlay_keyword: string | null;
+  url_id: string;
+  org_id: string;
+}
+
+async function designContext(orgId: string, designId: string): Promise<DesignContext> {
+  const r = await organicPool().query<DesignContext>(
+    `SELECT d.id::text AS design_id, d.design_number, d.intent::text AS intent,
+            d.route::text AS route, d.text_overlay_keyword,
+            w.url_id::text AS url_id, w.org_id::text AS org_id
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+      WHERE d.id = $1 AND w.org_id = $2`,
+    [designId, orgId]
+  );
+  if (r.rowCount === 0) throw new Error("Design not found for this org");
+  return r.rows[0];
+}
+
+const COPY_SYSTEM = `You write Pinterest pin copy for a media buying agency.
+
+You return ONLY a JSON object, no preamble and no code fence:
+{"tagline": "...", "title": "...", "description": "..."}
+
+Hard rules, all enforced by a validator that will reject you:
+- title: at most 100 characters, and it must OPEN with the primary keyword.
+- description: between 250 and 300 characters. Not 249, not 301.
+- tagline: 4 to 9 words, must contain the primary keyword or a close variant.
+  This is the text overlay on the image, so it has to work as a hook on its own.
+- No exclamation marks anywhere. No hashtags. No em-dashes or en-dashes.
+- Never use a banned word or a never-include item from the brand book.
+
+Write in the brand's tone. Pinterest is a search engine before it is a
+social network: the description is read by the algorithm as much as by a
+person, so it should carry the long-tail terms naturally rather than
+stuffing them.`;
+
+/** P4.2.8 — copy for one design, drafted from the account's own research. */
+export async function generateCopyForDesign(orgId: string, designId: string) {
+  const ctx = await designContext(orgId, designId);
+  const [brief, account] = await Promise.all([
+    generateDesignBrief(orgId, ctx.url_id),
+    loadAccountBrief(orgId),
+  ]);
+  if (!account) throw new Error("Org not found");
+
+  const rules: CopyRules = {
+    bannedWords: account.brand.value?.banned_words ?? [],
+    neverInclude: account.brand.value?.never_include ?? [],
+  };
+
+  const intentLine = ctx.intent === "CLICK"
+    ? "This is a CLICK pin: 9:16, text overlay, a CTA. The tagline is the hook people read before they decide to tap."
+    : "This is a SAVE pin: 2:3 lifestyle, no text on the image. The tagline is still needed for the overlay variant, but the copy should read as inspiration rather than a pitch.";
+
+  const user = [
+    `Brand: ${account.name}${account.niche ? ` — ${account.niche}` : ""}`,
+    account.brand.value?.positioning ? `Positioning: ${account.brand.value.positioning}` : null,
+    account.intake.value?.brand_personality ? `Personality: ${account.intake.value.brand_personality}` : null,
+    account.intake.value?.ideal_audience ? `Audience: ${account.intake.value.ideal_audience}` : null,
+    "",
+    `Landing page: ${brief.url_name} (${brief.url})`,
+    `Primary keyword: ${brief.primary_keyword}`,
+    `Long-tail to work in naturally: ${brief.long_tail_keywords.join(", ")}`,
+    "",
+    intentLine,
+    `Design ${ctx.design_number} of 4.`,
+    ctx.text_overlay_keyword ? `Overlay hook chosen for this design: ${ctx.text_overlay_keyword}` : null,
+    "",
+    brief.tone_descriptors.length ? `Tone: ${brief.tone_descriptors.join(", ")}` : null,
+    brief.approved_ctas.length ? `Approved CTAs (use one verbatim on a CLICK pin): ${brief.approved_ctas.join(" / ")}` : null,
+    rules.bannedWords?.length ? `Banned words: ${rules.bannedWords.join(", ")}` : null,
+    rules.neverInclude?.length ? `Never include: ${rules.neverInclude.join(", ")}` : null,
+    "",
+    brief.content_angles.length ? `Content angles for this brand: ${brief.content_angles.join(" / ")}` : null,
+    brief.key_moments.length ? `Key moments: ${brief.key_moments.join(" / ")}` : null,
+    "",
+    `What page one rewards here: ${brief.format_notes}`,
+    brief.proven.length ? `What has already worked on this account:\n${brief.proven.map((p) => `  - ${p}`).join("\n")}` : null,
+    brief.gaps.length ? `\nResearch gaps you are working around:\n${brief.gaps.map((g) => `  - ${g}`).join("\n")}` : null,
+  ].filter((l) => l !== null).join("\n");
+
+  const { text, attempts, failed_attempts } = await generateWithValidator(
+    COPY_SYSTEM,
+    user,
+    (raw) => {
+      const parsed = parseCopyJson(raw, brief.primary_keyword);
+      if ("error" in parsed) return { ok: false, errors: [parsed.error] };
+      return validateCopy(parsed.copy, rules);
+    },
+    900
+  );
+
+  const parsed = parseCopyJson(text, brief.primary_keyword);
+  if ("error" in parsed) throw new Error(parsed.error);
+  const copy = parsed.copy;
+
+  // Upsert, not update. The waterfall generator creates a copy_sets row per
+  // design, but a design can also arrive from an import or a re-run where
+  // that row was never made — and an UPDATE matching nothing returned
+  // ok:true while the copy went nowhere. A generation that silently
+  // persists nothing is the worst of both: the cost of the call, none of
+  // the result, and no way to tell from the response.
+  const written = await organicPool().query(
+    `INSERT INTO organic.copy_sets
+       (id, design_id, tagline, title, description, primary_keyword,
+        secondary_keywords, validator_status, validator_errors,
+        human_qc_status, prompt_version, model_version, generated_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6::text[],
+             'PASS'::organic.validator_status, '{}'::jsonb,
+             'PENDING'::organic.qc_status, 'copy-v1', $7, now())
+     ON CONFLICT (design_id) DO UPDATE SET
+       tagline = EXCLUDED.tagline,
+       title = EXCLUDED.title,
+       description = EXCLUDED.description,
+       secondary_keywords = EXCLUDED.secondary_keywords,
+       validator_status = EXCLUDED.validator_status,
+       validator_errors = EXCLUDED.validator_errors,
+       -- A regenerated copy set has not been reviewed, whatever the old row
+       -- said. Carrying APPROVED across would let new text inherit approval
+       -- nobody gave it.
+       human_qc_status = 'PENDING'::organic.qc_status,
+       human_qc_by = NULL,
+       human_qc_reason = NULL,
+       prompt_version = EXCLUDED.prompt_version,
+       model_version = EXCLUDED.model_version,
+       generated_at = now()
+     RETURNING id::text`,
+    [designId, copy.tagline ?? null, copy.title, copy.description,
+     brief.primary_keyword, brief.long_tail_keywords, MODEL_VERSION]
+  );
+  if (written.rowCount === 0) throw new Error("copy set was not written");
+  await persistDraft(orgId, "PIN_COPY", designId, text);
+
+  return { copy, attempts, failed_attempts };
+}
+
+/** Tolerant of a fenced or chatty response — the validator loop needs the
+ *  reason, not a thrown parse error that reads as an API failure. */
+function parseCopyJson(raw: string, primaryKeyword: string):
+  { copy: CopyDraft } | { error: string } {
+  const body = raw.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start === -1 || end === -1) return { error: "response was not a JSON object" };
+  try {
+    const o = JSON.parse(body.slice(start, end + 1)) as Record<string, unknown>;
+    if (typeof o.title !== "string" || typeof o.description !== "string") {
+      return { error: "JSON must carry string 'title' and 'description'" };
+    }
+    return {
+      copy: {
+        title: o.title,
+        description: o.description,
+        tagline: typeof o.tagline === "string" ? o.tagline : undefined,
+        primary_keyword: primaryKeyword,
+      },
+    };
+  } catch {
+    return { error: "response was not valid JSON" };
+  }
+}
+
+const IMAGE_SYSTEM = `You write image prompts for Pinterest pins.
+
+Return ONE paragraph, 40 to 80 words, no preamble and no quotes. It has to
+be usable verbatim in an image model or handed to a designer as a shot
+brief, so describe subject, setting, light, composition and palette — not
+mood words on their own.
+
+Non-negotiable, because Pinterest penalises the alternatives:
+- No text, no words, no lettering, no logos and no watermarks in the image.
+- Leave the top-left and top-right corners uncluttered; Pinterest overlays
+  its own buttons there.
+- Photographic realism unless the brand's visual world says otherwise.`;
+
+/** P4.2.4, AI route — the image prompt for one design. */
+export async function generateImagePromptForDesign(orgId: string, designId: string) {
+  const ctx = await designContext(orgId, designId);
+  const [brief, account] = await Promise.all([
+    generateDesignBrief(orgId, ctx.url_id),
+    loadAccountBrief(orgId),
+  ]);
+  if (!account) throw new Error("Org not found");
+
+  const ratio = ctx.intent === "CLICK" ? "9:16 vertical" : "2:3 vertical";
+  const palette = [...brief.dominant_colors, ...brief.brand_colors].slice(0, 5);
+
+  const user = [
+    `Brand: ${account.name}${account.niche ? ` — ${account.niche}` : ""}`,
+    account.intake.value?.products_services ? `Products: ${account.intake.value.products_services}` : null,
+    `Landing page: ${brief.url_name}`,
+    `Primary keyword: ${brief.primary_keyword}`,
+    "",
+    `Format: ${ratio}. ${ctx.intent === "CLICK" ? "Leave clear space for a text overlay." : "No overlay — the image carries it alone."}`,
+    `Design ${ctx.design_number} of 4, and the four must be visually distinct from each other.`,
+    "",
+    brief.visual_worlds.length ? `Visual worlds for this brand (pick the one that fits this URL): ${brief.visual_worlds.join(" / ")}` : null,
+    brief.key_moments.length ? `Key moments: ${brief.key_moments.join(" / ")}` : null,
+    palette.length ? `Palette to sit inside: ${palette.join(", ")}` : null,
+    brief.tone_descriptors.length ? `Tone: ${brief.tone_descriptors.join(", ")}` : null,
+    "",
+    `What page one looks like for this keyword: ${brief.format_notes}`,
+    brief.gaps.length ? `\nResearch gaps you are working around:\n${brief.gaps.map((g) => `  - ${g}`).join("\n")}` : null,
+  ].filter((l) => l !== null).join("\n");
+
+  const { text, attempts, failed_attempts } = await generateWithValidator(
+    IMAGE_SYSTEM,
+    user,
+    validateImagePrompt,
+    500
+  );
+  const draftId = await persistDraft(orgId, "IMAGE_PROMPT", designId, text);
+  return { prompt: text, draft_id: draftId, attempts, failed_attempts };
+}
+
+/**
+ * The two things that actually get a pin suppressed, checked rather than
+ * hoped for: baked-in text, and a watermark. Everything else about an image
+ * prompt is taste, and taste is what the human approval step is for.
+ */
+export function validateImagePrompt(text: string): { ok: boolean; errors: string[] } {
+  const errs: string[] = [];
+  const t = text.trim();
+  const words = t.split(/\s+/).filter(Boolean).length;
+  if (words < 30) errs.push(`prompt is ${words} words, too thin to brief from (aim 40-80)`);
+  if (words > 110) errs.push(`prompt is ${words} words, over the 80-word target`);
+  if (/\b(watermark|logo|lettering|caption|subtitle)\b/i.test(t) && !/\bno\s+(watermark|logo|lettering)/i.test(t)) {
+    errs.push("prompt asks for a watermark, logo or lettering — Pinterest penalises all three");
+  }
+  if (/^["']|["']$/.test(t)) errs.push("prompt is wrapped in quotes");
+  return { ok: errs.length === 0, errors: errs };
 }
