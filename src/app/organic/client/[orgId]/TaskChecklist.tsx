@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X, Loader2, HelpCircle, CircleDot } from "lucide-react";
+import { Check, X, Loader2, HelpCircle, CircleDot, Paperclip, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { visibleFields } from "@/lib/organic/task-fields";
 import type { TaskField, TaskFieldSet } from "@/lib/organic/task-fields";
@@ -108,11 +108,12 @@ function FieldRow({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [busy, setBusy] = useState<null | "answer" | "evidence">(null);
+  const [busy, setBusy] = useState<null | "answer" | "evidence" | "file">(null);
   const [err, setErr] = useState<string | null>(null);
   const [evidence, setEvidence] = useState(answer?.evidence ?? "");
   const [text, setText] = useState(answer?.answer_text ?? "");
   const [num, setNum] = useState(answer?.answer_number != null ? String(answer.answer_number) : "");
+  const [fileUrl, setFileUrl] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
 
   const bool = answer?.answer_bool ?? null;
@@ -123,7 +124,7 @@ function FieldRow({
   // definition — that is the only reason it is here.
   const owed = evidenceMissing || (conditional && !hasAnswer);
 
-  async function save(patch: Record<string, unknown>, which: "answer" | "evidence") {
+  async function save(patch: Record<string, unknown>, which: "answer" | "evidence" | "file") {
     setErr(null); setBusy(which);
     try {
       const res = await fetch(`/api/organic/answers/${orgId}`, {
@@ -319,6 +320,54 @@ function FieldRow({
             </div>
           )}
 
+          {/* ---- the file this answer rests on --------------------
+              Per question, not per task. A task with six checks used to
+              share one attachment between them, filed at the end behind a
+              dialog — so the reader got a document and no idea which check
+              it proved, and the person filing it had to leave the question
+              they were looking at to do it. */}
+          <div className="mt-4">
+            {answer?.file_url ? (
+              <div className="flex items-center gap-2.5 max-w-3xl rounded-lg bg-o-sunk/60 ring-1 ring-inset ring-o-hairline px-3.5 py-2.5">
+                <Paperclip className="w-3.5 h-3.5 text-o-ink-3 shrink-0" />
+                <a href={answer.file_url} target="_blank" rel="noreferrer"
+                   className="flex-1 min-w-0 text-sm text-primary hover:underline truncate">
+                  {answer.file_title || answer.file_url}
+                </a>
+                <a href={answer.file_url} target="_blank" rel="noreferrer"
+                   className="text-o-ink-3 hover:text-foreground shrink-0" title="Open">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+                {!readOnly && (
+                  <button type="button" disabled={busy !== null}
+                    onClick={() => { setFileUrl(""); save({ clear: "file" }, "file"); }}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 shrink-0">
+                    remove
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="url" value={fileUrl} disabled={readOnly}
+                  onChange={(e) => setFileUrl(e.target.value)}
+                  placeholder="Link the file for this question — https://drive.google.com/…"
+                  className="o-input max-w-md flex-1 min-w-[16rem]"
+                />
+                <button
+                  type="button" disabled={readOnly || busy !== null || !fileUrl.trim()}
+                  onClick={() => save({ file_url: fileUrl.trim(), file_title: titleFromUrl(fileUrl) }, "file")}
+                  className={cn(answerCls, fileUrl.trim() && "o-btn-primary")}
+                >
+                  {busy === "file"
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Paperclip className="w-4 h-4" />}
+                  Attach
+                </button>
+              </div>
+            )}
+          </div>
+
           {err && (
             <p className="mt-2 text-xs text-red-600 break-words" role="alert">
               Could not save: {err}
@@ -328,4 +377,19 @@ function FieldRow({
       </div>
     </div>
   );
+}
+
+/**
+ * A readable name from a pasted URL, so the attachment does not render as
+ * eighty characters of query string. The last meaningful path segment is
+ * almost always the document name; the host is the fallback.
+ */
+function titleFromUrl(raw: string): string {
+  try {
+    const u = new URL(raw.trim());
+    const seg = u.pathname.split("/").filter(Boolean).pop();
+    return decodeURIComponent(seg ?? "").slice(0, 120) || u.hostname;
+  } catch {
+    return raw.trim().slice(0, 120);
+  }
 }

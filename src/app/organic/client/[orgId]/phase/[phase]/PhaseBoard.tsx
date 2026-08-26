@@ -148,7 +148,6 @@ function TaskCard({
   const fields = fieldsFor(task.task_id);
   const [expanded, setExpanded] = useState(hasCustomForm && (task.status === "TODO" || task.status === "IN_PROGRESS"));
   const [showSkip, setShowSkip] = useState(false);
-  const [showComplete, setShowComplete] = useState(false);
   const [, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,10 +171,12 @@ function TaskCard({
 
   async function onStatusPick(next: TaskStatus) {
     if (next === task.status) return;
-    if (next === "DONE") {
-      if (hasCustomForm) { setExpanded(true); return; }
-      setShowComplete(true); return;
-    }
+    // DONE used to open a dialog asking for a result and a document, both
+    // optional, on a task that already carries a work panel and — where it
+    // has a checklist — closes itself. That is a modal in the way of a
+    // decision already made. Skipping still asks, because a skip needs a
+    // reason to be worth anything later.
+    if (next === "DONE" && hasCustomForm) { setExpanded(true); return; }
     if (next === "SKIPPED") { setShowSkip(true); return; }
     await patch({ status: next });
   }
@@ -294,13 +295,6 @@ function TaskCard({
           }} />
       )}
 
-      {showComplete && (
-        <CompleteDialog taskName={task.name} onCancel={() => setShowComplete(false)}
-          onConfirm={async (link, notes) => {
-            setShowComplete(false);
-            await patch({ status: "DONE", ...(link ? { link } : {}), ...(notes ? { notes } : {}) });
-          }} />
-      )}
     </div>
   );
 }
@@ -364,49 +358,3 @@ function statusColor(s: TaskStatus): string {
   }
 }
 
-function CompleteDialog({ taskName, onCancel, onConfirm }: {
-  taskName: string;
-  onCancel: () => void;
-  onConfirm: (link?: string, notes?: string) => void | Promise<void>;
-}) {
-  const [link, setLink] = useState("");
-  const [notes, setNotes] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  async function confirm() {
-    const l = link.trim();
-    if (l && !/^https?:\/\//i.test(l)) { setErr("Link must start with http(s)://"); return; }
-    await onConfirm(l || undefined, notes.trim() || undefined);
-  }
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onCancel}>
-      <div className="w-full max-w-lg rounded-lg bg-card shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b-2 border-primary">
-          <h3 className="text-base font-semibold text-foreground">Finish &ldquo;{taskName}&rdquo;</h3>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Everything below is optional — the task closes either way.
-          </p>
-        </div>
-        <div className="p-5 space-y-4">
-          <label className="block">
-            <span className="text-sm font-medium text-foreground">What was the result?</span>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} autoFocus
-              placeholder="What you found or decided. Any link pasted here is saved to the Assets library."
-              className="o-input mt-1.5" />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-foreground">Attach a document</span>
-            <input type="url" value={link}
-              onChange={(e) => { setLink(e.target.value); if (err) setErr(null); }}
-              placeholder="https://drive.google.com/…"
-              className="o-input mt-1.5" />
-          </label>
-          {err && <div className="text-sm text-red-600">{err}</div>}
-        </div>
-        <div className="px-5 py-4 bg-muted/40 border-t border-border flex justify-end gap-2">
-          <button onClick={onCancel} className="o-btn">Cancel</button>
-          <button onClick={confirm} className="o-btn o-btn-primary">Mark done</button>
-        </div>
-      </div>
-    </div>
-  );
-}

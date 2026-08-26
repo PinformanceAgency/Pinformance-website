@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saveTaskAnswer, clearTaskAnswerField, loadTaskAnswers } from "@/lib/organic/workspace";
+import { saveTaskAnswer, clearTaskAnswerField, loadTaskAnswers, syncTaskStatusFromAnswers } from "@/lib/organic/workspace";
 import { autoLinkAssetsFromText } from "@/lib/organic/assets-auto";
 import { organicPool } from "@/lib/organic/db";
 
@@ -85,20 +85,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ orgId: 
     // An explicit clear, since the upsert COALESCEs and cannot blank a value.
     if (body.clear) {
       await clearTaskAnswerField(orgId, body.task_id, body.field_key, body.clear);
-      return NextResponse.json({ ok: true, cleared: body.clear });
+      // Clearing an answer can un-finish the task, same as answering can
+      // finish it. Deriving in one direction only would leave a task
+      // sitting at DONE with an empty question on it.
+      const status = await syncTaskStatusFromAnswers(orgId, body.task_id);
+      return NextResponse.json({ ok: true, cleared: body.clear, status });
     }
 
     await saveTaskAnswer(orgId, body);
     await mirrorToViability(orgId, body.field_key, body);
 
-    // A link pasted into the reasoning is still a document. Capture it the
-    // same way notes and completions do, so it lands in the library rather
-    // than being buried in a paragraph.
-    const captured = body.evidence
-      ? await autoLinkAssetsFromText(orgId, body.task_id, String(body.evidence))
+    // A link is a document wherever it was typed — in the reasoning, or in
+    // the attachment box on the question itself. Both are captured into the
+    // library, so the library view stays complete without anybody having to
+    // file the same thing a second time.
+    const linkText = [body.evidence, body.file_url].filter(Boolean).join(" ");
+    const captured = linkText
+      ? await autoLinkAssetsFromText(orgId, body.task_id, linkText)
       : [];
 
-    return NextResponse.json({ ok: true, assets_captured: captured.length });
+    // The task closes itself once every visible question is answered. See
+    // syncTaskStatusFromAnswers.
+    const status = await syncTaskStatusFromAnswers(orgId, body.task_id);
+
+    return NextResponse.json({ ok: true, assets_captured: captured.length, status });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }

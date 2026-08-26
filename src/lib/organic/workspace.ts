@@ -4,6 +4,7 @@
  * live in phase[1-5].ts.
  */
 import { organicPool } from "./db";
+import { fieldsFor, visibleFields } from "./task-fields";
 
 // ---------- LEAKS (Overview leak panel) -------------------------------------
 
@@ -796,6 +797,11 @@ export interface TaskAnswer {
   answer_text: string | null;
   answer_number: number | null;
   evidence: string | null;
+  /** The file this specific answer rests on. Per field, not per task — a
+   *  task with six checks used to share one attachment between them, which
+   *  left the reader with a document and no idea which check it proved. */
+  file_url: string | null;
+  file_title: string | null;
   answered_at: string;
 }
 
@@ -803,7 +809,7 @@ export async function loadTaskAnswers(orgId: string): Promise<TaskAnswer[]> {
   const pool = organicPool();
   const r = await pool.query<TaskAnswer>(
     `SELECT task_id, field_key, answer_bool, answer_text,
-            answer_number, evidence, answered_at::text
+            answer_number, evidence, file_url, file_title, answered_at::text
        FROM organic.task_answers
       WHERE org_id = $1`,
     [orgId]
@@ -822,6 +828,8 @@ export interface AnswerInput {
   answer_text?: string | null;
   answer_number?: number | null;
   evidence?: string | null;
+  file_url?: string | null;
+  file_title?: string | null;
 }
 
 export async function saveTaskAnswer(orgId: string, a: AnswerInput): Promise<void> {
@@ -831,30 +839,36 @@ export async function saveTaskAnswer(orgId: string, a: AnswerInput): Promise<voi
   // versa — the two halves are edited independently in the UI.
   await pool.query(
     `INSERT INTO organic.task_answers
-       (org_id, task_id, field_key, answer_bool, answer_text, answer_number, evidence, answered_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+       (org_id, task_id, field_key, answer_bool, answer_text, answer_number,
+        evidence, file_url, file_title, answered_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
      ON CONFLICT (org_id, task_id, field_key) DO UPDATE SET
        answer_bool   = COALESCE(EXCLUDED.answer_bool,   organic.task_answers.answer_bool),
        answer_text   = COALESCE(EXCLUDED.answer_text,   organic.task_answers.answer_text),
        answer_number = COALESCE(EXCLUDED.answer_number, organic.task_answers.answer_number),
        evidence      = COALESCE(EXCLUDED.evidence,      organic.task_answers.evidence),
+       file_url      = COALESCE(EXCLUDED.file_url,      organic.task_answers.file_url),
+       file_title    = COALESCE(EXCLUDED.file_title,    organic.task_answers.file_title),
        answered_at   = now()`,
     [orgId, a.task_id, a.field_key,
      a.answer_bool ?? null, a.answer_text ?? null,
-     a.answer_number ?? null, a.evidence ?? null]
+     a.answer_number ?? null, a.evidence ?? null,
+     a.file_url ?? null, a.file_title ?? null]
   );
 }
 
 /** Clearing a field has to be explicit, because COALESCE on save means an
  *  omitted value keeps the old one. */
 export async function clearTaskAnswerField(
-  orgId: string, taskId: string, fieldKey: string, part: "answer" | "evidence" | "all"
+  orgId: string, taskId: string, fieldKey: string,
+  part: "answer" | "evidence" | "file" | "all"
 ): Promise<void> {
   const pool = organicPool();
   const sets =
     part === "evidence" ? "evidence = NULL"
+    : part === "file" ? "file_url = NULL, file_title = NULL"
     : part === "answer" ? "answer_bool = NULL, answer_text = NULL, answer_number = NULL"
-    : "answer_bool = NULL, answer_text = NULL, answer_number = NULL, evidence = NULL";
+    : "answer_bool = NULL, answer_text = NULL, answer_number = NULL, evidence = NULL, file_url = NULL, file_title = NULL";
   await pool.query(
     `UPDATE organic.task_answers SET ${sets}, answered_at = now()
       WHERE org_id = $1 AND task_id = $2 AND field_key = $3`,
@@ -944,4 +958,77 @@ export async function loadTrendSeries(orgId: string, windowDays = 30): Promise<T
 export function pctChange(now: number | null, before: number | null): number | null {
   if (now == null || before == null || before === 0) return null;
   return Math.round(((now - before) / before) * 100);
+}
+
+// ---------- STATUS FOLLOWS THE CHECKLIST ------------------------------------
+
+/**
+ * Set a task's status from its own answers.
+ *
+ * Marking a task done by hand, on a task that has a checklist, is asking
+ * someone to state twice what the form already knows. So for those tasks
+ * the status is derived: answer every visible question and it is DONE;
+ * clear one and it drops back to IN_PROGRESS.
+ *
+ * Three things this deliberately does not do:
+ *
+ *   - It never touches a task with no checklist. There is nothing to derive
+ *     from, and those keep the manual dropdown.
+ *   - It never touches a BLOCKED task. Blocked is computed from
+ *     preconditions and answering a question does not clear a precondition.
+ *   - It never moves a task to TODO. Once someone has answered anything the
+ *     work has started, and TODO would misreport it as untouched.
+ *
+ * A field counts as answered when it has an answer AND, where the form
+ * marks reasoning required, that reasoning is present. Without the second
+ * half a task flips to DONE while a row is still visibly flagged red for
+ * the missing "why".
+ */
+export async function syncTaskStatusFromAnswers(
+  orgId: string, taskId: string
+): Promise<"DONE" | "IN_PROGRESS" | null> {
+  const set = fieldsFor(taskId);
+  if (!set) return null;
+
+  const pool = organicPool();
+  const cur = await pool.query<{ status: string }>(
+    `SELECT status::text FROM organic.client_tasks
+      WHERE org_id = $1 AND task_id = $2 AND cycle IS NULL`,
+    [orgId, taskId]
+  );
+  const status = cur.rows[0]?.status;
+  if (!status || status === "BLOCKED" || status === "SKIPPED") return null;
+
+  const ans = await pool.query<{
+    field_key: string; answer_bool: boolean | null;
+    answer_text: string | null; answer_number: string | null; evidence: string | null;
+  }>(
+    `SELECT field_key, answer_bool, answer_text, answer_number, evidence
+       FROM organic.task_answers WHERE org_id = $1 AND task_id = $2`,
+    [orgId, taskId]
+  );
+  const byKey = new Map(ans.rows.map((a) => [a.field_key, a]));
+
+  const visible = visibleFields(set, (k) => byKey.get(k)?.answer_bool);
+  const complete = visible.every((f) => {
+    const a = byKey.get(f.key);
+    if (!a) return false;
+    const answered =
+      a.answer_bool !== null || a.answer_text !== null || a.answer_number !== null;
+    if (!answered) return false;
+    if (f.evidenceRequired && !(a.evidence ?? "").trim()) return false;
+    return true;
+  });
+
+  const next = complete ? "DONE" : "IN_PROGRESS";
+  if (next === status) return next;
+
+  await pool.query(
+    `UPDATE organic.client_tasks
+        SET status = $3::organic.task_status,
+            completed_at = CASE WHEN $3 = 'DONE' THEN now() ELSE NULL END
+      WHERE org_id = $1 AND task_id = $2 AND cycle IS NULL`,
+    [orgId, taskId, next]
+  );
+  return next;
 }
