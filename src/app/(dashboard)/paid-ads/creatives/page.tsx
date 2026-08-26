@@ -1022,7 +1022,7 @@ function CreateReportModal({
               </button>
               {deduplicateByPin && (
                 <span className="text-xs text-primary font-medium">
-                  Aan — metrics worden opgeteld per creative
+                  On — metrics are summed per creative
                 </span>
               )}
             </div>

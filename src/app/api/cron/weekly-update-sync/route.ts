@@ -1,30 +1,31 @@
 /**
- * Weekly Update Sync — schrijft de weekcijfers per store naar de subitems van
- * het Monday-bord "Weekly Updates". Draait maandag 12:00 UTC (zie vercel.json).
+ * Weekly Update Sync — writes each store's week figures into the subitems of
+ * the Monday board "Weekly Updates". Runs Monday 12:00 UTC (see vercel.json).
  *
- * De logica zelf staat in scripts/weekly-update-sync.ts; die is ook los te
- * draaien met `npx tsx`. Deze route is alleen de cron-ingang eromheen.
+ * The logic itself lives in scripts/weekly-update-sync.ts, which can also be
+ * run on its own with `npx tsx`. This route is only the cron entrance.
  *
- * WAAROM EEN DYNAMISCHE IMPORT
- * ----------------------------
- * Het script gooit op modulenivo een Error als MONDAY_API_TOKEN ontbreekt.
- * Bij een statische import zou dat al tijdens de Next-build afgaan en de
- * deploy laten klappen. Met `await import()` gebeurt dat pas bij een request,
- * zodat een ontbrekende env-var een nette 500 op deze route oplevert in plaats
- * van een gebroken build voor alle vier de domeinen.
+ * WHY A DYNAMIC IMPORT
+ * --------------------
+ * The script throws at module level when MONDAY_API_TOKEN is missing. With a
+ * static import that would fire during the Next build and break the deploy.
+ * With `await import()` it happens on a request instead, so a missing env var
+ * gives a clean 500 on this route rather than a broken build across all four
+ * domains.
  *
- * Benodigde env-vars in Vercel (naast CRON_SECRET):
+ * Env vars needed in Vercel (besides CRON_SECRET):
  *   MONDAY_API_TOKEN, DATABASE_URL, ENCRYPTION_KEY
  */
 import { NextRequest, NextResponse } from "next/server";
 import { alertCronFailure } from "@/lib/alerts";
 
-// LET OP: deze 300 is niet wat je in de praktijk krijgt. Op 17-08-2026 12:00 UTC
-// stopte de run na 13 van de 37 stores -- rond een minuut, net als de seed die
-// een week eerder na 18 van de 49 stopte. run() rekent daarom met ~60s: stores
-// in batches (SYNC_BATCH), de vaste vragen parallel, en de bevroren stores
-// eruit vóór de Pinterest-call. Reken hier niet op meer dan die minuut, en zie
-// de tweede cron (weekly-update-sync-retry) voor het vangnet eromheen.
+// NOTE: this 300 is not what you get in practice. On 17-08-2026 12:00 UTC the
+// run stopped after 13 of 37 stores -- around a minute, same as the seed that
+// stopped after 18 of 49 a week earlier. run() therefore budgets for ~60s:
+// stores in batches (SYNC_BATCH), the fixed queries in parallel, and the frozen
+// stores dropped before the Pinterest call. Do not count on more than that
+// minute here, and see the second cron (weekly-update-sync-retry) for the
+// safety net around it.
 export const maxDuration = 300;
 
 function verifyCron(request: NextRequest): boolean {
@@ -44,36 +45,36 @@ async function handle(request: NextRequest) {
     const { run: runWeeklySync } = await import(
       "../../../../../scripts/weekly-update-sync"
     );
-    // run() logt per store naar console (zichtbaar in de Vercel-logs) en gooit
-    // alleen bij een fatale fout, zoals Monday die de token weigert. Fouten per
-    // store worden daarbinnen al opgevangen en aan het eind gerapporteerd.
+    // run() logs per store to the console (visible in the Vercel logs) and
+    // throws only on a fatal error, such as Monday refusing the token. Per-store
+    // failures are caught inside and reported at the end.
     const summary = await runWeeklySync();
 
-    // Een mislukte store blokkeert de rest niet, dus deze run eindigt gewoon
-    // met ok:true. Zonder deze melding stond alleen in de logs dat er stores
-    // zijn overgeslagen -- en daar kijkt op maandagmiddag niemand.
+    // A failed store does not block the rest, so this run still ends ok:true.
+    // Without this message the only record that stores were skipped was in the
+    // logs -- and nobody is reading those on a Monday afternoon.
     if (summary.failed.length) {
       await alertCronFailure({
         cron: "weekly-update-sync",
         level: "attention",
         message:
-          `${summary.failed.length} van de ${summary.failed.length + summary.ok} stores ` +
-          `kregen geen cijfers op het Weekly Updates-bord. Handmatig nalopen: ` +
+          `${summary.failed.length} of ${summary.failed.length + summary.ok} stores ` +
+          `got no figures on the Weekly Updates board. Check by hand: ` +
           summary.failed.join(", "),
       });
     }
 
-    // De eindcontrole leest het bord terug. Wat hier in staat is nét niet
-    // hetzelfde als `failed`: die stores gooiden een fout, deze zijn zonder
-    // klacht leeg gebleven. Precies het gat waar de run van 17-08-2026 in viel,
-    // dus dit is een echte storing en geen 'nalopen'.
+    // The end check reads the board back. What lands here is not quite the
+    // same as `failed`: those stores threw an error, these went quiet. Exactly
+    // the gap the run of 17-08-2026 fell into, so this is a real failure and
+    // not a "needs a look".
     if (summary.missing.length) {
       await alertCronFailure({
         cron: "weekly-update-sync",
         message:
-          `Eindcontrole: ${summary.missing.length} stores staan na afloop nog ` +
-          `zonder cijfers op het Weekly Updates-bord, zonder dat de run een fout ` +
-          `meldde: ${summary.missing.join(", ")}`,
+          `End check: ${summary.missing.length} stores are still without ` +
+          `figures on the Weekly Updates board, without the run reporting any ` +
+          `error: ${summary.missing.join(", ")}`,
       });
     }
 
@@ -89,8 +90,8 @@ async function handle(request: NextRequest) {
     await alertCronFailure({
       cron: "weekly-update-sync",
       message:
-        "Spend en revenue zijn niet in de weekregels geschreven. Het Weekly " +
-        "Updates-bord staat mogelijk zonder cijfers.",
+        "Spend and revenue were not written into the week rows. The Weekly " +
+        "Updates board may be sitting without figures.",
       error: e,
     });
     return NextResponse.json(

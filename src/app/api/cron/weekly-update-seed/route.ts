@@ -1,31 +1,31 @@
 /**
- * Weekly Update Seed — zet maandag 01:00 UTC voor élke actieve store een LEGE
- * weekregel klaar op het Monday-bord "Weekly Updates" (zie vercel.json).
+ * Weekly Update Seed — at Monday 01:00 UTC, puts an EMPTY week row on the
+ * Monday board "Weekly Updates" for every active store (see vercel.json).
  *
- * De media buyers schrijven daar 's ochtends hun zone en tekstupdate in; om
- * 12:00 UTC vult /api/cron/weekly-update-sync dezelfde regels met spend en
- * revenue. Zonder deze run moest een vroege buyer de regel zelf aanmaken.
+ * The media buyers write their zone and text update into it in the morning;
+ * at 12:00 UTC /api/cron/weekly-update-sync fills the same rows with spend
+ * and revenue. Without this run an early buyer had to create the row first.
  *
- * De logica staat in scripts/weekly-update-sync.ts (sectie 5, runSeed); die is
- * ook los te draaien met `npx tsx scripts/weekly-update-sync.ts seed`. Deze
- * route is alleen de cron-ingang eromheen.
+ * The logic lives in scripts/weekly-update-sync.ts (section 5, runSeed), which
+ * can also be run on its own with `npx tsx scripts/weekly-update-sync.ts seed`.
+ * This route is only the cron entrance around it.
  *
- * WAAROM EEN DYNAMISCHE IMPORT
- * ----------------------------
- * Zelfde reden als bij de sync-route: het script gooit op modulenivo als
- * MONDAY_API_TOKEN ontbreekt. Statisch importeren zou dat tijdens de Next-build
- * laten afgaan en de deploy voor alle vier de domeinen breken.
+ * WHY A DYNAMIC IMPORT
+ * --------------------
+ * Same reason as the sync route: the script throws at module level when
+ * MONDAY_API_TOKEN is missing. Importing it statically would fire that during
+ * the Next build and break the deploy for all four domains.
  *
- * Benodigde env-vars in Vercel (naast CRON_SECRET):
+ * Env vars needed in Vercel (besides CRON_SECRET):
  *   MONDAY_API_TOKEN
- * Bewust géén DATABASE_URL of ENCRYPTION_KEY: deze run doet geen Pinterest-call
- * en geen DB-query, en kan dus niet omvallen op een dood token.
+ * Deliberately no DATABASE_URL or ENCRYPTION_KEY: this run makes no Pinterest
+ * call and no DB query, so it cannot fall over on a dead token.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { alertCronFailure } from "@/lib/alerts";
 
-// Lichter dan de sync: 2 Monday-calls per store, geen Pinterest. Ruim genomen
-// zodat groei van de storelijst hier niet tegenaan loopt.
+// Lighter than the sync: 2 Monday calls per store, no Pinterest. Set generously
+// so growth of the store list does not run into it.
 export const maxDuration = 300;
 
 function verifyCron(request: NextRequest): boolean {
@@ -45,21 +45,21 @@ async function handle(request: NextRequest) {
     const { runSeed } = await import(
       "../../../../../scripts/weekly-update-sync"
     );
-    // runSeed() logt per store naar console (zichtbaar in de Vercel-logs) en
-    // gooit alleen bij een fatale fout, zoals Monday die de token weigert.
-    // Fouten per store worden daarbinnen opgevangen en aan het eind gemeld.
+    // runSeed() logs per store to the console (visible in the Vercel logs) and
+    // throws only on a fatal error, such as Monday refusing the token.
+    // Per-store failures are caught inside and reported at the end.
     await runSeed();
     return NextResponse.json({ ok: true, elapsed_ms: Date.now() - started });
   } catch (e) {
-    // runSeed() gooit onder andere als de eindcontrole ziet dat er stores
-    // zonder weekregel zijn achtergebleven -- precies het geval dat op
-    // 17-08-2026 onopgemerkt bleef. Await, zodat de melding de deur uit is
-    // voordat de functie wordt afgesloten.
+    // runSeed() throws when, among other things, the end check finds stores
+    // left without a week row -- exactly the case that went unnoticed on
+    // 17-08-2026. Awaited, so the message is out of the door before the
+    // function shuts down.
     await alertCronFailure({
       cron: "weekly-update-seed",
       message:
-        "De lege weekregels zijn niet (volledig) aangemaakt. Media buyers " +
-        "missen mogelijk hun rij op het Weekly Updates-bord.",
+        "The empty week rows were not created, or not all of them. Media " +
+        "buyers may be missing their row on the Weekly Updates board.",
       error: e,
     });
     return NextResponse.json(

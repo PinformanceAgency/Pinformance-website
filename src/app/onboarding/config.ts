@@ -1,7 +1,7 @@
 // ============================================================
 //  ONBOARDING CONFIG — Fill these in as you get each asset.
 //  Placeholders (empty string / "TODO") are safe: the UI will
-//  show a friendly "nog niet ingesteld" state instead of breaking.
+//  show a friendly "not set up yet" state instead of breaking.
 // ============================================================
 
 export interface IntakeQuestion {

@@ -132,6 +132,6 @@ export async function orchestrate(
   return {
     kind: "unsupported",
     reason:
-      "Het systeem kon je verzoek niet automatisch classificeren. Probeer het concreter te formuleren of raadpleeg de developer.",
+      "The system could not classify your request automatically. Try phrasing it more concretely, or ask a developer.",
   };
 }
