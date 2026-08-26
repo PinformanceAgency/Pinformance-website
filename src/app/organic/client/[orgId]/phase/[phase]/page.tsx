@@ -26,7 +26,8 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
   // Phase 4 is cycle-based, so it renders the cycles panel instead of a
   // flat task list.
   if (phase === 4) {
-    const [header, p4, cycles, orgBoards, orgKeywords, assets, ops, readiness] = await Promise.all([
+    const [header, p4, cycles, orgBoards, orgKeywords, assets, ops, readiness,
+           answers, viability, p2, p3] = await Promise.all([
       loadClientHeader(orgId),
       loadPhase4Snapshot(orgId),
       loadCyclesForOrg(orgId),
@@ -35,6 +36,12 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
       loadAssets(orgId),
       loadCycleOps(orgId),
       loadCycleReadiness(orgId),
+      // The cycle tasks render as full task cards now, same as phases 1-3,
+      // so they need the same context those cards read.
+      loadTaskAnswers(orgId),
+      loadViability(orgId),
+      loadPhase2Snapshot(orgId),
+      loadPhase3Snapshot(orgId),
     ]);
     if (!header) notFound();
     // Resolved server-side so the calendar's "today" column and the pin
@@ -54,6 +61,11 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
           selectableUrls={p4.selectable_urls as Parameters<typeof Phase4Cycles>[0]["selectableUrls"]}
           orgBoards={orgBoards}
           orgKeywords={orgKeywords}
+          assets={assets}
+          answers={answers}
+          viability={viability}
+          phase2={p2}
+          phase3={p3}
         />
         <StepGuideGrid meta={meta} />
         <PhaseAssets assets={assets.filter((a) => a.linked_task_id?.startsWith("P4."))} />

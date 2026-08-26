@@ -4,7 +4,13 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TaskCard } from "./phase/[phase]/PhaseBoard";
+import { phaseMeta } from "@/lib/organic/phase-meta";
 import type { CycleView } from "@/lib/organic/phase4";
+import type { TaskRow, ViabilityRow } from "@/lib/organic/types";
+import type { AssetRow, TaskAnswer } from "@/lib/organic/workspace";
+import type { Phase2Snapshot } from "./Phase2Forms";
+import type { Phase3Snapshot } from "./Phase3Forms";
 import type { Deviation } from "@/lib/organic/structure";
 
 interface OrgBoard { id: string; name: string; status: string; topic_name: string | null }
@@ -15,12 +21,18 @@ const REASONS = ["SEASONAL","NEW","BEST_PERFORMER","CLIENT_REQUEST","STOCK_PUSH"
 
 export function Phase4Cycles({
   orgId, cycles, selectableUrls, orgBoards, orgKeywords,
+  assets, answers, viability, phase2, phase3,
 }: {
   orgId: string;
   cycles: CycleView[];
   selectableUrls: SelectableUrl[];
   orgBoards: OrgBoard[];
   orgKeywords: OrgKeyword[];
+  assets: AssetRow[];
+  answers: TaskAnswer[];
+  viability: ViabilityRow | null;
+  phase2: Phase2Snapshot;
+  phase3: Phase3Snapshot;
 }) {
   return (
     <section className="space-y-3">
@@ -40,7 +52,8 @@ export function Phase4Cycles({
 
       <div className="space-y-2">
         {cycles.map((c) => (
-          <CycleCard key={c.cycle} orgId={orgId} cycle={c} orgBoards={orgBoards} orgKeywords={orgKeywords} />
+          <CycleCard key={c.cycle} orgId={orgId} cycle={c} orgBoards={orgBoards} orgKeywords={orgKeywords}
+                     assets={assets} answers={answers} viability={viability} phase2={phase2} phase3={phase3} />
         ))}
       </div>
     </section>
@@ -116,12 +129,17 @@ function StartCycle({
 // ---------- Cycle card ------------------------------------------------------
 
 function CycleCard({
-  orgId, cycle, orgBoards, orgKeywords,
+  orgId, cycle, orgBoards, orgKeywords, assets, answers, viability, phase2, phase3,
 }: {
   orgId: string;
   cycle: CycleView;
   orgBoards: OrgBoard[];
   orgKeywords: OrgKeyword[];
+  assets: AssetRow[];
+  answers: TaskAnswer[];
+  viability: ViabilityRow | null;
+  phase2: Phase2Snapshot;
+  phase3: Phase3Snapshot;
 }) {
   const [expanded, setExpanded] = useState(cycle.progress.pct < 100);
 
@@ -158,7 +176,8 @@ function CycleCard({
           <SetupSection orgId={orgId} cycle={cycle} orgBoards={orgBoards} orgKeywords={orgKeywords} />
           <CopySection orgId={orgId} cycle={cycle} />
           <WaterfallSection orgId={orgId} cycle={cycle} />
-          <TaskListSection cycle={cycle} />
+          <TaskListSection cycle={cycle} orgId={orgId} assets={assets} answers={answers}
+                           viability={viability} phase2={phase2} phase3={phase3} />
         </div>
       )}
     </div>
@@ -513,7 +532,17 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
 
 // ---------- section 4: raw task list ---------------------------------------
 
-function TaskListSection({ cycle }: { cycle: CycleView }) {
+function TaskListSection({
+  cycle, orgId, assets, answers, viability, phase2, phase3,
+}: {
+  cycle: CycleView;
+  orgId: string;
+  assets: AssetRow[];
+  answers: TaskAnswer[];
+  viability: ViabilityRow | null;
+  phase2: Phase2Snapshot;
+  phase3: Phase3Snapshot;
+}) {
   const grouped = useMemo(() => {
     const m = new Map<string, typeof cycle.tasks>();
     for (const t of cycle.tasks) {
@@ -521,33 +550,65 @@ function TaskListSection({ cycle }: { cycle: CycleView }) {
       arr.push(t);
       m.set(t.step, arr);
     }
-    return Array.from(m.entries()).map(([step, ts]) => ({ step, tasks: ts.sort((a, b) => a.sort_order - b.sort_order) })).sort((a, b) => a.step.localeCompare(b.step));
+    return Array.from(m.entries())
+      .map(([step, ts]) => ({ step, tasks: ts.sort((a, b) => a.sort_order - b.sort_order) }))
+      .sort((a, b) => a.step.localeCompare(b.step));
   }, [cycle.tasks]);
 
+  const assetsByTask = useMemo(() => {
+    const m = new Map<string, AssetRow[]>();
+    for (const a of assets) {
+      if (!a.linked_task_id) continue;
+      const arr = m.get(a.linked_task_id) ?? [];
+      arr.push(a);
+      m.set(a.linked_task_id, arr);
+    }
+    return m;
+  }, [assets]);
+
+  const meta = phaseMeta(4);
+
   return (
-    <div className="p-4 space-y-2">
-      <SectionTitle text={`4 · Tasks (${cycle.tasks.length})`} />
-      <div className="space-y-2">
-        {grouped.map((g) => (
-          <div key={g.step}>
-            <div className="text-[10px] text-neutral-500 mb-0.5">Step 4.{g.step}</div>
-            <div className="rounded border border-neutral-200 divide-y divide-neutral-100">
-              {g.tasks.map((t) => (
-                <div key={t.client_task_id} className="flex items-center justify-between gap-2 px-2 py-1 text-[11px]">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-neutral-400 tabular-nums">{t.task_id}</span>
-                      <span>{t.name}</span>
+    <div className="p-4 space-y-4">
+      <SectionTitle text={`4 · Every task in this cycle (${cycle.tasks.length})`} />
+      {grouped.map((g) => {
+        const sm = meta?.steps[g.step] ?? null;
+        const done = g.tasks.filter((t) => t.status === "DONE").length;
+        return (
+          <section key={g.step} className="o-card overflow-hidden">
+            <div className="o-card-head px-5 py-4">
+              <div className="flex items-baseline justify-between gap-4 flex-wrap">
+                <h4 className="o-h3 text-foreground">{sm?.title ?? `Step 4.${g.step}`}</h4>
+                <span className="o-figure text-[11px] text-o-ink-3">{done}/{g.tasks.length} done</span>
+              </div>
+              {sm && (
+                <dl className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-px bg-o-hairline rounded-lg overflow-hidden">
+                  {([["What", sm.what], ["Where", sm.where], ["Output", sm.output]] as const).map(([k, v]) => (
+                    <div key={k} className="bg-o-surface px-4 py-3">
+                      <dt className="o-eyebrow">{k}</dt>
+                      <dd className="mt-1.5 text-sm text-o-ink-2 leading-relaxed">{v}</dd>
                     </div>
-                    {t.notes && <div className="text-neutral-500 text-[10px] truncate">{t.notes}</div>}
-                  </div>
-                  <StatusPill status={t.status} />
-                </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+            <div className="divide-y divide-o-hairline">
+              {g.tasks.map((t) => (
+                <TaskCard
+                  key={t.client_task_id}
+                  orgId={orgId}
+                  task={{ ...t, block_reasons: [] } as unknown as TaskRow}
+                  viability={viability}
+                  phase2={phase2}
+                  phase3={phase3}
+                  assets={assetsByTask.get(t.task_id) ?? []}
+                  answers={answers}
+                />
               ))}
             </div>
-          </div>
-        ))}
-      </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

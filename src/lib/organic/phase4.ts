@@ -702,15 +702,33 @@ export async function loadPhase4Snapshot(orgId: string) {
 
 // ---------- cycle loader for the UI -----------------------------------------
 
+/**
+ * A cycle task, carrying everything a task card needs.
+ *
+ * It used to carry six fields, because the cycle panel rendered these as a
+ * read-only list of id, name and a status pill. That made the twenty-two
+ * tasks the SOP defines for phase 4 unworkable in the dashboard: you could
+ * see that P4.2.4 existed and that it was TODO, and nowhere could you read
+ * what it asks, what it should hand back, record what you did, attach the
+ * designs, or mark it done. Phases 1 to 3 had all of that from the start.
+ */
 export interface CycleTaskRow {
   client_task_id: string;
   task_id: string;
+  phase: number;
   step: string;
   name: string;
+  description: string | null;
   task_type: string;
   guidance: string | null;
+  expected_output: string | null;
+  external_tool: string | null;
+  external_url: string | null;
+  is_recurring: boolean;
   status: string;
   time_spent_min: number | null;
+  skip_reason: string | null;
+  skip_note: string | null;
   notes: string | null;
   sort_order: number;
 }
@@ -790,9 +808,12 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
   const wfLatestByUrl = new Map<string, { id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number }>();
   for (const w of wfRes.rows) if (!wfLatestByUrl.has(w.url_id)) wfLatestByUrl.set(w.url_id, { id: w.id, status: w.status, start_date: w.start_date, end_date: w.end_date, spacing_hours: w.spacing_hours });
 
-  const tasksRes = await pool.query<{ cycle: string; id: string; task_id: string; step: string; name: string; task_type: string; guidance: string | null; status: string; time_spent_min: number | null; notes: string | null; sort_order: number }>(
-    `SELECT ct.cycle, ct.id::text, ct.task_id, td.step, td.name, td.task_type::text,
-            td.guidance, ct.status::text, ct.time_spent_min, ct.notes, td.sort_order
+  const tasksRes = await pool.query<CycleTaskRow & { cycle: string; id: string }>(
+    `SELECT ct.cycle, ct.id::text, ct.task_id, td.phase, td.step, td.name,
+            td.description, td.task_type::text, td.guidance, td.expected_output,
+            td.external_tool, td.external_url, td.is_recurring,
+            ct.status::text, ct.time_spent_min, ct.skip_reason, ct.skip_note,
+            ct.notes, td.sort_order
        FROM organic.client_tasks ct JOIN organic.task_definitions td ON td.id = ct.task_id
       WHERE ct.org_id = $1 AND td.active AND ct.cycle = ANY($2)
       ORDER BY td.sort_order`,
@@ -802,9 +823,13 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
   for (const r of tasksRes.rows) {
     const arr = tasksByCycle.get(r.cycle) ?? [];
     arr.push({
-      client_task_id: r.id, task_id: r.task_id, step: r.step, name: r.name,
-      task_type: r.task_type, guidance: r.guidance, status: r.status,
-      time_spent_min: r.time_spent_min, notes: r.notes, sort_order: r.sort_order,
+      client_task_id: r.id, task_id: r.task_id, phase: r.phase, step: r.step,
+      name: r.name, description: r.description, task_type: r.task_type,
+      guidance: r.guidance, expected_output: r.expected_output,
+      external_tool: r.external_tool, external_url: r.external_url,
+      is_recurring: r.is_recurring, status: r.status,
+      time_spent_min: r.time_spent_min, skip_reason: r.skip_reason,
+      skip_note: r.skip_note, notes: r.notes, sort_order: r.sort_order,
     });
     tasksByCycle.set(r.cycle, arr);
   }

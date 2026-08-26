@@ -129,7 +129,17 @@ export function PhaseBoard({
   );
 }
 
-function TaskCard({
+/**
+ * Exported so phase 4's cycle panel renders the same card.
+ *
+ * Cycle tasks used to be a read-only list of id, name and a status pill,
+ * which made the twenty-two tasks the SOP defines for phase 4 unworkable:
+ * you could see P4.2.4 existed and was TODO, and nowhere could you read
+ * what it asks, what it hands back, record it, attach the designs or close
+ * it. There is no reason for a cycle task to work differently from any
+ * other task, and every reason for it not to.
+ */
+export function TaskCard({
   task, orgId, viability, phase2, phase3, assets, answers, standalone,
 }: {
   task: TaskRow;
