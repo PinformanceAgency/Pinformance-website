@@ -54,23 +54,37 @@ const KEYWORDS: Array<[string, number]> = [
 ];
 
 /**
- * Board descriptions carry keywords for Pinterest search, so the table
- * enforces 400 to 500 characters. A one-line placeholder is rejected, and
- * padding to length with filler would seed exactly the kind of description
- * the SOP exists to prevent — so these read like the real thing.
+ * Board descriptions carry keywords for Pinterest search, so the method
+ * fixes them at 400 to 480 characters with the board name in the first
+ * sentence, and the table enforces the range.
+ *
+ * Built by adding whole sentences until the next one would breach the
+ * ceiling, rather than by generating something long and clipping it. A
+ * clipped description ends mid-word — "a collection they" — and that is
+ * read by Pinterest's index and by a person deciding whether to follow the
+ * board. The twenty characters saved are not worth it.
  */
 function boardDescription(board: string): string {
-  const text =
-    `${board} for everyday gold jewellery that is made to be worn daily rather than saved for occasions. ` +
-    `Layered necklace sets, minimal gold hoops, signet rings and stacking bands photographed on skin in ` +
-    `daylight, so you can see how a piece actually sits before you buy it. Ideas for building a starter ` +
-    `set, styling three ways, mixing metals without it looking accidental, and keeping solid gold looking ` +
-    `new. Saved here for anyone putting together a collection they will still wear in five years.`;
-  // Trimmed rather than padded: over the ceiling is as invalid as under it,
-  // and a description cut mid-word is worse than one cut at a sentence.
-  if (text.length <= 500) return text;
-  const cut = text.slice(0, 497);
-  return cut.slice(0, cut.lastIndexOf(" ")) + "...";
+  const sentences = [
+    `${board} for everyday gold jewellery that is made to be worn daily rather than saved for occasions.`,
+    `Layered necklace sets, minimal gold hoops, signet rings and stacking bands photographed on skin in daylight.`,
+    `See how a piece actually sits before you buy it, and how it wears next to the rest of your stack.`,
+    `Ideas for building a starter set, styling one piece three ways, and mixing metals without it looking accidental.`,
+    `Notes on keeping solid gold looking new, and which pieces are worth buying once instead of twice.`,
+    `Saved for anyone putting together a collection they will still be wearing in five years.`,
+  ];
+  let out = "";
+  for (const next of sentences) {
+    const candidate = out ? `${out} ${next}` : next;
+    if (candidate.length > 480) break;
+    out = candidate;
+  }
+  if (out.length < 400) {
+    throw new Error(
+      `board description for "${board}" is ${out.length} chars, under the 400 floor — add a sentence`
+    );
+  }
+  return out;
 }
 
 (async () => {
@@ -93,22 +107,49 @@ function boardDescription(board: string): string {
   const urlNames = URLS.map(([n]) => n);
 
   if (REMOVE) {
-    const steps: Array<[string, string]> = [
+    // Each statement carries its own parameter list. Passing one shared
+    // array to all of them made pg reject every statement that referenced
+    // fewer than five — "bind message supplies 5 parameters, but prepared
+    // statement requires 2" — so --remove never removed anything.
+    const steps: Array<[string, string, unknown[]]> = [
+      // Production hangs off the URL, so it goes first. Running a cycle
+      // creates a waterfall with designs, copy sets and sixteen pins, and
+      // without these four steps --remove died on the foreign key the
+      // moment anybody had actually used the walkthrough.
+      ["pin performance", `DELETE FROM organic.pin_performance WHERE pin_id IN (
+            SELECT p.id FROM organic.pins p
+              JOIN organic.waterfalls w ON w.id = p.waterfall_id
+              JOIN organic.urls u ON u.id = w.url_id
+             WHERE u.org_id = $1 AND u.name = ANY($2))`, [orgId, urlNames]],
+      ["pins", `DELETE FROM organic.pins WHERE waterfall_id IN (
+            SELECT w.id FROM organic.waterfalls w JOIN organic.urls u ON u.id = w.url_id
+             WHERE u.org_id = $1 AND u.name = ANY($2))`, [orgId, urlNames]],
+      ["copy sets", `DELETE FROM organic.copy_sets WHERE design_id IN (
+            SELECT d.id FROM organic.designs d
+              JOIN organic.waterfalls w ON w.id = d.waterfall_id
+              JOIN organic.urls u ON u.id = w.url_id
+             WHERE u.org_id = $1 AND u.name = ANY($2))`, [orgId, urlNames]],
+      ["designs", `DELETE FROM organic.designs WHERE waterfall_id IN (
+            SELECT w.id FROM organic.waterfalls w JOIN organic.urls u ON u.id = w.url_id
+             WHERE u.org_id = $1 AND u.name = ANY($2))`, [orgId, urlNames]],
+      ["waterfalls", `DELETE FROM organic.waterfalls WHERE url_id IN (
+            SELECT id FROM organic.urls WHERE org_id = $1 AND name = ANY($2))`, [orgId, urlNames]],
       ["cycle tasks", `DELETE FROM organic.client_tasks
           WHERE org_id = $1 AND cycle IN (
             SELECT 'URL-' || left(id::text, 8) FROM organic.urls
-             WHERE org_id = $1 AND name = ANY($2))`],
+             WHERE org_id = $1 AND name = ANY($2))`, [orgId, urlNames]],
       ["url_boards", `DELETE FROM organic.url_boards WHERE url_id IN (
-            SELECT id FROM organic.urls WHERE org_id = $1 AND name = ANY($2))`],
+            SELECT id FROM organic.urls WHERE org_id = $1 AND name = ANY($2))`, [orgId, urlNames]],
       ["url_keywords", `DELETE FROM organic.url_keywords WHERE url_id IN (
-            SELECT id FROM organic.urls WHERE org_id = $1 AND name = ANY($2))`],
-      ["urls", `DELETE FROM organic.urls WHERE org_id = $1 AND name = ANY($2)`],
-      ["boards", `DELETE FROM organic.boards WHERE org_id = $1 AND name = ANY($3)`],
-      ["keywords", `DELETE FROM organic.keywords WHERE org_id = $1 AND term = ANY($4)`],
-      ["topic", `DELETE FROM organic.topics WHERE org_id = $1 AND name = $5`],
+            SELECT id FROM organic.urls WHERE org_id = $1 AND name = ANY($2))`, [orgId, urlNames]],
+      ["urls", `DELETE FROM organic.urls WHERE org_id = $1 AND name = ANY($2)`, [orgId, urlNames]],
+      ["boards", `DELETE FROM organic.boards WHERE org_id = $1 AND name = ANY($2)`, [orgId, BOARDS]],
+      ["keywords", `DELETE FROM organic.keywords WHERE org_id = $1 AND term = ANY($2)`,
+        [orgId, KEYWORDS.map(([t]) => t)]],
+      ["topic", `DELETE FROM organic.topics WHERE org_id = $1 AND name = $2`, [orgId, TOPIC]],
     ];
-    for (const [label, sql] of steps) {
-      const r = await c.query(sql, [orgId, urlNames, BOARDS, KEYWORDS.map(([t]) => t), TOPIC]);
+    for (const [label, sql, params] of steps) {
+      const r = await c.query(sql, params);
       if (r.rowCount) console.log(`  ${label}: ${r.rowCount}`);
     }
     console.log("Removed.");
@@ -142,9 +183,14 @@ function boardDescription(board: string): string {
   const boardIds: string[] = [];
   for (const b of BOARDS) {
     const r = await c.query<{ id: string }>(
+      // ON CONFLICT DO NOTHING kept whatever description was already there,
+      // so re-running after fixing the generator changed nothing and the
+      // old text stayed. A seeder that cannot correct itself is a seeder
+      // you have to delete around.
       `INSERT INTO organic.boards (org_id, topic_id, name, description, status, pin_count, origin)
        VALUES ($1,$2,$3,$4,'PROTECTED'::organic.board_status,24,'KEYWORD_BANK'::organic.board_origin)
-       ON CONFLICT DO NOTHING RETURNING id::text`,
+       ON CONFLICT (org_id, name) DO UPDATE SET description = EXCLUDED.description
+       RETURNING id::text`,
       [orgId, topicId, b, boardDescription(b)]);
     boardIds.push(r.rows[0]?.id ?? (await c.query<{ id: string }>(
       `SELECT id::text FROM organic.boards WHERE org_id = $1 AND name = $2`, [orgId, b])).rows[0].id);

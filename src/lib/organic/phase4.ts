@@ -134,8 +134,12 @@ export async function seasonalCandidates(orgId: string) {
     `SELECT * FROM organic.urls
       WHERE org_id = $1 AND is_seasonal = true
         AND peak_window_start IS NOT NULL
-        AND peak_window_start BETWEEN current_date + interval '8 weeks'
-                                  AND current_date + interval '12 weeks'
+        -- 6 to 10 weeks, from the build reference's section 2. Phase 4's
+        -- prose says 8-12; section 2 is the one headed "HARD RULES" and it
+        -- wins. Publishing late is the single most common failure, so the
+        -- window opens earlier rather than later.
+        AND peak_window_start BETWEEN current_date + interval '6 weeks'
+                                  AND current_date + interval '10 weeks'
       ORDER BY peak_window_start`,
     [orgId]
   );

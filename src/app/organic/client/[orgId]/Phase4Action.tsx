@@ -47,7 +47,7 @@ export const PHASE4_ACTIONS: Record<string, ActionKind> = {
   "P4.1.1": { kind: "readout",
     describe: "The candidate list is on the phase-4 page above, already filtered on cooldown, topic coverage and board assignment. Nothing to run." },
   "P4.1.2": { kind: "readout",
-    describe: "Seasonal URLs surface automatically when their peak falls eight to twelve weeks out. Set the peak window on the URL if one is missing." ,
+    describe: "Seasonal URLs surface automatically when their peak falls six to ten weeks out. Set the peak window on the URL if one is missing — publishing late is the most common failure there is." ,
     href: "urls", hrefLabel: "Open URLs" },
   "P4.1.3": { kind: "external", tool: "The client",
     describe: "Ask about launches and new blog posts, then add each one under URLs so it enters the candidate pool." },

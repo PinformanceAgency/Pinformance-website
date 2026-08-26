@@ -431,19 +431,28 @@ export async function classifySeasonal(orgId: string, list: SeasonalClassificati
   return { classified: list.length, recomputed: await recomputeAfter(orgId) };
 }
 
-/** P3.1.13 — publishing windows = peak minus 6–10 weeks. Runs over every
- *  SEASONAL keyword and fills ramp_up_start automatically. */
+/**
+ * P3.1.13 — publishing windows. Runs over every SEASONAL keyword and fills
+ * ramp_up_start automatically.
+ *
+ * The window is peak minus 6 to 10 weeks, and ramp_up_start is the point it
+ * OPENS, so it is peak minus 10. This computed peak minus 8 — the midpoint
+ * — which quietly threw away the first two weeks of runway on every
+ * seasonal term. The method names publishing late as the single most common
+ * failure, and there is no matching penalty for being early, so the safe
+ * side of that window is the far side.
+ */
 export async function computePublishingWindows(orgId: string, timeSpentMin: number) {
   const pool = organicPool();
   const r = await pool.query(
     `UPDATE organic.keywords
-        SET ramp_up_start = peak_window_start - interval '8 weeks'
+        SET ramp_up_start = peak_window_start - interval '10 weeks'
       WHERE org_id = $1 AND seasonal_type = 'SEASONAL'::organic.seasonal_type
         AND peak_window_start IS NOT NULL`,
     [orgId]
   );
   await completeTaskByDefinition({ orgId, taskId: "P3.1.13", timeSpentMin,
-    notes: `Computed ramp-up windows for ${r.rowCount ?? 0} seasonal terms (peak - 8 weeks).` });
+    notes: `Computed ramp-up windows for ${r.rowCount ?? 0} seasonal terms (peak - 10 weeks, the start of the 6-10 window).` });
   return { updated: r.rowCount ?? 0, recomputed: await recomputeAfter(orgId) };
 }
 

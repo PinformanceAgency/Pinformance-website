@@ -97,7 +97,7 @@ const check = (rule: string, ok: boolean, found: string) => rows.push({ rule, ok
     ["Title max 100 chars enforced in DB", "copy_sets", /char_length\(title\)\s*<=\s*100/],
     ["Description 250-300 enforced in DB", "copy_sets", /char_length\(description\)[^)]*250/],
     ["No em-dash / en-dash / ! / # in copy", "copy_sets", /!~/],
-    ["Board description 400-500 chars", "boards", /char_length\(description\)[^)]*400/],
+    ["Board description 400-480 chars", "boards", /char_length\(description\)[^)]*400[\s\S]*480/],
   ];
   for (const [rule, table, needle] of dbRules) {
     check(rule, hasConstraint(table, needle), hasConstraint(table, needle) ? "constraint present" : `no CHECK on organic.${table}`);
@@ -129,6 +129,19 @@ const check = (rule: string, ok: boolean, found: string) => rows.push({ rule, ok
     names.includes("looked_up_for_org")
       ? "looked_up_for_org present as provenance only — not a scope column"
       : "no org column");
+
+  /* ---- TIMING (section 2) ----------------------------------------- */
+  // The reference contradicts itself: section 2 says 6-10 weeks before
+  // peak, the phase-4 prose says 8-12. Section 2 is headed "HARD RULES"
+  // and wins, so that is what is asserted here.
+  const p4src = readFileSync("src/lib/organic/phase4.ts", "utf8");
+  const p3src = readFileSync("src/lib/organic/phase3.ts", "utf8");
+  check("Ramp-up starts at the far edge of the window (peak - 10 weeks)",
+    /ramp_up_start = peak_window_start - interval '10 weeks'/.test(p3src),
+    /interval '10 weeks'/.test(p3src) ? "peak - 10 weeks" : "ramp-up does not start at peak - 10");
+  check("Seasonal ramp-up window 6-10 weeks",
+    /interval '6 weeks'[\s\S]{0,120}interval '10 weeks'/.test(p4src),
+    /interval '6 weeks'/.test(p4src) ? "6 to 10 weeks ahead" : "window is not 6-10 weeks");
 
   /* ---- URLS (section 2) ------------------------------------------- */
   const cooldown = await c.query<{ v: string }>(
