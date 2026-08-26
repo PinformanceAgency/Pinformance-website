@@ -6,6 +6,9 @@ import { NextResponse } from "next/server";
 import {
   saveSeedKeywords, saveGridRecords, saveHexes,
   saveCompetitors, importCompetitorPinsCsv,
+  saveTopPinDesigns, loadTopPinDesigns,
+  saveAudienceAffinities, loadAudienceAffinities,
+  type TopPinDesign, type AudienceAffinity,
   generateMarketAnalysis, markReviewComplete,
   saveTasteGraph, saveThreeAnglesWorldsMoments,
   saveVelocity, persistFrequency,
@@ -33,6 +36,14 @@ export async function POST(
 
 async function dispatch(orgId: string, body: { action: string } & Record<string, unknown>) {
   switch (body.action) {
+    case "top_pin_designs":
+      return await saveTopPinDesigns(orgId, body.rows as TopPinDesign[]);
+    case "load_top_pin_designs":
+      return { rows: await loadTopPinDesigns(orgId) };
+    case "audience_affinities":
+      return await saveAudienceAffinities(orgId, body.rows as AudienceAffinity[]);
+    case "load_audience_affinities":
+      return { rows: await loadAudienceAffinities(orgId) };
     case "seed_keywords":
       return saveSeedKeywords(orgId, {
         keywords: (body.keywords as string[]) ?? [],

@@ -15,6 +15,7 @@ import { Phase2FormFor, type Phase2Snapshot } from "../../Phase2Forms";
 import { Phase3FormFor, type Phase3Snapshot } from "../../Phase3Forms";
 import { SkipDialog } from "../../SkipDialog";
 import { Phase4Action } from "../../Phase4Action";
+import { Phase5Action } from "../../Phase5Action";
 import type { CycleView } from "@/lib/organic/phase4";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +31,8 @@ const STATUS_CHOICES: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE", "
 // answers endpoint so the phase gate still opens.
 const CUSTOM_FORM_TASKS = new Set([
   "P1.0.3","P1.2.13",
-  "P2.1.1","P2.1.3","P2.1.4","P2.1.5","P2.1.6","P2.2.1","P2.2.2","P2.3.1","P2.3.3","P2.4.1","P2.4.2",
+  "P2.1.1","P2.1.3","P2.1.4","P2.1.5","P2.1.6","P2.1.7","P2.2.1","P2.2.2",
+  "P2.3.1","P2.3.2","P2.3.3","P2.4.1","P2.4.2",
   "P3.1.1","P3.1.2","P3.1.3","P3.1.4","P3.1.5","P3.1.6","P3.1.7","P3.1.8",
   "P3.1.9","P3.1.10","P3.1.11","P3.1.12","P3.1.13","P3.1.14","P3.2.1","P3.2.2",
   "P3.3.1","P3.3.2","P3.3.3","P3.3.4","P3.3.5","P3.3.6","P3.3.7","P3.3.8",
@@ -280,13 +282,17 @@ export function TaskCard({
           renders underneath — a designer's export or a client's reply is
           still worth attaching — but it is no longer the whole answer. */}
       {cycle && <Phase4Action orgId={orgId} taskId={task.task_id} cycle={cycle} />}
+      {/* Phase 5 is monthly execution too, so it gets the same treatment.
+          It has no cycle to hang off — the work is per month, not per URL —
+          so it keys off the phase alone. */}
+      {task.phase === 5 && <Phase5Action orgId={orgId} taskId={task.task_id} />}
 
       <TaskWork
         orgId={orgId}
         clientTaskId={task.client_task_id}
         taskId={task.task_id}
         taskName={task.name}
-        expectedOutput={cycle ? null : task.expected_output}
+        expectedOutput={cycle || task.phase === 5 ? null : task.expected_output}
         notes={task.notes ?? null}
         assets={assets}
         readOnly={task.status === "BLOCKED"}

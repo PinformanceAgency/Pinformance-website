@@ -533,3 +533,84 @@ function parseCsv(text: string): string[][] {
   if (cell.length > 0 || row.length > 0) { row.push(cell); rows.push(row); }
   return rows;
 }
+
+// ---------- P2.1.7 / P2.3.2 — the two that had no structured home ----------
+
+export interface TopPinDesign {
+  id?: string;
+  keyword: string;
+  pin_url: string;
+  title: string | null;
+  description: string | null;
+  annotations: string[];
+  hex_1: string | null;
+  hex_2: string | null;
+  hex_3: string | null;
+  note: string | null;
+}
+
+export async function saveTopPinDesigns(orgId: string, rows: TopPinDesign[]) {
+  const pool = organicPool();
+  // Replace rather than merge: the form shows every row, so what it sends
+  // is the complete answer. Merging would make a deleted row reappear.
+  await pool.query(`DELETE FROM organic.top_pin_designs WHERE org_id = $1`, [orgId]);
+  for (const r of rows) {
+    if (!r.keyword?.trim() || !r.pin_url?.trim()) continue;
+    await pool.query(
+      `INSERT INTO organic.top_pin_designs
+         (org_id, keyword, pin_url, title, description, annotations, hex_1, hex_2, hex_3, note)
+       VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10)
+       ON CONFLICT (org_id, keyword, pin_url) DO UPDATE SET
+         title = EXCLUDED.title, description = EXCLUDED.description,
+         annotations = EXCLUDED.annotations, hex_1 = EXCLUDED.hex_1,
+         hex_2 = EXCLUDED.hex_2, hex_3 = EXCLUDED.hex_3, note = EXCLUDED.note`,
+      [orgId, r.keyword.trim(), r.pin_url.trim(), r.title, r.description,
+       r.annotations ?? [], r.hex_1, r.hex_2, r.hex_3, r.note]
+    );
+  }
+  return { ok: true, saved: rows.filter((r) => r.keyword?.trim() && r.pin_url?.trim()).length };
+}
+
+export async function loadTopPinDesigns(orgId: string): Promise<TopPinDesign[]> {
+  const r = await organicPool().query<TopPinDesign>(
+    `SELECT id::text, keyword, pin_url, title, description, annotations, hex_1, hex_2, hex_3, note
+       FROM organic.top_pin_designs WHERE org_id = $1 ORDER BY keyword, pin_url`, [orgId]);
+  return r.rows;
+}
+
+export interface AudienceAffinity {
+  id?: string;
+  name: string;
+  affinity_index: number | null;
+  is_surprising: boolean;
+  note: string | null;
+}
+
+export async function saveAudienceAffinities(orgId: string, rows: AudienceAffinity[]) {
+  const pool = organicPool();
+  await pool.query(`DELETE FROM organic.audience_affinities WHERE org_id = $1`, [orgId]);
+  for (const r of rows) {
+    if (!r.name?.trim()) continue;
+    await pool.query(
+      `INSERT INTO organic.audience_affinities (org_id, name, affinity_index, is_surprising, note)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (org_id, name) DO UPDATE SET
+         affinity_index = EXCLUDED.affinity_index,
+         is_surprising = EXCLUDED.is_surprising,
+         note = EXCLUDED.note`,
+      [orgId, r.name.trim(), r.affinity_index, !!r.is_surprising, r.note]
+    );
+  }
+  return { ok: true, saved: rows.filter((r) => r.name?.trim()).length };
+}
+
+export async function loadAudienceAffinities(orgId: string): Promise<AudienceAffinity[]> {
+  const r = await organicPool().query<AudienceAffinity>(
+    `SELECT id::text, name, affinity_index, is_surprising, note
+       FROM organic.audience_affinities WHERE org_id = $1
+      ORDER BY is_surprising DESC, affinity_index DESC NULLS LAST, name`, [orgId]);
+  return r.rows.map((x) => ({
+    ...x,
+    affinity_index: x.affinity_index == null ? null : Number(x.affinity_index),
+  }));
+}

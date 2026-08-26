@@ -67,9 +67,11 @@ export function Phase2FormFor(p: Props): React.ReactNode {
     case "P2.1.4": return <HexForm {...p} />;
     case "P2.1.5": return <CompetitorsForm {...p} />;
     case "P2.1.6": return <ImportPinsForm {...p} />;
+    case "P2.1.7": return <TopPinDesignsForm {...p} />;
     case "P2.2.1": return <GenerateAIForm {...p} />;
     case "P2.2.2": return <ReviewInsightsForm {...p} />;
     case "P2.3.1": return <TasteGraphForm {...p} />;
+    case "P2.3.2": return <AudienceAffinitiesForm {...p} />;
     case "P2.3.3": return <ThreeAWMForm {...p} />;
     case "P2.4.1": return <VelocityForm {...p} />;
     case "P2.4.2": return <FrequencyForm {...p} />;
@@ -710,4 +712,221 @@ async function post(orgId: string, body: Record<string, unknown>): Promise<unkno
   try { data = JSON.parse(text); } catch { /* keep raw */ }
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status} — ${text.slice(0, 160)}`);
   return data;
+}
+
+
+/* ------------------------------------------------------------------ *
+ * P2.1.7 · Collect top pin designs
+ * ------------------------------------------------------------------ */
+
+interface TopPinRow {
+  keyword: string; pin_url: string; title: string; description: string;
+  annotations: string; hex_1: string; hex_2: string; hex_3: string;
+}
+const EMPTY_PIN: TopPinRow = {
+  keyword: "", pin_url: "", title: "", description: "",
+  annotations: "", hex_1: "", hex_2: "", hex_3: "",
+};
+
+/**
+ * A repeater, not a note box.
+ *
+ * The task asks for pin URL, title, description, annotations and colours
+ * per keyword — five structured fields — and it was a free-text field, so
+ * the material the AI market analysis is supposed to read existed as prose
+ * and reached nothing.
+ *
+ * Annotations are comma-separated on purpose. They come out of PinClicks
+ * as a list, and an annotation is research only: it is not a keyword until
+ * it passes a volume check, so nothing here writes to the keyword bank.
+ */
+function TopPinDesignsForm({ orgId, onDone }: Props) {
+  const [rows, setRows] = useState<TopPinRow[]>([{ ...EMPTY_PIN }]);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    setBusy(true); setErr(null);
+    try {
+      const d = await post(orgId, { action: "load_top_pin_designs" }) as {
+        rows: Array<{ keyword: string; pin_url: string; title: string | null; description: string | null;
+                      annotations: string[]; hex_1: string | null; hex_2: string | null; hex_3: string | null }>;
+      };
+      setRows(d.rows.length ? d.rows.map((r) => ({
+        keyword: r.keyword, pin_url: r.pin_url, title: r.title ?? "", description: r.description ?? "",
+        annotations: (r.annotations ?? []).join(", "),
+        hex_1: r.hex_1 ?? "", hex_2: r.hex_2 ?? "", hex_3: r.hex_3 ?? "",
+      })) : [{ ...EMPTY_PIN }]);
+      setLoaded(true);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  if (!loaded) {
+    return (
+      <div className="space-y-2 text-xs">
+        <button onClick={load} disabled={busy} className="o-btn o-btn-primary">
+          {busy ? "Loading…" : "Open the pin list"}
+        </button>
+        {err && <div className="text-red-600">{err}</div>}
+      </div>
+    );
+  }
+
+  const set = (i: number, k: keyof TopPinRow, v: string) =>
+    setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+
+  return (
+    <div className="space-y-2 text-xs">
+      <div className="text-[11px] text-neutral-500">
+        Per keyword: the pin, its copy, the annotations PinClicks returned, and the three dominant
+        colours from View Page Source. Material for the AI market analysis — an annotation is not a
+        keyword until it has a volume.
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} className="rounded-md border border-neutral-200 p-2 space-y-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <input value={r.keyword} onChange={(e) => set(i, "keyword", e.target.value)}
+                   placeholder="Keyword" className="o-input text-xs" />
+            <input value={r.pin_url} onChange={(e) => set(i, "pin_url", e.target.value)}
+                   placeholder="https://pinterest.com/pin/…" className="o-input text-xs" />
+          </div>
+          <input value={r.title} onChange={(e) => set(i, "title", e.target.value)}
+                 placeholder="Pin title" className="o-input text-xs" />
+          <textarea value={r.description} onChange={(e) => set(i, "description", e.target.value)}
+                    rows={2} placeholder="Pin description" className="o-input text-xs" />
+          <input value={r.annotations} onChange={(e) => set(i, "annotations", e.target.value)}
+                 placeholder="Annotations, comma separated" className="o-input text-xs" />
+          <div className="grid grid-cols-3 gap-1.5">
+            {(["hex_1", "hex_2", "hex_3"] as const).map((k, n) => (
+              <input key={k} value={r[k]} onChange={(e) => set(i, k, e.target.value)}
+                     placeholder={`Colour ${n + 1}`} className="o-input text-xs" />
+            ))}
+          </div>
+          {rows.length > 1 && (
+            <button onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                    className="text-[11px] text-neutral-500 hover:text-foreground underline underline-offset-2">
+              remove
+            </button>
+          )}
+        </div>
+      ))}
+      <button onClick={() => setRows([...rows, { ...EMPTY_PIN }])}
+              className="text-[11px] text-primary hover:underline">+ Add pin</button>
+      <div>
+        <button disabled={busy}
+          onClick={async () => {
+            setBusy(true); setErr(null);
+            try {
+              await post(orgId, { action: "top_pin_designs", rows: rows.map((r) => ({
+                ...r, annotations: r.annotations.split(",").map((x) => x.trim()).filter(Boolean),
+              })) });
+              onDone();
+            } catch (e) { setErr((e as Error).message); }
+            finally { setBusy(false); }
+          }}
+          className="o-btn o-btn-primary">
+          {busy ? "Saving…" : "Save pin designs"}
+        </button>
+        {err && <div className="mt-1 text-red-600">{err}</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * P2.3.2 · Read Audience Insights
+ * ------------------------------------------------------------------ */
+
+interface AffinityRow { name: string; affinity_index: string; is_surprising: boolean; note: string }
+const EMPTY_AFF: AffinityRow = { name: "", affinity_index: "", is_surprising: false, note: "" };
+
+/**
+ * The "surprising" box is the point of this task.
+ *
+ * A predictable affinity confirms what the brand already knew and changes
+ * nothing. A surprising correlation is where a content angle comes from,
+ * and it is the thing that gets lost when this is a paragraph of notes.
+ */
+function AudienceAffinitiesForm({ orgId, onDone }: Props) {
+  const [rows, setRows] = useState<AffinityRow[]>([{ ...EMPTY_AFF }]);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    setBusy(true); setErr(null);
+    try {
+      const d = await post(orgId, { action: "load_audience_affinities" }) as {
+        rows: Array<{ name: string; affinity_index: number | null; is_surprising: boolean; note: string | null }>;
+      };
+      setRows(d.rows.length ? d.rows.map((r) => ({
+        name: r.name, affinity_index: r.affinity_index == null ? "" : String(r.affinity_index),
+        is_surprising: r.is_surprising, note: r.note ?? "",
+      })) : [{ ...EMPTY_AFF }]);
+      setLoaded(true);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  if (!loaded) {
+    return (
+      <div className="space-y-2 text-xs">
+        <button onClick={load} disabled={busy} className="o-btn o-btn-primary">
+          {busy ? "Loading…" : "Open the affinity list"}
+        </button>
+        {err && <div className="text-red-600">{err}</div>}
+      </div>
+    );
+  }
+
+  const set = (i: number, patch: Partial<AffinityRow>) =>
+    setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
+  return (
+    <div className="space-y-2 text-xs">
+      <div className="text-[11px] text-neutral-500">
+        Affinities of the engaged audience, from Pinterest Audience Insights. Tick the ones that
+        surprised you — those are where the content angles come from.
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_5rem_auto_1fr_auto] gap-1.5 items-center">
+          <input value={r.name} onChange={(e) => set(i, { name: e.target.value })}
+                 placeholder="Affinity" className="o-input text-xs" />
+          <input value={r.affinity_index} onChange={(e) => set(i, { affinity_index: e.target.value })}
+                 placeholder="Index" className="o-input text-xs" />
+          <label className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-neutral-700">
+            <input type="checkbox" checked={r.is_surprising}
+                   onChange={(e) => set(i, { is_surprising: e.target.checked })} />
+            surprising
+          </label>
+          <input value={r.note} onChange={(e) => set(i, { note: e.target.value })}
+                 placeholder="What it suggests" className="o-input text-xs" />
+          {rows.length > 1 && (
+            <button onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                    className="text-[11px] text-neutral-500 hover:text-foreground">×</button>
+          )}
+        </div>
+      ))}
+      <button onClick={() => setRows([...rows, { ...EMPTY_AFF }])}
+              className="text-[11px] text-primary hover:underline">+ Add affinity</button>
+      <div>
+        <button disabled={busy}
+          onClick={async () => {
+            setBusy(true); setErr(null);
+            try {
+              await post(orgId, { action: "audience_affinities", rows: rows.map((r) => ({
+                name: r.name, is_surprising: r.is_surprising, note: r.note || null,
+                affinity_index: r.affinity_index.trim() === "" ? null : Number(r.affinity_index),
+              })) });
+              onDone();
+            } catch (e) { setErr((e as Error).message); }
+            finally { setBusy(false); }
+          }}
+          className="o-btn o-btn-primary">
+          {busy ? "Saving…" : "Save affinities"}
+        </button>
+        {err && <div className="mt-1 text-red-600">{err}</div>}
+      </div>
+    </div>
+  );
 }
