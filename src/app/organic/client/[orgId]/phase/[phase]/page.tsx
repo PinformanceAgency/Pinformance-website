@@ -3,7 +3,7 @@ import { loadClientHeader, loadClientTasks } from "@/lib/organic/queries";
 import { loadViability } from "@/lib/organic/viability";
 import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { loadPhase3Snapshot } from "@/lib/organic/phase3";
-import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume } from "@/lib/organic/phase4";
+import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume, loadCycleReadiness } from "@/lib/organic/phase4";
 import { loadAssets, loadCycleOps, loadTaskAnswers } from "@/lib/organic/workspace";
 import { phaseMeta } from "@/lib/organic/phase-meta";
 import { TASK_STATUS_SERIES } from "@/lib/organic/types";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { PhaseBoard } from "./PhaseBoard";
 import { Phase4Cycles } from "../../Phase4Cycles";
 import { CycleOpsPanel } from "@/components/organic/CycleOps";
+import { CycleStart } from "@/components/organic/CycleStart";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
   // Phase 4 is cycle-based, so it renders the cycles panel instead of a
   // flat task list.
   if (phase === 4) {
-    const [header, p4, cycles, orgBoards, orgKeywords, assets, ops] = await Promise.all([
+    const [header, p4, cycles, orgBoards, orgKeywords, assets, ops, readiness] = await Promise.all([
       loadClientHeader(orgId),
       loadPhase4Snapshot(orgId),
       loadCyclesForOrg(orgId),
@@ -33,6 +34,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
       loadOrgKeywordsWithVolume(orgId),
       loadAssets(orgId),
       loadCycleOps(orgId),
+      loadCycleReadiness(orgId),
     ]);
     if (!header) notFound();
     // Resolved server-side so the calendar's "today" column and the pin
@@ -41,6 +43,10 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
     return (
       <div className="space-y-5">
         <PhaseHeader meta={meta} progress={header.phases.find((p) => p.phase === phase)} recurring />
+        {/* Before the operations panel and before the cycle list, because on
+            a store with no cycle both of those are empty and this is the
+            only thing on the page that tells you what to do. */}
+        <CycleStart readiness={readiness} base={`/client/${orgId}`} />
         <CycleOpsPanel ops={ops} today={today} />
         <Phase4Cycles
           orgId={orgId}

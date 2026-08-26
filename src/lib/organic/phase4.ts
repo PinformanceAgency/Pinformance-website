@@ -39,7 +39,7 @@ import type { PoolClient } from "pg";
 import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
 import { loadAccountBrief, splitFromGrid, formatNotesFromGrid } from "./brief";
-import { adviseBoards, adviseKeywords, checkBoards, checkKeywords, checkUrlReadiness } from "./structure";
+import { adviseBoards, adviseKeywords, adviseUrls, checkBoards, checkKeywords, checkUrlReadiness } from "./structure";
 import { generateWithValidator, persistDraft } from "./ai";
 import type { Deviation } from "./structure";
 
@@ -1301,4 +1301,121 @@ export function validateImagePrompt(text: string): { ok: boolean; errors: string
   }
   if (/^["']|["']$/.test(t)) errs.push("prompt is wrapped in quotes");
   return { ok: errs.length === 0, errors: errs };
+}
+
+// ---------- what is stopping a cycle from starting --------------------------
+
+export interface CycleReadiness {
+  total_urls: number;
+  eligible: number;
+  running: number;
+  /** Ranked, best first, with the research reason. Empty when none qualify. */
+  ready: Array<{ url_id: string; name: string; why: string }>;
+  /** Why the rest cannot start, grouped by cause, worst first. */
+  blockers: Array<{ count: number; what: string; fix: string; href: string; examples: string[] }>;
+}
+
+/**
+ * Phase 4 opens on a store with no cycle far more often than not, and until
+ * now it said "0 URLs eligible" in grey and left it there. That is the one
+ * moment the manager most needs telling what to do, and the page answered
+ * with a number.
+ *
+ * The blockers are the same three conditions organic.urls_selectable
+ * computes — cooldown, topic coverage, boards assigned — turned back into
+ * the actions that clear them. Ordered by how many URLs each is holding up,
+ * because fixing the one blocking nine URLs beats fixing the one blocking
+ * one.
+ */
+export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness> {
+  const pool = organicPool();
+  const [rows, running, brief] = await Promise.all([
+    pool.query<{
+      id: string; name: string; topic_name: string | null;
+      cooldown_clear: boolean; topic_covered: boolean;
+      assigned_boards: string; is_selectable: boolean; cooldown_until: string | null;
+    }>(
+      `SELECT u.id::text, u.name, t.name AS topic_name,
+              u.cooldown_clear, u.topic_covered, u.assigned_boards::text,
+              u.is_selectable, u.cooldown_until::text
+         FROM organic.urls_selectable u
+         LEFT JOIN organic.topics t ON t.id = u.topic_id
+        WHERE u.org_id = $1
+        ORDER BY u.name`, [orgId]),
+    pool.query<{ n: string }>(
+      `SELECT COUNT(DISTINCT cycle)::text AS n FROM organic.client_tasks
+        WHERE org_id = $1 AND cycle LIKE 'URL-%'`, [orgId]),
+    loadAccountBrief(orgId),
+  ]);
+
+  const all = rows.rows;
+  const inCycle = new Set(
+    (await pool.query<{ short: string }>(
+      `SELECT DISTINCT replace(cycle, 'URL-', '') AS short
+         FROM organic.client_tasks WHERE org_id = $1 AND cycle LIKE 'URL-%'`, [orgId]
+    )).rows.map((r) => r.short)
+  );
+
+  const free = all.filter((u) => !inCycle.has(u.id.slice(0, 8)));
+  const eligible = free.filter((u) => u.is_selectable);
+
+  // Rank the ones that can start by the same research the cycle would use,
+  // so the first suggestion is the one the account's own history points at.
+  const advice = brief
+    ? adviseUrls(brief, eligible.map((u) => ({
+        id: u.id, name: u.name, funnel_stage: null, is_seasonal: null, reason: null,
+      })))
+    : null;
+  const ready = (advice?.suggested ?? eligible.map((u) => ({ id: u.id, name: u.name })))
+    .slice(0, 3)
+    .map((u, i) => ({
+      url_id: u.id, name: u.name,
+      why: advice?.reasons[i] ?? "out of cooldown and fully assigned",
+    }));
+
+  const blockers: CycleReadiness["blockers"] = [];
+  const push = (list: typeof all, what: string, fix: string, href: string) => {
+    if (list.length === 0) return;
+    blockers.push({
+      count: list.length, what, fix, href,
+      examples: list.slice(0, 4).map((u) => u.name),
+    });
+  };
+
+  if (all.length === 0) {
+    blockers.push({
+      count: 0,
+      what: "There are no URLs on this store yet",
+      fix: "Add the pages worth pinning to — collections, guides, strong product pages.",
+      href: "urls", examples: [],
+    });
+  } else {
+    // Reported independently: a URL can be short on both, and telling
+    // somebody to fix coverage when boards are also missing sends them back
+    // twice.
+    const noCoverage = free.filter((u) => !u.topic_covered);
+    const fewBoards = free.filter((u) => Number(u.assigned_boards) < 5);
+    const cooling = free.filter((u) => !u.cooldown_clear);
+    push(noCoverage,
+      `topic has fewer than five boards`,
+      "Build boards for that topic. Coverage gates phase 4 for everything under it (P3.3.2).",
+      "boards");
+    push(fewBoards,
+      `fewer than five boards assigned`,
+      "Open the URL and assign at least five semantically relevant boards (P4.1.7).",
+      "urls");
+    push(cooling,
+      `still inside cooldown`,
+      "Nothing to do — they come back on their own. The date is on the URL.",
+      "urls");
+  }
+  blockers.sort((a, b) => b.count - a.count);
+
+  return {
+    total_urls: all.length,
+    eligible: eligible.length,
+    running: Number(running.rows[0]?.n ?? 0),
+    ready,
+    blockers,
+  };
 }
