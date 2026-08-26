@@ -176,20 +176,26 @@ function FieldRow({
           )}
           <h4 className={cn("o-h3 text-foreground", conditional && "mt-1")}>{field.question}</h4>
 
-          <div className="mt-3.5 grid md:grid-cols-2 gap-px bg-o-hairline rounded-lg overflow-hidden max-w-4xl">
-            <div className="bg-o-sunk/60 px-4 py-3.5">
-              <span className="o-eyebrow inline-flex items-center gap-1.5">
-                <HelpCircle className="w-3 h-3" /> Why it matters
-              </span>
-              <p className="mt-1.5 text-sm text-o-ink-2 leading-relaxed">{field.why}</p>
+          {/* Two panels when the item needs arguing for, one line when it
+              does not. See TaskField.why. */}
+          {field.why ? (
+            <div className="mt-3.5 grid md:grid-cols-2 gap-px bg-o-hairline rounded-lg overflow-hidden max-w-4xl">
+              <div className="bg-o-sunk/60 px-4 py-3.5">
+                <span className="o-eyebrow inline-flex items-center gap-1.5">
+                  <HelpCircle className="w-3 h-3" /> Why it matters
+                </span>
+                <p className="mt-1.5 text-sm text-o-ink-2 leading-relaxed">{field.why}</p>
+              </div>
+              <div className="bg-o-sunk/60 px-4 py-3.5">
+                <span className="o-eyebrow inline-flex items-center gap-1.5">
+                  <CircleDot className="w-3 h-3" /> How to check
+                </span>
+                <p className="mt-1.5 text-sm text-o-ink-2 leading-relaxed">{field.how}</p>
+              </div>
             </div>
-            <div className="bg-o-sunk/60 px-4 py-3.5">
-              <span className="o-eyebrow inline-flex items-center gap-1.5">
-                <CircleDot className="w-3 h-3" /> How to check
-              </span>
-              <p className="mt-1.5 text-sm text-o-ink-2 leading-relaxed">{field.how}</p>
-            </div>
-          </div>
+          ) : (
+            <p className="mt-1.5 text-sm text-o-ink-2 leading-relaxed max-w-3xl">{field.how}</p>
+          )}
 
           {/* ---- the answer ------------------------------------- */}
           <div className="mt-4">

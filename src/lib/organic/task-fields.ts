@@ -24,7 +24,17 @@ export type FieldKind = "boolean" | "number" | "text" | "longtext" | "choice";
 export interface TaskField {
   key: string;
   question: string;
-  why: string;
+  /**
+   * Why the item decides anything.
+   *
+   * Optional, and leaving it out is a choice rather than an omission.
+   * Present, it renders as a two-panel grid beside `how`; absent, `how`
+   * becomes one quiet line under the question. A self-evident question --
+   * "what is the verdict?" -- given two panels of justification reads as a
+   * form that does not trust you, and the explanation nobody needs is what
+   * teaches people to skip the explanation they do.
+   */
+  why?: string;
   how: string;
   kind: FieldKind;
   /** For `choice`. */
@@ -184,34 +194,28 @@ const URL_COUNT: TaskFieldSet = {
 };
 
 const VERDICT: TaskFieldSet = {
-  intro:
-    "The gate. Everything in phase 1 onwards is blocked until this is recorded, because taking on a store " +
-    "that should have been declined costs more than the retainer it earns.",
+  // Deliberately short, and deliberately not repeating the task's own
+  // guidance line directly above it. Two sentences saying the same thing in
+  // different words is how a screen starts feeling like paperwork.
+  intro: "Nothing else in phase 1 unblocks until this is recorded.",
   fields: [
     {
       key: "verdict",
       question: "What is the verdict?",
-      why:
-        "This is the decision the rest of the engagement rests on, and it is the one thing a future manager " +
-        "will want to see reasoned.",
       how:
-        "STRONG: all three good-fit signals and neither red flag. MODERATE: workable but with a named " +
-        "risk. WEAK: decline, or proceed only with the client's expectations reset in writing.",
+        "STRONG: all three good-fit signals, neither red flag. MODERATE: workable with a named risk. " +
+        "WEAK: decline, or proceed only with expectations reset in writing.",
       kind: "choice",
       options: ["STRONG", "MODERATE", "WEAK"],
-      evidence: "e.g. \"5/6 good-fit, 0 red flags, 34 URLs. Only gap is AOV at €85 which is acceptable.\"",
+      evidence: "e.g. \"3/3 good-fit, 0 red flags, 34 URLs. Client has run a slow channel before.\"",
       evidenceRequired: true,
     },
     {
       key: "verdict_risk",
       question: "If this goes wrong, what will have caused it?",
-      why:
-        "Written now, before anyone is invested, this is the most honest risk assessment the engagement will " +
-        "ever get. It is also what the risk screen checks against in month three.",
-      how: "One sentence. The most likely failure, not every possible one.",
+      how: "One sentence — the most likely failure, not every possible one. The risk screen checks against it in month three.",
       kind: "longtext",
-      evidence: "e.g. \"Most likely failure is the client losing patience in month two — they said the right things but have never run a slow channel.\"",
-      evidenceRequired: true,
+      evidence: "e.g. \"Client losing patience in month two — they said the right things but have never run a slow channel.\"",
     },
   ],
 };
