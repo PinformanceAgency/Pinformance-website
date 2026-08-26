@@ -131,6 +131,10 @@ async function remove(c: Client) {
     ["task_answers",    `DELETE FROM organic.task_answers WHERE org_id = $1`],
     ["client_tasks",    `DELETE FROM organic.client_tasks WHERE org_id = $1`],
     ["client_viability",`DELETE FROM organic.client_viability WHERE org_id = $1`],
+    ["brand_rules",     `DELETE FROM organic.brand_rules WHERE org_id = $1`],
+    ["client_intake",   `DELETE FROM organic.client_intake WHERE org_id = $1`],
+    ["grid_analyses",   `DELETE FROM organic.grid_analyses WHERE org_id = $1`],
+    ["market_items",    `DELETE FROM organic.market_analysis_items WHERE org_id = $1`],
     ["baseline_kpis",   `DELETE FROM organic.baseline_kpis WHERE org_id = $1`],
     ["monthly_kpis",    `DELETE FROM organic.monthly_kpis WHERE org_id = $1`],
     ["monthly_reports", `DELETE FROM organic.monthly_reports WHERE org_id = $1`],
@@ -486,7 +490,7 @@ async function seed(c: Client) {
   await c.query(
     `UPDATE organic.client_tasks
         SET status = 'SKIPPED'::organic.task_status,
-            skip_reason = 'NOT_APPLICABLE'::organic.skip_reason,
+            skip_reason = 'NOT_APPLICABLE',
             skip_note = 'No group boards on this account.'
       WHERE org_id = $1 AND task_id = 'P3.3.3'`, [ORG_ID]);
 
@@ -500,6 +504,74 @@ async function seed(c: Client) {
       WHERE org_id = $1 AND task_id IN ('P3.3.6','P3.3.7')`,
     [ORG_ID, iso(daysAgo(23))]);
 
+  /* ---- the research phase 4 actually reads ------------------------
+     Without these the store demonstrates only the empty half of every
+     screen: no brand book, no grid, no intake. The three grid rows carry
+     three DIFFERENT text-overlay buckets on purpose — splitFromGrid()
+     exists so the save/click split stops being one constant for every
+     keyword, and a demo where every row lands on 80/20 proves nothing. */
+  await c.query(
+    `INSERT INTO organic.brand_rules
+       (org_id, positioning, tone_descriptors, brand_pillars, never_include,
+        banned_words, approved_ctas, dominant_colors, asset_locations)
+     VALUES ($1,
+       'Quiet luxury fine jewellery for women who buy for themselves.',
+       ARRAY['warm','considered','unfussy'],
+       ARRAY['Made to be worn daily','Solid gold, never plated','Small batch'],
+       ARRAY['Discount badges','Stock photography'],
+       ARRAY['cheap','bargain','sale','luxury for less'],
+       ARRAY['Shop the edit','See the collection','Find your size'],
+       ARRAY['#C8A96A','#F4EFE7','#1C1A17'],
+       '{"typography":"Canela Deck / Sohne"}'::jsonb)`,
+    [ORG_ID]);
+
+  await c.query(
+    `INSERT INTO organic.client_intake
+       (org_id, contact_name, contact_email, products_services, ideal_audience,
+        brand_personality, evergreen_topics, seasonal_promos,
+        best_performing_content, primary_goals, completed_at)
+     VALUES ($1, 'Manon Devos', 'manon@vellora-atelier.com',
+       'Solid 14k gold everyday jewellery: hoops, signet rings, stacking bands, bridal.',
+       'Women 28-45, buying for themselves, value longevity over trend.',
+       'Understated, warm, never shouty.',
+       ARRAY['Stacking','Bridal','Gifting','Jewellery care'],
+       ARRAY['Christmas gifting','Wedding season'],
+       'Instagram carousels showing one piece styled three ways.',
+       ARRAY['TRAFFIC','SALES']::organic.marketing_goal[],
+       now() - interval '200 days')`,
+    [ORG_ID]);
+
+  for (const [kw, aesthetic, simple, textHeavy, ctas, bucket, feel, h1, h2, h3] of [
+    ['gold hoop earrings', true,  true,  false, false, 'MINIMAL', 'Clean daylight product shots on skin, very little text. Warm neutrals throughout.', '#D9C3A5', '#F6F1EA', '#2A2622'],
+    ['bridal jewellery',   true,  false, false, true,  'HALF',    'Half editorial bridal portraits, half text-led "what to wear" pins with a CTA.',    '#EDE4DA', '#C9B79C', '#40382F'],
+    ['stacking rings',     false, true,  true,  true,  'MOST',    'Text-led how-to pins dominate: numbered stacks, arrows, visible CTAs.',             '#E3D2BA', '#8C6F4E', '#FBF7F2'],
+  ] as const) {
+    await c.query(
+      `INSERT INTO organic.grid_analyses
+         (org_id, target_keyword, fmt_pure_aesthetic, fmt_simple_pins, fmt_text_heavy,
+          fmt_infographics, fmt_video_916, has_visible_ctas, text_overlay_bucket,
+          look_and_feel, hex_1, hex_2, hex_3, analyzed_at)
+       VALUES ($1,$2,$3,$4,$5,false,false,$6,$7,$8,$9,$10,$11, now() - interval '180 days')`,
+      [ORG_ID, kw, aesthetic, simple, textHeavy, ctas, bucket, feel, h1, h2, h3]);
+  }
+
+  // A REJECTED item has to carry a reason — the table enforces it, which is
+  // what stops the review step from being a rubber stamp.
+  for (const [kind, title, detail, status, reject] of [
+    ['STEAL_LIST',    'Jewellery Care & Storage',          'Three of five competitors run this board and it outperforms their product boards.', 'APPROVED', null],
+    ['STEAL_LIST',    'Ring Stacking Ideas',               'The highest-saving board in the competitor set.',                                   'APPROVED', null],
+    ['BOARD_GAP',     'Gold Jewellery for Sensitive Skin', 'Real search demand, nobody in the set covers it.',                                  'APPROVED', null],
+    ['CONTENT_ANGLE', 'What it looks like after a year',   'Longevity is the brand pillar and nobody is showing wear over time.',               'APPROVED', null],
+    ['STEAL_LIST',    'Celebrity Jewellery Looks',         'Off-positioning for quiet luxury.',                                                 'REJECTED',
+      'Clashes with the quiet-luxury positioning; the client does not want celebrity association.'],
+  ] as const) {
+    await c.query(
+      `INSERT INTO organic.market_analysis_items
+         (org_id, kind, title, detail, status, reject_reason, created_at, reviewed_at)
+       VALUES ($1,$2,$3,$4,$5,$6, now() - interval '175 days', now() - interval '172 days')`,
+      [ORG_ID, kind, title, detail, status, reject]);
+  }
+
   /* ---- viability gate, answered with reasoning -------------------- */
   await c.query(
     `INSERT INTO organic.client_viability
@@ -508,7 +580,7 @@ async function seed(c: Client) {
         rf_low_effort_ds, rf_restricted_niche, total_urls_found, verdict, rationale, assessed_at)
      VALUES ($1,true,true,true,true,true,true,false,false,false,false,false,false,
              38,'STRONG_FIT',
-             '6/6 good-fit signals, zero red flags, 38 usable URLs. Own photography, AOV €140, client has run SEO before and understands compounding.',
+             'All three good-fit signals, neither red flag, 38 usable URLs. Own photography, client has run SEO before and understands compounding — we can be ambitious here.',
              now())`,
     [ORG_ID]);
 
@@ -527,7 +599,7 @@ async function seed(c: Client) {
     ["P1.0.2","rf_restricted_niche",false,null,null,"Jewellery. Nothing in Pinterest's restricted categories."],
     ["P1.0.3","total_urls_found",null,null,38,"38 total: 5 collections, 21 products, 8 guides, 4 selections. Excluded 14 policy/account/cart pages."],
     ["P1.0.3","url_breakdown_note",null,"Collections are strongest — gold hoops and bridal are evergreen. Christmas gifting is seasonal, hold until September. Four product pages are thin, skip them.",null,""],
-    ["P1.0.4","verdict",null,"STRONG",null,"6/6 good-fit, 0 red flags, 38 URLs, own imagery, AOV €140. No reservations."],
+    ["P1.0.4","verdict",null,"STRONG_FIT",null,"3/3 good-fit, 0 red flags, 38 URLs, own imagery. No reservations — this one can carry an ambitious plan."],
     ["P1.0.4","verdict_risk",null,"Most likely failure is us, not them: pearls have no lifestyle photography and if we do not chase it, that topic never reaches board coverage.",null,""],
   ];
   for (const [task, field, b, t, n, ev] of ANSWERS) {

@@ -38,6 +38,7 @@
 import type { PoolClient } from "pg";
 import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
+import { loadAccountBrief, splitFromGrid, formatNotesFromGrid } from "./brief";
 
 const PHASE_4_TASK_IDS = [
   "P4.1.1","P4.1.2","P4.1.3","P4.1.4","P4.1.5","P4.1.6","P4.1.7","P4.1.8",
@@ -232,6 +233,11 @@ export interface DesignBrief {
   save_split_pct: number;   // 80
   click_split_pct: number;  // 20
   format_notes: string;
+  /** What the research could not supply, in the designer's own words.
+   *  Named rather than silently defaulted — someone who knows there is no
+   *  brand book works differently from someone who assumes the palette
+   *  below is the brand's. */
+  gaps: string[];
   /** Non-negotiable design constraints, spelled out for the designer. */
   constraints: string[];
 }
@@ -254,64 +260,56 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
   const primary = kws.rows.find((r) => r.is_primary)?.term ?? "";
   const longTail = kws.rows.filter((r) => !r.is_primary).map((r) => r.term).slice(0, 5);
 
-  // P2.1.4 dominant colours → design brief. The single most-requested
-  // cross-phase value per the spec's data-flow map.
-  const colorsRow = await pool.query<{ hex_1: string | null; hex_2: string | null; hex_3: string | null }>(
-    `SELECT hex_1, hex_2, hex_3 FROM organic.grid_analyses
-      WHERE org_id = $1 AND target_keyword = $2 LIMIT 1`,
-    [orgId, primary]
-  );
-  const colors = colorsRow.rows[0]
-    ? [colorsRow.rows[0].hex_1, colorsRow.rows[0].hex_2, colorsRow.rows[0].hex_3].filter(Boolean) as string[]
-    : [];
+  // Everything the account knows about itself, in one read. This used to be
+  // three separate queries picking four values out of three months of
+  // research; see brief.ts for why that shape was the problem rather than
+  // the amount.
+  const brief = await loadAccountBrief(orgId);
+  if (!brief) throw new Error("Org not found");
 
-  // P1.1.6 brand book → design brief, and P2.3.3 angles/worlds/moments →
-  // design brief. Both are spec data-flows; without them the designer has
-  // to look the values up by hand, which is exactly what the spec forbids.
-  const [brandRow, tasteRow] = await Promise.all([
-    pool.query<{
-      dominant_colors: string[] | null; tone_descriptors: string[] | null;
-      banned_words: string[] | null; approved_ctas: string[] | null;
-      asset_locations: Record<string, unknown> | null;
-    }>(
-      `SELECT dominant_colors, tone_descriptors, banned_words, approved_ctas, asset_locations
-         FROM organic.brand_rules WHERE org_id = $1`, [orgId]
-    ),
-    pool.query<{ content_angles: string[] | null; visual_worlds: string[] | null; key_moments: string[] | null }>(
-      `SELECT content_angles, visual_worlds, key_moments
-         FROM organic.taste_graph WHERE org_id = $1`, [orgId]
-    ),
-  ]);
-  const brand = brandRow.rows[0];
-  const taste = tasteRow.rows[0];
-  const typography = (brand?.asset_locations as { typography?: string } | null)?.typography ?? null;
+  // The grid reading for THIS keyword. Falls back to the account's first
+  // grid row when the primary keyword was never gridded — a neighbouring
+  // keyword in the same niche is a far better guide than a constant, and
+  // the basis line says which one it used.
+  const findings = brief.grid.value ?? [];
+  const exact = findings.find((g) => g.keyword === primary) ?? null;
+  const finding = exact ?? findings[0] ?? null;
 
-  const overlay = longTail.slice(0, 5);
+  const split = splitFromGrid(exact);
+  const brand = brief.brand.value;
+  const taste = brief.taste.value;
 
   return {
     url: urlRow.rows[0].url,
     url_name: urlRow.rows[0].name,
     primary_keyword: primary,
     long_tail_keywords: longTail.length >= 3 ? longTail : [...longTail, ...Array(3 - longTail.length).fill(primary)],
-    overlay_keywords: overlay.length > 0 ? overlay : [primary],
-    dominant_colors: colors,
+    overlay_keywords: longTail.slice(0, 5).length > 0 ? longTail.slice(0, 5) : [primary],
+    dominant_colors: finding?.colors ?? [],
     brand_colors: brand?.dominant_colors ?? [],
-    typography,
+    typography: brand?.typography ?? null,
     tone_descriptors: brand?.tone_descriptors ?? [],
     banned_words: brand?.banned_words ?? [],
     approved_ctas: brand?.approved_ctas ?? [],
     content_angles: taste?.content_angles ?? [],
     visual_worlds: taste?.visual_worlds ?? [],
     key_moments: taste?.key_moments ?? [],
-    save_split_pct: 80,
-    click_split_pct: 20,
-    format_notes: "80% save pins (2:3 lifestyle, no text). 20% click pins (9:16 with keyword-front text + CTA).",
+    save_split_pct: split.save_split_pct,
+    click_split_pct: split.click_split_pct,
+    format_notes: formatNotesFromGrid(exact ?? finding, split),
+    // What the research could not tell us, named rather than defaulted.
+    // A designer reading "no brand book" behaves differently from one who
+    // assumes the palette below is the brand's.
+    gaps: [brief.grid, brief.brand, brief.taste, brief.market]
+      .filter((k) => !k.known)
+      .map((k) => (k as { why: string }).why),
     constraints: [
       "Sans-serif fonts only — Pinterest OCR fails on cursive and script.",
       "Keep the top-left and top-right corners clear: Pinterest overlays Save / More buttons there.",
       "No watermarks — the algorithm penalises them.",
       "AI route: apply a 1% transparent frame before export to strip C2PA metadata, and never enable \"Mark as AI-Modified\" in the Pin Builder.",
       "Four visually distinct designs, then three micro-crops each.",
+      ...(brand?.never_include ?? []).map((n) => `Brand rule — never include: ${n}`),
     ],
   };
 }
