@@ -139,6 +139,14 @@ async function remove(c: Client) {
     ["client_tasks",    `DELETE FROM organic.client_tasks WHERE org_id = $1`],
     ["client_viability",`DELETE FROM organic.client_viability WHERE org_id = $1`],
     ["design_templates",`DELETE FROM organic.design_templates WHERE org_id = $1`],
+    ["client_access",   `DELETE FROM organic.client_access WHERE org_id = $1`],
+    ["content_bank",    `DELETE FROM organic.content_bank WHERE org_id = $1`],
+    ["keyword_clusters",`DELETE FROM organic.keyword_clusters WHERE org_id = $1`],
+    ["board_opps",      `DELETE FROM organic.board_opportunities WHERE org_id = $1`],
+    ["competitor_pins", `DELETE FROM organic.competitor_pins WHERE org_id = $1`],
+    ["top_pin_designs", `DELETE FROM organic.top_pin_designs WHERE org_id = $1`],
+    ["audience_affin",  `DELETE FROM organic.audience_affinities WHERE org_id = $1`],
+    ["ai_drafts",       `DELETE FROM organic.ai_drafts WHERE org_id = $1`],
     ["brand_rules",     `DELETE FROM organic.brand_rules WHERE org_id = $1`],
     ["client_intake",   `DELETE FROM organic.client_intake WHERE org_id = $1`],
     ["grid_analyses",   `DELETE FROM organic.grid_analyses WHERE org_id = $1`],
@@ -300,6 +308,40 @@ async function seed(c: Client) {
          VALUES ($1,$2,$3,'AI_GENERATED','APPROVED',$4,$5) RETURNING id::text`,
         [wf.rows[0].id, d, d <= 2 ? "SAVE" : "CLICK",
          KEYWORDS[(ui * 4 + d) % KEYWORDS.length][0], pick(["CROP", "OVERLAY", "FILTER", "TEXT_SWAP"])]);
+
+      // One copy set per design — four per URL, shared across that
+      // design's four crops. Without these the copy-QC panel has nothing
+      // to review and copy_sets was the last table left empty.
+      //
+      // Written to the real limits, because the table enforces them: title
+      // under 100 with the keyword at the front, description 250 to 300,
+      // and no exclamation marks, hashtags or dashes anywhere. Seeding
+      // something that would fail its own validator would be worse than
+      // seeding nothing.
+      {
+        const kw = KEYWORDS[(ui * 4 + d) % KEYWORDS.length][0];
+        const title = `${kw.charAt(0).toUpperCase()}${kw.slice(1)} styled for everyday wear`.slice(0, 100);
+        const body =
+          `${kw.charAt(0).toUpperCase()}${kw.slice(1)} you can wear daily rather than save for occasions. ` +
+          `Solid 14k gold, photographed on skin in daylight so you can see how a piece really sits. ` +
+          `Ideas for layering, stacking and building a set worth keeping for years to come.`;
+        const description = body.length > 300 ? body.slice(0, 297).replace(/\s\S*$/, "") + "."
+                          : body.padEnd(255, " ").slice(0, 255).trimEnd() +
+                            " Shop the edit to see the full range.";
+        await c.query(
+          `INSERT INTO organic.copy_sets
+             (design_id, tagline, title, description, primary_keyword, secondary_keywords,
+              validator_status, validator_errors, human_qc_status, prompt_version,
+              model_version, generated_at)
+           VALUES ($1,$2,$3,$4,$5,$6::text[],
+                   'PASS'::organic.validator_status,'{}'::jsonb,
+                   $7::organic.qc_status,'demo-v1','claude-sonnet-4-5', now() - interval '30 days')`,
+          [design.rows[0].id, `${kw} made simple`, title, description.slice(0, 300), kw,
+           [KEYWORDS[(ui * 4 + d + 1) % KEYWORDS.length][0]],
+           // One set left pending on purpose: a panel where everything is
+           // approved shows neither state.
+           d === 4 ? "PENDING" : "APPROVED"]);
+      }
 
       for (let v = 0; v < 4; v++) {
         const seq = (d - 1) * 4 + v + 1;
@@ -544,6 +586,157 @@ async function seed(c: Client) {
     }
   }
 
+  /* ---- the rest of the record --------------------------------------
+     Every table a screen reads, filled. What was empty here was not empty
+     for a reason — it just had not been seeded — and an empty table looks
+     identical to a broken query from the outside, which is exactly what a
+     review store must not do. */
+
+  // Access: granted, except the one that is normally still outstanding a
+  // fortnight in. A row where everything is true shows none of the states
+  // the access screen exists for.
+  await c.query(
+    `INSERT INTO organic.client_access
+       (org_id, pinterest_login, pinterest_login_until, ga4_access, gsc_access,
+        cms_access, cms_platform, product_feed_url, notes)
+     VALUES ($1, true, $2::date, true, true, false, 'Shopify',
+             'https://vellora-atelier.com/products.xml',
+             'CMS access still outstanding — their developer handles deploys and has not added us yet.')`,
+    [ORG_ID, iso(daysAgo(-14))]);
+
+  // Content bank: the count that sets the achievable frequency (P1.3.14).
+  await c.query(
+    `INSERT INTO organic.content_bank
+       -- total_urls is a generated column: it is the sum of the four, and
+       -- the database computes it so the parts and the total can never
+       -- disagree.
+       (org_id, product_pages, collection_pages, blog_posts, gallery_pages,
+        has_lifestyle_photos, ai_route_required, audited_at)
+     VALUES ($1, 24, 6, 6, 2, true, false, now() - interval '205 days')`,
+    [ORG_ID]);
+
+  // Keyword clusters, on three different axes. One axis only would hide
+  // that the axis is a real choice — moment is often the strongest on
+  // Pinterest and product the most obvious.
+  {
+    const t = await c.query<{ id: string; name: string }>(
+      `SELECT id::text, name FROM organic.topics WHERE org_id = $1`, [ORG_ID]);
+    const byName = Object.fromEntries(t.rows.map((r) => [r.name, r.id]));
+    for (const [name, axis, topic] of [
+      ['Hoops and huggies',      'PRODUCT', 'Gold jewellery'],
+      ['Stacking and layering',  'PRODUCT', 'Everyday stacking'],
+      ['Wedding and bridal',     'MOMENT',  'Bridal'],
+      ['Gifting moments',        'MOMENT',  'Gifting'],
+      ['Warm gold tones',        'COLOR',   'Gold jewellery'],
+      ['Solid gold vs plated',   'MATERIAL','Gold jewellery'],
+    ] as const) {
+      await c.query(
+        `INSERT INTO organic.keyword_clusters (org_id, topic_id, name, axis)
+         VALUES ($1,$2,$3,$4::organic.cluster_axis) ON CONFLICT DO NOTHING`,
+        [ORG_ID, byName[topic] ?? null, name, axis]);
+    }
+  }
+
+  // Board opportunities: the Steal List and Board Gap as objects, one of
+  // each already converted so both states are visible.
+  {
+    const b = await c.query<{ id: string }>(
+      `SELECT id::text FROM organic.boards WHERE org_id = $1 LIMIT 1`, [ORG_ID]);
+    for (const [name, cat, src, note, done] of [
+      ['Jewellery Care & Storage',         'niche',       'STEAL_LIST', 'Three of five competitors run it and it outperforms their product boards.', true],
+      ['Ring Stacking Ideas',              'niche',       'STEAL_LIST', 'Highest-saving board in the competitor set.',                              false],
+      ['Gold Jewellery for Sensitive Skin','demographic', 'BOARD_GAP',  'Real search demand, nobody in the set covers it.',                         false],
+      ['Wedding Guest Jewellery',          'occasion',    'BOARD_GAP',  'Adjacent to bridal, far less competitive.',                                false],
+    ] as const) {
+      await c.query(
+        `INSERT INTO organic.board_opportunities
+           (org_id, board_name, category, source_type, source_note, converted_to_board)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+        [ORG_ID, name, cat, src, note, done ? b.rows[0]?.id ?? null : null]);
+    }
+  }
+
+  // Competitor pins. The method says 700-1000 per competitor; that volume
+  // is a manual PinInspector export and pointless to fabricate, so this
+  // seeds the shape and enough rows for the top-boards summary to mean
+  // something. The count is deliberately not presented as realistic.
+  {
+    const comps = await c.query<{ id: string; name: string }>(
+      `SELECT id::text, name FROM organic.competitors WHERE org_id = $1 ORDER BY name`, [ORG_ID]);
+    const BOARDS = ['Everyday Gold', 'Ring Stacks', 'Bridal Edit', 'Jewellery Care',
+                    'Gift Guides', 'Layering Ideas', 'Gold Hoops'];
+    const TITLES = ['How to stack rings without them clashing', 'Five ways to layer gold chains',
+                    'The signet ring, styled three ways', 'What solid gold looks like after a year',
+                    'Bridal jewellery that is not just for the day', 'Gold hoops for every ear shape',
+                    'A starter set worth keeping', 'Care notes for solid gold'];
+    for (const comp of comps.rows) {
+      for (let i = 0; i < 40; i++) {
+        await c.query(
+          `INSERT INTO organic.competitor_pins
+             (org_id, competitor_id, pin_url, title, description, board_name,
+              saves, outbound_clicks, impressions, imported_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now() - interval '176 days')
+           ON CONFLICT DO NOTHING`,
+          [ORG_ID, comp.id,
+           `https://pinterest.com/pin/${comp.name.toLowerCase().replace(/[^a-z]/g, "")}-${i}`,
+           pick(TITLES), 'Imported from the competitor export for market analysis.',
+           pick(BOARDS),
+           Math.round(between(40, 1800)), Math.round(between(5, 320)), Math.round(between(2000, 90000))]);
+      }
+    }
+  }
+
+  // P2.1.7 — top pin designs per keyword, the material the AI analysis reads.
+  for (const [kw, url, title, ann, h1, h2, h3] of [
+    ['gold hoop earrings', 'https://pinterest.com/pin/top-hoops-1', 'Gold hoops on skin, morning light',
+     ['gold jewellery', 'hoop earrings', 'minimal jewellery'], '#D9C3A5', '#F6F1EA', '#2A2622'],
+    ['bridal jewellery', 'https://pinterest.com/pin/top-bridal-1', 'Bridal earrings for a linen dress',
+     ['bridal jewellery', 'wedding accessories'], '#EDE4DA', '#C9B79C', '#40382F'],
+    ['stacking rings', 'https://pinterest.com/pin/top-stack-1', 'Four ways to stack a signet',
+     ['stacking rings', 'ring stack', 'gold rings'], '#E3D2BA', '#8C6F4E', '#FBF7F2'],
+  ] as const) {
+    await c.query(
+      `INSERT INTO organic.top_pin_designs
+         (org_id, keyword, pin_url, title, description, annotations, hex_1, hex_2, hex_3, note)
+       VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10) ON CONFLICT DO NOTHING`,
+      [ORG_ID, kw, url, title,
+       'Clean daylight, warm neutrals, no text overlay. Sits inside the grid rather than against it.',
+       ann, h1, h2, h3, null]);
+  }
+
+  // P2.3.2 — audience affinities. Two surprising ones, because the
+  // surprising column is the entire point of the task and a list where
+  // nothing is flagged demonstrates nothing.
+  for (const [name, idx, surprising, note] of [
+    ['Slow living',        3.4, true,  'Nobody in the competitor set is talking to this. Strongest angle available.'],
+    ['Home fragrance',     2.1, true,  'Unexpected overlap — same buyer, adjacent aesthetic. Worth one board.'],
+    ['Bridal',             8.1, false, 'Confirms what the client already knew.'],
+    ['Minimalist fashion', 6.7, false, 'Expected, and already covered by the stacking topic.'],
+    ['Sustainable living', 4.2, false, 'Fits the solid-gold-not-plated pillar.'],
+  ] as const) {
+    await c.query(
+      `INSERT INTO organic.audience_affinities (org_id, name, affinity_index, is_surprising, note)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+      [ORG_ID, name, idx, surprising, note]);
+  }
+
+  // An approved and an unapproved AI draft, so the AI_DRAFT pattern shows
+  // both halves: generated_text is what the model wrote, approved_text is
+  // what a human signed off, and they are deliberately not the same.
+  for (const [kind, gen, approved] of [
+    ['BIO', 'Solid gold jewellery from Antwerp. Made to be worn every day, not saved for occasions. Shop the edit.',
+     'Solid 14k gold from Antwerp, made to be worn daily. Hoops, signets and stacking bands. Shop the edit.'],
+    ['DISPLAY_NAME', 'Vellora Atelier | Solid Gold Everyday Jewellery', null],
+  ] as const) {
+    await c.query(
+      `INSERT INTO organic.ai_drafts
+         (org_id, kind, target_id, generated_text, approved_text, prompt_version, model_version,
+          generated_at, approved_at)
+       VALUES ($1,$2,NULL,$3,$4,'demo-v1','claude-sonnet-4-5',
+               now() - interval '200 days', $5)`,
+      [ORG_ID, kind, gen, approved, approved ? new Date(Date.now() - 199 * 86400000) : null]);
+  }
+
   /* ---- design templates -------------------------------------------
      Without these the P5.2.3 panel has nothing to mark, so the loop the
      whole method rests on — templates converge on a handful that work —
@@ -685,6 +878,46 @@ async function seed(c: Client) {
   console.log("\nSeeded:");
   for (const [k, v] of Object.entries(counts.rows[0])) console.log(`  ${k}: ${v}`);
   console.log(`  pin_performance rows: ${perfRows}`);
+  // Anything still empty, named.
+  //
+  // A demo store exists so screens can be judged with data in them, and an
+  // empty table is indistinguishable from a broken query when you are
+  // looking at the screen it feeds. This is the check that caught eight of
+  // them at once — access, content bank, competitor pins, board
+  // opportunities, keyword clusters, top pin designs, audience affinities
+  // and AI drafts — none of which were empty for a reason.
+  const TABLES = [
+    "client_intake", "client_access", "client_viability", "brand_rules", "topics",
+    "content_bank", "competitors", "competitor_pins", "grid_analyses",
+    "board_opportunities", "taste_graph", "keywords", "keyword_clusters", "boards",
+    "urls", "design_templates", "waterfalls", "designs", "copy_sets", "pins",
+    "pin_performance", "baseline_kpis", "monthly_kpis", "market_analysis_items",
+    "top_pin_designs", "audience_affinities", "assets", "task_answers", "ai_drafts",
+  ];
+  const empty: string[] = [];
+  for (const t of TABLES) {
+    // Production tables hang off the waterfall, not the org — designs,
+    // copy sets, pins and their performance all reach the client through
+    // waterfalls.org_id.
+    const VIA_WATERFALL: Record<string, string> = {
+      designs: `JOIN organic.waterfalls w ON w.id = x.waterfall_id`,
+      copy_sets: `JOIN organic.designs d ON d.id = x.design_id
+                  JOIN organic.waterfalls w ON w.id = d.waterfall_id`,
+      pins: `JOIN organic.waterfalls w ON w.id = x.waterfall_id`,
+      pin_performance: `JOIN organic.pins p ON p.id = x.pin_id
+                        JOIN organic.waterfalls w ON w.id = p.waterfall_id`,
+    };
+    const join = VIA_WATERFALL[t];
+    const q = join
+      ? `SELECT COUNT(*)::int AS n FROM organic.${t} x ${join} WHERE w.org_id = $1`
+      : `SELECT COUNT(*)::int AS n FROM organic.${t} WHERE org_id = $1`;
+    const r = await c.query<{ n: number }>(q, [ORG_ID]);
+    if (r.rows[0].n === 0) empty.push(t);
+  }
+  console.log(empty.length
+    ? `\n  STILL EMPTY: ${empty.join(", ")}`
+    : `\n  every organic table has rows`);
+
   console.log(`\n  /client/${ORG_ID}/overview`);
   console.log(`  /report/${ORG_ID}`);
 }
