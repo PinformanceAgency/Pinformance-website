@@ -6,6 +6,8 @@ import { loadPhase3Snapshot } from "@/lib/organic/phase3";
 import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume } from "@/lib/organic/phase4";
 import { loadAssets, loadCycleOps, loadTaskAnswers } from "@/lib/organic/workspace";
 import { phaseMeta } from "@/lib/organic/phase-meta";
+import type { PhaseProgress } from "@/lib/organic/types";
+import { cn } from "@/lib/utils";
 import { PhaseBoard } from "./PhaseBoard";
 import { Phase4Cycles } from "../../Phase4Cycles";
 import { CycleOpsPanel } from "@/components/organic/CycleOps";
@@ -37,7 +39,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
     const today = new Date().toISOString().slice(0, 10);
     return (
       <div className="space-y-5">
-        <PhaseHeader meta={meta} />
+        <PhaseHeader meta={meta} progress={header.phases.find((p) => p.phase === phase)} recurring />
         <CycleOpsPanel ops={ops} today={today} />
         <Phase4Cycles
           orgId={orgId}
@@ -67,7 +69,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
 
   return (
     <div className="space-y-5">
-      <PhaseHeader meta={meta} />
+      <PhaseHeader meta={meta} progress={header.phases.find((p) => p.phase === phase)} />
       <PhaseBoard
         answers={answers}
         orgId={orgId}
@@ -82,24 +84,101 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
   );
 }
 
-function PhaseHeader({ meta }: { meta: NonNullable<ReturnType<typeof phaseMeta>> }) {
+function PhaseHeader({
+  meta, progress, recurring,
+}: {
+  meta: NonNullable<ReturnType<typeof phaseMeta>>;
+  progress?: PhaseProgress;
+  /** Phases 4 and 5 repeat per cycle, so a completion bar there would be a
+   *  category error — they get counts without a percentage. */
+  recurring?: boolean;
+}) {
+  const p = progress;
+  // Skipped work is resolved, not outstanding: a task deliberately skipped
+  // is finished business and counting it as "left to do" would keep a
+  // completed phase permanently short of the line.
+  const settled = p ? p.done_tasks + p.skipped_tasks : 0;
+  const left = p ? Math.max(0, p.total_tasks - settled) : 0;
+  const pct = p && p.total_tasks > 0 ? Math.round((settled / p.total_tasks) * 100) : 0;
+
   return (
-    <section className="rounded-lg border border-border bg-card p-5">
-      <h2 className="text-lg font-semibold text-foreground">{meta.title}</h2>
-      <p className="text-sm text-muted-foreground mt-1">{meta.subtitle}</p>
-      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="rounded-md bg-muted/50 border border-border px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-0.5">Goal</div>
-          <div className="text-xs text-foreground">{meta.goal}</div>
+    <section className="o-card overflow-hidden">
+      <div className="o-card-head px-6 py-5">
+        <div className="flex items-start justify-between gap-6 flex-wrap">
+          <div className="min-w-0">
+            <h2 className="o-h2 text-foreground">{meta.title}</h2>
+            <p className="mt-1 text-sm text-muted-foreground leading-relaxed max-w-2xl">{meta.subtitle}</p>
+          </div>
+
+          {p && p.total_tasks > 0 && (
+            <div className="shrink-0 text-right">
+              <div className="flex items-baseline gap-1.5 justify-end">
+                <span className="o-figure text-[length:var(--text-o-figure-lg)] text-foreground leading-none">
+                  {settled}
+                </span>
+                <span className="text-base text-muted-foreground font-medium">/ {p.total_tasks}</span>
+              </div>
+              <span className="o-eyebrow block mt-1.5">
+                {recurring ? "done this cycle" : `${pct}% done`}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {p && p.total_tasks > 0 && (
+          <>
+            {!recurring && (
+              <div className="mt-4 h-[5px] rounded-full bg-o-hairline overflow-hidden max-w-full flex">
+                {/* Done and skipped are drawn separately: both are settled,
+                    but a manager reading 100% wants to know how much of it
+                    was actually carried out. */}
+                <div className="h-full bg-o-accent transition-[width] duration-500"
+                     style={{ width: `${(p.done_tasks / p.total_tasks) * 100}%` }} />
+                <div className="h-full bg-o-accent/30 transition-[width] duration-500"
+                     style={{ width: `${(p.skipped_tasks / p.total_tasks) * 100}%` }} />
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+              <Tally label="done" value={p.done_tasks} tone="strong" />
+              {p.skipped_tasks > 0 && <Tally label="skipped" value={p.skipped_tasks} />}
+              <Tally label="left to do" value={left} tone={left > 0 ? "strong" : undefined} />
+              {p.blocked_tasks > 0 && (
+                <Tally label="blocked" value={p.blocked_tasks} tone="accent" />
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-px bg-o-hairline">
+        <div className="bg-o-surface px-4 py-3.5 -mx-4 -my-3.5 md:m-0">
+          <div className="o-eyebrow">Goal</div>
+          <div className="mt-1.5 text-sm text-o-ink-2 leading-relaxed">{meta.goal}</div>
         </div>
         {meta.gate && (
-          <div className="rounded-md bg-muted border border-border px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-foreground font-semibold mb-0.5">Gate</div>
-            <div className="text-xs text-foreground">{meta.gate}</div>
+          <div className="bg-o-surface px-4 py-3.5">
+            <div className="o-eyebrow text-o-accent">Gate</div>
+            <div className="mt-1.5 text-sm text-o-ink-2 leading-relaxed">{meta.gate}</div>
           </div>
         )}
       </div>
     </section>
+  );
+}
+
+function Tally({
+  label, value, tone,
+}: {
+  label: string; value: number; tone?: "strong" | "accent";
+}) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className={cn("o-figure text-base",
+        tone === "accent" ? "text-o-accent" : tone === "strong" ? "text-foreground" : "text-muted-foreground")}>
+        {value}
+      </span>
+      <span className="text-muted-foreground">{label}</span>
+    </span>
   );
 }
 
