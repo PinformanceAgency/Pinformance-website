@@ -1,5 +1,5 @@
 /**
- * Viability gate — P1.0.1 through P1.0.4.
+ * Account potential — P1.0.1 through P1.0.4.
  *
  * Writes converge on organic.client_viability (one row per org, upserted).
  * Each of the four tasks logs its own time_spent_min via completeTaskByDefinition.

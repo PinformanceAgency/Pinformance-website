@@ -3,20 +3,22 @@
  *
  * A checklist that says "Visual product" and gives you a tick box is not a
  * question, it is a label. Two people tick it for different reasons and
- * neither reason survives. Every field here therefore carries four things:
+ * neither reason survives. So each field here carries:
  *
  *   question  what is being asked, as a question
- *   why       why it decides anything — the reason the item exists
  *   how       where to look and what counts as a yes
- *   evidence  the prompt for the reasoning, which is stored alongside
- *             the answer in organic.task_answers
+ *   why       optional — why it decides anything. With it the item gets a
+ *             two-panel treatment; without it, one quiet line
+ *   evidence  optional — the prompt for the reasoning, stored alongside the
+ *             answer in organic.task_answers. No prompt, no box
  *
  * The prose lives here rather than in the database because it is edited
  * far more often than the data model and belongs somewhere that shows up
  * in a diff.
  *
- * Tasks with no entry fall back to GENERIC_FIELDS, so all 116 get a
- * structured form rather than an empty box.
+ * Most tasks have no entry at all and that is deliberate — they state what
+ * they hand back (task_definitions.expected_output) and the work panel
+ * takes it. See fieldsFor().
  */
 
 export type FieldKind = "boolean" | "number" | "text" | "longtext" | "choice";
@@ -37,8 +39,21 @@ export interface TaskField {
   why?: string;
   how: string;
   kind: FieldKind;
-  /** For `choice`. */
+  /** For `choice`. The value stored, which is also what the database
+   *  expects — never a prettier version of it. */
   options?: string[];
+  /**
+   * What the buttons say, keyed by option value.
+   *
+   * Split from `options` after the verdict field shipped with buttons
+   * reading STRONG / MODERATE / WEAK against an enum holding STRONG_FIT /
+   * MODERATE_FIT / WEAK_FIT. Every click returned "invalid input value for
+   * enum", the answer saved to task_answers anyway, and the gate column
+   * stayed null — so the button looked selected while phase 1 never
+   * unblocked. Label and value are separate on purpose now, so wording can
+   * change without going anywhere near what is stored.
+   */
+  optionLabels?: Record<string, string>;
   /** Placeholder for the evidence box. Always a real example, never
    *  "enter text here" — a blank prompt gets a blank answer.
    *
@@ -72,7 +87,7 @@ export interface TaskFieldSet {
 }
 
 /* ------------------------------------------------------------------ *
- * PHASE 1 · Viability gate
+ * PHASE 1 · Potential assessment
  * ------------------------------------------------------------------ */
 
 const GOOD_FIT: TaskFieldSet = {
@@ -80,8 +95,9 @@ const GOOD_FIT: TaskFieldSet = {
     "Three signals that a store will work on Pinterest. Answer each one and say what you saw — " +
     "the answer is the score, the reasoning is what makes it checkable six months from now.",
   scoring:
-    "All three yes is a strong fit. Two is workable if the red-flag check is clean. " +
-    "One or none, Pinterest is the wrong channel and saying so now is cheaper than saying it in month four.",
+    "All three yes and the account can carry an ambitious plan. Two is workable if the red-flag check is " +
+    "clean. One or none means Pinterest will be slow going here — which the client can be told now, and " +
+    "that is cheaper than telling them in month four.",
   fields: [
     {
       key: "more_than_5_products",
@@ -130,8 +146,8 @@ const RED_FLAGS: TaskFieldSet = {
     "Two things that hold a store back regardless of how good the fit looked. Flag what is true and say " +
     "what you saw.",
   scoring:
-    "Neither flag: proceed. One: proceed only with the mitigation written down. Both: decline, " +
-    "and the reasoning below is what you send the client.",
+    "Neither flag and nothing is holding the account back. One: write down how we work around it. " +
+    "Both: the plan needs resetting before it starts, and the reasoning below is what you send the client.",
   fields: [
     {
       key: "rf_single_landing",
@@ -194,20 +210,29 @@ const URL_COUNT: TaskFieldSet = {
 };
 
 const VERDICT: TaskFieldSet = {
-  // Deliberately short, and deliberately not repeating the task's own
-  // guidance line directly above it. Two sentences saying the same thing in
-  // different words is how a screen starts feeling like paperwork.
-  intro: "Nothing else in phase 1 unblocks until this is recorded.",
+  // Not a go/no-go. The client has already bought the service, so this asks
+  // what we are walking into, not whether to walk in. Framing it as a
+  // decision nobody is going to make is how a gate turns into a formality
+  // that gets clicked through.
+  intro:
+    "How much room is there in this account, and what does the client need to hear about pace. " +
+    "Nothing else in phase 1 unblocks until this is recorded.",
   fields: [
     {
       key: "verdict",
-      question: "What is the verdict?",
+      question: "How much potential does this account have?",
       how:
-        "STRONG: all three good-fit signals, neither red flag. MODERATE: workable with a named risk. " +
-        "WEAK: decline, or proceed only with expectations reset in writing.",
+        "HIGH: all three good-fit signals, neither red flag — this one can carry an ambitious plan. " +
+        "AVERAGE: workable, with a named risk to keep an eye on. " +
+        "CHALLENGING: it will take longer, and the client needs to hear that in writing now rather than in month four.",
       kind: "choice",
-      options: ["STRONG", "MODERATE", "WEAK"],
-      evidence: "e.g. \"3/3 good-fit, 0 red flags, 34 URLs. Client has run a slow channel before.\"",
+      options: ["STRONG_FIT", "MODERATE_FIT", "WEAK_FIT"],
+      optionLabels: {
+        STRONG_FIT: "HIGH POTENTIAL",
+        MODERATE_FIT: "AVERAGE",
+        WEAK_FIT: "CHALLENGING",
+      },
+      evidence: "e.g. \"3/3 good-fit, 0 red flags, 34 URLs. Client has run a slow channel before — we can be ambitious here.\"",
       evidenceRequired: true,
     },
     {

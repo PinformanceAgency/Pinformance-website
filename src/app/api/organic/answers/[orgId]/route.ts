@@ -43,20 +43,22 @@ async function mirrorToViability(
     );
     return;
   }
-  if (fieldKey === "verdict" && body.answer_text) {
+  // The rating and its reasoning, in one statement.
+  //
+  // These used to be two branches with a `return` between them, so a request
+  // carrying both wrote the rating and silently dropped the rationale. The UI
+  // happens to send them separately — click the rating, then save the
+  // reasoning — which is the only reason it was never noticed. COALESCE keeps
+  // whichever half is absent from blanking what is already stored.
+  if (fieldKey === "verdict" && (body.answer_text || body.evidence)) {
     await pool.query(
-      `INSERT INTO organic.client_viability (org_id, verdict, assessed_at)
-       VALUES ($1, $2::organic.viability_verdict, now())
-       ON CONFLICT (org_id) DO UPDATE SET verdict = EXCLUDED.verdict, assessed_at = now()`,
-      [orgId, body.answer_text]
-    );
-    return;
-  }
-  // The written reasoning on the verdict is the rationale the gate stores.
-  if (fieldKey === "verdict" && body.evidence) {
-    await pool.query(
-      `UPDATE organic.client_viability SET rationale = $2 WHERE org_id = $1`,
-      [orgId, body.evidence]
+      `INSERT INTO organic.client_viability (org_id, verdict, rationale, assessed_at)
+       VALUES ($1, $2::organic.viability_verdict, $3, now())
+       ON CONFLICT (org_id) DO UPDATE SET
+         verdict   = COALESCE(EXCLUDED.verdict,   organic.client_viability.verdict),
+         rationale = COALESCE(EXCLUDED.rationale, organic.client_viability.rationale),
+         assessed_at = now()`,
+      [orgId, body.answer_text ?? null, body.evidence ?? null]
     );
   }
 }

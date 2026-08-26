@@ -234,7 +234,7 @@ function FieldRow({
                     onClick={() => save({ answer_text: o }, "answer")}
                     className={cn(answerCls, answer?.answer_text === o && "o-btn-primary")}
                   >
-                    {o}
+                    {field.optionLabels?.[o] ?? o}
                   </button>
                 ))}
                 {busy === "answer" && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}

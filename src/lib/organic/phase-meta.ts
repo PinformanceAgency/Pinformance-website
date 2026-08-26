@@ -33,16 +33,16 @@ export const OWNER_LABEL: Record<Owner, string> = {
 export const PHASE_META: Record<number, PhaseMeta> = {
   1: {
     title: "Phase 1 — Onboarding & audit",
-    subtitle: "Decide whether this client is a fit, collect access, and audit what already exists.",
-    goal: "End state: viability verdict recorded, every access granted, and the existing Pinterest account fully audited so nothing is built on a broken foundation.",
-    gate: "P1.0.4 (viability verdict) gates every other task in phase 1. Nothing else unblocks until a verdict is recorded.",
+    subtitle: "Size up what this account can carry, collect access, and audit what already exists.",
+    goal: "End state: the account's potential assessed and written down, every access granted, and the existing Pinterest account fully audited so nothing is built on a broken foundation.",
+    gate: "P1.0.4 (account potential) gates every other task in phase 1. Nothing else unblocks until it is recorded.",
     steps: {
       "0": {
-        title: "Step 1.0 · Viability gate",
-        what: "Score the client against three good-fit signals and two red flags, count how many URLs their sitemap yields versus how many the frequency plan needs, then record a verdict.",
+        title: "Step 1.0 · Potential assessment",
+        what: "Score the account against three good-fit signals and two red flags, count how many URLs their sitemap yields versus how many the frequency plan needs, then record how much potential it has.",
         where: "In this dashboard. The URL count is automatic — paste the domain and the system reads their sitemap.",
         owner: "MANAGER",
-        output: "A STRONG / MODERATE / WEAK verdict with written reasoning in organic.client_viability.",
+        output: "HIGH POTENTIAL / AVERAGE / CHALLENGING with written reasoning, in organic.client_viability.",
       },
       "1": {
         title: "Step 1.1 · Intake & access",
