@@ -1,47 +1,47 @@
 /**
- * Slack alerts for crons that run overnight with nobody watching.
+ * Slack-alarm voor crons die 's nachts draaien zonder dat er iemand meekijkt.
  *
- * WHY THIS EXISTS
- * ---------------
- * On 17-08-2026 weekly-update-seed was cut off after 18 of 49 stores. It was
- * only noticed because somebody happened to look. That run now fails visibly
- * (the end check throws, the route returns 500), but a 500 in the Vercel logs
- * is still something a person has to go and find. This goes after them.
+ * WAAROM DIT BESTAAT
+ * ------------------
+ * Op 17-08-2026 werd weekly-update-seed na 18 van de 49 stores afgekapt. Dat
+ * viel pas op toen er toevallig iemand keek. Sindsdien faalt die run zichtbaar
+ * (de eindcontrole gooit, de route geeft 500), maar een 500 in de Vercel-logs
+ * is nog steeds iets wat iemand moet gaan opzoeken. Dit stuurt hem achterna.
  *
- * CONFIGURATION
- * -------------
- * One env var: SLACK_ALERT_WEBHOOK, a Slack Incoming Webhook URL. The channel
- * is baked into that URL, so there is nothing else to configure.
+ * CONFIGURATIE
+ * ------------
+ * Eén env-var: SLACK_ALERT_WEBHOOK, een Slack Incoming Webhook URL. Het kanaal
+ * zit in die URL, dus er valt hier verder niets in te stellen.
  *
- * With the var unset -- locally, in preview -- nothing is sent and one line
- * goes to the console. That way a local run needs no secret, and a test can
- * never post into the channel by accident.
+ * Staat de var niet ingevuld -- lokaal, in preview -- dan gebeurt er niets en
+ * schrijft hij één regel naar de console. Zo hoef je voor een lokale run geen
+ * secret te hebben, en post een test nooit per ongeluk in het kanaal.
  *
- * THIS MUST NEVER TAKE DOWN A RUN
- * -------------------------------
- * A broken alert is annoying; a cron that dies BECAUSE the alert could not be
- * delivered is worse -- then you lose the run that did work. Everything below
- * catches its own errors and returns `false` rather than throwing. The caller
- * does not have to check the result.
+ * DIT MAG NOOIT EEN RUN LATEN OMVALLEN
+ * ------------------------------------
+ * Een kapot alarm is vervelend; een cron die stukgaat OMDAT het alarm niet
+ * bezorgd kon worden is erger -- dan verlies je de run die wél werkte. Alles
+ * hieronder vangt zijn eigen fouten af en geeft `false` terug in plaats van te
+ * gooien. De aanroeper hoeft de uitkomst niet te controleren.
  */
 
-/** How long we wait for Slack at most. Short: this hangs off a cron timeout. */
+/** Hoe lang we maximaal op Slack wachten. Kort: dit hangt aan een cron-timeout. */
 const SLACK_TIMEOUT_MS = 5_000;
 
 export interface CronAlert {
-  /** Name of the cron, e.g. 'weekly-update-seed'. */
+  /** Naam van de cron, bv. 'weekly-update-seed'. */
   cron: string;
-  /** One line saying what is wrong. */
+  /** Eén regel die zegt wat er mis is. */
   message: string;
-  /** Optional: the underlying error. */
+  /** Optioneel: de onderliggende fout. */
   error?: unknown;
   /**
-   * 'failed'    -- the whole run fell over (default).
-   * 'attention' -- the run finished, but part of it did not.
+   * 'failed'    -- de hele run is omgevallen (standaard).
+   * 'attention' -- de run kwam klaar, maar een deel is niet gelukt.
    *
-   * The distinction is there so the heading in Slack is true: "Cron failed"
-   * above a run that did fill 46 of 49 stores reads as an outage it is not,
-   * and that is how a channel gets ignored.
+   * Het onderscheid staat er zodat de kop in Slack klopt: 'Cron gefaald' boven
+   * een run die 46 van de 49 stores wél heeft gevuld leest als een storing die
+   * het niet is, en dan leer je het kanaal negeren.
    */
   level?: "failed" | "attention";
 }
@@ -58,14 +58,14 @@ function describeError(error: unknown): string | null {
 }
 
 /**
- * Post an alert to Slack. Returns `true` if the message went out, `false` if
- * no webhook is configured or Slack did not cooperate. Never throws.
+ * Post een alarm in Slack. Geeft `true` als het bericht eruit is, `false` als
+ * er geen webhook is ingesteld of als Slack niet meewerkte. Gooit nooit.
  */
 export async function alertCronFailure(alert: CronAlert): Promise<boolean> {
   const webhook = process.env.SLACK_ALERT_WEBHOOK;
   if (!webhook) {
     console.warn(
-      `[alerts] SLACK_ALERT_WEBHOOK not set -- no Slack message for ${alert.cron}: ${alert.message}`
+      `[alerts] SLACK_ALERT_WEBHOOK niet ingesteld -- geen Slack-melding voor ${alert.cron}: ${alert.message}`
     );
     return false;
   }
@@ -73,8 +73,8 @@ export async function alertCronFailure(alert: CronAlert): Promise<boolean> {
   const detail = describeError(alert.error);
   const heading =
     alert.level === "attention"
-      ? `:warning: *Needs a look: ${alert.cron}*`
-      : `:rotating_light: *Cron failed: ${alert.cron}*`;
+      ? `:warning: *Nalopen: ${alert.cron}*`
+      : `:rotating_light: *Cron gefaald: ${alert.cron}*`;
   const text = [
     heading,
     alert.message,
@@ -94,17 +94,17 @@ export async function alertCronFailure(alert: CronAlert): Promise<boolean> {
       signal: controller.signal,
     });
     if (!resp.ok) {
-      // Slack answers in plain text ('invalid_token', 'no_service'), not JSON.
+      // Slack antwoordt met platte tekst ('invalid_token', 'no_service'), niet JSON.
       const body = await resp.text().catch(() => "");
       console.error(
-        `[alerts] Slack rejected the message for ${alert.cron}: HTTP ${resp.status} ${body}`.trim()
+        `[alerts] Slack weigerde de melding voor ${alert.cron}: HTTP ${resp.status} ${body}`.trim()
       );
       return false;
     }
     return true;
   } catch (e) {
     console.error(
-      `[alerts] Slack message for ${alert.cron} failed:`,
+      `[alerts] Slack-melding voor ${alert.cron} mislukt:`,
       e instanceof Error ? e.message : e
     );
     return false;

@@ -1,32 +1,31 @@
 /**
- * Weekly Update Check — checks whether the week rows on the Monday board
- * "Weekly Updates" are actually filled. Runs Monday 13:00 UTC, an hour after
- * the sync (see vercel.json). Writes nothing.
+ * Weekly Update Check — kijkt of de weekregels op het Monday-bord "Weekly
+ * Updates" daadwerkelijk gevuld zijn. Draait maandag 13:00 UTC, een uur na de
+ * sync (zie vercel.json). Schrijft niets.
  *
- * WHY THIS IS SEPARATE FROM THE SYNC
- * ----------------------------------
- * The sync checks itself at the end of its own run. That does not help in the
- * case we want to catch: on 17-08-2026 that run was cut off after 13 of 37
- * stores, and then its own end check -- and so the Slack message -- is never
- * reached. The only signal was a log that stopped, and nobody is watching
- * those on a Monday afternoon.
+ * WAAROM DIT LOS VAN DE SYNC STAAT
+ * --------------------------------
+ * De sync controleert zichzelf aan het eind van zijn eigen run. Dat helpt niet
+ * in het geval dat we willen vangen: op 17-08-2026 werd die run na 13 van de 37
+ * stores afgekapt, en dan wordt de eigen eindcontrole -- en dus ook de
+ * Slack-melding -- nooit bereikt. Het enige signaal was een log dat ophield,
+ * en daar kijkt op maandagmiddag niemand.
  *
- * This route runs in its own invocation and makes four calls: the client board
- * and three pages of subitems. That finishes in seconds, so it cannot run into
- * the same time limit as the run it is checking.
+ * Deze route draait in een eigen invocatie en doet vier calls: het klantbord en
+ * drie pagina's subitems. Dat is binnen enkele seconden klaar, dus hij kan niet
+ * in dezelfde tijdslimiet lopen als de run die hij controleert.
  *
- * One Slack message goes out if something is missing, and nothing otherwise --
- * a channel that says "all good" every Monday stops being read after three
- * weeks.
+ * Er gaat één Slack-melding uit als er iets ontbreekt, en anders niets -- een
+ * kanaal dat elke maandag "alles goed" roept, lees je na drie weken niet meer.
  *
- * Env vars needed in Vercel (besides CRON_SECRET):
+ * Benodigde env-vars in Vercel (naast CRON_SECRET):
  *   MONDAY_API_TOKEN, SLACK_ALERT_WEBHOOK
  */
 import { NextRequest, NextResponse } from "next/server";
 import { alertCronFailure } from "@/lib/alerts";
 
-// Four reads. Well inside any limit; this is here only so a slow Monday
-// response is not cut off halfway.
+// Vier reads. Ruim binnen elke limiet; staat hier alleen zodat een trage
+// Monday-respons niet halverwege wordt afgebroken.
 export const maxDuration = 60;
 
 function verifyCron(request: NextRequest): boolean {
@@ -48,31 +47,31 @@ async function handle(request: NextRequest) {
     );
     const check = await checkWeekFilled();
 
-    // Two different failures, deliberately in one message: if the seed did not
-    // finish then the rows themselves are missing, and there is little point
-    // also reporting that they hold no figures.
+    // Twee verschillende storingen, bewust in één melding: als de seed niet is
+    // afgemaakt ontbreken de regels zelf, en dan heeft het weinig zin om ook
+    // nog te melden dat er geen cijfers in staan.
     const problems: string[] = [];
     if (check.noRow.length) {
       problems.push(
-        `${check.noRow.length} stores have no week row at all for ` +
-          `${check.week} -- either the 01:00 seed did not finish, or they were ` +
-          `onboarded after it ran: ${check.noRow.join(", ")}`
+        `${check.noRow.length} stores hebben helemaal geen weekregel voor ` +
+          `${check.week} -- de seed van 01:00 is niet afgemaakt, of ze zijn ` +
+          `daarna pas geonboard: ${check.noRow.join(", ")}`
       );
     }
     if (check.missing.length) {
       problems.push(
-        `${check.missing.length} connected stores have no figures for ` +
+        `${check.missing.length} gekoppelde stores staan zonder cijfers voor ` +
           `${check.week}: ${check.missing.join(", ")}`
       );
     }
 
     if (problems.length) {
-      // The manual stores are listed only when a message is going out anyway:
-      // their being empty is normal, but if somebody is about to go and check,
-      // it helps to have them in the same message.
+      // De handmatige stores staan er alleen bij als er tóch al een melding
+      // uitgaat: dat ze leeg zijn is normaal, maar als er iemand gaat nalopen
+      // is het handig om ze in hetzelfde bericht te hebben.
       if (check.manual.length) {
         problems.push(
-          `Still to be filled in by hand (not connected): ${check.manual.join(", ")}`
+          `Nog met de hand in te vullen (niet gekoppeld): ${check.manual.join(", ")}`
         );
       }
       await alertCronFailure({
@@ -91,13 +90,13 @@ async function handle(request: NextRequest) {
       stores_manual: check.manual,
     });
   } catch (e) {
-    // This reports itself too: a check that falls over is a check you do not
-    // have.
+    // Ook dit meldt zich: een controle die zelf omvalt is een controle die je
+    // niet hebt.
     await alertCronFailure({
       cron: "weekly-update-check",
       message:
-        "The check on the Weekly Updates board did not run. Whether last " +
-        "week's figures are on it is now unknown -- go and look at the board.",
+        "De controle op het Weekly Updates-bord is niet gelukt. Of de cijfers " +
+        "van vorige week erin staan is nu onbekend -- kijk zelf even op het bord.",
       error: e,
     });
     return NextResponse.json(

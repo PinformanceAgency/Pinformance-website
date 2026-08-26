@@ -1,23 +1,22 @@
 /**
- * FX Rates — pulls the daily ECB reference rates and writes them into
- * `fx_rates`. Runs daily at 06:30 UTC (see vercel.json).
+ * FX Rates — haalt de dagelijkse ECB-referentiekoersen op en zet ze in
+ * `fx_rates`. Draait dagelijks 06:30 UTC (zie vercel.json).
  *
- * What for: the zone thresholds are in euros (EUR 20,000 revenue a month,
- * EUR 7,500 spend), but a store's figures are in the currency of its Pinterest
- * ad account and stay that way. These rates convert the THRESHOLD into that
- * currency. Amounts are never converted. See lib/media-buying/fx.ts.
+ * Waarvoor: de zone-drempels zijn euro's (€20.000 omzet per maand, €7.500
+ * spend), maar de cijfers van een store staan in de valuta van het Pinterest
+ * ad account en blijven dat ook. Deze koersen rekenen de DREMPEL om naar die
+ * valuta. Bedragen worden nooit omgerekend. Zie lib/media-buying/fx.ts.
  *
- * WHY 06:30 UTC
- * -------------
- * The ECB publishes around 16:00 CET. A morning run therefore picks up the
- * previous working day's rate, which is exactly right: the zones run during the
- * day and then use a rate that was already fixed. At the weekend the ECB does
- * not publish and the feed returns the last working day; the upsert makes that
- * a no-op.
+ * WAAROM 06:30 UTC
+ * ----------------
+ * De ECB publiceert rond 16:00 CET. Een ochtendrun pakt dus de koers van de
+ * vorige werkdag, en dat is precies goed: de zones draaien overdag en gebruiken
+ * dan een koers die al vaststond. In het weekend publiceert de ECB niet en
+ * levert de feed de laatste werkdag; de upsert maakt daar een no-op van.
  *
- * If the feed fails that is not an incident: loadFxRates() simply takes the
- * newest row already in the table. Reference rates move tenths of a percent a
- * day, so a few days old is harmless.
+ * Faalt de feed, dan is dat geen incident: loadFxRates() pakt gewoon de
+ * nieuwste rij die al in de tabel staat. Referentiekoersen bewegen tienden van
+ * procenten per dag, dus een paar dagen oud is onschadelijk.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
