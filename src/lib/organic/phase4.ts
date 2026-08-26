@@ -1464,7 +1464,10 @@ export interface StepTaskView {
     task_type: string; guidance: string | null; expected_output: string | null;
     external_tool: string | null; external_url: string | null; sort_order: number;
   }>;
-  instances: Array<{ cycle: string; url_name: string; tasks: CycleTaskRow[] }>;
+  /** `view` is the whole cycle, because the phase-4 task controls act on
+   *  it — the url_id in particular. Passing only the name would force the
+   *  step route to look the cycle up a second time. */
+  instances: Array<{ cycle: string; url_name: string; tasks: CycleTaskRow[]; view: CycleView }>;
 }
 
 export async function loadPhase4StepTasks(orgId: string, step: string): Promise<StepTaskView> {
@@ -1486,6 +1489,7 @@ export async function loadPhase4StepTasks(orgId: string, step: string): Promise<
         cycle: c.cycle,
         url_name: c.url_name,
         tasks: c.tasks.filter((t) => t.step === step),
+        view: c,
       }))
       .filter((c) => c.tasks.length > 0),
   };

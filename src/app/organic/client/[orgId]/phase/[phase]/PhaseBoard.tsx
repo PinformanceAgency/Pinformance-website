@@ -14,6 +14,8 @@ import { TaskFormFor } from "../../TaskForms";
 import { Phase2FormFor, type Phase2Snapshot } from "../../Phase2Forms";
 import { Phase3FormFor, type Phase3Snapshot } from "../../Phase3Forms";
 import { SkipDialog } from "../../SkipDialog";
+import { Phase4Action } from "../../Phase4Action";
+import type { CycleView } from "@/lib/organic/phase4";
 import { cn } from "@/lib/utils";
 
 const STATUS_CHOICES: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE", "SKIPPED"];
@@ -140,8 +142,11 @@ export function PhaseBoard({
  * other task, and every reason for it not to.
  */
 export function TaskCard({
-  task, orgId, viability, phase2, phase3, assets, answers, standalone,
+  task, orgId, viability, phase2, phase3, assets, answers, standalone, cycle,
 }: {
+  /** Set on phase-4 tasks. Its presence is what switches the card from the
+   *  research treatment to the execution one. */
+  cycle?: CycleView;
   task: TaskRow;
   orgId: string;
   viability: ViabilityRow | null;
@@ -270,13 +275,18 @@ export function TaskCard({
         />
       )}
 
-      {/* Where the outcome lands: free text and the attachment itself. */}
+      {/* Phase 4 is execution, so its tasks get the control that does the
+          work rather than a box to describe it in. The work panel still
+          renders underneath — a designer's export or a client's reply is
+          still worth attaching — but it is no longer the whole answer. */}
+      {cycle && <Phase4Action orgId={orgId} taskId={task.task_id} cycle={cycle} />}
+
       <TaskWork
         orgId={orgId}
         clientTaskId={task.client_task_id}
         taskId={task.task_id}
         taskName={task.name}
-        expectedOutput={task.expected_output}
+        expectedOutput={cycle ? null : task.expected_output}
         notes={task.notes ?? null}
         assets={assets}
         readOnly={task.status === "BLOCKED"}

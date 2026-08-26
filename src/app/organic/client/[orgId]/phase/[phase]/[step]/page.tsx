@@ -167,6 +167,7 @@ function Phase4Step({
                 <TaskCard
                   key={t.client_task_id}
                   orgId={orgId}
+                  cycle={inst.view}
                   task={{ ...t, block_reasons: [] } as unknown as TaskRow}
                   viability={viability}
                   phase2={phase2}
