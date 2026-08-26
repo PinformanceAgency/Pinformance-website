@@ -7,7 +7,7 @@ import {
   Users, LayoutDashboard, ChevronRight, ChevronDown,
   FileText, Sun, LayoutGrid, Search, Link2, FolderOpen,
   BarChart3, Settings, LineChart, Gauge, Scale, AlertTriangle, Radar,
-  Share2,
+  Share2, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ClientSwitcher } from "./ClientSwitcher";
@@ -239,6 +239,10 @@ export function OrganicSidebar({
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   const library: Item[] = base ? [
+    // First in the library on purpose: the other four are things you built,
+    // this is what you built them from, and it is the one you reach for
+    // mid-decision in phase 4.
+    { href: `${base}/research`, label: "Research",  icon: BookOpen },
     { href: `${base}/boards`,   label: "Boards",   icon: LayoutGrid },
     { href: `${base}/keywords`, label: "Keywords", icon: Search },
     { href: `${base}/urls`,     label: "URLs",     icon: Link2 },

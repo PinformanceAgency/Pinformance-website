@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CycleView } from "@/lib/organic/phase4";
 import type { Deviation } from "@/lib/organic/structure";
@@ -237,6 +237,16 @@ function SetupSection({
       <SectionTitle text="1 · Setup — reason, boards, keywords (P4.1.5 / P4.1.6 / P4.1.7)" />
 
       <DeviationPanel deviations={cycle.deviations} />
+
+      {/* The research is one click from the decision it informs. Half of it
+          does not steer anything automatically — the competitor exports,
+          the intake prose, the reasoning behind a red flag — and this is
+          the moment somebody wants to check it. */}
+      <a href={`/client/${orgId}/research`} target="_blank" rel="noreferrer"
+         className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
+        <BookOpen className="w-3.5 h-3.5" />
+        Look something up in the research
+      </a>
 
       {/* Reason */}
       <div className="grid grid-cols-3 gap-2">
