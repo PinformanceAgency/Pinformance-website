@@ -38,6 +38,9 @@ interface ProgressRow {
   done_tasks: number | string;
   skipped_tasks: number | string;
   blocked_tasks: number | string;
+  todo_tasks?: number | string;
+  in_progress_tasks?: number | string;
+  review_tasks?: number | string;
   outstanding_tasks: number | string;
   pct_done: number | string | null;
 }
@@ -140,7 +143,8 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
     ),
     pool.query<ProgressRow>(
       `SELECT org_id::text, phase, total_tasks, done_tasks, skipped_tasks,
-              blocked_tasks, outstanding_tasks, pct_done
+              blocked_tasks, todo_tasks, in_progress_tasks, review_tasks,
+              outstanding_tasks, pct_done
          FROM organic.client_progress WHERE org_id = $1`,
       [orgId]
     ),
@@ -155,6 +159,9 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
       done_tasks: n(p.done_tasks),
       skipped_tasks: n(p.skipped_tasks),
       blocked_tasks: n(p.blocked_tasks),
+      todo_tasks: n(p.todo_tasks),
+      in_progress_tasks: n(p.in_progress_tasks),
+      review_tasks: n(p.review_tasks),
       outstanding_tasks: n(p.outstanding_tasks),
       pct_done: Math.round(n(p.pct_done)),
     }))
@@ -192,6 +199,7 @@ interface RawJoinedTaskRow {
   guidance: string | null;
   external_tool: string | null;
   external_url: string | null;
+  expected_output: string | null;
   is_recurring: boolean;
 }
 
@@ -207,7 +215,8 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
               ct.skip_reason, ct.skip_note, ct.notes,
               td.phase, td.step, td.name, td.description,
               td.task_type::text AS task_type, td.sort_order,
-              td.guidance, td.external_tool, td.external_url, td.is_recurring
+              td.guidance, td.external_tool, td.external_url, td.is_recurring,
+              td.expected_output
          FROM organic.client_tasks ct
          JOIN organic.task_definitions td ON td.id = ct.task_id
         WHERE ct.org_id = $1
@@ -231,6 +240,7 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
     guidance: r.guidance,
     external_tool: r.external_tool,
     external_url: r.external_url,
+    expected_output: r.expected_output,
     is_recurring: r.is_recurring,
     status: r.status,
     time_spent_min: r.time_spent_min,

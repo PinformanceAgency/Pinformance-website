@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ExternalLink, ChevronDown, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { TaskWork } from "../../TaskWork";
 import { TaskChecklist } from "../../TaskChecklist";
-import { fieldsFor, hasBespokeFields } from "@/lib/organic/task-fields";
+import { fieldsFor } from "@/lib/organic/task-fields";
 import type { TaskAnswer } from "@/lib/organic/workspace";
 import type { SkipReason, TaskRow, TaskStatus, TaskType, ViabilityRow } from "@/lib/organic/types";
 import type { AssetRow } from "@/lib/organic/workspace";
@@ -145,6 +145,7 @@ function TaskCard({
   standalone?: boolean;
 }) {
   const hasCustomForm = CUSTOM_FORM_TASKS.has(task.task_id);
+  const fields = fieldsFor(task.task_id);
   const [expanded, setExpanded] = useState(hasCustomForm && (task.status === "TODO" || task.status === "IN_PROGRESS"));
   const [showSkip, setShowSkip] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
@@ -244,23 +245,27 @@ function TaskCard({
         </div>
       )}
 
-      {/* The questions. Bespoke where they have been written, a structured
-          what/found/decided fallback everywhere else — so every task takes
-          real data instead of a bare tick. */}
-      <TaskChecklist
-        orgId={orgId}
-        taskId={task.task_id}
-        set={fieldsFor(task.task_id)}
-        answers={answers}
-        readOnly={task.status === "BLOCKED"}
-      />
+      {/* The questions, where a task has any. Most do not: "collect brand
+          book" wants the brand book, not three paragraphs about fetching
+          it, and the work panel below already takes both the writing and
+          the file. */}
+      {fields && (
+        <TaskChecklist
+          orgId={orgId}
+          taskId={task.task_id}
+          set={fields}
+          answers={answers}
+          readOnly={task.status === "BLOCKED"}
+        />
+      )}
 
-      {/* Free-form note and documents, on top of the structured answers. */}
+      {/* Where the outcome lands: free text and the attachment itself. */}
       <TaskWork
         orgId={orgId}
         clientTaskId={task.client_task_id}
         taskId={task.task_id}
         taskName={task.name}
+        expectedOutput={task.expected_output}
         notes={task.notes ?? null}
         assets={assets}
         readOnly={task.status === "BLOCKED"}

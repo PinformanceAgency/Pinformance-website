@@ -471,6 +471,25 @@ async function seed(c: Client) {
       WHERE td.active AND td.phase <= 5`,
     [ORG_ID]);
 
+  // Every status represented, in phase 3.
+  //
+  // Without this the store only ever holds DONE and TODO, so the phase ring
+  // renders two of its six segments and there is no way to judge whether
+  // "in review" is legible next to "in progress" — which is exactly the
+  // kind of thing a demo store exists to answer before a client sees it.
+  await c.query(
+    `UPDATE organic.client_tasks SET status = 'IN_PROGRESS'::organic.task_status
+      WHERE org_id = $1 AND task_id IN ('P3.2.1','P3.2.2','P3.2.3')`, [ORG_ID]);
+  await c.query(
+    `UPDATE organic.client_tasks SET status = 'REVIEW'::organic.task_status
+      WHERE org_id = $1 AND task_id IN ('P3.3.1','P3.3.2')`, [ORG_ID]);
+  await c.query(
+    `UPDATE organic.client_tasks
+        SET status = 'SKIPPED'::organic.task_status,
+            skip_reason = 'NOT_APPLICABLE'::organic.skip_reason,
+            skip_note = 'No group boards on this account.'
+      WHERE org_id = $1 AND task_id = 'P3.3.3'`, [ORG_ID]);
+
   // A client who has been sitting on something for three weeks — the
   // agency execution screen has a panel that exists only for this.
   await c.query(

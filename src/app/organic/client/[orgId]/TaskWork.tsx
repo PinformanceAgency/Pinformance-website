@@ -30,7 +30,7 @@ const btn = "o-btn";
 const primaryBtn = "o-btn o-btn-primary";
 
 export function TaskWork({
-  orgId, clientTaskId, taskId, taskName, notes, assets, readOnly,
+  orgId, clientTaskId, taskId, taskName, expectedOutput, notes, assets, readOnly,
 }: {
   orgId: string;
   /** The row id — what the API writes against. */
@@ -38,6 +38,10 @@ export function TaskWork({
   /** The definition id, e.g. P1.2.1 — what assets are linked to. */
   taskId: string;
   taskName: string;
+  /** What this task is expected to hand back. Stated here rather than left
+   *  to the person's memory: "collect brand book" wants the brand book,
+   *  and the box that takes it should say so. */
+  expectedOutput: string | null;
   notes: string | null;
   assets: TaskAsset[];
   /** Blocked tasks can still be read, but not written to. */
@@ -108,7 +112,7 @@ export function TaskWork({
     <div className="mt-4 rounded-[10px] border border-o-hairline bg-o-sunk/50">
       <div className="px-4 py-2.5 border-b border-o-hairline flex items-center justify-between gap-3">
         <span className="o-eyebrow">
-          Your work on this task
+          {expectedOutput ? "What this task should hand back" : "Your work on this task"}
         </span>
         {!hasWork && mode === "idle" && (
           <span className="text-[11px] text-muted-foreground">
@@ -116,6 +120,15 @@ export function TaskWork({
           </span>
         )}
       </div>
+
+      {expectedOutput && (
+        <p className={cn(
+          "px-4 pt-3 text-sm leading-relaxed",
+          hasWork ? "text-muted-foreground" : "text-foreground"
+        )}>
+          {expectedOutput}
+        </p>
+      )}
 
       <div className="p-3 space-y-3">
         {/* ---- what is already recorded --------------------------- */}

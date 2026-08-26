@@ -63,11 +63,43 @@ export interface PhaseProgress {
   done_tasks: number;
   skipped_tasks: number;
   blocked_tasks: number;
+  todo_tasks: number;
+  in_progress_tasks: number;
+  review_tasks: number;
   /** total − done − skipped: work that is genuinely still open. */
   outstanding_tasks: number;
   /** DONE only. Skips are reported separately rather than inflating this. */
   pct_done: number;
 }
+
+/**
+ * The six statuses, in workflow order, with the colour each is drawn in.
+ *
+ * Every client_tasks row has exactly one, so these partition a phase and
+ * can be charted without any risk of double-counting — which the previous
+ * "45 left to do / 38 blocked" pairing could not claim.
+ *
+ * Red is spent on the two states that are waiting on a person: blocked
+ * outright, and sitting in review. Blocked takes the solid accent because
+ * it is the one that stops work; review takes a lighter mix of the same
+ * red so it reads as the same family, less urgent. Everything in motion
+ * runs grey-to-black by how far along it is.
+ */
+export const TASK_STATUS_SERIES = [
+  { key: "BLOCKED", label: "blocked", field: "blocked_tasks", color: "var(--color-o-accent)", alarm: true },
+  { key: "TODO", label: "to do", field: "todo_tasks", color: "var(--color-o-slate)" },
+  { key: "IN_PROGRESS", label: "in progress", field: "in_progress_tasks", color: "var(--color-o-clay)" },
+  { key: "REVIEW", label: "in review", field: "review_tasks", color: "color-mix(in srgb, var(--color-o-accent) 42%, white)", alarm: true },
+  { key: "DONE", label: "done", field: "done_tasks", color: "var(--color-o-ink)", strong: true },
+  { key: "SKIPPED", label: "skipped", field: "skipped_tasks", color: "var(--color-o-hairline-firm)" },
+] as const satisfies ReadonlyArray<{
+  key: string;
+  label: string;
+  field: keyof PhaseProgress;
+  color: string;
+  alarm?: boolean;
+  strong?: boolean;
+}>;
 
 export interface ClientHeader {
   org_id: string;
@@ -95,6 +127,10 @@ export interface TaskRow {
   guidance: string | null;
   external_tool: string | null;
   external_url: string | null;
+  /** What the task is expected to hand back — the questionnaire, the brand
+   *  book, the granted access. Null where the task has its own form and
+   *  captures its output as structured data instead. */
+  expected_output: string | null;
   is_recurring: boolean;
   status: TaskStatus;
   time_spent_min: number | null;

@@ -6,6 +6,7 @@ import { loadPhase3Snapshot } from "@/lib/organic/phase3";
 import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume } from "@/lib/organic/phase4";
 import { loadAssets, loadCycleOps, loadTaskAnswers } from "@/lib/organic/workspace";
 import { phaseMeta } from "@/lib/organic/phase-meta";
+import { TASK_STATUS_SERIES } from "@/lib/organic/types";
 import type { PhaseProgress } from "@/lib/organic/types";
 import { cn } from "@/lib/utils";
 import { PhaseBoard } from "./PhaseBoard";
@@ -156,62 +157,63 @@ function PhaseDonut({
   pct: number;
   recurring?: boolean;
 }) {
-  const outstanding = Math.max(0, p.total_tasks - settled);
-  const blocked = Math.min(p.blocked_tasks, outstanding);
-  const ready = Math.max(0, outstanding - blocked);
+  const segments = TASK_STATUS_SERIES
+    .map((s) => ({ ...s, value: p[s.field] }))
+    .filter((s) => s.value > 0);
 
-  const segments = [
-    { key: "done", label: "done", value: p.done_tasks, stroke: "var(--color-o-ink)", swatch: "bg-o-ink" },
-    { key: "skipped", label: "skipped", value: p.skipped_tasks, stroke: "var(--color-o-ink-3)", swatch: "bg-o-ink-3" },
-    { key: "blocked", label: "blocked", value: blocked, stroke: "var(--color-o-accent)", swatch: "bg-o-accent" },
-    { key: "ready", label: "ready to start", value: ready, stroke: "var(--color-o-hairline-firm)", swatch: "bg-o-hairline-firm" },
-  ].filter((s) => s.value > 0);
-
-  const R = 42;
+  const R = 40;
   const C = 2 * Math.PI * R;
   let offset = 0;
 
   return (
-    <div className="shrink-0 flex items-center gap-5">
-      <div className="relative w-[104px] h-[104px]">
-        <svg viewBox="0 0 100 100" className="w-[104px] h-[104px] -rotate-90">
+    <div className="shrink-0 flex items-center gap-7">
+      <div className="relative w-[168px] h-[168px]">
+        <svg viewBox="0 0 100 100" className="w-[168px] h-[168px] -rotate-90">
           {/* The track shows through when a segment is missing, and keeps
               the ring a ring on a phase that has not started. */}
-          <circle cx="50" cy="50" r={R} fill="none" strokeWidth="11" stroke="var(--color-o-hairline)" />
+          <circle cx="50" cy="50" r={R} fill="none" strokeWidth="13" stroke="var(--color-o-hairline)" />
           {segments.map((s) => {
             const len = (s.value / p.total_tasks) * C;
-            const dash = <circle
-              key={s.key} cx="50" cy="50" r={R} fill="none" strokeWidth="11"
-              stroke={s.stroke}
+            const arc = <circle
+              key={s.key} cx="50" cy="50" r={R} fill="none" strokeWidth="13"
+              stroke={s.color}
               strokeDasharray={`${len} ${C - len}`}
               strokeDashoffset={-offset}
               className="transition-[stroke-dasharray,stroke-dashoffset] duration-700"
             />;
             offset += len;
-            return dash;
+            return arc;
           })}
         </svg>
         <div className="absolute inset-0 grid place-content-center text-center leading-none">
-          <span className="o-figure text-[26px] text-foreground">
+          <span className="o-figure text-[40px] text-foreground">
             {recurring ? settled : `${pct}%`}
           </span>
-          <span className="o-eyebrow mt-1 block text-[9px]">
+          <span className="o-eyebrow mt-1.5 block">
             {recurring ? `of ${p.total_tasks}` : "done"}
           </span>
         </div>
       </div>
 
-      <dl className="text-sm space-y-1.5 min-w-[136px]">
+      <dl className="text-sm space-y-2 min-w-[148px]">
         {segments.map((s) => (
-          <div key={s.key} className="flex items-center gap-2.5">
-            <span aria-hidden className={cn("w-2.5 h-2.5 rounded-[3px] shrink-0", s.swatch)} />
-            <dd className={cn("o-figure text-base w-7 text-right",
-              s.key === "blocked" ? "text-o-accent" : s.key === "done" ? "text-foreground" : "text-muted-foreground")}>
+          <div key={s.key} className="flex items-center gap-3">
+            <span aria-hidden className="w-3 h-3 rounded-[3px] shrink-0"
+                  style={{ background: s.color }} />
+            <dd className={cn("o-figure text-base w-8 text-right tabular-nums",
+              "alarm" in s && s.alarm ? "text-o-accent"
+                : "strong" in s && s.strong ? "text-foreground"
+                : "text-muted-foreground")}>
               {s.value}
             </dd>
             <dt className="text-muted-foreground">{s.label}</dt>
           </div>
         ))}
+        <div className="flex items-center gap-3 pt-2 mt-1 border-t border-o-hairline">
+          <span aria-hidden className="w-3 h-3 shrink-0" />
+          <dd className="o-figure text-base w-8 text-right tabular-nums text-foreground">{p.total_tasks}</dd>
+          <dt className="text-muted-foreground">in total</dt>
+        </div>
       </dl>
     </div>
   );

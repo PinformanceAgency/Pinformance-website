@@ -574,44 +574,6 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
   ),
 };
 
-/* ------------------------------------------------------------------ *
- * Fallback — every other task still gets a structured form
- * ------------------------------------------------------------------ */
-
-export const GENERIC_FIELDS: TaskFieldSet = {
-  intro:
-    "Record what you did and what came out of it, so the next person does not have to redo the work to " +
-    "find out what happened.",
-  fields: [
-    {
-      key: "what_done",
-      question: "What did you do?",
-      why: "The step description says what should happen; this says what actually did.",
-      how: "One or two sentences. Include the tool you used and anything you had to work around.",
-      kind: "longtext",
-      evidence: "e.g. \"Ran the export in PinInspector for the top 3 competitors, 1,400 pins total.\"",
-    },
-    {
-      key: "what_found",
-      question: "What did you find?",
-      why:
-        "The finding is the deliverable. A task marked done with no finding is indistinguishable from a task " +
-        "nobody did.",
-      how: "The numbers, names or observations that came out. Paste links — they are captured into the library automatically.",
-      kind: "longtext",
-      evidence: "e.g. \"Three angles repeat across all competitors: styling, gifting, care. Gifting is under-served.\"",
-    },
-    {
-      key: "decision",
-      question: "What did you decide, or what should happen next?",
-      why: "Half of these tasks exist to produce a decision. Leaving it in someone's head is how it gets remade differently later.",
-      how: "The call you made, or the open question you are handing on.",
-      kind: "longtext",
-      evidence: "e.g. \"Building the board architecture around gifting first — it is the widest gap.\"",
-    },
-  ],
-};
-
 /* ------------------------------------------------------------------ */
 
 const BY_TASK: Record<string, TaskFieldSet> = {
@@ -622,9 +584,30 @@ const BY_TASK: Record<string, TaskFieldSet> = {
   ...TECHNICAL_SETUP,
 };
 
-/** Bespoke fields where they exist, a structured fallback everywhere else. */
-export function fieldsFor(taskId: string): TaskFieldSet {
-  return BY_TASK[taskId] ?? GENERIC_FIELDS;
+/**
+ * The written questions for a task, or null when it has none.
+ *
+ * Null is the common case and it is deliberate. What used to stand here
+ * was a three-question fallback — what did you do, what did you find,
+ * what did you decide — rendered on all ninety-odd tasks that had no
+ * hand-written set. It was the wrong shape twice over.
+ *
+ * It asked about the process when the task has an output. "Send
+ * onboarding questionnaire" wants the returned questionnaire. "Collect
+ * brand book" wants the brand book. Splitting that into three narrative
+ * boxes turns a two-minute job into an essay, and an essay nobody writes
+ * is worse than a blank: it makes a completed task look abandoned.
+ *
+ * And it duplicated the work panel that already sits under every task —
+ * free text plus attachments, always on screen. Two places to type, one
+ * of which fed nothing downstream.
+ *
+ * So questions are written where they earn their place (the viability
+ * gate, the technical-setup checks) and everywhere else the task states
+ * what it expects back and the work panel takes it.
+ */
+export function fieldsFor(taskId: string): TaskFieldSet | null {
+  return BY_TASK[taskId] ?? null;
 }
 
 /**
