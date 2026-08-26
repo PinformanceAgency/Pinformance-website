@@ -410,3 +410,50 @@ function noiseWords(names: string[]): Set<string> {
   const cut = names.length / 5;
   return new Set([...seen].filter(([, c]) => c > cut).map(([w]) => w));
 }
+
+
+/* ------------------------------------------------------------------ *
+ * Cycle readiness
+ * ------------------------------------------------------------------ */
+
+/**
+ * Whether this URL was cleared to enter a cycle at all.
+ *
+ * organic.urls_selectable computes it: cooldown clear, the URL's topic
+ * covered by five boards, and five boards assigned. The spec calls this a
+ * block ("P3.3.2 coverage -> P4.1.7 board assignment — Blocks below five
+ * boards"), and until now the only thing enforcing it was a filter in the
+ * cycle picker. Anything reaching startCycleForUrl by another route — the
+ * API, a re-run, a URL that lost coverage after its cycle began — went
+ * through unremarked.
+ *
+ * Reported rather than refused, per the standing rule: the manager may
+ * always overrule, and a topic can be one board short for a fortnight
+ * while the cycle it blocks is genuinely worth running. What is not
+ * acceptable is that nobody can see it.
+ */
+export interface UrlReadiness {
+  cooldown_clear: boolean;
+  topic_covered: boolean;
+  assigned_boards: number;
+}
+
+export function checkUrlReadiness(r: UrlReadiness | null, urlName: string): Deviation[] {
+  if (!r) return [];
+  const out: Deviation[] = [];
+  if (!r.topic_covered) {
+    out.push({
+      kind: "structure",
+      what: `"${urlName}" sits under a topic with fewer than five boards`,
+      why: "Board coverage gates phase 4 for that topic (P3.3.2). Pins land in too few contexts, and the rotation has nothing to rotate through.",
+    });
+  }
+  if (!r.cooldown_clear) {
+    out.push({
+      kind: "structure",
+      what: `"${urlName}" is still inside its cooldown`,
+      why: "A URL that returns before its cooldown clears competes with its own pins from the previous cycle.",
+    });
+  }
+  return out;
+}

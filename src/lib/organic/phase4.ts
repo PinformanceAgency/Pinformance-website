@@ -39,7 +39,7 @@ import type { PoolClient } from "pg";
 import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
 import { loadAccountBrief, splitFromGrid, formatNotesFromGrid } from "./brief";
-import { adviseBoards, adviseKeywords, checkBoards, checkKeywords } from "./structure";
+import { adviseBoards, adviseKeywords, checkBoards, checkKeywords, checkUrlReadiness } from "./structure";
 import { generateWithValidator, persistDraft } from "./ai";
 import type { Deviation } from "./structure";
 
@@ -837,10 +837,23 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
     }
   }
   const boardMeta = new Map<string, { topic_id: string | null; pin_count: number | null; status: string | null }>();
+  const readiness = new Map<string, { cooldown_clear: boolean; topic_covered: boolean; assigned_boards: number }>();
   if (brief) {
-    const bm = await pool.query<{ id: string; topic_id: string | null; pin_count: number | null; status: string | null }>(
-      `SELECT id::text, topic_id::text, pin_count, status::text FROM organic.boards WHERE org_id = $1`, [orgId]);
+    const [bm, rd] = await Promise.all([
+      pool.query<{ id: string; topic_id: string | null; pin_count: number | null; status: string | null }>(
+        `SELECT id::text, topic_id::text, pin_count, status::text FROM organic.boards WHERE org_id = $1`, [orgId]),
+      pool.query<{ id: string; cooldown_clear: boolean; topic_covered: boolean; assigned_boards: string }>(
+        `SELECT id::text, cooldown_clear, topic_covered, assigned_boards::text
+           FROM organic.urls_selectable WHERE org_id = $1`, [orgId]),
+    ]);
     for (const b of bm.rows) boardMeta.set(b.id, { topic_id: b.topic_id, pin_count: b.pin_count, status: b.status });
+    for (const r of rd.rows) {
+      readiness.set(r.id, {
+        cooldown_clear: r.cooldown_clear,
+        topic_covered: r.topic_covered,
+        assigned_boards: Number(r.assigned_boards),
+      });
+    }
   }
 
   const out: CycleView[] = [];
@@ -856,6 +869,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
     const cycleKws = kwsByUrl.get(u.id) ?? [];
     const deviations = brief
       ? [
+          ...checkUrlReadiness(readiness.get(u.id) ?? null, u.name),
           ...checkBoards(
             brief,
             cycleBoards.map((b) => ({

@@ -23,6 +23,10 @@ export interface UrlRequirement {
   rerun_interval_days: number;
   required_urls: number;
   existing_urls: number;
+  /** What P1.0.3 counted on the sitemap. Null until the gate is run. */
+  sitemap_urls: number | null;
+  /** The larger of the two — the pool the plan can actually draw on. */
+  available_urls: number;
   gap: number;                              // required − existing (0 if none)
   cooldown_below_floor: boolean;            // < 30 days = warn
 }
@@ -46,16 +50,33 @@ export async function computeUrlRequirement(orgId: string): Promise<UrlRequireme
   const rerun_interval_days = waterfall_duration_days + url_cooldown_days;
   const required_urls = Math.ceil((urls_per_month_needed * rerun_interval_days) / 30);
 
-  const existing = await pool.query<{ n: number }>(
-    `SELECT COUNT(*)::int AS n FROM organic.urls WHERE org_id = $1`, [orgId]
-  );
+  const [existing, sitemap] = await Promise.all([
+    pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM organic.urls WHERE org_id = $1`, [orgId]),
+    // P1.0.3 counted the sitemap in phase 1, long before anyone typed a URL
+    // into the system. The data-flow map requires that count to reach the
+    // frequency plan, and counting organic.urls alone got the answer wrong
+    // in exactly the case the plan is made: a store that has just been
+    // assessed has 38 usable URLs on its sitemap and 0 rows here, so the
+    // requirement reported a shortfall of the entire plan.
+    pool.query<{ n: number | null }>(
+      `SELECT total_urls_found AS n FROM organic.client_viability WHERE org_id = $1`, [orgId]),
+  ]);
   const existing_urls = existing.rows[0].n;
+  const sitemap_urls = sitemap.rows[0]?.n ?? null;
+
+  // The pool is whichever is larger. Entered URLs are the live truth once
+  // they exist; the sitemap count is the only truth before that. Taking the
+  // smaller would report a gap that closes itself the moment somebody does
+  // data entry, which is not a frequency problem.
+  const available_urls = Math.max(existing_urls, sitemap_urls ?? 0);
 
   return {
     daily_pin_target, spacing_hours, spacing_days,
     waterfall_duration_days, urls_per_month_needed,
     cooldown_days: url_cooldown_days, rerun_interval_days, required_urls,
-    existing_urls, gap: Math.max(0, required_urls - existing_urls),
+    existing_urls, sitemap_urls, available_urls,
+    gap: Math.max(0, required_urls - available_urls),
     cooldown_below_floor: url_cooldown_days < 30,
   };
 }

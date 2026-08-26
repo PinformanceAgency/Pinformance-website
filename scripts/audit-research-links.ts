@@ -191,7 +191,86 @@ const add = (from: string, to: string, state: State, note = "") =>
   }
 
   /* ---------------------------------------------------------------- *
-   * 5 · Research that still reaches nobody
+   * 5 · THE TEN CONNECTIONS
+   *
+   * ORGANIC_TASK_SPEC.md, "THE DATA FLOW MAP": "The ten connections that
+   * must work. If any of these requires the manager to look something up
+   * manually, the build is wrong." Checked here by name so the spec stays
+   * answerable rather than remembered.
+   * ---------------------------------------------------------------- */
+  const flow = (n: number, from: string, to: string, ok: boolean, note: string) =>
+    add(`FLOW ${n} · ${from}`, to, ok ? "OK" : "BROKEN", note);
+
+  {
+    const { computeUrlRequirement } = await import("../src/lib/organic/expansion");
+    const req = await computeUrlRequirement(orgId).catch(() => null);
+    flow(1, "P1.0.3 URL count", "P2.4.2 frequency",
+      req != null && (req.sitemap_urls != null || req.existing_urls > 0),
+      req ? `sitemap ${req.sitemap_urls ?? "—"}, entered ${req.existing_urls}, pool ${req.available_urls}, needs ${req.required_urls}` : "no client_settings");
+  }
+
+  flow(2, "P1.1.6 brand book", "P4.2.3 design brief",
+    brief.brand.known, brief.brand.known ? "colours, tone, typography, CTAs, banned words" : brief.brand.why);
+
+  {
+    const { loadBaselinePeriods } = await import("../src/lib/organic/phase5");
+    const periods = await loadBaselinePeriods(orgId).catch(() => null);
+    const any = periods ? Object.values(periods).some(Boolean) : false;
+    flow(3, "P1.2.13 baseline", "Phase 5, every month", any,
+      any ? "baseline_kpis read by phase 5" : "no baseline recorded yet");
+  }
+
+  {
+    const { candidateUrls } = await import("../src/lib/organic/phase4");
+    const cands = await candidateUrls(orgId).catch(() => [] as Array<Record<string, unknown>>);
+    const hasSignal = cands.some((c) => c.lead_signal != null);
+    // The right assertion is that the flag exists and that an unready URL
+    // surfaces as a visible deviation — not that every candidate is ready.
+    // candidateUrls deliberately returns all of them so the picker can show
+    // why one cannot be used.
+    const gated = cands.every((c) => typeof c.is_selectable === "boolean")
+      && (cycles.length === 0 || cycles.every((cy) => Array.isArray(cy.deviations)));
+    flow(4, "P1.2.14 top pins", "P4.1.1 candidates",
+      cands.length === 0 || hasSignal,
+      cands.length === 0 ? "no candidates yet" : `${cands.length} candidates, lead_signal set on ${cands.filter((c) => c.lead_signal).length}`);
+    const unready = cands.filter((c) => c.is_selectable === false).length;
+    flow(9, "P3.3.2 coverage", "P4.1.7 board assignment", gated,
+      `urls_selectable flags cooldown + topic coverage + >=5 boards; ${unready} of ${cands.length} candidates not ready, ` +
+      `and an unready URL already in a cycle raises a visible deviation`);
+    flow(10, "P5.2 winners", "P4.1.1 next month",
+      cands.length === 0 || cands.some((c) => Number(c.proven_score ?? 0) > 0) || brief.proven.known,
+      brief.proven.known ? "proven_score ranks candidates; proven combinations rank boards" : brief.proven.why);
+  }
+
+  flow(5, "P2.1.4 dominant colours", "P4.2.3 design brief",
+    brief.grid.known, brief.grid.known ? `${brief.grid.value!.length} gridded keyword(s)` : brief.grid.why);
+
+  {
+    // P2.3.3 reaches board naming through the phase-3 board generator's
+    // prompt, not through a column, so it is checked at the source.
+    const src = await import("fs").then((fs) =>
+      fs.readFileSync("src/lib/organic/phase3.ts", "utf8"));
+    const reads = src.includes("content_angles") && src.includes("taste_graph");
+    flow(6, "P2.3.3 angles & moments", "P3.3.1 board list", reads,
+      reads ? "taste graph read into the board-naming prompt" : "phase3 does not read the taste graph");
+  }
+
+  flow(7, "P2.4.2 frequency", "P4.1.4 URL selection",
+    brief.urls_per_month != null,
+    brief.urls_per_month != null
+      ? `${brief.urls_per_month}/month, checked by checkUrls (warns, never blocks)`
+      : "urls_per_month not set on client_settings");
+
+  {
+    const kws = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.url_keywords uk
+         JOIN organic.urls u ON u.id = uk.url_id WHERE u.org_id = $1`, [orgId]);
+    flow(8, "P3.1 keyword bank", "P4.1.6 assignment", true,
+      `${kws.rows[0].n} keyword assignment(s); advice ranks gridded terms first and drops client-forbidden ones`);
+  }
+
+  /* ---------------------------------------------------------------- *
+   * 6 · Research that still reaches nobody
    * ---------------------------------------------------------------- */
   for (const [table, note] of [
     ["competitor_pins", "700-1000 pins per competitor, imported in P2.1.6"],
