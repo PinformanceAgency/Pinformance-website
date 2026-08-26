@@ -1444,3 +1444,49 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
     blockers,
   };
 }
+
+/**
+ * The phase-4 tasks for one step, whether or not a cycle is running.
+ *
+ * Phase 4 tasks are recurring, so they are never seeded flat — they exist
+ * only inside a cycle. That left every phase-4 step route reading "No tasks
+ * in this phase yet" on any store without a live cycle, which is every
+ * store before its first one. The manager could not find out what step 4.2
+ * involves without first starting a cycle, and starting a cycle is the
+ * thing they were trying to understand.
+ *
+ * So the definitions are readable on their own. `instances` carries the
+ * live rows where cycles exist; `template` is always the SOP.
+ */
+export interface StepTaskView {
+  template: Array<{
+    task_id: string; name: string; description: string | null;
+    task_type: string; guidance: string | null; expected_output: string | null;
+    external_tool: string | null; external_url: string | null; sort_order: number;
+  }>;
+  instances: Array<{ cycle: string; url_name: string; tasks: CycleTaskRow[] }>;
+}
+
+export async function loadPhase4StepTasks(orgId: string, step: string): Promise<StepTaskView> {
+  const pool = organicPool();
+  const [defs, cycles] = await Promise.all([
+    pool.query(
+      `SELECT id AS task_id, name, description, task_type::text AS task_type,
+              guidance, expected_output, external_tool, external_url, sort_order
+         FROM organic.task_definitions
+        WHERE phase = 4 AND step = $1 AND active
+        ORDER BY sort_order`, [step]),
+    loadCyclesForOrg(orgId),
+  ]);
+
+  return {
+    template: defs.rows,
+    instances: cycles
+      .map((c) => ({
+        cycle: c.cycle,
+        url_name: c.url_name,
+        tasks: c.tasks.filter((t) => t.step === step),
+      }))
+      .filter((c) => c.tasks.length > 0),
+  };
+}
