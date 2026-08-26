@@ -39,7 +39,7 @@ export const PHASE_META: Record<number, PhaseMeta> = {
     steps: {
       "0": {
         title: "Step 1.0 · Viability gate",
-        what: "Score the client against six good-fit signals and six red flags, count how many URLs their sitemap yields versus how many the frequency plan needs, then record a verdict.",
+        what: "Score the client against three good-fit signals and two red flags, count how many URLs their sitemap yields versus how many the frequency plan needs, then record a verdict.",
         where: "In this dashboard. The URL count is automatic — paste the domain and the system reads their sitemap.",
         owner: "MANAGER",
         output: "A STRONG / MODERATE / WEAK verdict with written reasoning in organic.client_viability.",

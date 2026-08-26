@@ -111,43 +111,9 @@ function PhaseHeader({
           </div>
 
           {p && p.total_tasks > 0 && (
-            <div className="shrink-0 text-right">
-              <div className="flex items-baseline gap-1.5 justify-end">
-                <span className="o-figure text-[length:var(--text-o-figure-lg)] text-foreground leading-none">
-                  {settled}
-                </span>
-                <span className="text-base text-muted-foreground font-medium">/ {p.total_tasks}</span>
-              </div>
-              <span className="o-eyebrow block mt-1.5">
-                {recurring ? "done this cycle" : `${pct}% done`}
-              </span>
-            </div>
+            <PhaseDonut progress={p} settled={settled} pct={pct} recurring={recurring} />
           )}
         </div>
-
-        {p && p.total_tasks > 0 && (
-          <>
-            {!recurring && (
-              <div className="mt-4 h-[5px] rounded-full bg-o-hairline overflow-hidden max-w-full flex">
-                {/* Done and skipped are drawn separately: both are settled,
-                    but a manager reading 100% wants to know how much of it
-                    was actually carried out. */}
-                <div className="h-full bg-o-accent transition-[width] duration-500"
-                     style={{ width: `${(p.done_tasks / p.total_tasks) * 100}%` }} />
-                <div className="h-full bg-o-accent/30 transition-[width] duration-500"
-                     style={{ width: `${(p.skipped_tasks / p.total_tasks) * 100}%` }} />
-              </div>
-            )}
-            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
-              <Tally label="done" value={p.done_tasks} tone="strong" />
-              {p.skipped_tasks > 0 && <Tally label="skipped" value={p.skipped_tasks} />}
-              <Tally label="left to do" value={left} tone={left > 0 ? "strong" : undefined} />
-              {p.blocked_tasks > 0 && (
-                <Tally label="blocked" value={p.blocked_tasks} tone="accent" />
-              )}
-            </div>
-          </>
-        )}
       </div>
 
       <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-px bg-o-hairline">
@@ -166,19 +132,88 @@ function PhaseHeader({
   );
 }
 
-function Tally({
-  label, value, tone,
+/**
+ * Phase progress as a ring, with a legend that is also the tally.
+ *
+ * The four segments partition the phase — they add up to the total and
+ * never overlap, which is the whole reason "left to do" is split. Blocked
+ * work is a subset of outstanding work, so a chart drawing "45 left" and
+ * "38 blocked" side by side would be summing 83 out of 45. What it draws
+ * instead is: done, skipped, blocked, and ready — the 7 tasks somebody
+ * could actually pick up this morning, which is the number the other three
+ * were hiding.
+ *
+ * Colour carries the meaning rather than decorating it. Black is finished,
+ * red is stuck, grey is waiting its turn. In a red-white-black brand there
+ * is exactly one accent to spend and blocked work is what deserves it —
+ * done work in red would put the eye on the part that needs nobody.
+ */
+function PhaseDonut({
+  progress: p, settled, pct, recurring,
 }: {
-  label: string; value: number; tone?: "strong" | "accent";
+  progress: PhaseProgress;
+  settled: number;
+  pct: number;
+  recurring?: boolean;
 }) {
+  const outstanding = Math.max(0, p.total_tasks - settled);
+  const blocked = Math.min(p.blocked_tasks, outstanding);
+  const ready = Math.max(0, outstanding - blocked);
+
+  const segments = [
+    { key: "done", label: "done", value: p.done_tasks, stroke: "var(--color-o-ink)", swatch: "bg-o-ink" },
+    { key: "skipped", label: "skipped", value: p.skipped_tasks, stroke: "var(--color-o-ink-3)", swatch: "bg-o-ink-3" },
+    { key: "blocked", label: "blocked", value: blocked, stroke: "var(--color-o-accent)", swatch: "bg-o-accent" },
+    { key: "ready", label: "ready to start", value: ready, stroke: "var(--color-o-hairline-firm)", swatch: "bg-o-hairline-firm" },
+  ].filter((s) => s.value > 0);
+
+  const R = 42;
+  const C = 2 * Math.PI * R;
+  let offset = 0;
+
   return (
-    <span className="inline-flex items-baseline gap-1.5">
-      <span className={cn("o-figure text-base",
-        tone === "accent" ? "text-o-accent" : tone === "strong" ? "text-foreground" : "text-muted-foreground")}>
-        {value}
-      </span>
-      <span className="text-muted-foreground">{label}</span>
-    </span>
+    <div className="shrink-0 flex items-center gap-5">
+      <div className="relative w-[104px] h-[104px]">
+        <svg viewBox="0 0 100 100" className="w-[104px] h-[104px] -rotate-90">
+          {/* The track shows through when a segment is missing, and keeps
+              the ring a ring on a phase that has not started. */}
+          <circle cx="50" cy="50" r={R} fill="none" strokeWidth="11" stroke="var(--color-o-hairline)" />
+          {segments.map((s) => {
+            const len = (s.value / p.total_tasks) * C;
+            const dash = <circle
+              key={s.key} cx="50" cy="50" r={R} fill="none" strokeWidth="11"
+              stroke={s.stroke}
+              strokeDasharray={`${len} ${C - len}`}
+              strokeDashoffset={-offset}
+              className="transition-[stroke-dasharray,stroke-dashoffset] duration-700"
+            />;
+            offset += len;
+            return dash;
+          })}
+        </svg>
+        <div className="absolute inset-0 grid place-content-center text-center leading-none">
+          <span className="o-figure text-[26px] text-foreground">
+            {recurring ? settled : `${pct}%`}
+          </span>
+          <span className="o-eyebrow mt-1 block text-[9px]">
+            {recurring ? `of ${p.total_tasks}` : "done"}
+          </span>
+        </div>
+      </div>
+
+      <dl className="text-sm space-y-1.5 min-w-[136px]">
+        {segments.map((s) => (
+          <div key={s.key} className="flex items-center gap-2.5">
+            <span aria-hidden className={cn("w-2.5 h-2.5 rounded-[3px] shrink-0", s.swatch)} />
+            <dd className={cn("o-figure text-base w-7 text-right",
+              s.key === "blocked" ? "text-o-accent" : s.key === "done" ? "text-foreground" : "text-muted-foreground")}>
+              {s.value}
+            </dd>
+            <dt className="text-muted-foreground">{s.label}</dt>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
