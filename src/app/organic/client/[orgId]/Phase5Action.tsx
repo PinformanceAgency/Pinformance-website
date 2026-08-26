@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { ExternalLink, AlertTriangle } from "lucide-react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2, Play, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { ActionKind } from "./Phase4Action";
+
+/** Phase 5 adds two kinds of its own to phase 4's five. */
+type Phase5Kind =
+  | ActionKind
+  | { kind: "templates"; describe: string }
+  | { kind: "forecast"; describe: string };
 
 /**
  * The control that does the work, per phase-5 task.
@@ -17,7 +27,7 @@ import type { ActionKind } from "./Phase4Action";
  * judge rather than press-a-button, so `readout` and `external` carry more
  * of it here than they do there — which is the honest shape, not a gap.
  */
-export const PHASE5_ACTIONS: Record<string, ActionKind> = {
+export const PHASE5_ACTIONS: Record<string, Phase5Kind> = {
   "P5.1.1": { kind: "readout",
     describe: "Pulled automatically with the filters fixed: Organic, Claimed Domain, Your Pins, real-time off. This is the source of truth for volume — if a number looks wrong, check the filters before you check the maths.",
     href: "analytics", hrefLabel: "Store analytics" },
@@ -35,17 +45,15 @@ export const PHASE5_ACTIONS: Record<string, ActionKind> = {
   "P5.2.2": { kind: "readout",
     describe: "Which design on which board worked, and why. This is computed from published pins and their performance, and it is what ranks the boards and fills the design brief next month — the loop only closes if it is read.",
     href: "analytics", hrefLabel: "Store analytics" },
-  "P5.2.3": { kind: "missing",
-    describe: "Mark the winning templates as proven, so each client converges on a handful of layouts that work instead of starting from scratch every month.",
-    willDo: "Write to organic.design_templates and read it back in the design brief. The table exists and nothing writes to it yet." },
+  "P5.2.3": { kind: "templates",
+    describe: "Mark the templates that produced winners. This is the loop the method rests on: next month's design brief starts from a handful of layouts that work instead of from scratch. Judged on outbound clicks and saves, never impressions." },
 
   "P5.3.1": { kind: "external", tool: "Pinterest Trends",
     describe: "Set to the client's market country. Look for emerging searches that fit the taste graph — a rising term outside the brand's world is somebody else's opportunity." },
   "P5.3.2": { kind: "external", tool: "Pinterest Shopping Trends",
     describe: "Which product categories are rising. This is advice the client can act on for stock and focus, which is what makes the report worth reading." },
-  "P5.3.3": { kind: "missing",
-    describe: "What rises on Pinterest rises on Google weeks later. Turning that into a forward-looking note is what makes the reporting strategic rather than a record of last month.",
-    willDo: "Draft from the trends checks plus the taste graph, through the same validator harness the copy uses." },
+  "P5.3.3": { kind: "forecast",
+    describe: "What rises on Pinterest rises on Google weeks later. Drafted from this month's trend checks, the taste graph and what has won here — then you approve it. With no trend notes recorded it will say the reading is thin rather than invent movement." },
   "P5.3.4": { kind: "panel", section: "Phase 4 — readiness",
     describe: "Trends plus winners become next month's candidate list. The readiness panel at the top of phase 4 already ranks URLs by what has won here — this task is deciding which of them the month is built around, and writing down why." },
 
@@ -92,6 +100,9 @@ export function Phase5Action({ orgId, taskId }: { orgId: string; taskId: string 
           </Link>
         )}
 
+        {spec.kind === "templates" && <TemplatePanel orgId={orgId} />}
+        {spec.kind === "forecast" && <ForecastPanel orgId={orgId} />}
+
         {spec.kind === "missing" && (
           <p className="text-sm text-o-ink-2 leading-relaxed">
             <span className="font-medium text-foreground">When it is built: </span>
@@ -99,6 +110,147 @@ export function Phase5Action({ orgId, taskId }: { orgId: string; taskId: string 
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+
+async function callP5(orgId: string, body: Record<string, unknown>) {
+  const res = await fetch(`/api/organic/phase5/${orgId}`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(body), redirect: "error",
+  });
+  const raw = await res.text();
+  let data: { error?: string } & Record<string, unknown> = {};
+  try { data = JSON.parse(raw); } catch { /* keep raw */ }
+  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status} — ${raw.slice(0, 140)}`);
+  return data;
+}
+
+interface Standing {
+  template_id: string; name: string; intent: string; aspect_ratio: string | null;
+  times_used: number; is_proven: boolean; clicks: number; saves: number; designs: number;
+}
+
+/**
+ * P5.2.3 — which templates are proven.
+ *
+ * Ordered by clicks then saves, because that is how the method judges a
+ * winner. Impressions are deliberately absent: they say nothing about
+ * intent and putting them on screen invites somebody to mark a template
+ * proven on reach alone.
+ */
+function TemplatePanel({ orgId }: { orgId: string }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [rows, setRows] = useState<Standing[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    setBusy("load"); setErr(null);
+    try {
+      const d = await callP5(orgId, { action: "template_standings" });
+      setRows((d.templates as Standing[]) ?? []);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  async function toggle(t: Standing) {
+    setBusy(t.template_id); setErr(null);
+    try {
+      await callP5(orgId, { action: "set_template_proven", template_id: t.template_id, proven: !t.is_proven });
+      await load();
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  if (rows === null) {
+    return (
+      <div>
+        <button onClick={load} disabled={busy === "load"} className="o-btn o-btn-primary">
+          {busy === "load" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {busy === "load" ? "Loading…" : "Open the templates"}
+        </button>
+        {err && <p className="mt-2 text-xs text-o-neg break-words">{err}</p>}
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return <p className="text-sm text-o-ink-2">
+      No templates recorded for this client yet. They are created during onboarding, in Canva or Figma,
+      and linked to a design when it is produced.
+    </p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.map((t) => (
+        <div key={t.template_id}
+             className="flex items-center gap-3 flex-wrap rounded-lg bg-o-surface ring-1 ring-inset ring-o-hairline px-3.5 py-2.5">
+          <div className="flex-1 min-w-[12rem]">
+            <p className="text-sm font-medium text-foreground">{t.name}</p>
+            <p className="text-xs text-muted-foreground">
+              {t.intent === "CLICK" ? "click pin" : "save pin"}
+              {t.aspect_ratio ? ` · ${t.aspect_ratio}` : ""} · used {t.times_used}× · {t.designs} design{t.designs === 1 ? "" : "s"}
+            </p>
+          </div>
+          <span className="o-figure text-sm text-foreground">{t.clicks.toLocaleString("en-US")}</span>
+          <span className="o-eyebrow">clicks</span>
+          <span className="o-figure text-sm text-foreground">{t.saves.toLocaleString("en-US")}</span>
+          <span className="o-eyebrow">saves</span>
+          <button onClick={() => toggle(t)} disabled={busy !== null}
+                  className={cn("o-btn", t.is_proven && "o-btn-dark")}>
+            {t.is_proven ? <><Check className="w-4 h-4" /> Proven</> : "Mark proven"}
+          </button>
+        </div>
+      ))}
+      {err && <p className="text-xs text-o-neg break-words">{err}</p>}
+    </div>
+  );
+}
+
+/** P5.3.3 — the forward-looking paragraph, drafted then approved. */
+function ForecastPanel({ orgId }: { orgId: string }) {
+  const [text, setText] = useState<string | null>(null);
+  const [thin, setThin] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={async () => {
+          setBusy(true); setErr(null);
+          try {
+            const d = await callP5(orgId, { action: "draft_forecast" });
+            setText(d.forecast as string);
+            setThin(!d.had_trend_input);
+          } catch (e) { setErr((e as Error).message); }
+          finally { setBusy(false); }
+        }}
+        disabled={busy} className="o-btn o-btn-primary">
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+        {busy ? "Drafting…" : text ? "Draft again" : "Draft the forecast"}
+      </button>
+      {thin && (
+        <p className="text-xs text-o-accent">
+          No trend notes recorded on P5.3.1 or P5.3.2 this month, so the draft has little to work from.
+        </p>
+      )}
+      {text && (
+        <>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6}
+                    className="o-input text-sm" />
+          <p className="text-xs text-muted-foreground">
+            Edit it, then paste it into the report. Nothing here reaches the client on its own.
+          </p>
+        </>
+      )}
+      {err && <p className="text-xs text-o-neg break-words">{err}</p>}
     </div>
   );
 }

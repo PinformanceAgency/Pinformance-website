@@ -264,6 +264,9 @@ export interface DesignBrief {
    *  happened is the difference between a recurring service that improves
    *  and one that repeats. */
   proven: string[];
+  /** Layouts marked proven in P5.2.3. Starting from these is how a client
+   *  converges on a handful that work instead of redesigning monthly. */
+  proven_templates: string[];
   save_split_pct: number;   // 80, fixed by the method
   click_split_pct: number;  // 20, fixed by the method
   /** Whether the click pins on this URL carry a text overlay. Decided by
@@ -341,6 +344,11 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
     content_angles: taste?.content_angles ?? [],
     visual_worlds: taste?.visual_worlds ?? [],
     key_moments: taste?.key_moments ?? [],
+    proven_templates: (brief.templates.value ?? []).map(
+      (t) => `${t.name} — ${t.intent === "CLICK" ? "click" : "save"}` +
+             `${t.aspect_ratio ? `, ${t.aspect_ratio}` : ""}` +
+             `${t.has_text_overlay ? ", overlay" : ", no overlay"}, used ${t.times_used}x`
+    ),
     proven: (brief.proven.value ?? []).slice(0, 6).map(
       (p) => `${p.intent ?? "?"} pin, ${p.route === "AI_GENERATED" ? "AI route" : "direct"}, on "${p.board_name}" — ` +
              `${p.clicks.toLocaleString("en-US")} clicks / ${p.saves.toLocaleString("en-US")} saves`
@@ -352,7 +360,7 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
     // What the research could not tell us, named rather than defaulted.
     // A designer reading "no brand book" behaves differently from one who
     // assumes the palette below is the brand's.
-    gaps: [brief.grid, brief.brand, brief.taste, brief.market, brief.proven]
+    gaps: [brief.grid, brief.brand, brief.taste, brief.market, brief.proven, brief.templates]
       .filter((k) => !k.known)
       .map((k) => (k as { why: string }).why),
     constraints: [
@@ -1195,6 +1203,7 @@ export async function generateCopyForDesign(orgId: string, designId: string) {
     "",
     `What page one rewards here: ${brief.format_notes}`,
     brief.proven.length ? `What has already worked on this account:\n${brief.proven.map((p) => `  - ${p}`).join("\n")}` : null,
+    brief.proven_templates.length ? `Layouts already proven here:\n${brief.proven_templates.map((t) => `  - ${t}`).join("\n")}` : null,
     brief.gaps.length ? `\nResearch gaps you are working around:\n${brief.gaps.map((g) => `  - ${g}`).join("\n")}` : null,
   ].filter((l) => l !== null).join("\n");
 

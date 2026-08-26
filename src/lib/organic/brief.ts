@@ -91,6 +91,16 @@ export interface AccountBrief {
   market: Known<{ steal_list: string[]; board_gaps: string[]; content_angles: string[] }>;
   /** P5.2.2 — what has actually worked on this account so far. */
   proven: Known<Array<{ board_name: string | null; intent: string | null; route: string | null; clicks: number; saves: number }>>;
+  /** P5.2.3 — layouts a human marked proven. The design brief starts from
+   *  these instead of from scratch, which is the convergence the method
+   *  describes. */
+  templates: Known<Array<{ name: string; intent: string; aspect_ratio: string | null; has_text_overlay: boolean | null; times_used: number }>>;
+  /** P3.1 — the classified clusters. */
+  clusters: Known<Array<{ name: string; axis: string | null }>>;
+  /** P2.1.6 — the competitor export, summarised. Six hundred rows do not
+   *  belong in a brief; what the brief needs is which boards their winners
+   *  sat on, because that is a board-naming and board-choice signal. */
+  competitor_pins: Known<{ total: number; top_boards: Array<{ board: string; pins: number; saves: number }> }>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -138,7 +148,8 @@ function arr(v: unknown): string[] {
 export async function loadAccountBrief(orgId: string): Promise<AccountBrief | null> {
   const pool = organicPool();
 
-  const [org, settings, viability, intake, brand, taste, grid, comps, market, proven] =
+  const [org, settings, viability, intake, brand, taste, grid, comps, market, proven,
+         templates, clusters, compBoards, compTotal] =
     await Promise.all([
       pool.query<{ name: string }>(`SELECT name FROM public.organizations WHERE id = $1`, [orgId]),
       pool.query(
@@ -176,6 +187,23 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
                 total_clicks, total_saves
            FROM organic.winning_combinations WHERE org_id = $1
           ORDER BY total_clicks DESC NULLS LAST LIMIT 20`, [orgId]),
+      pool.query(
+        `SELECT name, intent::text AS intent, aspect_ratio, has_text_overlay, times_used
+           FROM organic.design_templates WHERE org_id = $1 AND is_proven = true
+          ORDER BY times_used DESC`, [orgId]),
+      pool.query(
+        `SELECT name, axis::text AS axis FROM organic.keyword_clusters
+          WHERE org_id = $1 ORDER BY name`, [orgId]),
+      pool.query(
+        `SELECT board_name AS board, COUNT(*)::int AS pins,
+                COALESCE(SUM(saves), 0)::int AS saves
+           FROM organic.competitor_pins
+          WHERE org_id = $1 AND board_name IS NOT NULL
+          GROUP BY board_name
+          ORDER BY saves DESC, pins DESC
+          LIMIT 10`, [orgId]),
+      pool.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM organic.competitor_pins WHERE org_id = $1`, [orgId]),
     ]);
 
   if (org.rowCount === 0) return null;
@@ -261,6 +289,26 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
           saves: Number(p.total_saves ?? 0),
         })))
       : absent("no cycle has been reviewed yet — nothing is proven on this account"),
+
+    templates: templates.rowCount
+      ? known(templates.rows.map((t) => ({
+          name: t.name, intent: t.intent, aspect_ratio: t.aspect_ratio,
+          has_text_overlay: t.has_text_overlay, times_used: t.times_used,
+        })))
+      : absent("no template marked proven yet (P5.2.3) — every design still starts from scratch"),
+
+    clusters: clusters.rowCount
+      ? known(clusters.rows.map((c) => ({ name: c.name, axis: c.axis })))
+      : absent("no keyword clusters classified (P3.1)"),
+
+    competitor_pins: Number(compTotal.rows[0]?.n ?? 0) > 0
+      ? known({
+          total: Number(compTotal.rows[0].n),
+          top_boards: compBoards.rows.map((b) => ({
+            board: b.board, pins: b.pins, saves: b.saves,
+          })),
+        })
+      : absent("no competitor pins imported (P2.1.6) — 700-1000 per competitor is the method's number"),
   };
 }
 

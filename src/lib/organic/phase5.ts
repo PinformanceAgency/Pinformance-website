@@ -469,3 +469,144 @@ export async function promoteToAds(pinId: string, signal = "ORGANIC_WINNER", fun
     [pinId, signal, funnelUse]
   );
 }
+
+// ---------- P5.2.3 — mark templates proven ---------------------------------
+//
+// The loop the whole method rests on: a template that produced a winner
+// gets marked, and next month's design brief starts from a handful of
+// layouts that work instead of from scratch. design_templates has carried
+// an is_proven flag since it was created and nothing ever set it, so the
+// convergence the SOP describes could not happen.
+
+export interface TemplateStanding {
+  template_id: string;
+  name: string;
+  intent: string;
+  aspect_ratio: string | null;
+  has_text_overlay: boolean | null;
+  times_used: number;
+  is_proven: boolean;
+  /** Summed over every published pin that used this template. */
+  clicks: number;
+  saves: number;
+  designs: number;
+}
+
+/**
+ * Every template this client has used, with what it has actually returned.
+ *
+ * Ordered by clicks then saves — the method judges winners on outbound
+ * clicks and on saves, never on impressions, because impressions say
+ * nothing about intent.
+ */
+export async function loadTemplateStandings(orgId: string): Promise<TemplateStanding[]> {
+  const r = await organicPool().query<TemplateStanding>(
+    `SELECT t.id::text          AS template_id,
+            t.name, t.intent::text AS intent, t.aspect_ratio,
+            t.has_text_overlay, t.times_used, t.is_proven,
+            COALESCE(SUM(pp.outbound_clicks), 0)::int AS clicks,
+            COALESCE(SUM(pp.saves), 0)::int           AS saves,
+            COUNT(DISTINCT d.id)::int                 AS designs
+       FROM organic.design_templates t
+       LEFT JOIN organic.designs d ON d.template_id = t.id
+       LEFT JOIN organic.pins p    ON p.design_id = d.id AND p.status = 'PUBLISHED'::organic.pin_status
+       LEFT JOIN organic.pin_performance pp ON pp.pin_id = p.id
+      WHERE t.org_id = $1
+      GROUP BY t.id
+      ORDER BY clicks DESC, saves DESC, t.name`,
+    [orgId]
+  );
+  return r.rows;
+}
+
+/** P5.2.3 — a template is proven, or it is not. */
+export async function setTemplateProven(orgId: string, templateId: string, proven: boolean) {
+  const r = await organicPool().query(
+    `UPDATE organic.design_templates SET is_proven = $3
+      WHERE org_id = $1 AND id = $2`,
+    [orgId, templateId, proven]
+  );
+  if (r.rowCount === 0) throw new Error("Template not found for this org");
+  return { ok: true, template_id: templateId, is_proven: proven };
+}
+
+// ---------- P5.3.3 — the forward-looking note ------------------------------
+
+const FORECAST_SYSTEM = `You write the forward-looking section of a monthly
+Pinterest report for a media buying agency.
+
+Return ONE paragraph of 70 to 130 words, no preamble, no bullet points and
+no heading. It is read by the client, so write to them, not about them.
+
+What makes this section worth reading is that Pinterest leads: what rises
+there rises on Google weeks later. So the paragraph should say what is
+moving now and what that implies for the next sixty to ninety days —
+concretely, tied to this brand's own products and angles.
+
+Never invent a trend. Work only from what you are given. If the trend
+input is thin, say what you would watch rather than inventing movement,
+and say plainly that the reading is thin — a client can act on "we do not
+have a signal yet", and cannot act on a confident guess.`;
+
+/**
+ * P5.3.3 — drafts the trends paragraph from the trend checks and the brand.
+ *
+ * An AI_DRAFT, so it is written here and approved by a person. What it is
+ * given is deliberately narrow: the notes from P5.3.1 and P5.3.2, the taste
+ * graph and what has won on this account. Handing it the whole research
+ * record would let it write something plausible about a brand it is not
+ * looking at, which is exactly the failure this section cannot afford —
+ * it is the part of the report the client acts on.
+ */
+export async function draftTrendForecast(orgId: string) {
+  const { generateWithValidator, persistDraft } = await import("./ai");
+  const { loadAccountBrief } = await import("./brief");
+  const pool = organicPool();
+
+  const [brief, notes] = await Promise.all([
+    loadAccountBrief(orgId),
+    pool.query<{ task_id: string; notes: string }>(
+      `SELECT ct.task_id, ct.notes
+         FROM organic.client_tasks ct
+        WHERE ct.org_id = $1 AND ct.task_id IN ('P5.3.1','P5.3.2')
+          AND ct.notes IS NOT NULL AND ct.notes <> ''`, [orgId]),
+  ]);
+  if (!brief) throw new Error("Org not found");
+
+  const trendInput = notes.rows.map((n) => `${n.task_id}: ${n.notes}`).join("\n");
+  const taste = brief.taste.value;
+
+  const user = [
+    `Brand: ${brief.name}${brief.niche ? ` — ${brief.niche}` : ""}`,
+    brief.intake.value?.products_services ? `Products: ${brief.intake.value.products_services}` : null,
+    taste?.content_angles.length ? `Content angles: ${taste.content_angles.join(" / ")}` : null,
+    taste?.key_moments.length ? `Key moments: ${taste.key_moments.join(" / ")}` : null,
+    "",
+    trendInput
+      ? `What the trend checks found this month:\n${trendInput}`
+      : "No trend checks recorded this month (P5.3.1 and P5.3.2 have no notes).",
+    "",
+    brief.proven.known
+      ? `What has worked on this account:\n${brief.proven.value!.slice(0, 5)
+          .map((p) => `  - ${p.intent} pin on "${p.board_name}": ${p.clicks} clicks / ${p.saves} saves`).join("\n")}`
+      : "Nothing proven on this account yet.",
+  ].filter((l) => l !== null).join("\n");
+
+  const { text, attempts, failed_attempts } = await generateWithValidator(
+    FORECAST_SYSTEM, user, validateForecast, 700
+  );
+  const draftId = await persistDraft(orgId, "TREND_FORECAST", null, text);
+  return { forecast: text, draft_id: draftId, attempts, failed_attempts, had_trend_input: (notes.rowCount ?? 0) > 0 };
+}
+
+/** Length and shape only. Whether the reading is right is the human's job. */
+export function validateForecast(text: string): { ok: boolean; errors: string[] } {
+  const errs: string[] = [];
+  const t = text.trim();
+  const words = t.split(/\s+/).filter(Boolean).length;
+  if (words < 60) errs.push(`${words} words, too thin for the section (aim 70-130)`);
+  if (words > 170) errs.push(`${words} words, well over the 130-word target`);
+  if (/^[-*•]|\n\s*[-*•]/.test(t)) errs.push("bullet points — this is one paragraph");
+  if (/^#{1,6}\s/m.test(t)) errs.push("a heading — this is one paragraph");
+  return { ok: errs.length === 0, errors: errs };
+}

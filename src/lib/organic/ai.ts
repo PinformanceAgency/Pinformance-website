@@ -25,7 +25,9 @@ export type DraftKind =
   /** P4.2.8 — the four copy sets for one URL's designs. */
   | "PIN_COPY"
   /** P4.2.4, AI route — the prompt a designer or an image model runs. */
-  | "IMAGE_PROMPT";
+  | "IMAGE_PROMPT"
+  /** P5.3.3 — the forward-looking paragraph in the monthly report. */
+  | "TREND_FORECAST";
 
 function anthropicClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPHIC_API_KEY;

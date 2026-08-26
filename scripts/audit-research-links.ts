@@ -209,6 +209,18 @@ const add = (from: string, to: string, state: State, note = "") =>
       req ? `sitemap ${req.sitemap_urls ?? "—"}, entered ${req.existing_urls}, pool ${req.available_urls}, needs ${req.required_urls}` : "no client_settings");
   }
 
+  add("competitor_pins (P2.1.6)", "brief.competitor_pins",
+    brief.competitor_pins.known ? "OK" : "NO DATA",
+    brief.competitor_pins.known
+      ? `${brief.competitor_pins.value!.total} pins, top boards summarised`
+      : brief.competitor_pins.why);
+  add("keyword_clusters (P3.1)", "brief.clusters",
+    brief.clusters.known ? "OK" : "NO DATA",
+    brief.clusters.known ? `${brief.clusters.value!.length} cluster(s)` : brief.clusters.why);
+  add("design_templates (P5.2.3)", "brief.templates + designBrief.proven_templates",
+    brief.templates.known ? "OK" : "NO DATA",
+    brief.templates.known ? `${brief.templates.value!.length} proven` : brief.templates.why);
+
   flow(2, "P1.1.6 brand book", "P4.2.3 design brief",
     brief.brand.known, brief.brand.known ? "colours, tone, typography, CTAs, banned words" : brief.brand.why);
 
@@ -272,11 +284,9 @@ const add = (from: string, to: string, state: State, note = "") =>
   /* ---------------------------------------------------------------- *
    * 6 · Research that still reaches nobody
    * ---------------------------------------------------------------- */
-  for (const [table, note] of [
-    ["competitor_pins", "700-1000 pins per competitor, imported in P2.1.6"],
-    ["keyword_clusters", "classified in P3.1"],
-    ["design_templates", "never populated"],
-  ] as const) {
+  // All three now reach the brief. Kept in the audit so a regression shows
+  // up as a section going absent rather than as silence.
+  for (const [table, note] of [] as ReadonlyArray<readonly [string, string]>) {
     const n = await pool.query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM organic.${table}${
         table === "keyword_clusters" || table === "design_templates" ? " WHERE org_id = $1" : ""

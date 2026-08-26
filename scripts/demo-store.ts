@@ -138,6 +138,7 @@ async function remove(c: Client) {
     ["task_answers",    `DELETE FROM organic.task_answers WHERE org_id = $1`],
     ["client_tasks",    `DELETE FROM organic.client_tasks WHERE org_id = $1`],
     ["client_viability",`DELETE FROM organic.client_viability WHERE org_id = $1`],
+    ["design_templates",`DELETE FROM organic.design_templates WHERE org_id = $1`],
     ["brand_rules",     `DELETE FROM organic.brand_rules WHERE org_id = $1`],
     ["client_intake",   `DELETE FROM organic.client_intake WHERE org_id = $1`],
     ["grid_analyses",   `DELETE FROM organic.grid_analyses WHERE org_id = $1`],
@@ -541,6 +542,26 @@ async function seed(c: Client) {
         // id, matching startCycleForUrl(); the full uuid resolves to nothing.
         [ORG_ID, `URL-${u.id.slice(0, 8)}`]);
     }
+  }
+
+  /* ---- design templates -------------------------------------------
+     Without these the P5.2.3 panel has nothing to mark, so the loop the
+     whole method rests on — templates converge on a handful that work —
+     could not be reviewed. Two are already proven and two are not, because
+     a panel where everything is ticked shows neither state. */
+  for (const [name, intent, ratio, overlay, used, proven] of [
+    ['Lifestyle on linen',      'SAVE',  '2:3',  false, 34, true],
+    ['Flat-lay trio',           'SAVE',  '2:3',  false, 22, true],
+    ['Numbered how-to',         'CLICK', '9:16', true,  17, false],
+    ['Gift guide, price-led',   'CLICK', '9:16', true,   9, false],
+  ] as const) {
+    await c.query(
+      `INSERT INTO organic.design_templates
+         (org_id, name, intent, aspect_ratio, has_text_overlay, source_tool,
+          base_width, base_height, times_used, is_proven)
+       VALUES ($1,$2,$3::organic.pin_intent,$4,$5,'Canva',1000,1510,$6,$7)
+       ON CONFLICT DO NOTHING`,
+      [ORG_ID, name, intent, ratio, overlay, used, proven]);
   }
 
   /* ---- the research phase 4 actually reads ------------------------
