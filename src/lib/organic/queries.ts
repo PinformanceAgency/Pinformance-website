@@ -211,6 +211,7 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
          FROM organic.client_tasks ct
          JOIN organic.task_definitions td ON td.id = ct.task_id
         WHERE ct.org_id = $1
+          AND td.active
           AND (ct.cycle IS NULL OR ct.cycle NOT LIKE 'URL-%')
         ORDER BY td.phase, td.sort_order`,
       [orgId]

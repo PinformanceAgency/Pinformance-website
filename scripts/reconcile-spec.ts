@@ -120,6 +120,18 @@ const SANCTIONED_ADDITIONS = new Set(["P1.3.15","P1.3.16","P1.3.17","P5.4.1","P5
 
   console.log();
   console.log("=".repeat(70));
+  console.log("RETIRED · in the DB but no longer put to anyone");
+  console.log("=".repeat(70));
+  // A retired task is still a row — deactivated, not deleted, so the stores
+  // that completed it keep their record. Without this section the counts
+  // above read "match" while two of the tasks they count are switched off,
+  // which is precisely the drift this script exists to catch.
+  const retired = live.rows.filter((r) => !r.active);
+  if (retired.length === 0) console.log("  none — every task definition is active");
+  else for (const r of retired) console.log(`  ⏻ ${r.id.padEnd(9)} phase ${r.phase}  ${r.task_type}`);
+
+  console.log();
+  console.log("=".repeat(70));
   console.log("TYPE MISMATCH · spec type vs live task_type");
   console.log("=".repeat(70));
   const mismatches: Array<{ id: string; spec: string; live: string }> = [];

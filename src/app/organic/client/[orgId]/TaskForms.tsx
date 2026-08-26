@@ -3,21 +3,24 @@
 import { useState } from "react";
 import type { TaskRow, ViabilityRow, ViabilityVerdict } from "@/lib/organic/types";
 
+/**
+ * The signals still asked, and only those.
+ *
+ * The columns for the retired ones stay on organic.client_viability — a
+ * store assessed under the old set was genuinely assessed and its answers
+ * are part of that record. They are simply no longer put to anyone.
+ * Kept in step with the checklists in task-fields.ts: the same question
+ * appearing in one place and not the other is how two people end up
+ * scoring the same store differently.
+ */
 const GOOD_FIT_FIELDS: { key: keyof ViabilityRow; label: string }[] = [
-  { key: "visual_first", label: "Visual product (photogenic and inspiring)" },
   { key: "more_than_5_products", label: "More than 5 products or ideas" },
   { key: "url_volume", label: "Sufficient URL volume (target > 20)" },
-  { key: "high_aov", label: "High average order value" },
   { key: "existing_assets", label: "Existing visual assets available" },
-  { key: "longterm_mindset", label: "Long-term mindset (Pinterest is 3–6 months)" },
 ];
 
 const RED_FLAG_FIELDS: { key: keyof ViabilityRow; label: string }[] = [
-  { key: "rf_technical_b2b", label: "Technical B2B" },
-  { key: "rf_local_only", label: "Local services only" },
   { key: "rf_single_landing", label: "Single landing page site" },
-  { key: "rf_needs_sales_now", label: "'Results tomorrow' mindset" },
-  { key: "rf_low_effort_ds", label: "Low-effort dropshipping" },
   { key: "rf_restricted_niche", label: "Restricted / sensitive niche" },
 ];
 
@@ -49,7 +52,7 @@ function GoodFitForm({ orgId, task, viability, onDone }: FormBaseProps) {
   const [time, setTime] = useState("");
   return (
     <FormShell
-      title="Six good-fit signals"
+      title="Good-fit signals"
       time={time}
       setTime={setTime}
       submitLabel={task.status === "DONE" ? "Update" : "Save & mark done"}
@@ -67,7 +70,7 @@ function GoodFitForm({ orgId, task, viability, onDone }: FormBaseProps) {
             </label>
           ))}
           <div className="text-[11px] text-neutral-500 col-span-full mt-1">
-            More boxes ticked = stronger fit. {Object.values(state).filter(Boolean).length}/6 ticked.
+            More boxes ticked = stronger fit. {Object.values(state).filter(Boolean).length}/{GOOD_FIT_FIELDS.length} ticked.
           </div>
         </div>
       }
@@ -88,7 +91,7 @@ function RedFlagForm({ orgId, task, viability, onDone }: FormBaseProps) {
   const [time, setTime] = useState("");
   return (
     <FormShell
-      title="Six red-flag signals"
+      title="Red-flag signals"
       time={time}
       setTime={setTime}
       submitLabel={task.status === "DONE" ? "Update" : "Save & mark done"}
@@ -106,7 +109,7 @@ function RedFlagForm({ orgId, task, viability, onDone }: FormBaseProps) {
             </label>
           ))}
           <div className="text-[11px] text-neutral-500 col-span-full mt-1">
-            One red flag is not fatal, several are. {Object.values(state).filter(Boolean).length}/6 flagged.
+            One red flag is not fatal, both together are. {Object.values(state).filter(Boolean).length}/{RED_FLAG_FIELDS.length} flagged.
           </div>
         </div>
       }

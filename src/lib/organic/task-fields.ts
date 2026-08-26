@@ -30,13 +30,27 @@ export interface TaskField {
   /** For `choice`. */
   options?: string[];
   /** Placeholder for the evidence box. Always a real example, never
-   *  "enter text here" — a blank prompt gets a blank answer. */
-  evidence: string;
+   *  "enter text here" — a blank prompt gets a blank answer.
+   *
+   *  Omit it entirely and no reasoning box is drawn. That is the whole
+   *  difference between a judgement call and a conformance check: "is the
+   *  domain claimed" has one right answer and asking for reasoning behind
+   *  a yes is busywork that trains people to type "yes" in a box. */
+  evidence?: string;
   /** Evidence is expected on every field, but on a few it is the entire
    *  point and the form says so. */
   evidenceRequired?: boolean;
   /** Units shown after a number input. */
   unit?: string;
+  /**
+   * Show this field only once another answer has gone a certain way.
+   *
+   * Used for the "so what is wrong, then" box on a conformance checklist:
+   * it stays out of the way while everything passes and appears the moment
+   * something does not. A field nobody needs to fill in should not be on
+   * screen asking to be filled in.
+   */
+  onlyWhen?: { anyOf: string[]; is: boolean };
 }
 
 export interface TaskFieldSet {
@@ -53,27 +67,12 @@ export interface TaskFieldSet {
 
 const GOOD_FIT: TaskFieldSet = {
   intro:
-    "Six signals that a store will work on Pinterest. Answer each one and say what you saw — " +
+    "Three signals that a store will work on Pinterest. Answer each one and say what you saw — " +
     "the answer is the score, the reasoning is what makes it checkable six months from now.",
   scoring:
-    "Four or more yes is a strong fit. Two or three is workable if the red-flag check is clean. " +
-    "Under two, Pinterest is the wrong channel and saying so now is cheaper than saying it in month four.",
+    "All three yes is a strong fit. Two is workable if the red-flag check is clean. " +
+    "One or none, Pinterest is the wrong channel and saying so now is cheaper than saying it in month four.",
   fields: [
-    {
-      key: "visual_first",
-      question: "Is the product photogenic enough to stop a scroll?",
-      why:
-        "Pinterest is a visual search engine. A product nobody wants to look at cannot be pinned into " +
-        "performing, no matter how good the keywords are.",
-      how:
-        "Open the shop's product photography and their Instagram. Ask whether a single image, with no " +
-        "brand context, would make someone stop. Lifestyle and in-situ shots count for far more than " +
-        "cut-outs on white.",
-      kind: "boolean",
-      evidence:
-        "e.g. \"Studio shots on white only, but 40+ lifestyle images on Instagram we can reuse. Jewellery on models, good light.\"",
-      evidenceRequired: true,
-    },
     {
       key: "more_than_5_products",
       question: "Are there more than five distinct products or ideas to pin?",
@@ -101,17 +100,6 @@ const GOOD_FIT: TaskFieldSet = {
       evidenceRequired: true,
     },
     {
-      key: "high_aov",
-      question: "Is the average order value high enough to be worth the work?",
-      why:
-        "Organic Pinterest is a months-long compounding play. On a €15 average order it takes volume we " +
-        "will not reach; the same effort on a €90 order pays for the retainer.",
-      how: "Ask the client, or estimate from the catalogue. Note the number, not just the judgement.",
-      kind: "boolean",
-      evidence: "e.g. \"Client says AOV is €85. Catalogue midpoint ~€70, so plausible.\"",
-      evidenceRequired: true,
-    },
-    {
       key: "existing_assets",
       question: "Do usable visual assets already exist?",
       why:
@@ -124,50 +112,17 @@ const GOOD_FIT: TaskFieldSet = {
       evidence: "e.g. \"Drive folder with two 2025 shoots, ~200 images, model and flat-lay. Plenty for four designs.\"",
       evidenceRequired: true,
     },
-    {
-      key: "longterm_mindset",
-      question: "Does the client understand this takes three to six months?",
-      why:
-        "The single strongest predictor of churn. A client expecting results in week three will cancel in " +
-        "month two, right before the compounding starts — and this is the one signal you can only get by asking.",
-      how:
-        "Ask directly on the intake call: \"what would make you consider this a failure after two months?\" " +
-        "The answer tells you more than the pitch did.",
-      kind: "boolean",
-      evidence: "e.g. \"Said they expect Pinterest to be slow, ran SEO before and understands compounding. Low risk.\"",
-      evidenceRequired: true,
-    },
   ],
 };
 
 const RED_FLAGS: TaskFieldSet = {
   intro:
-    "Six things that hold a store back regardless of how good the fit looked. Flag what is true and say " +
-    "what you saw — one flag is survivable, several together is a no.",
+    "Two things that hold a store back regardless of how good the fit looked. Flag what is true and say " +
+    "what you saw.",
   scoring:
-    "Zero or one flag: proceed. Two: proceed only with the mitigation written down. Three or more: decline, " +
+    "Neither flag: proceed. One: proceed only with the mitigation written down. Both: decline, " +
     "and the reasoning below is what you send the client.",
   fields: [
-    {
-      key: "rf_technical_b2b",
-      question: "Is this technical B2B?",
-      why:
-        "Pinterest's audience is overwhelmingly consumer and discovery-led. Industrial components and " +
-        "enterprise software do not get browsed for pleasure.",
-      how: "Look at who actually buys. Selling to procurement is a flag; selling to a consumer who happens to be a professional is not.",
-      kind: "boolean",
-      evidence: "e.g. \"Consumer jewellery, not B2B. No flag.\"",
-    },
-    {
-      key: "rf_local_only",
-      question: "Is it local services only, with no shippable product?",
-      why:
-        "Pinterest reach is national at minimum. A salon serving one postcode gets impressions from people " +
-        "who can never buy, which looks like performance and is not.",
-      how: "Check whether they ship, or whether the service is location-bound. A local business with an online shop is not a flag.",
-      kind: "boolean",
-      evidence: "e.g. \"Ships EU-wide from Amsterdam. No flag.\"",
-    },
     {
       key: "rf_single_landing",
       question: "Is the whole site a single landing page?",
@@ -177,28 +132,6 @@ const RED_FLAGS: TaskFieldSet = {
       how: "Count real, distinct destination pages. Anchors on one page do not count.",
       kind: "boolean",
       evidence: "e.g. \"Full Shopify store, 34 URLs. No flag.\"",
-    },
-    {
-      key: "rf_needs_sales_now",
-      question: "Do they need sales this month?",
-      why:
-        "This is the flag that ends engagements. Organic Pinterest cannot deliver inside a month, and taking " +
-        "a client who needs it to is setting up a cancellation you can already see.",
-      how:
-        "Ask what happens if there is no revenue from this in eight weeks. If the answer involves runway, this " +
-        "is a flag no matter how good the product is.",
-      kind: "boolean",
-      evidence: "e.g. \"Profitable, treating Pinterest as a 2027 channel. No flag.\"",
-    },
-    {
-      key: "rf_low_effort_ds",
-      question: "Is this low-effort dropshipping?",
-      why:
-        "Generic catalogue imagery is already on Pinterest a hundred times over. There is nothing to rank " +
-        "with, and the account picks up spam signals from duplicate images.",
-      how: "Reverse-image search two or three of their product photos. If the same shot is on twenty other shops, flag it.",
-      kind: "boolean",
-      evidence: "e.g. \"Own photography, reverse search returns only their domain. No flag.\"",
     },
     {
       key: "rf_restricted_niche",
@@ -262,7 +195,7 @@ const VERDICT: TaskFieldSet = {
         "This is the decision the rest of the engagement rests on, and it is the one thing a future manager " +
         "will want to see reasoned.",
       how:
-        "STRONG: four or more good-fit signals, at most one red flag. MODERATE: workable but with a named " +
+        "STRONG: all three good-fit signals and neither red flag. MODERATE: workable but with a named " +
         "risk. WEAK: decline, or proceed only with the client's expectations reset in writing.",
       kind: "choice",
       options: ["STRONG", "MODERATE", "WEAK"],
@@ -281,6 +214,364 @@ const VERDICT: TaskFieldSet = {
       evidenceRequired: true,
     },
   ],
+};
+
+/* ------------------------------------------------------------------ *
+ * PHASE 1 · STEP 3 — Technical setup
+ *
+ * These seventeen tasks are not judgement calls. "Is the domain claimed"
+ * has one right answer, and the generic what-did-you-do / what-did-you-find
+ * form was making people write three paragraphs to report that a checkmark
+ * was where it should be. Nobody does that twice; they mark it done and
+ * type nothing, and the audit is worth exactly as much as no audit.
+ *
+ * So the whole step is a conformance checklist: each condition is yes or
+ * no, no reasoning asked while everything passes, and one box that appears
+ * the moment something fails — naming what is wrong and what has to
+ * happen. The writing is then about the one thing that needs fixing, which
+ * is the only part anybody reads later.
+ * ------------------------------------------------------------------ */
+
+interface Check {
+  key: string;
+  question: string;
+  why: string;
+  how: string;
+}
+
+/**
+ * A yes/no checklist plus a single conditional "what is wrong" box.
+ *
+ * The box is `onlyWhen` any check is answered no, so a clean setup is
+ * seventeen taps and nothing typed, and a broken one asks for exactly the
+ * detail that a fix needs.
+ */
+function conformance(intro: string, checks: Check[], example: string): TaskFieldSet {
+  return {
+    intro,
+    scoring:
+      "Every yes and this is settled — nothing to write. One no and the box at the bottom opens: " +
+      "say what is wrong and what has to happen, because that is what the next person needs.",
+    fields: [
+      ...checks.map((c): TaskField => ({ ...c, kind: "boolean" })),
+      {
+        key: "not_right",
+        question: "What is not right, and what has to happen?",
+        why:
+          "A failed check on its own is a dead end — the next person sees a red mark and has to redo the " +
+          "whole investigation to find out what it meant.",
+        how:
+          "Name the specific thing that is wrong, who has to fix it (us, the client, their developer), and " +
+          "whether anything downstream is blocked until it is.",
+        kind: "longtext",
+        evidence: example,
+        onlyWhen: { anyOf: checks.map((c) => c.key), is: false },
+      },
+    ],
+  };
+}
+
+const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
+  "P1.3.1": conformance(
+    "Without a business account there is no analytics, no claimed domain and no catalogue. Everything else in this step assumes it.",
+    [{
+      key: "is_business_account",
+      question: "Is this a Pinterest business account?",
+      why: "A personal account has no analytics and cannot claim a domain, so the whole of phase 1 step 3 is unavailable on one.",
+      how: "A business account shows an Analytics tab and a Business hub. Convert from Settings → Account management → Convert to business.",
+    }],
+    "e.g. \"Still a personal account. Client has the login; asked them to convert, they said Friday. Blocks the domain claim and the catalogue.\""
+  ),
+
+  "P1.3.2": conformance(
+    "The domain claim is what ties pins back to the site. Without it analytics are partial and rich pins never work.",
+    [
+      {
+        key: "domain_claimed",
+        question: "Does the domain show as claimed, with the checkmark visible?",
+        why: "Unclaimed means no attribution on pins others save from the site, and no rich pin data.",
+        how: "Settings → Claimed accounts. The domain should show a checkmark, not 'pending'.",
+      },
+      {
+        key: "claim_is_permanent",
+        question: "Is the verification tag somewhere a redeploy will not remove it?",
+        why: "A tag pasted into a preview theme or a trial app disappears at the next deploy and the claim silently lapses.",
+        how: "Check it is in the live theme's head or a permanent CMS setting, not in an app that could be uninstalled.",
+      },
+    ],
+    "e.g. \"Claim shows pending — meta tag went into the preview theme, not the live one. Their developer has to move it before we can continue.\""
+  ),
+
+  "P1.3.3": conformance(
+    "The tag is what makes organic Pinterest measurable and what feeds the retargeting audiences later.",
+    [
+      {
+        key: "tag_base_present",
+        question: "Is the base code present on every page?",
+        why: "A tag on the homepage only measures nothing that matters — the conversions all happen deeper in the funnel.",
+        how: "Pinterest Tag Helper, or view source on a product and a checkout page.",
+      },
+      {
+        key: "tag_events_fire",
+        question: "Do PageVisit, AddToCart and Checkout all fire?",
+        why: "Checkout is the event every downstream number is built on. A tag that only fires PageVisit reports traffic and no revenue.",
+        how: "Run a test purchase with Tag Helper open and watch all three fire in order.",
+      },
+    ],
+    "e.g. \"Base code is on every page but Checkout does not fire — their theme uses a custom thank-you page. Their developer has to add it.\""
+  ),
+
+  "P1.3.4": conformance(
+    "The catalogue is what turns URLs into product pins that carry price and stock automatically.",
+    [
+      {
+        key: "catalog_connected",
+        question: "Is the product feed connected and ingesting?",
+        why: "Without it every product pin has to be built by hand and none of them carry price.",
+        how: "Ads → Catalogues, or the Shopify app. Status should be 'active', not 'processing' or 'failed'.",
+      },
+      {
+        key: "catalog_clean",
+        question: "Does the ingested product count match the shop, with no feed errors?",
+        why: "A feed that ingests 40 of 300 products looks connected and quietly excludes most of the catalogue.",
+        how: "Compare the ingested count against the shop's product count and read the error report.",
+      },
+    ],
+    "e.g. \"Feed connected but 120 of 300 products rejected — missing GTIN. Client's ops person is filling them in.\""
+  ),
+
+  "P1.3.5": conformance(
+    "A private profile is invisible to Pinterest search, which is the entire channel.",
+    [{
+      key: "profile_public",
+      question: "Is the profile public and visible to search engines?",
+      why: "'Hide from search engines' is on by default on some accounts and silently caps distribution to nothing.",
+      how: "Settings → Privacy and data → the search-engine visibility toggle must be off.",
+    }],
+    "e.g. \"'Hide from search engines' was on. Turned it off ourselves — client had never seen the setting.\""
+  ),
+
+  "P1.3.6": conformance(
+    "Shopping recommendations put competitors next to your pin and take the click you paid to earn.",
+    [{
+      key: "shopping_recs_off",
+      question: "Are shopping recommendations turned off?",
+      why: "Left on, Pinterest shows similar products from other shops directly under the pin.",
+      how: "Settings → Social permissions → shopping recommendations.",
+    }],
+    "e.g. \"Setting is not available on their account type yet — revisit after the business conversion.\""
+  ),
+
+  "P1.3.7": conformance(
+    "An inbox nobody reads is worse than no inbox: it is a visible unanswered message on a brand profile.",
+    [{
+      key: "messages_setting_right",
+      question: "Does the messages setting match whether the client actually monitors it?",
+      why: "Unanswered messages sit publicly on the profile and read as an abandoned account.",
+      how: "Ask who reads the Pinterest inbox. If the honest answer is nobody, turn messages off.",
+    }],
+    "e.g. \"Client wants messages on and says their service desk will cover it. Left on, noted to check in month two.\""
+  ),
+
+  "P1.3.8": conformance(
+    "Pinterest judges the destination, not just the pin. A slow page suppresses outbound clicks on everything pointing at it.",
+    [
+      {
+        key: "speed_acceptable",
+        question: "Is mobile load time acceptable on the pages we will be pinning?",
+        why: "Outbound clicks are the ranking signal, and they are lost while a page is still loading.",
+        how: "PageSpeed Insights on two or three of the URLs from the pool, mobile tab. Under three seconds to largest paint.",
+      },
+      {
+        key: "no_obvious_blocker",
+        question: "Is there no single obvious blocker?",
+        why: "Most slow shops are slow for one fixable reason, and naming it is worth more than the score.",
+        how: "Look for uncompressed hero images, render-blocking app scripts, a bloated theme.",
+      },
+    ],
+    "e.g. \"LCP 6.1s on mobile — a 4MB uncompressed hero on every collection page. One fix, big win. Flagged to their developer.\""
+  ),
+
+  "P1.3.9": conformance(
+    "Pinterest reads the URL itself. Existing slugs stay as they are — changing them breaks Google — but new pages can be better.",
+    [
+      {
+        key: "slugs_readable",
+        question: "Are the existing slugs readable and keyword-bearing?",
+        why: "A slug like /products/12345 tells Pinterest nothing about what the page is.",
+        how: "Look at the URL pool from P1.0.3. Words, not IDs.",
+      },
+      {
+        key: "slug_advice_recorded",
+        question: "Has the convention for new pages been agreed with the client?",
+        why: "This is advice, not a change we make. Unrecorded advice is advice nobody follows.",
+        how: "Write the rule down and confirm it with whoever creates new pages.",
+      },
+    ],
+    "e.g. \"Product slugs are numeric IDs. Not changing them — Google would break. Agreed a words-based convention for new pages from September.\""
+  ),
+
+  "P1.3.10": conformance(
+    "Pinterest runs OCR and reads file names. IMG_8492.jpg says nothing; modern-vanity-lighting.jpg says what the picture is.",
+    [
+      {
+        key: "filenames_descriptive",
+        question: "Are the image file names descriptive rather than camera defaults?",
+        why: "File names are one of the few text signals on an image-first platform.",
+        how: "Inspect a handful of product images on the live site and read the src.",
+      },
+      {
+        key: "filename_convention_agreed",
+        question: "Is a naming convention agreed for everything uploaded from now on?",
+        why: "Renaming the back catalogue is rarely worth it; getting new uploads right always is.",
+        how: "Agree the pattern with whoever uploads images and record it here.",
+      },
+    ],
+    "e.g. \"All uploads are IMG_xxxx. Not renaming 600 existing images. Agreed product-material-colour.jpg for new ones with their content person.\""
+  ),
+
+  "P1.3.11": conformance(
+    "Pinterest scans the landing page's summary text. Keywords there help the pin that points at it.",
+    [
+      {
+        key: "meta_present",
+        question: "Does every URL in the pool have a meta description?",
+        why: "A missing description leaves Pinterest to guess the page's subject from the body copy.",
+        how: "Crawl the URL pool, or spot-check the collections and top products.",
+      },
+      {
+        key: "meta_keyworded",
+        question: "Do those descriptions carry the keywords we will be targeting?",
+        why: "A generic brand boilerplate on every page gives Pinterest the same signal for every URL.",
+        how: "Compare the descriptions against the keyword direction from phase 2.",
+      },
+    ],
+    "e.g. \"Collections have them, 18 product pages do not. Client's copywriter is filling those in, keyword list handed over.\""
+  ),
+
+  "P1.3.12": conformance(
+    "A pin a visitor saves themselves ranks faster than one we publish. The save button is what makes that possible.",
+    [{
+      key: "save_button_present",
+      question: "Is there a working Pinterest save button on product and content pages?",
+      why: "Saves from real visitors are the strongest early distribution signal an account can get.",
+      how: "Hover a product image on the live site. If there is no button, recommend a plugin or the widget builder.",
+    }],
+    "e.g. \"No button anywhere. Recommended the official widget; their developer has it scheduled for next sprint.\""
+  ),
+
+  "P1.3.13": conformance(
+    "More than eight in ten Pinterest sessions are mobile. The desktop site is not the one that matters.",
+    [
+      {
+        key: "mobile_browse_ok",
+        question: "Do loading and scrolling hold up on a real phone?",
+        why: "Emulators hide the things that actually lose the click — janky scroll, popups that cannot be dismissed.",
+        how: "Open the site on your own phone on mobile data, not office wifi.",
+      },
+      {
+        key: "mobile_checkout_ok",
+        question: "Can you complete a purchase end to end on mobile?",
+        why: "If checkout breaks on a phone, every click we send is wasted and nothing in the reporting will show why.",
+        how: "Go all the way to the payment step on your phone.",
+      },
+    ],
+    "e.g. \"Browsing is fine, but the cookie banner cannot be dismissed on iOS Safari and covers the buy button. Blocker — reported to the client.\""
+  ),
+
+  "P1.3.14": conformance(
+    "The content bank sets the achievable frequency. Two URLs per funnel stage is the floor a waterfall can run on.",
+    [
+      {
+        key: "stage_top_ok",
+        question: "Are there at least two URLs for inspiration (top of funnel)?",
+        why: "Top-of-funnel pages are what earn reach. Without them the account only ever talks to people already looking to buy.",
+        how: "Count guides, editorial, lookbooks and inspiration collections in the URL pool.",
+      },
+      {
+        key: "stage_middle_ok",
+        question: "At least two for consideration (middle)?",
+        why: "The middle is where saves turn into visits. Skipping it makes the funnel a cliff.",
+        how: "Count comparison pages, collections, category pages with real copy.",
+      },
+      {
+        key: "stage_bottom_ok",
+        question: "At least two for conversion (bottom)?",
+        why: "Without bottom-of-funnel URLs the cycles produce traffic that never has anywhere to convert.",
+        how: "Count product pages strong enough to be a pin destination on their own.",
+      },
+    ],
+    "e.g. \"Top and bottom are fine. Nothing in the middle — no category copy at all. Caps us at one cycle a month until they write some.\""
+  ),
+
+  "P1.3.15": conformance(
+    "Claimed social accounts unlock the catalogue and rich pins. One of these settings actively causes harm if left wrong.",
+    [
+      {
+        key: "shopify_claimed",
+        question: "Is the shop connected under claimed accounts?",
+        why: "The Shopify claim is what unlocks the catalogue and rich pins. Without it product pins never carry a price.",
+        how: "Settings → Claimed accounts.",
+      },
+      {
+        key: "instagram_claimed",
+        question: "Is Instagram connected?",
+        why: "It attributes saves of their Instagram content back to the Pinterest profile.",
+        how: "Settings → Claimed accounts.",
+      },
+      {
+        key: "ig_autopublish_off",
+        question: "Is Instagram auto-publish switched OFF?",
+        why: "This one matters more than the other two. Auto-reposted Instagram content gets flagged as spam and the whole account carries the penalty.",
+        how: "On the Instagram claim, the auto-publish toggle must be off. Check it even if someone says it already is.",
+      },
+    ],
+    "e.g. \"Instagram claimed with auto-publish ON — turned it off immediately. Shopify not claimed yet, waiting on the client's admin access.\""
+  ),
+
+  "P1.3.16": conformance(
+    "Pins that already have impressions are the highest-return edits available — the distribution exists, only the destination is missing.",
+    [
+      {
+        key: "impression_pins_linked",
+        question: "Do the pins with impressions but no destination URL now have the correct link?",
+        why: "These are impressions already being earned and thrown away. Nothing else in phase 1 pays back this fast.",
+        how: "Filter existing pins by impressions with an empty link, and add the right URL to each.",
+      },
+      {
+        key: "generic_copy_fixed",
+        question: "Has generic copy on the high-impression pins been rewritten?",
+        why: "A pin titled with the file name ranks for nothing, however many impressions it happens to have.",
+        how: "Work down the boards by impressions and rewrite titles and descriptions with real keywords.",
+      },
+      {
+        key: "edit_cap_respected",
+        question: "Did you stay under the daily edit cap?",
+        why: "Above 150 pin edits in a day Pinterest rate-limits the whole account, which costs more than the edits gained.",
+        how: "Ten to twenty a day is the working pace. 150 is the hard platform limit — do not go near it.",
+      },
+    ],
+    "e.g. \"41 pins had impressions and no link, fixed 18 today and the rest tomorrow to stay under the cap.\""
+  ),
+
+  "P1.3.17": conformance(
+    "Verified Merchant unlocks product tagging, catalogue boosts and the shop tab. It is a review, so it is applied for once the prerequisites are actually met.",
+    [
+      {
+        key: "vm_requirements_met",
+        question: "Are all the prerequisites met — business account, claimed domain, active catalogue, no policy violations?",
+        why: "Applying before these are in place gets a rejection, and a rejected account waits before it can reapply.",
+        how: "Walk back through P1.3.1, P1.3.2 and P1.3.4. All three have to be green first.",
+      },
+      {
+        key: "vm_applied",
+        question: "Has the application been submitted, or is the badge already granted?",
+        why: "This is the only task in the step whose outcome we do not control, so the date it went in is what gets tracked.",
+        how: "Settings → Verified Merchant. Note the submission date; some verticals get an extra review round.",
+      },
+    ],
+    "e.g. \"Catalogue is still rejecting products so we have not applied — applying now would burn the attempt. Revisit once the feed is clean.\""
+  ),
 };
 
 /* ------------------------------------------------------------------ *
@@ -328,11 +619,29 @@ const BY_TASK: Record<string, TaskFieldSet> = {
   "P1.0.2": RED_FLAGS,
   "P1.0.3": URL_COUNT,
   "P1.0.4": VERDICT,
+  ...TECHNICAL_SETUP,
 };
 
 /** Bespoke fields where they exist, a structured fallback everywhere else. */
 export function fieldsFor(taskId: string): TaskFieldSet {
   return BY_TASK[taskId] ?? GENERIC_FIELDS;
+}
+
+/**
+ * The fields actually on screen, given what has been answered so far.
+ *
+ * Conditional fields are filtered out until their trigger fires. The
+ * progress count has to run off this rather than off `set.fields`, or a
+ * clean conformance check reads 3 of 4 forever and looks unfinished when
+ * it is finished.
+ */
+export function visibleFields(
+  set: TaskFieldSet,
+  answerOf: (key: string) => boolean | null | undefined
+): TaskField[] {
+  return set.fields.filter((f) =>
+    !f.onlyWhen || f.onlyWhen.anyOf.some((k) => answerOf(k) === f.onlyWhen!.is)
+  );
 }
 
 /** True when the task has hand-written questions rather than the fallback. */

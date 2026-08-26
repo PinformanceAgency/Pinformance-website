@@ -471,7 +471,7 @@ export async function loadPhaseDetail(orgId: string): Promise<PhaseDetail[]> {
               COUNT(*) FILTER (WHERE ct.status = 'DONE')                AS done
          FROM organic.client_tasks ct
          JOIN organic.task_definitions td ON td.id = ct.task_id
-        WHERE ct.org_id = $1
+        WHERE ct.org_id = $1 AND td.active
         GROUP BY td.phase`, [orgId]),
     // DISTINCT ON gives the first row per phase in SOP order — the next
     // action — in one pass rather than a query per phase.
@@ -479,7 +479,7 @@ export async function loadPhaseDetail(orgId: string): Promise<PhaseDetail[]> {
       `SELECT DISTINCT ON (td.phase) td.phase, ct.task_id, td.name
          FROM organic.client_tasks ct
          JOIN organic.task_definitions td ON td.id = ct.task_id
-        WHERE ct.org_id = $1 AND ct.status = 'TODO'
+        WHERE ct.org_id = $1 AND td.active AND ct.status = 'TODO'
         ORDER BY td.phase, td.sort_order`, [orgId]),
     pool.query<{ phase: number; outstanding: string; blocked: string }>(
       `SELECT td.phase,
@@ -487,7 +487,7 @@ export async function loadPhaseDetail(orgId: string): Promise<PhaseDetail[]> {
               COUNT(*) FILTER (WHERE ct.status = 'BLOCKED')           AS blocked
          FROM organic.client_tasks ct
          JOIN organic.task_definitions td ON td.id = ct.task_id
-        WHERE ct.org_id = $1
+        WHERE ct.org_id = $1 AND td.active
         GROUP BY td.phase`, [orgId]),
   ]);
 
@@ -676,14 +676,16 @@ export async function loadToday(orgId: string): Promise<TodayView> {
        FROM organic.client_tasks ct
        JOIN organic.task_definitions td ON td.id = ct.task_id
       WHERE ct.org_id = $1
+        AND td.active
         AND ct.status IN ('TODO','IN_PROGRESS','REVIEW')
         AND (ct.cycle IS NULL OR ct.cycle NOT LIKE 'URL-%')
       ORDER BY td.phase, td.sort_order`,
     [orgId]
   );
   const blocked = await pool.query<{ n: string }>(
-    `SELECT COUNT(*) AS n FROM organic.client_tasks
-      WHERE org_id = $1 AND status = 'BLOCKED'`, [orgId]);
+    `SELECT COUNT(*) AS n FROM organic.client_tasks ct
+       JOIN organic.task_definitions td ON td.id = ct.task_id
+      WHERE ct.org_id = $1 AND td.active AND ct.status = 'BLOCKED'`, [orgId]);
 
   const rows = r.rows;
   const actionable = rows.filter((t) => t.status === "TODO");

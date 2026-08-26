@@ -718,7 +718,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
     `SELECT ct.cycle, ct.id::text, ct.task_id, td.step, td.name, td.task_type::text,
             td.guidance, ct.status::text, ct.time_spent_min, ct.notes, td.sort_order
        FROM organic.client_tasks ct JOIN organic.task_definitions td ON td.id = ct.task_id
-      WHERE ct.org_id = $1 AND ct.cycle = ANY($2)
+      WHERE ct.org_id = $1 AND td.active AND ct.cycle = ANY($2)
       ORDER BY td.sort_order`,
     [orgId, cycleKeys]
   );

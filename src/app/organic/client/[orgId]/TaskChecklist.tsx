@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, Loader2, HelpCircle, CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { visibleFields } from "@/lib/organic/task-fields";
 import type { TaskField, TaskFieldSet } from "@/lib/organic/task-fields";
 import type { TaskAnswer } from "@/lib/organic/workspace";
 
@@ -33,7 +34,9 @@ export function TaskChecklist({
   readOnly?: boolean;
 }) {
   const byKey = new Map(answers.filter((a) => a.task_id === taskId).map((a) => [a.field_key, a]));
-  const answered = set.fields.filter((f) => {
+  // Conditional fields count only once they are on screen — see visibleFields.
+  const fields = visibleFields(set, (k) => byKey.get(k)?.answer_bool);
+  const answered = fields.filter((f) => {
     const a = byKey.get(f.key);
     if (!a) return false;
     return a.answer_bool !== null || a.answer_text !== null || a.answer_number !== null;
@@ -53,14 +56,14 @@ export function TaskChecklist({
                         stroke="rgba(16,24,40,0.09)" />
                 <circle cx="18" cy="18" r="15.5" fill="none" strokeWidth="3"
                         strokeLinecap="round" stroke="var(--color-o-accent)"
-                        strokeDasharray={`${(answered / set.fields.length) * 97.4} 97.4`}
+                        strokeDasharray={`${(answered / Math.max(1, fields.length)) * 97.4} 97.4`}
                         className="transition-[stroke-dasharray] duration-500" />
               </svg>
               <span className="absolute inset-0 grid place-items-center o-figure text-[11px] text-o-ink">
                 {answered}
               </span>
             </div>
-            <span className="o-eyebrow">of {set.fields.length}</span>
+            <span className="o-eyebrow">of {fields.length}</span>
           </div>
         </div>
         {set.scoring && (
@@ -72,10 +75,11 @@ export function TaskChecklist({
       </div>
 
       <div className="divide-y divide-o-hairline">
-        {set.fields.map((f, i) => (
+        {fields.map((f, i) => (
           <FieldRow
             key={f.key}
             index={i + 1}
+            conditional={!!f.onlyWhen}
             orgId={orgId}
             taskId={taskId}
             field={f}
@@ -91,7 +95,7 @@ export function TaskChecklist({
 /* ------------------------------------------------------------------ */
 
 function FieldRow({
-  index, orgId, taskId, field, answer, readOnly,
+  index, orgId, taskId, field, answer, readOnly, conditional,
 }: {
   index: number;
   orgId: string;
@@ -99,6 +103,8 @@ function FieldRow({
   field: TaskField;
   answer: TaskAnswer | null;
   readOnly?: boolean;
+  /** This row is on screen because an answer above it failed. */
+  conditional?: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -113,6 +119,9 @@ function FieldRow({
   const hasAnswer =
     bool !== null || answer?.answer_text != null || answer?.answer_number != null;
   const evidenceMissing = hasAnswer && field.evidenceRequired && !(answer?.evidence ?? "").trim();
+  // A row that appeared because a check failed is owed an answer by
+  // definition — that is the only reason it is here.
+  const owed = evidenceMissing || (conditional && !hasAnswer);
 
   async function save(patch: Record<string, unknown>, which: "answer" | "evidence") {
     setErr(null); setBusy(which);
@@ -142,11 +151,11 @@ function FieldRow({
   return (
     <div className={cn(
       "relative px-6 py-6 transition-colors",
-      evidenceMissing && "bg-primary/[0.022]"
+      owed && "bg-primary/[0.022]"
     )}>
       {/* A left rule marks the row that still owes something, rather than
           tinting the whole block and hoping it is noticed. */}
-      {evidenceMissing && (
+      {owed && (
         <span aria-hidden className="absolute left-0 inset-y-0 w-[3px] bg-o-accent" />
       )}
       <div className="flex gap-5">
@@ -162,7 +171,10 @@ function FieldRow({
         </span>
 
         <div className="flex-1 min-w-0">
-          <h4 className="o-h3 text-foreground">{field.question}</h4>
+          {conditional && (
+            <span className="o-eyebrow text-o-accent">Because a check above did not pass</span>
+          )}
+          <h4 className={cn("o-h3 text-foreground", conditional && "mt-1")}>{field.question}</h4>
 
           <div className="mt-3.5 grid md:grid-cols-2 gap-px bg-o-hairline rounded-lg overflow-hidden max-w-4xl">
             <div className="bg-o-sunk/60 px-4 py-3.5">
@@ -262,8 +274,11 @@ function FieldRow({
             )}
           </div>
 
-          {/* ---- the reasoning ---------------------------------- */}
-          {field.kind !== "longtext" && field.kind !== "text" && (
+          {/* ---- the reasoning ----------------------------------
+              No prompt, no box. On a conformance check ("is the domain
+              claimed") a reasoning field behind a yes is busywork, and
+              busywork is what teaches people to type "yes" into it. */}
+          {field.evidence !== undefined && field.kind !== "longtext" && field.kind !== "text" && (
             <div className="mt-4">
               <label className="flex items-baseline gap-2 text-sm font-semibold text-foreground">
                 Why?

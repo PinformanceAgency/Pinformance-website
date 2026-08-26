@@ -101,8 +101,10 @@ export async function loadClientNav(orgId: string): Promise<ClientNav | null> {
     // mean "things I can act on", not "things that exist".
     pool.query<{ n: string }>(
       `SELECT (
-         (SELECT COUNT(*) FROM organic.client_tasks
-           WHERE org_id = $1 AND status IN ('TODO','IN_PROGRESS','REVIEW'))
+         (SELECT COUNT(*) FROM organic.client_tasks ct
+            JOIN organic.task_definitions td ON td.id = ct.task_id
+           WHERE ct.org_id = $1 AND td.active
+             AND ct.status IN ('TODO','IN_PROGRESS','REVIEW'))
          +
          (SELECT COUNT(*) FROM organic.pins p
             JOIN organic.waterfalls w ON w.id = p.waterfall_id

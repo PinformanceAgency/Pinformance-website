@@ -11,17 +11,10 @@ import { organicPool } from "@/lib/organic/db";
  * would never open.
  */
 const VIABILITY_COLUMNS: Record<string, string> = {
-  visual_first: "visual_first",
   more_than_5_products: "more_than_5_products",
   url_volume: "url_volume",
-  high_aov: "high_aov",
   existing_assets: "existing_assets",
-  longterm_mindset: "longterm_mindset",
-  rf_technical_b2b: "rf_technical_b2b",
-  rf_local_only: "rf_local_only",
   rf_single_landing: "rf_single_landing",
-  rf_needs_sales_now: "rf_needs_sales_now",
-  rf_low_effort_ds: "rf_low_effort_ds",
   rf_restricted_niche: "rf_restricted_niche",
 };
 
