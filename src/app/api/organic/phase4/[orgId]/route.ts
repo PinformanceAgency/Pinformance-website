@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import * as P4 from "@/lib/organic/phase4";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Image generation runs through here. Krea is a queue: four designs are
+// polled in parallel with a 180s ceiling each, so 60 would cut off a normal
+// run halfway and leave two designs generated and two not.
+export const maxDuration = 300;
 
 export async function POST(
   req: Request,
@@ -47,6 +50,22 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       return await P4.generateCopyForDesign(orgId, String(body.design_id));
     case "generate_image_prompt":
       return await P4.generateImagePromptForDesign(orgId, String(body.design_id));
+    // P4.2.4 / P4.2.5 — the images themselves. Long-running: Krea is a
+    // queue and four generations are polled in parallel.
+    case "generate_designs":
+      return await P4.generateDesignImages(orgId, String(body.url_id));
+    case "generate_crops":
+      return await P4.generateMicroCrops(orgId, String(body.url_id));
+    // P4.2.7 / P4.2.10 — QC. A rejection needs a reason; that is enforced
+    // in the function, not here, so every caller gets the same rule.
+    case "design_qc":
+      return await P4.setDesignQc(orgId, String(body.design_id),
+        body.status as "APPROVED" | "REJECTED", body.notes as string | null);
+    case "copy_qc":
+      return await P4.setCopyQc(orgId, String(body.copy_set_id),
+        body.status as "APPROVED" | "REJECTED", body.reason as string | null);
+    case "cycle_assets":
+      return { assets: await P4.loadCycleAssets(orgId, String(body.url_id)) };
     case "validate_copy":
       return P4.validateCopy(body as unknown as P4.CopyDraft);
     case "waterfall":

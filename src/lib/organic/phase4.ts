@@ -1516,3 +1516,258 @@ export async function loadPhase4StepTasks(orgId: string, step: string): Promise<
       .filter((c) => c.tasks.length > 0),
   };
 }
+
+// ---------- P4.2.4 / P4.2.5 / P4.2.7 / P4.2.10 — the design side ------------
+//
+// These four were the last tasks in phase 4 with no control. They are the
+// core of the service: making the images, keeping them fresh enough to
+// distribute, and deciding whether they are good enough to publish.
+//
+// Everything here reuses what the main dashboard already runs — Krea for
+// generation, sharp for the crops, the pin-images bucket for storage. The
+// only organic-specific parts are the aspect ratio per pin intent and the
+// crop-per-copy-variant rule that makes the sixteen pins read as sixteen
+// images rather than one repeated.
+//
+// Deliberately NOT built: the C2PA metadata-stripping step. The build
+// reference rules it out — at twenty accounts from one infrastructure it
+// becomes a detectable pattern, and a suspension would take the paid side
+// down with it. It stays manual in Canva if anybody wants it.
+
+const KREA_POLL_MS = 4_000;
+const KREA_MAX_WAIT_MS = 180_000;
+
+/** SAVE pins are 2:3 lifestyle; CLICK pins are 9:16 with room for overlay. */
+function ratioForIntent(intent: string): { ratio: string; w: number; h: number } {
+  return intent === "CLICK"
+    ? { ratio: "9:16", w: 1080, h: 1920 }
+    : { ratio: "2:3", w: 1000, h: 1500 };
+}
+
+async function kreaFor(orgId: string): Promise<import("../krea/client").KreaClient> {
+  const { KreaClient } = await import("../krea/client");
+  const { createAdminClient } = await import("../supabase/admin");
+  const { decrypt } = await import("../encryption");
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("organizations").select("krea_api_key_encrypted").eq("id", orgId).single();
+  let key = process.env.KREA_API_KEY;
+  if (data?.krea_api_key_encrypted) {
+    try { key = decrypt(data.krea_api_key_encrypted); } catch { /* fall back to the global key */ }
+  }
+  if (!key) throw new Error("No Krea API key — set KREA_API_KEY or connect one on the organisation");
+  return new KreaClient(key);
+}
+
+/**
+ * P4.2.4 — generate the four designs for a cycle.
+ *
+ * One image per design, each from its own prompt so the four are visually
+ * distinct rather than four samples of one prompt. Runs them in parallel;
+ * Krea is a queue and four sequential polls would take four times as long
+ * for no benefit.
+ */
+export async function generateDesignImages(orgId: string, urlId: string) {
+  const pool = organicPool();
+  const designs = await pool.query<{ id: string; design_number: number; intent: string; route: string }>(
+    `SELECT d.id::text, d.design_number, d.intent::text AS intent, d.route::text AS route
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+      WHERE w.org_id = $1 AND w.url_id = $2
+      ORDER BY d.design_number`,
+    [orgId, urlId]
+  );
+  if (designs.rowCount === 0) {
+    throw new Error("No designs yet — generate the waterfall first (P4.3.1)");
+  }
+
+  const [krea, { createAdminClient }] = await Promise.all([
+    kreaFor(orgId),
+    import("../supabase/admin"),
+  ]);
+  const admin = createAdminClient();
+
+  const results = await Promise.all(designs.rows.map(async (d) => {
+    const { prompt } = await generateImagePromptForDesign(orgId, d.id);
+    const { ratio, w, h } = ratioForIntent(d.intent);
+    const task = await krea.generateImage({ prompt, aspect_ratio: ratio, width: w, height: h });
+
+    const jobId = task.task_id ?? task.id;
+    const started = Date.now();
+    let url: string | null = task.result?.url ?? null;
+    while (!url && Date.now() - started < KREA_MAX_WAIT_MS) {
+      await new Promise((r) => setTimeout(r, KREA_POLL_MS));
+      const s = await krea.getTaskStatus(jobId);
+      if (s.status === "failed") throw new Error(`Krea failed on design ${d.design_number}`);
+      url = s.result?.url ?? null;
+    }
+    if (!url) throw new Error(`Krea timed out on design ${d.design_number} after ${KREA_MAX_WAIT_MS / 1000}s`);
+
+    // Stored in our own bucket rather than referenced at Krea: a generated
+    // URL there expires, and a design whose image 404s two months later
+    // takes the record of what was published with it.
+    const img = await fetch(url);
+    if (!img.ok) throw new Error(`Could not fetch the generated image for design ${d.design_number}`);
+    const buf = Buffer.from(await img.arrayBuffer());
+    const path = `organic/${orgId}/${d.id}/design-${d.design_number}.jpg`;
+    const { error } = await admin.storage.from("pin-images")
+      .upload(path, buf, { contentType: "image/jpeg", upsert: true });
+    if (error) throw new Error(`Upload failed for design ${d.design_number}: ${error.message}`);
+    const { data: pub } = admin.storage.from("pin-images").getPublicUrl(path);
+
+    await pool.query(
+      `UPDATE organic.designs
+          SET asset_path = $2, filename = $3, qc_status = 'PENDING'::organic.qc_status
+        WHERE id = $1`,
+      [d.id, pub.publicUrl, `${path.split("/").pop()}`]
+    );
+    return { design_id: d.id, design_number: d.design_number, intent: d.intent, url: pub.publicUrl };
+  }));
+
+  return { ok: true, designs: results };
+}
+
+/**
+ * P4.2.5 — three micro-crops per design.
+ *
+ * The freshness ladder puts IMAGE second only to PAGE, and "new" means new
+ * for this URL. A crop is enough: it changes the pixels, so all four pins
+ * off one design read as four images while sharing one copy set. That is
+ * why four copy sets per URL is right and sixteen would be waste.
+ *
+ * Copy variant A keeps the original; B, C and D get the crops. Each takes
+ * 96% of the frame from a different corner, then scales back to full size,
+ * so the composition survives and the file does not.
+ */
+export async function generateMicroCrops(orgId: string, urlId: string) {
+  const pool = organicPool();
+  const sharp = (await import("sharp")).default;
+  const { createAdminClient } = await import("../supabase/admin");
+  const admin = createAdminClient();
+
+  const pins = await pool.query<{
+    pin_id: string; design_id: string; design_number: number;
+    copy_variant: string; asset_path: string | null;
+  }>(
+    `SELECT p.id::text AS pin_id, d.id::text AS design_id, d.design_number,
+            p.copy_variant, d.asset_path
+       FROM organic.pins p
+       JOIN organic.designs d ON d.id = p.design_id
+       JOIN organic.waterfalls w ON w.id = p.waterfall_id
+      WHERE w.org_id = $1 AND w.url_id = $2
+      ORDER BY d.design_number, p.copy_variant`,
+    [orgId, urlId]
+  );
+  if (pins.rowCount === 0) throw new Error("No pins yet — generate the waterfall first (P4.3.1)");
+  const missing = pins.rows.filter((p) => !p.asset_path);
+  if (missing.length > 0) {
+    throw new Error(`${missing.length} pin(s) have no design image yet — run P4.2.4 first`);
+  }
+
+  // Four corners, 96% of the frame. Variant A is the untouched original so
+  // there is always one pin carrying the design as it was approved.
+  const WINDOW = 0.96;
+  const CORNER: Record<string, [number, number]> = {
+    A: [0, 0], B: [1, 0], C: [0, 1], D: [1, 1],
+  };
+
+  const cache = new Map<string, Buffer>();
+  let cropped = 0;
+
+  for (const p of pins.rows) {
+    if (p.copy_variant === "A") {
+      await pool.query(`UPDATE organic.pins SET image_path = $2 WHERE id = $1`, [p.pin_id, p.asset_path]);
+      continue;
+    }
+    let src = cache.get(p.design_id);
+    if (!src) {
+      const r = await fetch(p.asset_path!);
+      if (!r.ok) throw new Error(`Could not fetch design ${p.design_number}`);
+      src = Buffer.from(await r.arrayBuffer());
+      cache.set(p.design_id, src);
+    }
+    const meta = await sharp(src).metadata();
+    const W = meta.width ?? 1000, H = meta.height ?? 1500;
+    const cw = Math.round(W * WINDOW), ch = Math.round(H * WINDOW);
+    const [fx, fy] = CORNER[p.copy_variant] ?? [0, 0];
+    const out = await sharp(src)
+      .extract({ left: Math.round((W - cw) * fx), top: Math.round((H - ch) * fy), width: cw, height: ch })
+      .resize(W, H)
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    const path = `organic/${orgId}/${p.design_id}/crop-${p.copy_variant}.jpg`;
+    const { error } = await admin.storage.from("pin-images")
+      .upload(path, out, { contentType: "image/jpeg", upsert: true });
+    if (error) throw new Error(`Upload failed for ${p.design_number}${p.copy_variant}: ${error.message}`);
+    const { data: pub } = admin.storage.from("pin-images").getPublicUrl(path);
+    await pool.query(`UPDATE organic.pins SET image_path = $2 WHERE id = $1`, [p.pin_id, pub.publicUrl]);
+    cropped += 1;
+  }
+
+  await pool.query(
+    `UPDATE organic.designs d SET fresh_technique = 'CROP'::organic.fresh_technique
+       FROM organic.waterfalls w
+      WHERE w.id = d.waterfall_id AND w.org_id = $1 AND w.url_id = $2`,
+    [orgId, urlId]
+  );
+  return { ok: true, cropped, originals: (pins.rowCount ?? 0) - cropped };
+}
+
+/** P4.2.7 — design QC. */
+export async function setDesignQc(
+  orgId: string, designId: string, status: "APPROVED" | "REJECTED", notes?: string | null
+) {
+  if (status === "REJECTED" && !notes?.trim()) {
+    // A rejection with no reason is a design somebody has to guess about,
+    // and it is also the data the prompt gets improved from.
+    throw new Error("A rejected design needs a reason");
+  }
+  const r = await organicPool().query(
+    `UPDATE organic.designs d
+        SET qc_status = $3::organic.qc_status, qc_notes = $4
+       FROM organic.waterfalls w
+      WHERE w.id = d.waterfall_id AND w.org_id = $1 AND d.id = $2`,
+    [orgId, designId, status, notes ?? null]
+  );
+  if (r.rowCount === 0) throw new Error("Design not found for this org");
+  return { ok: true, design_id: designId, qc_status: status };
+}
+
+/** P4.2.10 — copy QC. */
+export async function setCopyQc(
+  orgId: string, copySetId: string, status: "APPROVED" | "REJECTED", reason?: string | null
+) {
+  if (status === "REJECTED" && !reason?.trim()) {
+    throw new Error("A rejected copy set needs a reason");
+  }
+  const r = await organicPool().query(
+    `UPDATE organic.copy_sets cs
+        SET human_qc_status = $3::organic.qc_status, human_qc_reason = $4
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+      WHERE d.id = cs.design_id AND w.org_id = $1 AND cs.id = $2`,
+    [orgId, copySetId, status, reason ?? null]
+  );
+  if (r.rowCount === 0) throw new Error("Copy set not found for this org");
+  return { ok: true, copy_set_id: copySetId, human_qc_status: status };
+}
+
+/** The designs and copy sets of a cycle, for the QC controls. */
+export async function loadCycleAssets(orgId: string, urlId: string) {
+  const r = await organicPool().query(
+    `SELECT d.id::text AS design_id, d.design_number, d.intent::text AS intent,
+            d.route::text AS route, d.asset_path, d.filename,
+            d.qc_status::text AS design_qc, d.qc_notes,
+            cs.id::text AS copy_set_id, cs.tagline, cs.title, cs.description,
+            cs.validator_status::text AS validator_status,
+            cs.human_qc_status::text AS copy_qc, cs.human_qc_reason
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+       LEFT JOIN organic.copy_sets cs ON cs.design_id = d.id
+      WHERE w.org_id = $1 AND w.url_id = $2
+      ORDER BY d.design_number`,
+    [orgId, urlId]
+  );
+  return r.rows;
+}

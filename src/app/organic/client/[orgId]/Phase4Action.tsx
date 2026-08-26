@@ -32,6 +32,8 @@ export type ActionKind =
   | { kind: "panel"; section: string; describe: string }
   /** Happens in an outside tool, then the result comes back in. */
   | { kind: "external"; tool: string; describe: string }
+  /** Approve or reject each design or copy set. */
+  | { kind: "qc"; mode: "design" | "copy"; describe: string }
   /** No control yet. Named rather than papered over. */
   | { kind: "missing"; describe: string; willDo: string };
 
@@ -68,24 +70,20 @@ export const PHASE4_ACTIONS: Record<string, ActionKind> = {
     describe: "Direct where the client has usable lifestyle material, AI where they do not. The brief and the image prompt both branch on it." },
   "P4.2.3": { kind: "run", label: "Generate the brief", action: "brief",
     describe: "Builds from the grid, the brand book, the taste graph and what has already won on this account." },
-  "P4.2.4": { kind: "missing",
-    describe: "Four visually distinct designs. On the AI route the image prompt is generated from the visual worlds and the palette; on the direct route you brief a designer.",
-    willDo: "Generate images through Krea and apply the overlay, the way the main dashboard already does it — /api/ai/generate-images and src/lib/image/overlay.ts." },
-  "P4.2.5": { kind: "missing",
-    describe: "Three micro-crops per design, twelve in total. The image is the heaviest freshness signal after the URL.",
-    willDo: "Crop each design three ways on export, so the sixteen pins do not read as one pin repeated." },
+  "P4.2.4": { kind: "run", label: "Generate the four designs", action: "generate_designs",
+    describe: "One image per design, each from its own prompt built from the visual worlds, the palette and the grid — so the four are genuinely distinct rather than four samples of one prompt. SAVE pins come out 2:3, CLICK pins 9:16. Takes a couple of minutes." },
+  "P4.2.5": { kind: "run", label: "Cut the micro-crops", action: "generate_crops",
+    describe: "Copy variant A keeps the original; B, C and D each take 96% of the frame from a different corner and scale back. That makes all four pins off one design read as four images while sharing one copy set — which is why four copy sets per URL is right and sixteen would be waste." },
   "P4.2.6": { kind: "readout",
     describe: "File names are generated lowercase, hyphenated and keyword-bearing. Check they survived the export — design tools rename on download." },
-  "P4.2.7": { kind: "missing",
-    describe: "Colours right, overlay rule respected, four genuinely different designs, file name correct.",
-    willDo: "Approve or reject each design against the brief, the way pin approval works on the main dashboard." },
+  "P4.2.7": { kind: "qc", mode: "design",
+    describe: "Colours right, overlay rule respected, four genuinely different designs, file name correct. A rejection needs a reason — it is what the next generation gets corrected from." },
   "P4.2.8": { kind: "run", label: "Draft the copy", action: "generate_copy",
     describe: "Four copy sets, drafted from the brand book, the tone of voice and this account's own research. You approve them afterwards." },
   "P4.2.9": { kind: "readout",
     describe: "Title length and keyword position, description 250 to 300, no exclamation marks, hashtags or dashes, and the brand book's banned words. A failure names the rule it broke." },
-  "P4.2.10": { kind: "missing",
-    describe: "Only what the validator cannot judge: does it sound like the brand, does it match the image, does the landing page deliver what the copy promises.",
-    willDo: "Approve or reject each copy set, resetting approval whenever the copy is regenerated." },
+  "P4.2.10": { kind: "qc", mode: "copy",
+    describe: "Only what the validator cannot judge: does it sound like the brand, does it match the image, does the landing page deliver what the copy promises, are the four sets genuinely different." },
 
   "P4.3.1": { kind: "run", label: "Generate the waterfall", action: "waterfall",
     describe: "Sixteen pins, dates and board rotation. Design 1 goes to boards 1-2-3-4, design 2 to 2-3-4-1, so every board gets every design." },
@@ -148,6 +146,10 @@ export function Phase4Action({
           </Link>
         )}
 
+        {spec.kind === "qc" && (
+          <QcPanel orgId={orgId} urlId={cycle.url_id} mode={spec.mode} />
+        )}
+
         {spec.kind === "missing" && (
           <p className="text-sm text-o-ink-2 leading-relaxed">
             <span className="font-medium text-foreground">When it is built: </span>
@@ -208,6 +210,168 @@ function RunButton({
           Could not run: {err}
         </p>
       )}
+    </div>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+
+interface CycleAsset {
+  design_id: string;
+  design_number: number;
+  intent: string;
+  route: string;
+  asset_path: string | null;
+  filename: string | null;
+  design_qc: string;
+  qc_notes: string | null;
+  copy_set_id: string | null;
+  tagline: string | null;
+  title: string | null;
+  description: string | null;
+  validator_status: string | null;
+  copy_qc: string | null;
+  human_qc_reason: string | null;
+}
+
+/**
+ * Approve or reject each design, or each copy set.
+ *
+ * Loaded on demand rather than with the page: four designs and their copy
+ * is a lot to fetch onto every phase-4 render for two tasks out of
+ * twenty-two, and nobody opens QC before the work exists.
+ *
+ * A rejection requires a reason, enforced server-side so every caller gets
+ * the same rule. It is not bureaucracy: the reason is what the next
+ * generation is corrected from, and a rejection without one leaves the
+ * designer guessing at what was wrong.
+ */
+function QcPanel({ orgId, urlId, mode }: { orgId: string; urlId: string; mode: "design" | "copy" }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [rows, setRows] = useState<CycleAsset[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [reason, setReason] = useState<Record<string, string>>({});
+
+  async function load() {
+    setErr(null); setBusy("load");
+    try {
+      const res = await fetch(`/api/organic/phase4/${orgId}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "cycle_assets", url_id: urlId }), redirect: "error",
+      });
+      const raw = await res.text();
+      const data = JSON.parse(raw) as { assets?: CycleAsset[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? raw.slice(0, 140));
+      setRows(data.assets ?? []);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  async function decide(id: string, status: "APPROVED" | "REJECTED") {
+    setErr(null); setBusy(id + status);
+    try {
+      const body = mode === "design"
+        ? { action: "design_qc", design_id: id, status, notes: reason[id] ?? null }
+        : { action: "copy_qc", copy_set_id: id, status, reason: reason[id] ?? null };
+      const res = await fetch(`/api/organic/phase4/${orgId}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body), redirect: "error",
+      });
+      const raw = await res.text();
+      let data: { error?: string } = {};
+      try { data = JSON.parse(raw); } catch { /* keep raw */ }
+      if (!res.ok) throw new Error(data.error ?? raw.slice(0, 140));
+      await load();
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  if (rows === null) {
+    return (
+      <div>
+        <button type="button" onClick={load} disabled={busy === "load"} className="o-btn o-btn-primary">
+          {busy === "load" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {busy === "load" ? "Loading…" : mode === "design" ? "Review the designs" : "Review the copy"}
+        </button>
+        {err && <p className="mt-2 text-xs text-o-neg break-words" role="alert">{err}</p>}
+      </div>
+    );
+  }
+
+  const items = mode === "copy" ? rows.filter((r) => r.copy_set_id) : rows;
+  if (items.length === 0) {
+    return <p className="text-sm text-o-ink-2">
+      Nothing to review yet — {mode === "design" ? "generate the designs (P4.2.4)" : "draft the copy (P4.2.8)"} first.
+    </p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((r) => {
+        const id = mode === "design" ? r.design_id : r.copy_set_id!;
+        const status = mode === "design" ? r.design_qc : (r.copy_qc ?? "PENDING");
+        const note = mode === "design" ? r.qc_notes : r.human_qc_reason;
+        return (
+          <div key={id} className="rounded-lg bg-o-surface ring-1 ring-inset ring-o-hairline p-3.5">
+            <div className="flex items-baseline gap-2.5 flex-wrap">
+              <span className="o-figure text-[11px] text-o-ink-3">Design {r.design_number}</span>
+              <span className="o-eyebrow">{r.intent === "CLICK" ? "click pin · 9:16" : "save pin · 2:3"}</span>
+              <span className={cn(
+                "rounded px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wide",
+                status === "APPROVED" ? "bg-o-ink text-white"
+                  : status === "REJECTED" ? "bg-o-accent text-white"
+                  : "bg-o-sunk text-o-ink-2 ring-1 ring-inset ring-o-hairline-firm")}>
+                {status}
+              </span>
+              {mode === "copy" && r.validator_status && (
+                <span className="o-eyebrow">validator {r.validator_status.toLowerCase()}</span>
+              )}
+            </div>
+
+            {mode === "design" ? (
+              r.asset_path ? (
+                <a href={r.asset_path} target="_blank" rel="noreferrer" className="mt-2.5 block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={r.asset_path} alt={`Design ${r.design_number}`}
+                       className="rounded-md ring-1 ring-inset ring-o-hairline max-h-56" />
+                </a>
+              ) : <p className="mt-2 text-sm text-o-accent">No image yet — run P4.2.4.</p>
+            ) : (
+              <div className="mt-2 space-y-1 text-sm">
+                {r.tagline && <p className="text-o-ink-2"><span className="o-eyebrow mr-2">tagline</span>{r.tagline}</p>}
+                <p className="font-medium text-foreground">{r.title ?? "— no title —"}</p>
+                <p className="text-o-ink-2 leading-relaxed">{r.description ?? "— no description —"}</p>
+              </div>
+            )}
+
+            {note && <p className="mt-2 text-sm text-o-accent">Rejected: {note}</p>}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                value={reason[id] ?? ""}
+                onChange={(e) => setReason({ ...reason, [id]: e.target.value })}
+                placeholder="Reason — required to reject"
+                className="o-input flex-1 min-w-[14rem] text-sm"
+              />
+              <button type="button" disabled={busy !== null}
+                onClick={() => decide(id, "APPROVED")}
+                className={cn("o-btn", status === "APPROVED" && "o-btn-dark")}>
+                <Check className="w-4 h-4" /> Approve
+              </button>
+              <button type="button" disabled={busy !== null}
+                onClick={() => decide(id, "REJECTED")}
+                className={cn("o-btn", status === "REJECTED" && "o-btn-primary")}>
+                Reject
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
     </div>
   );
 }
