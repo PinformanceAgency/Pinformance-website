@@ -62,6 +62,24 @@ function csv(s: string): string[] | null {
   return arr.length ? arr : null;
 }
 
+/**
+ * A Postgres array, whatever node-pg handed over.
+ *
+ * text[] arrives as an array; an array of a custom enum arrives as the raw
+ * literal "{TRAFFIC,SALES}" because no parser is registered for that OID,
+ * and .join() on a string throws — which took the entire intake screen
+ * down for any client who had answered the questionnaire. The query casts
+ * to text[] now; this stays because the next enum array added upstream
+ * will not remember the cast.
+ */
+function asList(v: unknown): string[] {
+  if (Array.isArray(v)) return v.filter(Boolean) as string[];
+  if (typeof v === "string" && v.startsWith("{")) {
+    return v.slice(1, -1).split(",").map((x) => x.trim().replace(/^"|"$/g, "")).filter(Boolean);
+  }
+  return [];
+}
+
 export function IntakeForm({
   orgId,
   initialIntake,
@@ -87,9 +105,9 @@ export function IntakeForm({
     products_services: initialIntake?.products_services ?? "",
     value_proposition: initialIntake?.value_proposition ?? "",
     geo_scale: initialIntake?.geo_scale ?? "",
-    target_markets: (initialIntake?.target_markets ?? []).join(", "),
+    target_markets: asList(initialIntake?.target_markets).join(", "),
     ideal_audience: initialIntake?.ideal_audience ?? "",
-    client_named_competitors: (initialIntake?.client_named_competitors ?? []).join(", "),
+    client_named_competitors: asList(initialIntake?.client_named_competitors).join(", "),
     current_marketing: initialIntake?.current_marketing ?? "",
     traffic_sources: initialIntake?.traffic_sources ?? "",
     social_presence: initialIntake?.social_presence ?? "",
@@ -97,11 +115,11 @@ export function IntakeForm({
     best_performing_content: initialIntake?.best_performing_content ?? "",
     brand_personality: initialIntake?.brand_personality ?? "",
     existing_pinterest: initialIntake?.existing_pinterest ?? "",
-    primary_goals: (initialIntake?.primary_goals ?? []).join(", "),
+    primary_goals: asList(initialIntake?.primary_goals).join(", "),
     success_measure: initialIntake?.success_measure ?? "",
     campaigns_to_support: initialIntake?.campaigns_to_support ?? "",
-    evergreen_topics: (initialIntake?.evergreen_topics ?? []).join(", "),
-    seasonal_promos: (initialIntake?.seasonal_promos ?? []).join(", "),
+    evergreen_topics: asList(initialIntake?.evergreen_topics).join(", "),
+    seasonal_promos: asList(initialIntake?.seasonal_promos).join(", "),
     content_approach: initialIntake?.content_approach ?? "",
     open_to_ads: initialIntake?.open_to_ads == null ? "" : initialIntake.open_to_ads ? "true" : "false",
     pinterest_login: initialAccess?.pinterest_login ?? false,

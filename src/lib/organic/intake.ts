@@ -214,7 +214,17 @@ export async function saveIntake(orgId: string, p: IntakePayload) {
 
 export async function loadIntake(orgId: string): Promise<IntakeRow | null> {
   const r = await organicPool().query<IntakeRow>(
-    `SELECT ci.*, cs.niche, cs.account_created_date::text AS account_created_date,
+    // primary_goals is an array of a CUSTOM enum (organic.marketing_goal),
+    // and node-pg has no parser registered for that type OID — so `ci.*`
+    // returned it as the raw literal "{TRAFFIC,SALES}" and the intake form
+    // threw on .join(). Cast to text[] so it arrives as an array.
+    //
+    // This broke the whole intake screen for any client who had actually
+    // answered the questionnaire, and only for those: an empty intake has
+    // a null here and renders fine, which is why it survived every check
+    // until a store with real answers was opened.
+    `SELECT ci.*, ci.primary_goals::text[] AS primary_goals,
+            cs.niche, cs.account_created_date::text AS account_created_date,
             cs.last_activity_date::text AS last_activity_date, cs.domain
        FROM organic.client_settings cs
        LEFT JOIN organic.client_intake ci ON ci.org_id = cs.org_id
