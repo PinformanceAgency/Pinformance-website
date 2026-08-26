@@ -183,7 +183,10 @@ async function seed(c: Client) {
      VALUES ($1,'ACTIVE','Fine jewellery','ESTABLISHED',24,5,$2,
              'vellora-atelier.com','Vellora Atelier',
              'Handmade fine jewellery from Antwerp. Gold, pearls, and pieces made to be stacked.',
-             2, 90, 3500, 'EUR', 65, $3, current_date)`,
+             -- 60-day URL cooldown is the method's number, not a per-client
+             -- choice. The demo had 90 for no reason and a demo that teaches a
+             -- wrong constant is worse than one that teaches nothing.
+             2, 60, 3500, 'EUR', 65, $3, current_date)`,
     [ORG_ID, iso(onboarded), iso(daysAgo(900))]);
 
   /* ---- topics & boards ------------------------------------------- */

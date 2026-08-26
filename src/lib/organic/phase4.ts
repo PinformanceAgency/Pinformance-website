@@ -18,7 +18,7 @@
  *       D2 → boards[1,2,3,0]
  *       D3 → boards[2,3,0,1]
  *       D4 → boards[3,0,1,2]
- *     → board_pos = (design_index + copy_index) % 4
+ *     → board_pos = (design_index + copy_index) % boards.length
  *     Each board receives 4 pins, one from each of the 4 designs.
  *   • Schedule dates: 1 pin per (spacing_hours/24) days, starting at
  *     start_date. Consecutive-day for ESTABLISHED (24h), every 2 days
@@ -38,7 +38,7 @@
 import type { PoolClient } from "pg";
 import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
-import { loadAccountBrief, splitFromGrid, formatNotesFromGrid } from "./brief";
+import { loadAccountBrief, productionSplit, formatNotesFromGrid } from "./brief";
 import { adviseBoards, adviseKeywords, adviseUrls, checkBoards, checkKeywords, checkUrlReadiness } from "./structure";
 import { generateWithValidator, persistDraft } from "./ai";
 import type { Deviation } from "./structure";
@@ -260,8 +260,11 @@ export interface DesignBrief {
    *  happened is the difference between a recurring service that improves
    *  and one that repeats. */
   proven: string[];
-  save_split_pct: number;   // 80
-  click_split_pct: number;  // 20
+  save_split_pct: number;   // 80, fixed by the method
+  click_split_pct: number;  // 20, fixed by the method
+  /** Whether the click pins on this URL carry a text overlay. Decided by
+   *  the URL's page type, not by the grid. */
+  text_overlay: boolean;
   format_notes: string;
   /** What the research could not supply, in the designer's own words.
    *  Named rather than silently defaulted — someone who knows there is no
@@ -275,8 +278,11 @@ export interface DesignBrief {
 /** P4.2.3 — assemble a brief from the DB for the design/copy stages. */
 export async function generateDesignBrief(orgId: string, urlId: string): Promise<DesignBrief> {
   const pool = organicPool();
-  const urlRow = await pool.query(
-    `SELECT url, name FROM organic.urls WHERE id = $1 AND org_id = $2`, [urlId, orgId]
+  const urlRow = await pool.query<{ url: string; name: string; type: string | null }>(
+    // `type` decides the overlay: a product page runs without one, a
+    // collection or editorial page carries it. See productionSplit.
+    `SELECT url, name, type::text AS type FROM organic.urls WHERE id = $1 AND org_id = $2`,
+    [urlId, orgId]
   );
   if (urlRow.rowCount === 0) throw new Error("URL not found for this org");
 
@@ -312,7 +318,7 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
   const exact = findings.find((g) => norm(g.keyword) === key) ?? null;
   const finding = exact ?? findings[0] ?? null;
 
-  const split = splitFromGrid(exact);
+  const split = productionSplit(urlRow.rows[0].type, exact);
   const brand = brief.brand.value;
   const taste = brief.taste.value;
 
@@ -337,6 +343,7 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
     ),
     save_split_pct: split.save_split_pct,
     click_split_pct: split.click_split_pct,
+    text_overlay: split.overlay,
     format_notes: formatNotesFromGrid(exact ?? finding, split),
     // What the research could not tell us, named rather than defaulted.
     // A designer reading "no brand book" behaves differently from one who
@@ -514,8 +521,19 @@ export async function generateWaterfall(
       `SELECT board_id::text, position FROM organic.url_boards WHERE url_id = $1 ORDER BY position`,
       [urlId]
     );
+    // Every assigned board takes part in the rotation. This used to slice
+    // to four, which threw away the fifth board and beyond — and the method
+    // asks for a minimum of five semantically relevant boards per URL, so
+    // the common case was a board assigned that never received a pin. The
+    // build reference is explicit: boardIndex = (designIndex + copyIndex)
+    // % boardCount, not % 4.
+    //
+    // With four boards each receives exactly four pins, one per design.
+    // With five or more the spread is uneven by design — sixteen pins do
+    // not divide evenly — but every board gets used and none repeats a
+    // design, which is what the rotation is for.
     if ((boardsRes.rowCount ?? 0) < 4) throw new Error(`need ≥4 boards assigned to URL (got ${boardsRes.rowCount})`);
-    const boards = boardsRes.rows.map((r) => r.board_id).slice(0, 4);
+    const boards = boardsRes.rows.map((r) => r.board_id);
 
     const kwRes = await client.query<{ term: string }>(
       `SELECT k.term FROM organic.url_keywords uk JOIN organic.keywords k ON k.id = uk.keyword_id
@@ -575,7 +593,7 @@ export async function generateWaterfall(
     for (let s = 1; s <= 16; s++) {
       const designIndex = (s - 1) % 4;
       const copyIndex   = Math.floor((s - 1) / 4);
-      const boardPos    = (designIndex + copyIndex) % 4;
+      const boardPos    = (designIndex + copyIndex) % boards.length;
       const dayOffset   = (s - 1) * spacingDays;
       const scheduled = addDaysISO(startDateISO, dayOffset);
       const variant = VARIANTS[copyIndex];

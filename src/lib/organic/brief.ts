@@ -280,30 +280,69 @@ function toFinding(g: GridRow): GridFinding {
  * ------------------------------------------------------------------ */
 
 /**
- * How the split between save pins and click pins follows the grid.
+ * The save/click split, and whether this URL carries a text overlay.
  *
- * The split used to be a constant: 80% save, 20% click, for every account
- * and every keyword. Meanwhile P2.1.2 exists purely to go and look at what
- * page one rewards for that keyword, and P2.1.3 records the answer. Not
- * reading it back made both tasks busywork.
+ * A CORRECTION. An earlier version of this file derived the split from the
+ * grid's text_overlay_bucket, mapping "most of the top pins carry text"
+ * onto a 45/55 split. That rule was invented here; it is not the method.
  *
- * `text_overlay_bucket` is how many of the top fifteen to twenty pins carry
- * text. Text-carrying pins are click pins; clean lifestyle pins are save
- * pins. So the market's own share is the starting point — which is the
- * "fitting in beats standing out" rule from P4.2.1, applied with numbers
- * instead of by feel.
+ * The build reference is fixed on both points:
  *
- * The floor and the cap are not decoration. All save pins earns reach and
- * sends nobody anywhere; all click pins gets traffic that never compounds.
- * Neither end is ever correct, whatever page one looks like.
+ *   Save pins   80% of volume, 2:3, ZERO text overlay, lifestyle context
+ *   Click pins  20% of volume, 9:16, text overlay, clear CTA
+ *
+ * and the overlay decision is made per URL by what kind of page it is, not
+ * by what the grid saw:
+ *
+ *   Individual product page          usually not — let the aesthetics work
+ *   Collection page                  yes — room for extra keywords
+ *   Gift guides, editorial, seasonal yes
+ *   Blog or service content          yes
+ *
+ * The grid reading is still worth having and still reaches the designer —
+ * "page one is text-heavy here" changes how a click pin is drawn. What it
+ * must not do is move the split, because the 80/20 is a pacing decision
+ * about what the account publishes, not a response to one search result.
  */
-const CLICK_SHARE_BY_OVERLAY: Record<string, number> = {
-  NONE: 10,     // floor — never zero click pins
-  MINIMAL: 20,
-  HALF: 40,
-  MOST: 55,
-  ALL: 65,      // cap — never abandon save pins
+const OVERLAY_BY_URL_TYPE: Record<string, boolean> = {
+  PRODUCT: false,     // let the product carry it
+  COLLECTION: true,   // room for extra keywords
+  BLOG: true,
+  GALLERY: true,
+  SELECTION: true,
 };
+
+export interface ProductionSplit {
+  save_split_pct: number;
+  click_split_pct: number;
+  /** Whether the click pins on this URL carry a text overlay. */
+  overlay: boolean;
+  /** Why it is these numbers, in one line the designer can read. */
+  basis: string;
+}
+
+export function productionSplit(
+  urlType: string | null,
+  finding: GridFinding | null
+): ProductionSplit {
+  const overlay = urlType ? (OVERLAY_BY_URL_TYPE[urlType] ?? true) : true;
+  const market = finding?.text_overlay_bucket
+    ? ` Page one for "${finding.keyword}" carries text on ${OVERLAY_PHRASE[finding.text_overlay_bucket] ?? finding.text_overlay_bucket.toLowerCase()} — draw the click pins to sit inside that.`
+    : finding
+      ? ""
+      : " No grid analysis for this keyword (P2.1.3), so there is no reading of what page one rewards.";
+
+  return {
+    save_split_pct: 80,
+    click_split_pct: 20,
+    overlay,
+    basis:
+      (overlay
+        ? `${urlType ? `A ${urlType.toLowerCase()} page` : "This page"} carries a text overlay on its click pins.`
+        : `${urlType ? `A ${urlType.toLowerCase()} page` : "This page"} runs without a text overlay — the aesthetics do the work.`) +
+      market,
+  };
+}
 
 /** The bucket as a phrase that reads in a sentence. */
 const OVERLAY_PHRASE: Record<string, string> = {
@@ -313,40 +352,6 @@ const OVERLAY_PHRASE: Record<string, string> = {
   MOST: "most of the top pins",
   ALL: "nearly every top pin",
 };
-
-export interface ProductionSplit {
-  save_split_pct: number;
-  click_split_pct: number;
-  /** Why it is these numbers, in one line the designer can read. */
-  basis: string;
-}
-
-export function splitFromGrid(finding: GridFinding | null): ProductionSplit {
-  const bucket = finding?.text_overlay_bucket ?? null;
-  const click = bucket ? CLICK_SHARE_BY_OVERLAY[bucket] : undefined;
-
-  if (click === undefined) {
-    return {
-      save_split_pct: 80,
-      click_split_pct: 20,
-      basis: finding
-        ? "No text-overlay reading on the grid for this keyword, so the 80/20 default applies."
-        : "No grid analysis for this keyword (P2.1.3), so the 80/20 default applies rather than the market's own share.",
-    };
-  }
-  const phrase = OVERLAY_PHRASE[bucket!] ?? bucket!.toLowerCase();
-  // Say "matches the default" when it does. Claiming a contrast that is not
-  // there is how a reader learns to stop trusting the explanation.
-  const tail =
-    click === 20
-      ? "which lands on the same 80/20 the default would have used."
-      : `so the split follows the market at ${100 - click}/${click} rather than the 80/20 default.`;
-  return {
-    save_split_pct: 100 - click,
-    click_split_pct: click,
-    basis: `Page one for "${finding!.keyword}" carries text on ${phrase}, ${tail}`,
-  };
-}
 
 /** The format guidance for one keyword, written from what the grid saw. */
 export function formatNotesFromGrid(finding: GridFinding | null, split: ProductionSplit): string {
@@ -363,8 +368,9 @@ export function formatNotesFromGrid(finding: GridFinding | null, split: Producti
     lines.push(`Look and feel: ${finding.look_and_feel}`);
   }
   lines.push(
-    `${split.save_split_pct}% save pins (2:3 lifestyle, no text), ` +
-    `${split.click_split_pct}% click pins (9:16 with keyword-front text + CTA). ${split.basis}`
+    `${split.save_split_pct}% save pins (2:3 lifestyle, no text overlay at all), ` +
+    `${split.click_split_pct}% click pins (9:16${split.overlay ? " with keyword-front text + CTA" : ", no overlay on this URL"}). ` +
+    split.basis
   );
   return lines.join(" ");
 }
