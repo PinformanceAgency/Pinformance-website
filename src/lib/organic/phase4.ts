@@ -302,7 +302,14 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
   // keyword in the same niche is a far better guide than a constant, and
   // the basis line says which one it used.
   const findings = brief.grid.value ?? [];
-  const exact = findings.find((g) => g.keyword === primary) ?? null;
+  // Case- and whitespace-insensitive. The grid's target_keyword and the
+  // keyword bank's term are typed by different people at different times —
+  // "Gold Hoop Earrings" against "gold hoop earrings" is the same research,
+  // and an exact match would silently drop it to the 80/20 fallback while
+  // reporting that as a considered decision.
+  const norm = (t: string) => t.trim().toLowerCase().replace(/\s+/g, " ");
+  const key = norm(primary);
+  const exact = findings.find((g) => norm(g.keyword) === key) ?? null;
   const finding = exact ?? findings[0] ?? null;
 
   const split = splitFromGrid(exact);
