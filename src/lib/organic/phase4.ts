@@ -1312,8 +1312,20 @@ Non-negotiable, because Pinterest penalises the alternatives:
   its own buttons there.
 - Photographic realism unless the brand's visual world says otherwise.`;
 
-/** P4.2.4, AI route — the image prompt for one design. */
-export async function generateImagePromptForDesign(orgId: string, designId: string) {
+/**
+ * P4.2.4, AI route — the image prompt for one design.
+ *
+ * When the design was rejected in QC, the reason is fed back into the
+ * prompt. Without that, "regenerate" re-rolled the same brief and the
+ * manager rejected the same thing again — the QC reason went into the
+ * database and influenced nothing, which is the most expensive kind of
+ * field to fill in.
+ */
+export async function generateImagePromptForDesign(
+  orgId: string,
+  designId: string,
+  opts: { steer?: string | null } = {}
+) {
   const ctx = await designContext(orgId, designId);
   const [brief, account] = await Promise.all([
     generateDesignBrief(orgId, ctx.url_id),
@@ -1340,6 +1352,11 @@ export async function generateImagePromptForDesign(orgId: string, designId: stri
     "",
     `What page one looks like for this keyword: ${brief.format_notes}`,
     brief.gaps.length ? `\nResearch gaps you are working around:\n${brief.gaps.map((g) => `  - ${g}`).join("\n")}` : null,
+    // Last, so it is the freshest thing in the context rather than one line
+    // among twenty.
+    opts.steer?.trim()
+      ? `\nThe previous attempt was rejected. Fix this specifically, and change nothing else that was working:\n  ${opts.steer.trim()}`
+      : null,
   ].filter((l) => l !== null).join("\n");
 
   const { text, attempts, failed_attempts } = await generateWithValidator(
@@ -1587,18 +1604,40 @@ async function kreaFor(orgId: string): Promise<import("../krea/client").KreaClie
  * Krea is a queue and four sequential polls would take four times as long
  * for no benefit.
  */
-export async function generateDesignImages(orgId: string, urlId: string) {
+/**
+ * P4.2.4, AI route — generate the images.
+ *
+ * `onlyRejected` is the retry after design QC: it regenerates just the
+ * designs a human sent back, and hands each one its own rejection reason so
+ * the next attempt addresses it. Regenerating all four would also discard
+ * the three that were approved, which is both wasteful and how an approved
+ * design silently changes after approval.
+ */
+export async function generateDesignImages(
+  orgId: string,
+  urlId: string,
+  opts: { onlyRejected?: boolean } = {}
+) {
   const pool = organicPool();
-  const designs = await pool.query<{ id: string; design_number: number; intent: string; route: string }>(
-    `SELECT d.id::text, d.design_number, d.intent::text AS intent, d.route::text AS route
+  const designs = await pool.query<{
+    id: string; design_number: number; intent: string; route: string;
+    qc_status: string; qc_notes: string | null;
+  }>(
+    `SELECT d.id::text, d.design_number, d.intent::text AS intent, d.route::text AS route,
+            d.qc_status::text AS qc_status, d.qc_notes
        FROM organic.designs d
        JOIN organic.waterfalls w ON w.id = d.waterfall_id
       WHERE w.org_id = $1 AND w.url_id = $2
+        AND ($3::boolean IS NOT TRUE OR d.qc_status = 'REJECTED'::organic.qc_status)
       ORDER BY d.design_number`,
-    [orgId, urlId]
+    [orgId, urlId, opts.onlyRejected ?? false]
   );
   if (designs.rowCount === 0) {
-    throw new Error("No designs yet — generate the waterfall first (P4.3.1)");
+    throw new Error(
+      opts.onlyRejected
+        ? "No rejected designs to regenerate"
+        : "No designs yet — generate the waterfall first (P4.3.1)"
+    );
   }
 
   const [krea, { createAdminClient }] = await Promise.all([
@@ -1608,7 +1647,9 @@ export async function generateDesignImages(orgId: string, urlId: string) {
   const admin = createAdminClient();
 
   const results = await Promise.all(designs.rows.map(async (d) => {
-    const { prompt } = await generateImagePromptForDesign(orgId, d.id);
+    const { prompt } = await generateImagePromptForDesign(orgId, d.id, {
+      steer: d.qc_status === "REJECTED" ? d.qc_notes : null,
+    });
     const { ratio, w, h } = ratioForIntent(d.intent);
     const task = await krea.generateImage({ prompt, aspect_ratio: ratio, width: w, height: h });
 
@@ -1635,11 +1676,16 @@ export async function generateDesignImages(orgId: string, urlId: string) {
     if (error) throw new Error(`Upload failed for design ${d.design_number}: ${error.message}`);
     const { data: pub } = admin.storage.from("pin-images").getPublicUrl(path);
 
+    // `filename` is deliberately untouched. generateWaterfall already set it
+    // from the primary keyword (fileNameFor), and Pinterest reads file names
+    // with OCR — overwriting it with the storage path, as this used to,
+    // replaced "gold-hoop-earrings-d1.jpg" with "design-1.jpg" and threw the
+    // whole P4.2.6 signal away on every AI-route design.
     await pool.query(
       `UPDATE organic.designs
-          SET asset_path = $2, filename = $3, qc_status = 'PENDING'::organic.qc_status
+          SET asset_path = $2, qc_status = 'PENDING'::organic.qc_status
         WHERE id = $1`,
-      [d.id, pub.publicUrl, `${path.split("/").pop()}`]
+      [d.id, pub.publicUrl]
     );
     return { design_id: d.id, design_number: d.design_number, intent: d.intent, url: pub.publicUrl };
   }));

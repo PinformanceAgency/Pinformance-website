@@ -52,8 +52,12 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       return await P4.generateImagePromptForDesign(orgId, String(body.design_id));
     // P4.2.4 / P4.2.5 — the images themselves. Long-running: Krea is a
     // queue and four generations are polled in parallel.
+    // `only_rejected` is the QC retry: regenerate what a human sent back,
+    // steered by the reason they gave, and leave approved designs alone.
     case "generate_designs":
-      return await P4.generateDesignImages(orgId, String(body.url_id));
+      return await P4.generateDesignImages(orgId, String(body.url_id), {
+        onlyRejected: !!body.only_rejected,
+      });
     case "generate_crops":
       return await P4.generateMicroCrops(orgId, String(body.url_id));
     // P4.2.7 / P4.2.10 — QC. A rejection needs a reason; that is enforced

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, Play, ExternalLink, Check, AlertTriangle } from "lucide-react";
+import { Loader2, Play, ExternalLink, Check, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CycleView } from "@/lib/organic/phase4";
 
@@ -290,6 +290,32 @@ function QcPanel({ orgId, urlId, mode }: { orgId: string; urlId: string; mode: "
     finally { setBusy(null); }
   }
 
+  /**
+   * Regenerate only what was rejected, steered by the reason given.
+   *
+   * Before this the rejection reason went into the database and changed
+   * nothing: "regenerate" re-rolled the same brief and produced the same
+   * problem, so the manager rejected it again. Regenerating all four would
+   * also throw away designs somebody had already approved.
+   */
+  async function retryRejected() {
+    setErr(null); setBusy("retry");
+    try {
+      const res = await fetch(`/api/organic/phase4/${orgId}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "generate_designs", url_id: urlId, only_rejected: true }),
+        redirect: "error",
+      });
+      const raw = await res.text();
+      let data: { error?: string } = {};
+      try { data = JSON.parse(raw); } catch { /* keep raw */ }
+      if (!res.ok) throw new Error(data.error ?? raw.slice(0, 160));
+      await load();
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
   if (rows === null) {
     return (
       <div>
@@ -371,6 +397,21 @@ function QcPanel({ orgId, urlId, mode }: { orgId: string; urlId: string; mode: "
           </div>
         );
       })}
+
+      {mode === "design" && items.some((r) => r.design_qc === "REJECTED") && (
+        <div className="rounded-lg bg-o-sunk ring-1 ring-inset ring-o-hairline px-3.5 py-3 flex flex-wrap items-center gap-3">
+          <p className="text-sm text-o-ink-2 flex-1 min-w-[16rem]">
+            {items.filter((r) => r.design_qc === "REJECTED").length} design(s) rejected. Regenerating sends
+            your reason back into the prompt; approved designs are left alone.
+          </p>
+          <button type="button" onClick={retryRejected} disabled={busy !== null} className="o-btn o-btn-primary">
+            {busy === "retry"
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Regenerating…</>
+              : <><RefreshCw className="w-4 h-4" /> Regenerate the rejected</>}
+          </button>
+        </div>
+      )}
+
       {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
     </div>
   );
