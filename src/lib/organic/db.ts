@@ -34,23 +34,57 @@ types.setTypeParser(1082, (val) => val);
 const POOL_KEY = Symbol.for("pinformance.organic.pool");
 type PoolHolder = { [POOL_KEY]?: Pool };
 
+/**
+ * Session mode (:5432) caps *clients* at pool_size — 15 for this project,
+ * shared by every Vercel instance, every cron and every dev machine. One
+ * serverless instance holding four is fine; six warm instances plus a cron
+ * plus a laptop is not, and the pooler answers the next connection with
+ *
+ *   (EMAXCONNSESSION) max clients reached in session mode
+ *
+ * which Next renders as "a server-side exception has occurred" on whatever
+ * page happened to query at that moment. Nothing about that page is wrong,
+ * which is what makes it so confusing to chase — it hit /client/…/phase/2
+ * on 27-08-2026 (digest 785740024) with the route itself perfectly healthy.
+ *
+ * Transaction mode (:6543) is the serverless answer: a client checks a
+ * server connection out per statement instead of holding one for the life
+ * of the socket, so the client cap is in the hundreds. Everything this app
+ * does works there — its transactions are explicit BEGIN/COMMIT on a
+ * checked-out client, which the pooler pins for the duration.
+ *
+ * What must NOT move here is a bare `SET` outside a transaction: it lands
+ * on whichever server connection served that one statement and is gone by
+ * the next. Nothing in src/lib/organic does that (media-buying does, which
+ * is exactly why team-activity.ts stays on session mode).
+ *
+ * ORGANIC_DATABASE_URL overrides, for the case where the two need to point
+ * somewhere different entirely.
+ */
+function organicConnectionString(): string {
+  const explicit = process.env.ORGANIC_DATABASE_URL;
+  if (explicit) return explicit;
+
+  const cs = process.env.DATABASE_URL;
+  if (!cs) throw new Error("DATABASE_URL not set");
+
+  // Rewritten with a regex rather than through `new URL`, because parsing
+  // and re-serialising a connection string re-encodes the password and a
+  // password is exactly the thing that must survive byte for byte.
+  return cs.replace(/(pooler\.supabase\.com):5432\b/, "$1:6543");
+}
+
 export function organicPool(): Pool {
   const holder = globalThis as unknown as PoolHolder;
   const existing = holder[POOL_KEY];
   if (existing) return existing;
 
-  const cs = process.env.DATABASE_URL;
-  if (!cs) throw new Error("DATABASE_URL not set");
+  const cs = organicConnectionString();
 
-  // Supabase's session-mode pooler caps the whole project at 15 clients,
-  // and that budget is shared with the media-buying dashboard, the crons
-  // and every other dev machine. Holding four per process is fine for one
-  // process and ruinous across several: a dev server killed mid-request
-  // leaves its sockets on the pooler until they are reaped, so a few
-  // restarts in a row exhaust the cap and every page 500s at once.
-  //
-  // Two per process in development keeps a restart cheap; production
-  // keeps four because a serverless instance handles real concurrency.
+  // Still modest per process. Transaction mode removes the cliff, it does
+  // not make an idle socket free — and the screens fan out across five or
+  // six aggregates at a time, which four connections serve without
+  // queueing anything worth noticing.
   const isDev = process.env.NODE_ENV !== "production";
 
   const created = new Pool({

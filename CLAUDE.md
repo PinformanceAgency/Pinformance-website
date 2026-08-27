@@ -113,9 +113,26 @@ via PostgREST.** Every read and write goes through `organicPool()` in
 `src/lib/organic/db.ts` (direct `pg`). Do not try to reach it with the Supabase
 JS client — it fails with `PGRST106 Invalid schema: organic`. The pool is held on
 `globalThis` under a `Symbol.for` key, deliberately: a module-level binding leaks
-a fresh pool on every HMR reload until Supabase's session-mode pooler refuses
-connections at 15, and that surfaces as an unrelated 500 on whatever page queried
-next.
+a fresh pool on every HMR reload until the pooler refuses connections, and that
+surfaces as an unrelated 500 on whatever page queried next.
+
+**The organic pool talks to the transaction pooler (`:6543`), not the session
+pooler (`:5432`).** `organicPool()` rewrites the port in `DATABASE_URL` itself, so
+there is no second env var to keep in sync (`ORGANIC_DATABASE_URL` overrides if
+they ever need to point somewhere different). Session mode caps *clients* at
+`pool_size` — 15 for the whole project, shared by every Vercel instance, every
+cron and every dev machine — and exceeding it answers the next connection with
+`(EMAXCONNSESSION) max clients reached in session mode`, which Next renders as
+"a server-side exception has occurred" on a page that is itself perfectly fine.
+Transaction mode hands a server connection out per statement, so the client cap
+is in the hundreds.
+
+What must **not** move to transaction mode is a bare `SET` outside a transaction:
+it lands on whichever connection served that one statement and is gone by the
+next. `src/lib/media-buying/team-activity.ts` does exactly that (`SET
+statement_timeout` on a checked-out client), which is why it stays on session
+mode. Explicit `BEGIN`/`COMMIT` on a checked-out client is fine either way — the
+pooler pins the connection for the transaction.
 
 Surfaces:
 
