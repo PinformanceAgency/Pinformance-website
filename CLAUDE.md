@@ -117,6 +117,14 @@ are deliberately untouched by all of this — they are an account-safety decisio
 not a throughput knob. A backlog drains at the cap or not at all; that is the
 intended trade (confirmed 27-08-2026).
 
+- **A store is never skipped, it is continued.** A run that stops on budget
+  with stores left hands exactly those to a follow-up run immediately —
+  `?only=<ids>&pass=N`, fired from `after()` so it does not count against the
+  run that spawned it, bounded by `MAX_PASSES`. The least-recently-posted order
+  already made starvation temporary; this makes it a promise rather than an
+  emergent property, and turns "up to fifteen minutes later" into seconds.
+  `?budget_ms=` (1s–120s, cron secret required) shortens a run on purpose so
+  the chain can be exercised on real data.
 - **A failure is classified before it is retried.** `isStoreLevel` (trial
   access, auth) stops the whole store and records the reason;
   `isPermanentPinFailure` (media over the size limit, Pinterest rejecting the
@@ -142,6 +150,24 @@ Two traps around this:
 - The reason a store is blocked now lives on
   `organizations.pinterest_last_error` (migration 087), written by the cron and
   cleared on the next successful post. Check it first.
+
+**Planning outruns the cap, and that is where backlogs actually come from.**
+Measured 27-08-2026, pins scheduled per day against `settings.max_pins_per_day`:
+
+| Store | planned/day | cap/day |
+|---|---|---|
+| petcura | 35 | 5 |
+| Smartsporter | 28 | 5 |
+| Valerie Mason | 19 | 5 |
+| Icon Amsterdam | 15 | 5 |
+| Celestia | 14 | 5 |
+
+Nothing in the scheduling UI checks the cap, so a store planned at 15/day
+accumulates 10/day forever no matter how well the cron runs. Fixing the cron —
+which was genuinely broken — does not fix this, and the two failures look
+identical from the pins page. Before concluding the poster is at fault, compare
+the two numbers. The organic method's own absolute ceiling is 20 pins/day, so
+matching the cap to the plan is only defensible up to that.
 
 **When pins are not appearing on Pinterest, check in this order:**
 `organizations.pinterest_last_error`; is the pin `posted` with a
