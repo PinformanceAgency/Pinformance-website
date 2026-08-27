@@ -10,7 +10,11 @@
  *   - delete_all_rejected  → hard delete every rejected pin for the org
  *   - post_now             → mark approved + scheduled_at = now so the cron picks them up
  *   - schedule             → spread pin_ids over N days with X per day using
- *                            org settings.posting_hours; sets status='scheduled'
+ *                            org settings.posting_hours; sets status='scheduled'.
+ *                            Refuses X above what the store can actually
+ *                            publish per day (max_pins_per_day, and the
+ *                            min_post_interval_minutes that often binds
+ *                            first) — see the check in that case.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
@@ -184,6 +188,51 @@ async function handle(request: NextRequest) {
         .eq("id", orgId)
         .single();
       const settings = (org?.settings as Record<string, unknown>) || {};
+
+      /**
+       * Refuse to plan more per day than the store is allowed to post.
+       *
+       * This used to accept anything up to 50 and never look at the cap the
+       * posting cron enforces. Measured 27-08-2026: three stores were planned
+       * at 15 a day against a cap of 5, so each of them grew ten pins of
+       * backlog every single day. The pins existed, the dates looked right,
+       * and two thirds of them were never going to be posted — which on the
+       * pins page is indistinguishable from a broken scheduler.
+       *
+       * A refusal rather than a silent clamp: quietly planning 5 when 15 was
+       * asked for moves the surprise to a fortnight later, when somebody
+       * wonders why a third of the month went out.
+       *
+       * The interval is checked too, and it is the half people forget: 15 a
+       * day with 180 minutes between pins still only delivers 8, because the
+       * interval binds before the cap does.
+       */
+      const capRaw = Number(settings.max_pins_per_day);
+      const cap = Number.isFinite(capRaw) && capRaw > 0 ? capRaw : 5;
+      const intervalRaw = Number(settings.min_post_interval_minutes);
+      const intervalMin = Number.isFinite(intervalRaw) && intervalRaw > 0 ? intervalRaw : 30;
+      const perDayAllowedByInterval = Math.floor(1440 / intervalMin);
+      const deliverable = Math.min(cap, perDayAllowedByInterval);
+
+      if (perDay > deliverable) {
+        const reason = cap <= perDayAllowedByInterval
+          ? `the daily cap is ${cap}`
+          : `the minimum interval of ${intervalMin} minutes only allows ${perDayAllowedByInterval} a day`;
+        return NextResponse.json(
+          {
+            error:
+              `This store can publish ${deliverable} pins a day — ${reason}. ` +
+              `Scheduling ${perDay} a day would queue ${perDay - deliverable} pins a day that never get posted. ` +
+              `Raise the limit in the store's settings, or schedule ${deliverable} a day.`,
+            requested_per_day: perDay,
+            deliverable_per_day: deliverable,
+            max_pins_per_day: cap,
+            min_post_interval_minutes: intervalMin,
+          },
+          { status: 400 }
+        );
+      }
+
       const hoursRaw = settings.posting_hours;
       const hours: number[] = Array.isArray(hoursRaw)
         ? hoursRaw.filter((n) => typeof n === "number" && n >= 0 && n < 24)

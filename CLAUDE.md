@@ -162,12 +162,23 @@ Measured 27-08-2026, pins scheduled per day against `settings.max_pins_per_day`:
 | Icon Amsterdam | 15 | 5 |
 | Celestia | 14 | 5 |
 
-Nothing in the scheduling UI checks the cap, so a store planned at 15/day
-accumulates 10/day forever no matter how well the cron runs. Fixing the cron —
-which was genuinely broken — does not fix this, and the two failures look
-identical from the pins page. Before concluding the poster is at fault, compare
-the two numbers. The organic method's own absolute ceiling is 20 pins/day, so
-matching the cap to the plan is only defensible up to that.
+A store planned at 15/day against a cap of 5 accumulates 10/day forever, no
+matter how well the cron runs — and on the pins page that looks identical to a
+broken scheduler. That is where the 868 queued pins came from.
+
+Closed from both sides on 27-08-2026, because either alone leaves the hole open:
+
+- `/api/pins/bulk` action `schedule` now **refuses** a `pins_per_day` above what
+  the store can publish, and says both numbers. A silent clamp would move the
+  surprise to a fortnight later.
+- `scripts/align-posting-caps.ts` raises each store's cap to the median it is
+  actually planned at, bounded by the method's own ceiling of **20 pins/day**.
+
+**`min_post_interval_minutes` binds before the cap and is the half people
+forget**: 15/day with 180 minutes between pins delivers 8, not 15. The script
+lowers the interval to `floor(1440 / cap)` where it has to, and never raises it
+past what somebody chose. The check in the route uses
+`min(cap, floor(1440 / interval))` for the same reason.
 
 **When pins are not appearing on Pinterest, check in this order:**
 `organizations.pinterest_last_error`; is the pin `posted` with a
