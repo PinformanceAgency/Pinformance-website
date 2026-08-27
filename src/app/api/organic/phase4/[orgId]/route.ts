@@ -32,6 +32,23 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       return { candidates: await P4.seasonalCandidates(orgId) };
     case "upsert_url":
       return { url_id: await P4.upsertUrl(orgId, body as unknown as P4.UrlInput) };
+    // P4.1.1 — where the pool comes from. Neither import writes; both
+    // return proposals the manager confirms with `accept_urls`.
+    case "import_sitemap": {
+      const { fromSitemap } = await import("@/lib/organic/url-import");
+      return await fromSitemap(orgId, {
+        sitemapUrl: body.sitemap_url ? String(body.sitemap_url) : undefined,
+        limit: body.limit ? Number(body.limit) : undefined,
+      });
+    }
+    case "import_top_pins": {
+      const { fromTopPins } = await import("@/lib/organic/url-import");
+      return await fromTopPins(orgId, { days: body.days ? Number(body.days) : undefined });
+    }
+    case "accept_urls": {
+      const { acceptProposals } = await import("@/lib/organic/url-import");
+      return await acceptProposals(orgId, body.urls as Parameters<typeof acceptProposals>[1]);
+    }
     case "assign_boards":
       await P4.assignBoardsToUrl(String(body.url_id), body.board_ids as string[]);
       return { ok: true };
