@@ -429,6 +429,40 @@ export class PinterestClient {
     }>(`/user_account/analytics/top_pins?${params}`);
   }
 
+  /**
+   * Analytics for up to 100 pins in one call.
+   *
+   * The per-pin endpoint below is one request per pin, which for organic —
+   * sixteen pins per cycle, several cycles per store, forty stores — is
+   * thousands of calls against a rate limit that will not carry them. This
+   * takes the same numbers in batches.
+   *
+   * The response is keyed by pin id. Pinterest has shipped both a
+   * `daily_metrics` array and a flat `lifetime_metrics` object here
+   * depending on the range and the account, so callers should read
+   * defensively rather than assume one shape.
+   */
+  async getMultiPinAnalytics(
+    pinIds: string[],
+    startDate: string,
+    endDate: string,
+    metricTypes: string[] = ["IMPRESSION", "SAVE", "OUTBOUND_CLICK"]
+  ): Promise<Record<string, {
+    lifetime_metrics?: Record<string, number>;
+    daily_metrics?: Array<{ date: string; data_status?: string; metrics: Record<string, number> }>;
+    summary_metrics?: Record<string, number>;
+  }>> {
+    if (pinIds.length === 0) return {};
+    if (pinIds.length > 100) throw new Error("getMultiPinAnalytics takes at most 100 pin ids");
+    const params = new URLSearchParams({
+      pin_ids: pinIds.join(","),
+      start_date: startDate,
+      end_date: endDate,
+      metric_types: metricTypes.join(","),
+    });
+    return this.request(`/pins/analytics?${params}`);
+  }
+
   async getPinAnalytics(
     pinId: string,
     startDate: string,

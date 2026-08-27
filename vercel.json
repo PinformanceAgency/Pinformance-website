@@ -16,6 +16,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/organic-pull-analytics",
+      "schedule": "0 7 * * *"
+    },
+    {
       "path": "/api/cron/health-check",
       "schedule": "0 * * * *"
     },
