@@ -31,6 +31,48 @@ const RUN_BUDGET_MS = Number(process.env.POST_PINS_BUDGET_MS) || 50_000;
 const MAX_VIDEOS_PER_RUN = 1;
 const VIDEO_MIN_BUDGET_MS = 90_000;
 
+/**
+ * Is this failure worth trying again in five seconds?
+ *
+ * Almost none of them are. The loop used to retry everything three times with
+ * 5s and 10s backoff, which is right for a 429 or a dropped connection and
+ * wrong for everything else. petcura's every create came back
+ *
+ *   403 {"code":29,"message":"Apps with Trial access may not create Pins in
+ *        production ... use API Sandbox ... instead."}
+ *
+ * — an app-level restriction that will still be true in five seconds, in five
+ * days, and after five hundred retries. Three stores' worth of that ate a
+ * whole run's budget while the stores behind them got nothing.
+ *
+ * Retry the transient (429, 5xx, network); fail fast on anything that is a
+ * statement about permissions or about the request itself.
+ */
+function isRetryable(message: string): boolean {
+  const m = message.toLowerCase();
+  if (m.includes("error 429") || m.includes("rate limit")) return true;
+  if (/error 5\d\d/.test(m)) return true;
+  // 401 has its own refresh-and-retry path below; everything else in the 4xx
+  // range is the API telling us the request cannot succeed as posed.
+  if (/error 4\d\d/.test(m)) return false;
+  // No status in the message: a fetch/DNS/timeout failure. Worth one more go.
+  return true;
+}
+
+/**
+ * Failures that are about the store, not about this one pin.
+ *
+ * Trial access and a dead token block every pin that store has. Finding that
+ * out once and moving on is the difference between serving the other twelve
+ * stores and serving none of them.
+ */
+function isStoreLevel(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("trial access")
+    || m.includes("error 401")
+    || m.includes("authentication failed");
+}
+
 function verifyCron(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
   if (authHeader === `Bearer ${process.env.CRON_SECRET}`) return true;
@@ -113,6 +155,23 @@ async function handlePostPins(request: NextRequest) {
   let videosThisRun = 0;
   const notReached: string[] = [];
 
+  /**
+   * Persist why a store is not publishing — or clear it once one does.
+   *
+   * Migration 087. Never throws: a bookkeeping write must not be able to take
+   * down a run that was otherwise posting fine.
+   */
+  const recordOrgOutcome = async (orgId: string, reason: string | null) => {
+    try {
+      await admin.from("organizations").update({
+        pinterest_last_error: reason ? reason.slice(0, 500) : null,
+        pinterest_last_error_at: reason ? new Date().toISOString() : null,
+      }).eq("id", orgId);
+    } catch {
+      /* bookkeeping only */
+    }
+  };
+
   let totalPosted = 0;
   const results: {
     org: string;
@@ -121,12 +180,17 @@ async function handlePostPins(request: NextRequest) {
     errors: string[];
     skip?: string;
     forced?: boolean;
+    blocked?: string;
   }[] = [];
 
   for (const org of orgs) {
     const orgErrors: string[] = [];
     let orgPosted = 0;
     let skipReason: string | undefined;
+    // Set when a failure turns out to be about the store rather than the pin
+    // — trial access, a dead token. Every remaining pin would fail the same
+    // way, so the pin loop stops and the reason is stored on the org.
+    let storeBlocked: string | null = null;
 
     // Out of time. Stop cleanly and say who did not get a turn, rather than
     // being killed halfway through a store. They are at the front of the
@@ -144,6 +208,7 @@ async function handlePostPins(request: NextRequest) {
       } catch {
         orgErrors.push("Token decrypt failed");
         skipReason = "decrypt_failed";
+        await recordOrgOutcome(org.id as string, "Pinterest token could not be decrypted — reconnect the account");
         results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
         continue;
       }
@@ -166,14 +231,17 @@ async function handlePostPins(request: NextRequest) {
               pinterest_token_expires_at: new Date(Date.now() + (newTokens.expires_in || 2592000) * 1000).toISOString(),
             }).eq("id", org.id);
           } catch (refreshErr) {
-            orgErrors.push(`Token refresh failed: ${refreshErr instanceof Error ? refreshErr.message : "unknown"}`);
+            const rmsg = refreshErr instanceof Error ? refreshErr.message : "unknown";
+            orgErrors.push(`Token refresh failed: ${rmsg}`);
             skipReason = "refresh_failed";
+            await recordOrgOutcome(org.id as string, `Pinterest token refresh failed — reconnect the account (${rmsg})`);
             results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
             continue;
           }
         } else {
           orgErrors.push("Token expired, no refresh token");
           skipReason = "no_refresh_token";
+        await recordOrgOutcome(org.id as string, "Pinterest token expired and there is no refresh token — reconnect the account");
           results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
           continue;
         }
@@ -273,7 +341,7 @@ async function handlePostPins(request: NextRequest) {
       }
 
       for (const pin of duePins) {
-        if (budgetLeft() <= 0) break;
+        if (budgetLeft() <= 0 || storeBlocked) break;
 
         /**
          * A pin that can never be posted is retired, not retried.
@@ -464,10 +532,26 @@ async function handlePostPins(request: NextRequest) {
               }
             }
 
-            if (attempt < 2) {
+            // A failure that is about the store blocks every pin it has.
+            // Record it, stop this pin, and let the org loop below skip the
+            // rest — the alternative is discovering the same thing six more
+            // times and spending the run's budget doing it.
+            if (isStoreLevel(errMsg)) {
+              orgErrors.push(`Pin ${pin.id}: ${errMsg}`);
+              storeBlocked = errMsg;
+              break;
+            }
+
+            if (!isRetryable(errMsg)) {
+              orgErrors.push(`Pin ${pin.id}: ${errMsg} (not retryable)`);
+              break;
+            }
+
+            if (attempt < 2 && budgetLeft() > 12_000) {
               await new Promise(r => setTimeout(r, 5000 * (attempt + 1))); // Backoff: 5s, 10s
             } else {
-              orgErrors.push(`Pin ${pin.id}: ${errMsg} (3 retries failed)`);
+              orgErrors.push(`Pin ${pin.id}: ${errMsg} (${attempt + 1} attempt(s))`);
+              break;
             }
           }
         }
@@ -487,11 +571,22 @@ async function handlePostPins(request: NextRequest) {
         // thing that happens is the loop breaking anyway.
         if (budgetLeft() > 1000) await new Promise(r => setTimeout(r, 800));
       }
+
+      // What is wrong with this store, on the store — see migration 087. A
+      // reason that only exists in a cron's response body is a reason nobody
+      // will ever read, which is how petcura stayed at zero posts from
+      // onboarding onwards with every screen showing it as "scheduled".
+      await recordOrgOutcome(org.id as string, orgPosted > 0 ? null : storeBlocked);
     } catch (orgErr) {
       orgErrors.push(orgErr instanceof Error ? orgErr.message : "Unknown org error");
     }
 
-    results.push({ org: org.name || org.id, posted: orgPosted, errors: orgErrors });
+    results.push({
+      org: org.name || org.id,
+      posted: orgPosted,
+      errors: orgErrors,
+      ...(storeBlocked ? { blocked: storeBlocked } : {}),
+    });
     totalPosted += orgPosted;
   }
 
