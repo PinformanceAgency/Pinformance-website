@@ -605,12 +605,82 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
 
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * PHASE 4 · The grid reading
+ *
+ * P4.2.1 is the one phase-4 task that is genuinely a piece of research,
+ * and it was falling through to the generic free-text box. Three things
+ * come out of it and all three are read by a machine — the design brief
+ * takes the colours, the format and the overlay reading — so leaving it as
+ * prose meant the gate passed while the brief still fell back to its
+ * defaults, and reported that fallback as a considered decision.
+ *
+ * The screenshot is deliberately not asked for. It was in the first draft
+ * of this and nothing ever reads it back: the fields below are what the
+ * brief consumes, and the phase-2 grid row is already stored beside them
+ * for comparison. An attachment nobody opens is a step that costs time
+ * sixteen times a month and buys nothing.
+ * ------------------------------------------------------------------ */
+
+const GRID_READING: TaskFieldSet = {
+  intro:
+    "Search the primary keyword now, in an incognito window or in PinClicks, and record what page one " +
+    "is rewarding today. The design brief reads all three answers directly.",
+  scoring:
+    "Fitting in beats standing out. Neon pink in a beige grid does not get noticed, it gets scrolled — " +
+    "so these are instructions to the designer, not observations.",
+  fields: [
+    {
+      key: "dominant_colors",
+      question: "Which colours dominate the top fifteen to twenty pins?",
+      why: "These go straight into the design brief as the palette to sit inside. A brief with no grid row falls back to the brand's own colours, which is a guess about a search result rather than a reading of one.",
+      how: "Three hex codes, comma separated, most common first. Eyedrop them rather than guessing — \"warm neutrals\" is not something a designer can build from.",
+      kind: "text",
+      evidence: "e.g. \"#E8DCC8, #B5A192, #FFFFFF — eyedropped from the top row, not guessed.\"",
+    },
+    {
+      key: "dominant_format",
+      question: "What shape is page one?",
+      why: "Tells the designer whether the grid is standard 2:3 or has gone long-form. A pin cropped to the wrong ratio loses height, and height is what earns the impression.",
+      how: "Look at the proportions of the top row, not at one pin.",
+      kind: "choice",
+      options: ["MOSTLY_2_3", "MIXED", "MOSTLY_TALLER"],
+      optionLabels: {
+        MOSTLY_2_3: "Mostly 2:3",
+        MIXED: "Mixed",
+        MOSTLY_TALLER: "Mostly taller than 2:3",
+      },
+    },
+    {
+      key: "text_overlay_bucket",
+      question: "How many of the top pins carry text on the image?",
+      why: "This is the reading that changes how a click pin is drawn. It does not move the 80/20 split — that is a pacing decision about the account, fixed by the method, and deriving it from one search result was a rule invented in code.",
+      how: "Count roughly across the top fifteen to twenty.",
+      kind: "choice",
+      options: ["NONE", "MINIMAL", "HALF", "MOST", "ALL"],
+      optionLabels: {
+        NONE: "None", MINIMAL: "A few", HALF: "About half", MOST: "Most", ALL: "All of them",
+      },
+    },
+    {
+      key: "what_this_means",
+      question: "What does this change about the four designs?",
+      why: "The three answers above are data; this is the instruction. It is the line the designer actually works from.",
+      how: "One or two sentences. Name what to do differently from last cycle, not what you saw.",
+      kind: "longtext",
+      evidence:
+        "e.g. \"Page one is almost all cream and warm wood with no text at all. Our last set was high-contrast black, so go softer, and keep the click pin's overlay to three words.\"",
+    },
+  ],
+};
+
 const BY_TASK: Record<string, TaskFieldSet> = {
   "P1.0.1": GOOD_FIT,
   "P1.0.2": RED_FLAGS,
   "P1.0.3": URL_COUNT,
   "P1.0.4": VERDICT,
   ...TECHNICAL_SETUP,
+  "P4.2.1": GRID_READING,
 };
 
 /**

@@ -610,3 +610,131 @@ export function validateForecast(text: string): { ok: boolean; errors: string[] 
   if (/^#{1,6}\s/m.test(t)) errs.push("a heading — this is one paragraph");
   return { ok: errs.length === 0, errors: errs };
 }
+
+/* ------------------------------------------------------------------ */
+/* P5.2.2 — attribution, with the patterns stated                      */
+/* ------------------------------------------------------------------ */
+//
+// Every pin already knows where it came from: a design, a copy set, a
+// board, a waterfall, and a URL with a reason. So the attribution can be
+// computed rather than worked out, and P5.2.2 becomes reading instead of
+// analysis — which is what makes it survive a busy month.
+//
+// The one thing that stays human is the interpretation: *why* the manager
+// thinks a pattern holds. That is the only free text field in phases 4 and
+// 5, and it is deliberately not something a model drafts, because it is the
+// input to next month's decisions rather than a description of last month.
+
+/** Below this, a difference between two groups is noise. */
+const MIN_PINS_PER_SIDE = 4;
+/** Below this, a ratio is not worth stating as a finding. */
+const MIN_RATIO = 1.4;
+
+export interface AttributionDimension {
+  key: string;
+  label: string;
+  rows: FeedbackAggregate[];
+}
+
+export interface Attribution {
+  from: string;
+  to: string;
+  dimensions: AttributionDimension[];
+  /** Patterns worth reading, in plain sentences. Empty is a valid answer. */
+  findings: string[];
+  /** Why a dimension produced nothing, so a gap is not read as a zero. */
+  thin: string[];
+}
+
+/**
+ * State a comparison only when both sides carry enough pins and the gap is
+ * large enough to survive a normal month's noise. Everything else is
+ * reported as thin rather than dressed up as a finding — a panel that
+ * always has something to say stops being read.
+ */
+function compare(
+  rows: FeedbackAggregate[],
+  metric: "ctr_per_1000" | "save_rate_per_1000",
+  phrase: (winner: string, loser: string, ratio: string) => string
+): string | null {
+  const usable = rows.filter((r) => r.pin_count >= MIN_PINS_PER_SIDE && r.impressions > 0);
+  if (usable.length < 2) return null;
+  const sorted = [...usable].sort((a, b) => b[metric] - a[metric]);
+  const top = sorted[0], bottom = sorted[sorted.length - 1];
+  if (bottom[metric] <= 0) return null;
+  const ratio = top[metric] / bottom[metric];
+  if (ratio < MIN_RATIO) return null;
+  return phrase(top.label, bottom.label, `${ratio.toFixed(1)}×`);
+}
+
+export async function loadAttribution(
+  orgId: string,
+  from: string,
+  to: string
+): Promise<Attribution> {
+  const [reason, keyword, breadth, intent, route, board] = await Promise.all([
+    byReason(orgId, from, to),
+    byKeyword(orgId, from, to),
+    byBoardBreadth(orgId, from, to),
+    aggregate(orgId, from, to, "d.intent::text", "d.intent::text",
+      "JOIN organic.designs d ON d.id = p.design_id"),
+    aggregate(orgId, from, to, "d.route::text", "d.route::text",
+      "JOIN organic.designs d ON d.id = p.design_id"),
+    aggregate(orgId, from, to, "b.id::text", "b.name"),
+  ]);
+
+  const dimensions: AttributionDimension[] = [
+    { key: "intent", label: "Save pin vs click pin", rows: intent },
+    { key: "board", label: "Board", rows: board.slice(0, 15) },
+    { key: "keyword", label: "Keyword", rows: keyword },
+    { key: "reason", label: "Why this URL was chosen", rows: reason },
+    { key: "breadth", label: "Broad vs niche board", rows: breadth },
+    { key: "route", label: "AI route vs direct", rows: route },
+  ];
+
+  const findings: string[] = [];
+  const thin: string[] = [];
+
+  const push = (s: string | null, dimension: string) => {
+    if (s) findings.push(s);
+    else thin.push(dimension);
+  };
+
+  push(compare(intent, "ctr_per_1000",
+    (w, l, r) => `${w === "CLICK" ? "Click" : "Save"} pins earn ${r} the outbound clicks per impression that ${l === "CLICK" ? "click" : "save"} pins do here.`),
+    "save vs click");
+  push(compare(intent, "save_rate_per_1000",
+    (w, l, r) => `On saves it is the other way round where it matters: ${w.toLowerCase()} pins are saved ${r} as often as ${l.toLowerCase()} pins.`),
+    "save rate by intent");
+  push(compare(board, "ctr_per_1000",
+    (w, l, r) => `"${w}" converts ${r} better per impression than "${l}". Worth more of next month's rotation.`),
+    "boards");
+  push(compare(breadth, "ctr_per_1000",
+    (w, l, r) => `${w.toLowerCase()} boards convert ${r} better than ${l.toLowerCase()} ones on this account.`),
+    "broad vs niche");
+  push(compare(reason, "ctr_per_1000",
+    (w, l, r) => `URLs chosen because they were ${w.toLowerCase().replace(/_/g, " ")} convert ${r} better than ${l.toLowerCase().replace(/_/g, " ")} ones.`),
+    "URL reason");
+  push(compare(route, "ctr_per_1000",
+    (w, l, r) => `${w === "AI_GENERATED" ? "AI-generated" : "Directly designed"} images convert ${r} better than ${l === "AI_GENERATED" ? "AI-generated" : "directly designed"} ones.`),
+    "AI vs direct");
+
+  const totalPins = intent.reduce((t, r) => t + r.pin_count, 0);
+  if (totalPins === 0) {
+    return {
+      from, to, dimensions, findings: [],
+      thin: ["No measured pins in this window — nothing to attribute yet."],
+    };
+  }
+
+  return {
+    from,
+    to,
+    dimensions,
+    findings,
+    thin: thin.length
+      ? [`Not enough separation to call: ${thin.join(", ")}. ` +
+         `A comparison needs ${MIN_PINS_PER_SIDE}+ pins on both sides and a ${MIN_RATIO}× gap.`]
+      : [],
+  };
+}

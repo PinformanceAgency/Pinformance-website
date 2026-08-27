@@ -28,6 +28,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ orgId: 
           await setTemplateProven(orgId, String(body.template_id), !!body.proven));
       case "draft_forecast":
         return NextResponse.json({ ok: true, ...(await draftTrendForecast(orgId)) } as const);
+      // P5.2.2 — the attribution, with the patterns already stated. Defaults
+      // to last calendar month, which is the reporting window.
+      case "attribution": {
+        const { loadAttribution } = await import("@/lib/organic/phase5");
+        const now = new Date();
+        const defFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+          .toISOString().slice(0, 10);
+        const defTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0))
+          .toISOString().slice(0, 10);
+        return NextResponse.json({
+          ok: true,
+          attribution: await loadAttribution(
+            orgId,
+            body.from ? String(body.from) : defFrom,
+            body.to ? String(body.to) : defTo
+          ),
+        });
+      }
       default:
         return NextResponse.json({ error: `unknown action: ${body?.action}` }, { status: 400 });
     }
