@@ -53,7 +53,8 @@ const MAX_PASSES = 4;
  * exactly one file in memory, is not.
  */
 const MAX_VIDEOS_PER_RUN = 1;
-const VIDEO_START_BEFORE_MS = 15_000;
+/** What one video costs at worst: download, upload, and the status poll. */
+const VIDEO_NEEDS_MS = 75_000;
 const VIDEO_RUN_BUDGET_MS = 110_000;
 
 /** Refuse to pull an unreasonably large file into memory. Our pins are a few
@@ -162,8 +163,17 @@ async function handlePostPins(request: NextRequest) {
   // everything else here.
   const budgetOverride = Number(request.nextUrl.searchParams.get("budget_ms"));
   const runBudgetMs = Number.isFinite(budgetOverride) && budgetOverride > 0
-    ? Math.min(Math.max(budgetOverride, 1_000), 120_000)
+    ? Math.min(Math.max(budgetOverride, 1_000), 250_000)
     : RUN_BUDGET_MS;
+  // `?max_videos=` raises the per-run video quota for a deliberate catch-up.
+  // Safe above one because the pins are processed one at a time and each
+  // buffer is released before the next begins — the memory kill was a single
+  // 303MB file, not two small ones. Still bounded, and the 120MB size guard
+  // stays in front of every one of them.
+  const maxVideosRaw = Number(request.nextUrl.searchParams.get("max_videos"));
+  const maxVideos = Number.isFinite(maxVideosRaw) && maxVideosRaw > 0
+    ? Math.min(Math.floor(maxVideosRaw), 6)
+    : MAX_VIDEOS_PER_RUN;
 
   // Self-heal: reset pins stuck in "posting" for > 10 minutes back to scheduled
   const stuckCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -226,6 +236,9 @@ async function handlePostPins(request: NextRequest) {
   const elapsed = () => Date.now() - startedAt;
   // Raised to VIDEO_RUN_BUDGET_MS for the rest of the run once a video starts.
   let budgetMs = runBudgetMs;
+  // A video does not fit in the ordinary budget, so starting one buys the run
+  // extra time. An explicitly long budget is honoured as-is.
+  const videoBudgetMs = Math.max(runBudgetMs, VIDEO_RUN_BUDGET_MS);
   const budgetLeft = () => budgetMs - elapsed();
   let videosThisRun = 0;
   const notReached: Array<{ id: string; name: string }> = [];
@@ -473,16 +486,21 @@ async function handlePostPins(request: NextRequest) {
         // for the next run costs 15 minutes; starting one with 20 seconds of
         // budget left costs the whole run and the store behind it.
         if (isVideo) {
-          if (videosThisRun >= MAX_VIDEOS_PER_RUN) {
-            orgErrors.push(`Pin ${pin.id}: video deferred, one per run`);
+          if (videosThisRun >= maxVideos) {
+            orgErrors.push(`Pin ${pin.id}: video deferred, ${maxVideos} per run`);
             continue;
           }
-          if (elapsed() > VIDEO_START_BEFORE_MS) {
-            orgErrors.push(`Pin ${pin.id}: video deferred, too late in the run to start one`);
+          // Start one only if it can still finish. Asking "is there room for
+          // a whole video" rather than "are we early in the run" is what lets
+          // a second one start when the first went quickly, and is why the
+          // first version of this guard — 90s of remaining budget out of 50 —
+          // deferred every video forever.
+          if (elapsed() + VIDEO_NEEDS_MS > videoBudgetMs) {
+            orgErrors.push(`Pin ${pin.id}: video deferred, not enough of the run left to finish one`);
             continue;
           }
           videosThisRun++;
-          budgetMs = VIDEO_RUN_BUDGET_MS;
+          budgetMs = videoBudgetMs;
         }
 
         // Mark as posting
@@ -733,7 +751,8 @@ async function handlePostPins(request: NextRequest) {
     const url = `${base}/api/cron/post-pins?pass=${pass + 1}`
       + `&only=${notReached.map((n) => n.id).join(",")}`
       + (forcedOrgIds.size > 0 ? `&force_org=${Array.from(forcedOrgIds).join(",")}` : "")
-      + (runBudgetMs !== RUN_BUDGET_MS ? `&budget_ms=${runBudgetMs}` : "");
+      + (runBudgetMs !== RUN_BUDGET_MS ? `&budget_ms=${runBudgetMs}` : "")
+      + (maxVideos !== MAX_VIDEOS_PER_RUN ? `&max_videos=${maxVideos}` : "");
     after(async () => {
       try {
         await fetch(url, { headers: { "x-cron-secret": process.env.CRON_SECRET ?? "" } });
