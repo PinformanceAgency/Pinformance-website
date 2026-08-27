@@ -12,6 +12,7 @@ import type { AssetRow, TaskAnswer } from "@/lib/organic/workspace";
 import type { Phase2Snapshot } from "./Phase2Forms";
 import type { Phase3Snapshot } from "./Phase3Forms";
 import type { Deviation } from "@/lib/organic/structure";
+import { Phase4Sourcing } from "./Phase4Sourcing";
 
 interface OrgBoard { id: string; name: string; status: string; topic_name: string | null }
 interface OrgKeyword { id: string; term: string; volume: number | null; type: string }
@@ -41,6 +42,11 @@ export function Phase4Cycles({
           Phase 4 — Cycles <span className="text-neutral-400 font-normal">({cycles.length} active)</span>
         </h2>
       </div>
+
+      {/* Filling the pool and choosing from it come before starting a cycle,
+          and in that order — P4.1.1 was an empty list on every real store
+          because nothing ever wrote organic.urls. */}
+      <Phase4Sourcing orgId={orgId} poolSize={selectableUrls.length} />
 
       <StartCycle orgId={orgId} candidates={selectableUrls} usedUrlIds={new Set(cycles.map((c) => c.url_id))} />
 
@@ -253,7 +259,10 @@ function SetupSection({
 
   return (
     <div className="p-4 space-y-3">
-      <SectionTitle text="1 · Setup — reason, boards, keywords (P4.1.5 / P4.1.6 / P4.1.7)" />
+      {/* P4.1.5 was retired — the reason is set when the URL enters the pool
+          rather than as a step of its own. The dropdown stays here because
+          urls.reason still drives the candidate ranking. */}
+      <SectionTitle text="1 · Setup — reason, boards, keywords (P4.1.6 / P4.1.7 / P4.1.8)" />
 
       <DeviationPanel deviations={cycle.deviations} />
 
