@@ -117,11 +117,38 @@ are deliberately untouched by all of this — they are an account-safety decisio
 not a throughput knob. A backlog drains at the cap or not at all; that is the
 intended trade (confirmed 27-08-2026).
 
-**When pins are not appearing on Pinterest, check in this order:** is the pin
-`posted` with a `pinterest_pin_id` (then it exists — verify with `GET /pins/{id}`
-before believing otherwise); is the org's token alive (`GET /user_account`, 401
-means reconnect); is the store being reached at all (`not_reached` in the run's
-JSON); is the head of its queue postable.
+- **A failure is classified before it is retried.** `isStoreLevel` (trial
+  access, auth) stops the whole store and records the reason;
+  `isPermanentPinFailure` (media over the size limit, Pinterest rejecting the
+  request, video processing failed) retires that pin; only 429, 5xx and network
+  errors are retried. The old loop retried everything three times with 5s/10s
+  backoff — three stores' worth of unfixable 403s consumed a whole run.
+
+**Each store connects through its own Pinterest app, and a new app starts on
+Trial access.** A trial app *cannot create pins in production* — it answers
+every create with `403 code 29 "Apps with Trial access may not create Pins in
+production ... use API Sandbox instead"`. That is not a bug and no code change
+fixes it: the app needs Standard access from Pinterest. It is why petcura had
+40 queued pins, a live token, a live board and zero posts since onboarding.
+
+Two traps around this:
+
+- `settings.pinterest_access_tier = "trial"` switches `PinterestClient` to
+  `api-sandbox.pinterest.com`. Setting it does **not** make posting work — it
+  makes the failure silent. A sandbox pin returns an id and is written back as
+  `posted` with a `pinterest_pin_id`, and it does not exist on the real
+  profile. No org has it set; leave it that way unless you are deliberately
+  testing against the sandbox.
+- The reason a store is blocked now lives on
+  `organizations.pinterest_last_error` (migration 087), written by the cron and
+  cleared on the next successful post. Check it first.
+
+**When pins are not appearing on Pinterest, check in this order:**
+`organizations.pinterest_last_error`; is the pin `posted` with a
+`pinterest_pin_id` (then it exists — verify with `GET /pins/{id}` before
+believing otherwise); is the org's token alive (`GET /user_account`, 401 means
+reconnect); is the store being reached at all (`not_reached` in the run's JSON);
+is the head of its queue postable.
 
 ## Key modules
 
