@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
@@ -23,6 +23,21 @@ export const maxDuration = 300;
  * a day the binding limit is the per-org daily cap, not this.
  */
 const RUN_BUDGET_MS = Number(process.env.POST_PINS_BUDGET_MS) || 50_000;
+
+/**
+ * A store is never skipped — it is continued.
+ *
+ * The budget above means a run can end with stores it did not reach. The
+ * least-recently-posted ordering already guarantees those go first next time,
+ * but "next time" is up to fifteen minutes away and an emergent guarantee is
+ * not the same as a promise. So a run that leaves anyone behind hands them to
+ * a follow-up run immediately, with `?only=` naming exactly who is left.
+ *
+ * `?pass=` bounds the chain. Four passes at ~50s each covers far more stores
+ * than exist, and the cap is there so a store that somehow always ends up in
+ * `not_reached` cannot spin up runs forever.
+ */
+const MAX_PASSES = 4;
 
 /**
  * Videos are register → upload → poll, and the poll alone runs to 60s while
@@ -135,6 +150,12 @@ async function handlePostPins(request: NextRequest) {
   const forcedOrgIds = new Set(
     (forceOrgParam ? forceOrgParam.split(",") : []).map((s) => s.trim()).filter(Boolean)
   );
+  // Set by a previous pass that ran out of budget: do only these stores.
+  const onlyParam = request.nextUrl.searchParams.get("only");
+  const onlyOrgIds = new Set(
+    (onlyParam ? onlyParam.split(",") : []).map((s) => s.trim()).filter(Boolean)
+  );
+  const pass = Math.max(1, Number(request.nextUrl.searchParams.get("pass")) || 1);
 
   // Self-heal: reset pins stuck in "posting" for > 10 minutes back to scheduled
   const stuckCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -156,7 +177,14 @@ async function handlePostPins(request: NextRequest) {
     org_id: string; due_count: number; oldest_due: string; last_posted: string | null;
   }>;
   if (due.length === 0) {
-    return NextResponse.json({ message: "No due pins", posted: 0 });
+    return NextResponse.json({ message: "No due pins", posted: 0, pass });
+  }
+
+  const dueForThisPass = onlyOrgIds.size > 0
+    ? due.filter((d) => onlyOrgIds.has(d.org_id))
+    : due;
+  if (dueForThisPass.length === 0) {
+    return NextResponse.json({ message: "Nothing left for this pass", posted: 0, pass });
   }
 
   // Least-recently-posted first, a store that has never posted before all of
@@ -164,7 +192,7 @@ async function handlePostPins(request: NextRequest) {
   // back, which was stable — so the same stores were served every run and the
   // ones behind them were served never. petcura had 40 due pins, a valid
   // token and a valid board, and had posted nothing, ever.
-  due.sort((a, b) => {
+  dueForThisPass.sort((a, b) => {
     if (a.last_posted === b.last_posted) return a.oldest_due < b.oldest_due ? -1 : 1;
     if (a.last_posted === null) return -1;
     if (b.last_posted === null) return 1;
@@ -175,7 +203,7 @@ async function handlePostPins(request: NextRequest) {
     .from("organizations")
     .select("id, name, pinterest_access_token_encrypted, pinterest_refresh_token_encrypted, pinterest_token_expires_at, pinterest_app_id, pinterest_app_secret_encrypted, settings, pinterest_last_error")
     .not("pinterest_access_token_encrypted", "is", null)
-    .in("id", due.map((d) => d.org_id));
+    .in("id", dueForThisPass.map((d) => d.org_id));
 
   if (!orgRows || orgRows.length === 0) {
     return NextResponse.json({ message: "No orgs to process", posted: 0 });
@@ -183,8 +211,8 @@ async function handlePostPins(request: NextRequest) {
 
   // The `.in()` above loses the ordering, so put it back.
   const byId = new Map(orgRows.map((o) => [o.id as string, o]));
-  const orgs = due.map((d) => byId.get(d.org_id)).filter(Boolean) as typeof orgRows;
-  const lastPostedByOrg = new Map(due.map((d) => [d.org_id, d.last_posted]));
+  const orgs = dueForThisPass.map((d) => byId.get(d.org_id)).filter(Boolean) as typeof orgRows;
+  const lastPostedByOrg = new Map(dueForThisPass.map((d) => [d.org_id, d.last_posted]));
 
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
@@ -192,7 +220,7 @@ async function handlePostPins(request: NextRequest) {
   let budgetMs = RUN_BUDGET_MS;
   const budgetLeft = () => budgetMs - elapsed();
   let videosThisRun = 0;
-  const notReached: string[] = [];
+  const notReached: Array<{ id: string; name: string }> = [];
   const newlyBlocked: Array<{ org: string; reason: string }> = [];
   const recovered: string[] = [];
 
@@ -253,7 +281,7 @@ async function handlePostPins(request: NextRequest) {
     // being killed halfway through a store. They are at the front of the
     // next run by construction — the order is least-recently-posted first.
     if (budgetLeft() <= 0) {
-      notReached.push((org.name as string) || (org.id as string));
+      notReached.push({ id: org.id as string, name: (org.name as string) || (org.id as string) });
       continue;
     }
 
@@ -688,6 +716,27 @@ async function handlePostPins(request: NextRequest) {
     });
   }
 
+  // Hand the leftovers to a follow-up run, right now, rather than letting the
+  // fifteen-minute schedule decide when they get their turn. after() runs the
+  // work once the response has gone out, so the chain does not count against
+  // this run's own budget.
+  if (notReached.length > 0 && pass < MAX_PASSES) {
+    const base = process.env.NEXT_PUBLIC_APP_URL || `https://${request.nextUrl.host}`;
+    const url = `${base}/api/cron/post-pins?pass=${pass + 1}`
+      + `&only=${notReached.map((n) => n.id).join(",")}`
+      + (forcedOrgIds.size > 0 ? `&force_org=${Array.from(forcedOrgIds).join(",")}` : "");
+    after(async () => {
+      try {
+        await fetch(url, { headers: { "x-cron-secret": process.env.CRON_SECRET ?? "" } });
+      } catch (e) {
+        // The next scheduled run picks them up anyway — they are at the front
+        // of the order by construction. Losing the continuation costs minutes,
+        // never the work itself.
+        console.error("[post-pins] continuation failed:", e instanceof Error ? e.message : e);
+      }
+    });
+  }
+
   // The run says what it did AND what it did not get to. A cron that reports
   // only its successes cannot tell "nothing was due" apart from "I died before
   // I got there", which is exactly the confusion that let petcura sit at zero
@@ -695,8 +744,10 @@ async function handlePostPins(request: NextRequest) {
   return NextResponse.json({
     posted: totalPosted,
     elapsed_ms: Date.now() - startedAt,
+    pass,
     orgs_considered: orgs.length,
-    not_reached: notReached,
+    not_reached: notReached.map((n) => n.name),
+    continuing: notReached.length > 0 && pass < MAX_PASSES,
     videos_attempted: videosThisRun,
     results,
     forced_org_ids: Array.from(forcedOrgIds),
