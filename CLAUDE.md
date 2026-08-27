@@ -82,6 +82,47 @@ curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/
 
 The two snapshot crons are load-bearing — most other views are computed from their output. If team activity or zones look wrong, first check that snapshot data is fresh (see "Data conventions" below).
 
+### The pin scheduler (`/api/cron/post-pins`)
+
+This is what makes organic automatic, and on 27-08-2026 it was quietly failing:
+453 pins overdue, the oldest since 29 July, two stores that had never posted a
+single pin. Four things were wrong at once and each is worth not reintroducing.
+
+- **A run budgets itself: `RUN_BUDGET_MS`, 50s by default.** `maxDuration = 300`
+  is what we ask for, not what we get — the route was killed twice that morning
+  with *"instance was killed because it ran out of available memory"*, and a
+  replay of the loop needed ~600s to walk thirteen stores. A run that dies
+  mid-flight leaves pins in `posting` (self-healed only ten minutes later) and
+  always dies in the same place. It now stops cleanly and reports `not_reached`.
+- **Order is least-recently-posted first** (`public.pins_due_orgs()`, migration
+  086). The old loop took the orgs in whatever order the database returned,
+  which was stable — so the front of the list was served every run and the back
+  never. petcura had 40 due pins, a live token and a live board, and had posted
+  nothing, ever, because it sat at position 10. Never make this order arbitrary
+  again; starvation here is invisible from every screen in the app.
+- **A pin that cannot be posted is retired, not retried.** No media, or a board
+  with no `pinterest_board_id`, used to `continue` — leaving status and
+  `scheduled_at` untouched, so the same pin came back as one of the ten oldest
+  every 15 minutes forever. Fit Cherries' ten oldest were all unpostable, and
+  the 131 pins behind them had not moved since 2 July. They now go to `failed`
+  with a reason in `rejected_reason` (nothing is deleted, so the copy can be
+  reused). `scripts/retire-unpostable-pins.ts` clears a backlog in one pass.
+- **Video pins are rationed: one per run, and only with ≥90s of budget left.**
+  Register → upload → poll runs to 60s with the whole file held in memory as a
+  Buffer. Two in one run is the memory kill.
+
+The per-org caps (`settings.max_pins_per_day`, default 5; swimwear hard-capped
+at 2 because Pinterest throttles it) and `settings.min_post_interval_minutes`
+are deliberately untouched by all of this — they are an account-safety decision,
+not a throughput knob. A backlog drains at the cap or not at all; that is the
+intended trade (confirmed 27-08-2026).
+
+**When pins are not appearing on Pinterest, check in this order:** is the pin
+`posted` with a `pinterest_pin_id` (then it exists — verify with `GET /pins/{id}`
+before believing otherwise); is the org's token alive (`GET /user_account`, 401
+means reconnect); is the store being reached at all (`not_reached` in the run's
+JSON); is the head of its queue postable.
+
 ## Key modules
 
 ### Media Buying Hub UI (`src/app/(dashboard)/media-buying-hub/`)

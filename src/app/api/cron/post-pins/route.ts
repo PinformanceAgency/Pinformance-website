@@ -5,6 +5,32 @@ import { PinterestClient } from "@/lib/pinterest/client";
 
 export const maxDuration = 300;
 
+/**
+ * How long a run may take before it stops starting new work.
+ *
+ * `maxDuration = 300` is what we ask for; it is not what we get. This route
+ * was killed twice on 27-08-2026 with "instance was killed because it ran out
+ * of available memory", and a replay of the loop that day needed ~600s to
+ * walk thirteen stores. A run that dies mid-flight is worse than a short one:
+ * it leaves pins in `posting` (the self-heal at the top only picks those up
+ * ten minutes later) and it always dies at the same place, so the stores at
+ * the back of the list never get served at all.
+ *
+ * So the run budgets itself and stops cleanly. Every store still gets served,
+ * because the cron fires every 15 minutes and the order is least-recently-
+ * posted first — a store skipped now is at the front next time. With 96 runs
+ * a day the binding limit is the per-org daily cap, not this.
+ */
+const RUN_BUDGET_MS = Number(process.env.POST_PINS_BUDGET_MS) || 50_000;
+
+/**
+ * Videos are register → upload → poll, and the poll alone runs to 60s while
+ * the file sits in memory as one Buffer. Two of those in a run is the memory
+ * kill. One per run, and only when there is time left to finish it.
+ */
+const MAX_VIDEOS_PER_RUN = 1;
+const VIDEO_MIN_BUDGET_MS = 90_000;
+
 function verifyCron(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
   if (authHeader === `Bearer ${process.env.CRON_SECRET}`) return true;
@@ -40,30 +66,52 @@ async function handlePostPins(request: NextRequest) {
     .eq("status", "posting")
     .lt("updated_at", stuckCutoff);
 
-  // Prefilter: only iterate orgs that actually have a due pin right now.
-  // Otherwise the loop pays 3-4 DB round-trips per org (token check, caps
-  // count, rate-limit check, due-pins query) just to discover there's nothing
-  // to do — with 30+ orgs the whole cron blows through Vercel's function
-  // timeout and every org's pins stall.
-  const { data: duePinOrgs } = await admin
-    .from("pins")
-    .select("org_id")
-    .in("status", ["approved", "scheduled"])
-    .lte("scheduled_at", now);
-  const orgsWithDuePins = new Set((duePinOrgs ?? []).map((p) => p.org_id as string));
-  if (orgsWithDuePins.size === 0) {
+  // Who is owed a post, and how long each has been waiting. One round-trip —
+  // see migration 086 for why this is an RPC and not a select: the old
+  // prefilter pulled every due pin row to collect distinct org ids, which
+  // PostgREST caps at 1000, and it produced no basis for ordering.
+  const { data: dueOrgs, error: dueErr } = await admin.rpc("pins_due_orgs");
+  if (dueErr) {
+    return NextResponse.json({ error: `pins_due_orgs: ${dueErr.message}` }, { status: 500 });
+  }
+  const due = (dueOrgs ?? []) as Array<{
+    org_id: string; due_count: number; oldest_due: string; last_posted: string | null;
+  }>;
+  if (due.length === 0) {
     return NextResponse.json({ message: "No due pins", posted: 0 });
   }
 
-  const { data: orgs } = await admin
+  // Least-recently-posted first, a store that has never posted before all of
+  // them. The old loop ran the orgs in whatever order the database handed
+  // back, which was stable — so the same stores were served every run and the
+  // ones behind them were served never. petcura had 40 due pins, a valid
+  // token and a valid board, and had posted nothing, ever.
+  due.sort((a, b) => {
+    if (a.last_posted === b.last_posted) return a.oldest_due < b.oldest_due ? -1 : 1;
+    if (a.last_posted === null) return -1;
+    if (b.last_posted === null) return 1;
+    return a.last_posted < b.last_posted ? -1 : 1;
+  });
+
+  const { data: orgRows } = await admin
     .from("organizations")
     .select("id, name, pinterest_access_token_encrypted, pinterest_refresh_token_encrypted, pinterest_token_expires_at, pinterest_app_id, pinterest_app_secret_encrypted, settings")
     .not("pinterest_access_token_encrypted", "is", null)
-    .in("id", Array.from(orgsWithDuePins));
+    .in("id", due.map((d) => d.org_id));
 
-  if (!orgs || orgs.length === 0) {
+  if (!orgRows || orgRows.length === 0) {
     return NextResponse.json({ message: "No orgs to process", posted: 0 });
   }
+
+  // The `.in()` above loses the ordering, so put it back.
+  const byId = new Map(orgRows.map((o) => [o.id as string, o]));
+  const orgs = due.map((d) => byId.get(d.org_id)).filter(Boolean) as typeof orgRows;
+  const lastPostedByOrg = new Map(due.map((d) => [d.org_id, d.last_posted]));
+
+  const startedAt = Date.now();
+  const budgetLeft = () => RUN_BUDGET_MS - (Date.now() - startedAt);
+  let videosThisRun = 0;
+  const notReached: string[] = [];
 
   let totalPosted = 0;
   const results: {
@@ -79,6 +127,14 @@ async function handlePostPins(request: NextRequest) {
     const orgErrors: string[] = [];
     let orgPosted = 0;
     let skipReason: string | undefined;
+
+    // Out of time. Stop cleanly and say who did not get a turn, rather than
+    // being killed halfway through a store. They are at the front of the
+    // next run by construction — the order is least-recently-posted first.
+    if (budgetLeft() <= 0) {
+      notReached.push((org.name as string) || (org.id as string));
+      continue;
+    }
 
     try {
       // Check & refresh token if needed
@@ -165,16 +221,11 @@ async function handlePostPins(request: NextRequest) {
       // spammy to Pinterest; the previous hardcoded 30-min ignored that.
       const orgMinInterval = Number(orgSettings.min_post_interval_minutes);
       const MIN_INTERVAL_MIN = isFinite(orgMinInterval) && orgMinInterval > 0 ? orgMinInterval : 30;
-      const { data: lastPosted } = await admin
-        .from("pins")
-        .select("posted_at")
-        .eq("org_id", org.id)
-        .eq("status", "posted")
-        .order("posted_at", { ascending: false })
-        .limit(1);
+      // Already known from pins_due_orgs() — no second round-trip for it.
+      const lastPostedAt = lastPostedByOrg.get(org.id as string) ?? null;
 
-      if (!forced && lastPosted?.[0]?.posted_at) {
-        const timeSinceLastPost = Date.now() - new Date(lastPosted[0].posted_at).getTime();
+      if (!forced && lastPostedAt) {
+        const timeSinceLastPost = Date.now() - new Date(lastPostedAt).getTime();
         if (timeSinceLastPost < MIN_INTERVAL_MIN * 60_000) {
           skipReason = `rate_limit_${Math.round(timeSinceLastPost/60000)}min_of_${MIN_INTERVAL_MIN}min`;
           results.push({
@@ -222,16 +273,54 @@ async function handlePostPins(request: NextRequest) {
       }
 
       for (const pin of duePins) {
+        if (budgetLeft() <= 0) break;
+
+        /**
+         * A pin that can never be posted is retired, not retried.
+         *
+         * These two checks used to `continue`, which changed nothing about
+         * the pin: it stayed `scheduled` with its old `scheduled_at`, so it
+         * came back as one of the ten oldest on the next run, and the run
+         * after that, forever. Fit Cherries' ten oldest pins were all
+         * unpostable — nine with no image, one with no board — so the 131
+         * pins queued behind them had not moved since 2 July.
+         *
+         * `failed` + a reason takes them out of the queue and leaves them
+         * findable, so the images can be regenerated and the boards assigned.
+         * Nothing is deleted.
+         */
+        const retire = async (reason: string) => {
+          await admin.from("pins")
+            .update({ status: "failed", rejected_reason: reason })
+            .eq("id", pin.id);
+          orgErrors.push(`Pin ${pin.id}: ${reason} → failed`);
+        };
+
         const boardPinterestId = (pin.boards as { pinterest_board_id: string | null })?.pinterest_board_id;
         if (!boardPinterestId) {
-          orgErrors.push(`Pin ${pin.id}: no Pinterest board ID`);
+          await retire("board has no Pinterest board ID");
           continue;
         }
 
         const isVideo = pin.pin_type === "video" || !!pin.video_url;
         if (!isVideo && !pin.image_url) {
-          orgErrors.push(`Pin ${pin.id}: no image or video`);
+          await retire("no image or video on the pin");
           continue;
+        }
+
+        // Videos are the expensive path — see MAX_VIDEOS_PER_RUN. Leaving one
+        // for the next run costs 15 minutes; starting one with 20 seconds of
+        // budget left costs the whole run and the store behind it.
+        if (isVideo) {
+          if (videosThisRun >= MAX_VIDEOS_PER_RUN) {
+            orgErrors.push(`Pin ${pin.id}: video deferred, one per run`);
+            continue;
+          }
+          if (budgetLeft() < VIDEO_MIN_BUDGET_MS) {
+            orgErrors.push(`Pin ${pin.id}: video deferred, not enough time left this run`);
+            continue;
+          }
+          videosThisRun++;
         }
 
         // Mark as posting
@@ -266,10 +355,16 @@ async function handlePostPins(request: NextRequest) {
 
               await pinterest.uploadVideoToS3(media.upload_url, media.upload_parameters, videoBuffer, videoContentType);
 
-              // Poll media status until registered/succeeded (max 60s)
+              // Poll media status until registered/succeeded. Pinterest is
+              // usually ready inside a few seconds, so the first look is
+              // quick and the wait grows from there — the old fixed 5s slept
+              // through the common case twelve times over. Still bounded by
+              // the run budget: an upload that is not ready in time is picked
+              // up as a fresh attempt on the next run.
               let mediaReady = false;
               for (let poll = 0; poll < 12; poll++) {
-                await new Promise(r => setTimeout(r, 5000));
+                await new Promise(r => setTimeout(r, poll === 0 ? 1500 : 5000));
+                if (budgetLeft() <= 0) break;
                 try {
                   const mediaStatus = await pinterest.getMediaStatus(media.media_id);
                   if (mediaStatus.status === "succeeded" || mediaStatus.status === "registered") {
@@ -385,8 +480,12 @@ async function handlePostPins(request: NextRequest) {
           }).eq("id", pin.id);
         }
 
-        // Respect rate limits between pins
-        await new Promise(r => setTimeout(r, 3000));
+        // A breath between pins so a burst does not read as spam. It used to
+        // be 3s, which with seven pins is 21 seconds of a run spent asleep —
+        // and Pinterest's create-pin limit is nowhere near one per three
+        // seconds. Skipped entirely when the budget is gone, since the next
+        // thing that happens is the loop breaking anyway.
+        if (budgetLeft() > 1000) await new Promise(r => setTimeout(r, 800));
       }
     } catch (orgErr) {
       orgErrors.push(orgErr instanceof Error ? orgErr.message : "Unknown org error");
@@ -396,8 +495,16 @@ async function handlePostPins(request: NextRequest) {
     totalPosted += orgPosted;
   }
 
+  // The run says what it did AND what it did not get to. A cron that reports
+  // only its successes cannot tell "nothing was due" apart from "I died before
+  // I got there", which is exactly the confusion that let petcura sit at zero
+  // posts for weeks.
   return NextResponse.json({
     posted: totalPosted,
+    elapsed_ms: Date.now() - startedAt,
+    orgs_considered: orgs.length,
+    not_reached: notReached,
+    videos_posted: videosThisRun,
     results,
     forced_org_ids: Array.from(forcedOrgIds),
   });
