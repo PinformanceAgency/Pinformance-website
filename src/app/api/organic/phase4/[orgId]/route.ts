@@ -53,8 +53,25 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       await P4.assignBoardsToUrl(String(body.url_id), body.board_ids as string[]);
       return { ok: true };
     case "assign_keywords":
-      await P4.assignKeywordsToUrl(String(body.url_id), body.keyword_ids as string[], String(body.primary_id));
+      await P4.assignKeywordsToUrl(
+        String(body.url_id), body.keyword_ids as string[], String(body.primary_id),
+        (body.overlay_ids as string[]) ?? []
+      );
       return { ok: true };
+    // P4.1.4 / P4.1.6 / P4.1.7 / P4.1.8 — proposed, then confirmed. The
+    // proposal writes nothing; applying it is a second, explicit call.
+    case "monthly_selection":
+      return await P4.proposeMonthlySelection(orgId);
+    case "prefill":
+      return await P4.proposeCyclePrefill(orgId, String(body.url_id));
+    case "apply_prefill":
+      return await P4.applyCyclePrefill(orgId, String(body.url_id), {
+        keyword_ids: body.keyword_ids as string[] | undefined,
+        primary_id: body.primary_id ? String(body.primary_id) : undefined,
+        overlay_ids: body.overlay_ids as string[] | undefined,
+        board_ids: body.board_ids as string[] | undefined,
+        replace: !!body.replace,
+      });
     case "brief":
       return { brief: await P4.generateDesignBrief(orgId, String(body.url_id)) };
     case "advice":

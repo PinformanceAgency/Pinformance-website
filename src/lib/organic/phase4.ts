@@ -127,20 +127,45 @@ export async function candidateUrls(orgId: string) {
   return r.rows;
 }
 
-/** Seasonal candidates: URLs whose peak_window_start falls 8–12 weeks out. */
+/**
+ * Seasonal candidates: URLs whose peak falls 6–10 weeks out.
+ *
+ * The peak comes from one of two places, and the URL's own setting wins.
+ * A URL can be seasonal for a reason that has nothing to do with its
+ * keyword — a dated campaign, a launch — and that is a different fact from
+ * "wool scarves peak in November", which belongs on the keyword and is
+ * true for every URL that uses the term. Before migration 083 only the
+ * first existed, so the same seasonal fact had to be typed in again per
+ * URL and in practice never was.
+ *
+ * 6 to 10 weeks is the build reference's section 2. Phase 4's prose says
+ * 8–12; section 2 is the one headed "HARD RULES" and it wins. Publishing
+ * late is the method's most common failure and there is no penalty for
+ * early, so the window opens at the far edge.
+ */
 export async function seasonalCandidates(orgId: string) {
   const pool = organicPool();
   const r = await pool.query(
-    `SELECT * FROM organic.urls
-      WHERE org_id = $1 AND is_seasonal = true
-        AND peak_window_start IS NOT NULL
-        -- 6 to 10 weeks, from the build reference's section 2. Phase 4's
-        -- prose says 8-12; section 2 is the one headed "HARD RULES" and it
-        -- wins. Publishing late is the single most common failure, so the
-        -- window opens earlier rather than later.
-        AND peak_window_start BETWEEN current_date + interval '6 weeks'
-                                  AND current_date + interval '10 weeks'
-      ORDER BY peak_window_start`,
+    `WITH peaks AS (
+       SELECT u.*,
+              COALESCE(
+                u.peak_window_start,
+                (SELECT k.peak_window_start
+                   FROM organic.url_keywords uk
+                   JOIN organic.keywords k ON k.id = uk.keyword_id
+                  WHERE uk.url_id = u.id AND uk.is_primary
+                    AND k.peak_window_start IS NOT NULL
+                  LIMIT 1)
+              ) AS effective_peak,
+              u.peak_window_start IS NULL AS peak_from_keyword
+         FROM organic.urls u
+        WHERE u.org_id = $1
+     )
+     SELECT * FROM peaks
+      WHERE effective_peak IS NOT NULL
+        AND effective_peak BETWEEN current_date + interval '6 weeks'
+                               AND current_date + interval '10 weeks'
+      ORDER BY effective_peak`,
     [orgId]
   );
   return r.rows;
@@ -226,14 +251,22 @@ export async function assignBoardsToUrl(urlId: string, boardIds: string[]): Prom
  * set with no primary at all, which the design brief then reads as an empty
  * keyword.
  */
-export async function assignKeywordsToUrl(urlId: string, keywordIds: string[], primaryId: string): Promise<void> {
+export async function assignKeywordsToUrl(
+  urlId: string,
+  keywordIds: string[],
+  primaryId: string,
+  /** P4.1.8 — which of the non-primary terms are text-overlay hooks. */
+  overlayIds: string[] = []
+): Promise<void> {
   if (!keywordIds.includes(primaryId)) throw new Error(`primary keyword id must be in keywordIds`);
+  const overlay = new Set(overlayIds.filter((id) => id !== primaryId && keywordIds.includes(id)));
   const pool = organicPool();
   await pool.query(`DELETE FROM organic.url_keywords WHERE url_id = $1`, [urlId]);
   for (const kid of keywordIds) {
     await pool.query(
-      `INSERT INTO organic.url_keywords (url_id, keyword_id, is_primary) VALUES ($1, $2, $3)`,
-      [urlId, kid, kid === primaryId]
+      `INSERT INTO organic.url_keywords (url_id, keyword_id, is_primary, is_overlay)
+       VALUES ($1, $2, $3, $4)`,
+      [urlId, kid, kid === primaryId, overlay.has(kid)]
     );
   }
 }
@@ -293,8 +326,8 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
   );
   if (urlRow.rowCount === 0) throw new Error("URL not found for this org");
 
-  const kws = await pool.query<{ term: string; is_primary: boolean }>(
-    `SELECT k.term, uk.is_primary
+  const kws = await pool.query<{ term: string; is_primary: boolean; is_overlay: boolean }>(
+    `SELECT k.term, uk.is_primary, uk.is_overlay
        FROM organic.url_keywords uk
        JOIN organic.keywords k ON k.id = uk.keyword_id
       WHERE uk.url_id = $1
@@ -302,6 +335,10 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
   );
   const primary = kws.rows.find((r) => r.is_primary)?.term ?? "";
   const longTail = kws.rows.filter((r) => !r.is_primary).map((r) => r.term).slice(0, 5);
+  // P4.1.8's actual output. Falls back to the long-tail set when nobody has
+  // marked anything, so a store that never touches the task behaves exactly
+  // as it did before the column existed.
+  const markedOverlay = kws.rows.filter((r) => r.is_overlay).map((r) => r.term);
 
   // Everything the account knows about itself, in one read. This used to be
   // three separate queries picking four values out of three months of
@@ -334,7 +371,9 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
     url_name: urlRow.rows[0].name,
     primary_keyword: primary,
     long_tail_keywords: longTail.length >= 3 ? longTail : [...longTail, ...Array(3 - longTail.length).fill(primary)],
-    overlay_keywords: longTail.slice(0, 5).length > 0 ? longTail.slice(0, 5) : [primary],
+    overlay_keywords: markedOverlay.length > 0
+      ? markedOverlay
+      : (longTail.slice(0, 5).length > 0 ? longTail.slice(0, 5) : [primary]),
     dominant_colors: finding?.colors ?? [],
     brand_colors: brand?.dominant_colors ?? [],
     typography: brand?.typography ?? null,
@@ -1113,6 +1152,238 @@ export async function loadCycleAdvice(orgId: string, urlId: string) {
         client_forbidden: k.client_forbidden,
       }))
     ),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* P4.1.4 / P4.1.6 / P4.1.7 / P4.1.8 — pre-fill, then confirm          */
+/* ------------------------------------------------------------------ */
+//
+// These four tasks were empty pickers. The research already ranks every
+// option and can say why, so making the manager start from nothing was
+// asking them to redo work the system had done — twice a month, sixteen
+// URLs at a time.
+//
+// What it does NOT do is decide. Nothing here is applied without a
+// confirmation, and every choice arrives with the reason next to it, so the
+// manager is reviewing a proposal rather than auditing a black box. The one
+// thing the system cannot know is what the client wants pushed this month —
+// stock, a launch, a campaign running elsewhere — and that is exactly the
+// judgement P4.1.3 and P4.1.4 exist for.
+
+export interface CyclePrefill {
+  keywords: { chosen: Array<{ id: string; term: string; why: string }>; primary_id: string | null };
+  boards: { chosen: Array<{ id: string; name: string; why: string }> };
+  overlay: { chosen: Array<{ id: string; term: string; why: string }> };
+  gaps: string[];
+  /** Set when something is already assigned. Pre-fill never overwrites. */
+  skipped: string[];
+}
+
+/**
+ * Propose keywords, boards and overlay hooks for one URL.
+ *
+ * Reads only. Apply it with `applyCyclePrefill`, which is a separate call
+ * so the UI can show the proposal and let the manager edit it first.
+ */
+export async function proposeCyclePrefill(orgId: string, urlId: string): Promise<CyclePrefill> {
+  const pool = organicPool();
+  const advice = await loadCycleAdvice(orgId, urlId);
+  if (!advice) throw new Error("Org not found");
+
+  const existing = await pool.query<{ kw: string; bd: string }>(
+    `SELECT (SELECT COUNT(*) FROM organic.url_keywords WHERE url_id = $1)::text AS kw,
+            (SELECT COUNT(*) FROM organic.url_boards   WHERE url_id = $1)::text AS bd`,
+    [urlId]
+  );
+  const skipped: string[] = [];
+  if (Number(existing.rows[0].kw) > 0) skipped.push("keywords are already assigned");
+  if (Number(existing.rows[0].bd) > 0) skipped.push("boards are already assigned");
+
+  // Five keywords, five boards: the method's numbers, not a round figure.
+  const kw = advice.keywords.suggested.slice(0, 5).map((k, i) => ({
+    id: k.id, term: k.term, why: advice.keywords.reasons[i] ?? "ranked by the keyword bank",
+  }));
+  const bd = advice.boards.suggested.slice(0, 5).map((b, i) => ({
+    id: b.id, name: b.name, why: advice.boards.reasons[i] ?? "ranked by topic and by what has won here",
+  }));
+
+  // The overlay hook is a phrase somebody reads on an image, so it wants
+  // the descriptive long-tail terms rather than the head term — and never
+  // the primary, which already opens the title.
+  //
+  // Preferring three-word-plus terms is right, but it cannot be a filter:
+  // plenty of banks are all two-word terms, and a task specified as "three
+  // to five" that returns nothing has failed, not found nothing. Longest
+  // first, with the shorter ones labelled for what they are.
+  const words = (t: string) => t.trim().split(/\s+/).length;
+  const candidates = kw.slice(1).sort((a, b) => words(b.term) - words(a.term));
+  const overlay = candidates.slice(0, 5).map((k) => ({
+    id: k.id,
+    term: k.term,
+    why: words(k.term) >= 3
+      ? "long-tail enough to read as a phrase on the image"
+      : "the longest term available — check it works as a hook, not as a label",
+  }));
+
+  return {
+    keywords: { chosen: kw, primary_id: kw[0]?.id ?? null },
+    boards: { chosen: bd },
+    overlay: { chosen: overlay },
+    gaps: [...new Set([...advice.keywords.gaps, ...advice.boards.gaps])],
+    skipped,
+  };
+}
+
+/**
+ * Apply a pre-fill the manager has confirmed.
+ *
+ * Refuses to overwrite an existing assignment unless asked. Re-running the
+ * proposal after somebody has hand-picked boards and silently replacing
+ * them is the kind of helpfulness that makes people stop trusting a tool.
+ */
+export async function applyCyclePrefill(
+  orgId: string,
+  urlId: string,
+  chosen: {
+    keyword_ids?: string[];
+    primary_id?: string;
+    overlay_ids?: string[];
+    board_ids?: string[];
+    replace?: boolean;
+  }
+): Promise<{ keywords: number; boards: number; overlay: number; skipped: string[] }> {
+  const pool = organicPool();
+  const counts = await pool.query<{ kw: string; bd: string }>(
+    `SELECT (SELECT COUNT(*) FROM organic.url_keywords WHERE url_id = $1)::text AS kw,
+            (SELECT COUNT(*) FROM organic.url_boards   WHERE url_id = $1)::text AS bd`,
+    [urlId]
+  );
+  const skipped: string[] = [];
+  let keywords = 0, boards = 0, overlay = 0;
+
+  if (chosen.keyword_ids?.length && chosen.primary_id) {
+    if (Number(counts.rows[0].kw) > 0 && !chosen.replace) {
+      skipped.push("keywords left alone — already assigned");
+    } else {
+      await assignKeywordsToUrl(urlId, chosen.keyword_ids, chosen.primary_id, chosen.overlay_ids ?? []);
+      keywords = chosen.keyword_ids.length;
+      overlay = (chosen.overlay_ids ?? []).filter((id) => id !== chosen.primary_id).length;
+    }
+  }
+
+  if (chosen.board_ids?.length) {
+    if (Number(counts.rows[0].bd) > 0 && !chosen.replace) {
+      skipped.push("boards left alone — already assigned");
+    } else {
+      await assignBoardsToUrl(urlId, chosen.board_ids);
+      boards = chosen.board_ids.length;
+    }
+  }
+
+  return { keywords, boards, overlay, skipped };
+}
+
+export interface MonthlySelection {
+  /** How many URLs the store's frequency asks for this month. */
+  target: number;
+  /** Already started a cycle this month. */
+  started: number;
+  proposed: Array<{
+    url_id: string;
+    name: string;
+    url: string;
+    type: string;
+    why: string;
+    proven_clicks: number;
+    proven_saves: number;
+    seasonal: boolean;
+  }>;
+  gaps: string[];
+}
+
+/**
+ * P4.1.4 — the month's URLs, proposed rather than asked for blind.
+ *
+ * Leads with what has been proven here, then what the season is opening,
+ * then everything else the research ranks. The counter runs against
+ * `client_settings.urls_per_month` so "how many still to pick" is on screen
+ * instead of in someone's head.
+ */
+export async function proposeMonthlySelection(orgId: string): Promise<MonthlySelection> {
+  const pool = organicPool();
+
+  const [settings, started, candidates, seasonal, brief] = await Promise.all([
+    pool.query<{ urls_per_month: number | null }>(
+      `SELECT urls_per_month FROM organic.client_settings WHERE org_id = $1`, [orgId]),
+    pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.waterfalls
+        WHERE org_id = $1 AND created_at >= date_trunc('month', now())`, [orgId]),
+    candidateUrls(orgId),
+    seasonalCandidates(orgId),
+    loadAccountBrief(orgId),
+  ]);
+
+  const target = settings.rows[0]?.urls_per_month ?? 4;
+  const seasonalIds = new Set(seasonal.map((s: { id: string }) => s.id));
+
+  const options = (candidates as Array<Record<string, unknown>>).map((c) => ({
+    id: String(c.id),
+    name: String(c.name ?? ""),
+    url: String(c.url ?? ""),
+    type: String(c.type ?? ""),
+    reason: String(c.reason ?? ""),
+    lead_signal: c.lead_signal == null ? null : String(c.lead_signal),
+    funnel_stage: c.funnel_stage == null ? null : String(c.funnel_stage),
+    is_seasonal: Boolean(c.is_seasonal),
+    clicks: Number(c.proven_clicks ?? 0),
+    saves: Number(c.proven_saves ?? 0),
+  }));
+
+  const ranked = brief
+    ? adviseUrls(brief, options.map((o) => ({
+        id: o.id, name: o.name, type: o.type, reason: o.reason,
+        funnel_stage: o.funnel_stage, is_seasonal: o.is_seasonal,
+      })))
+    : { suggested: [], reasons: [], gaps: ["No account brief — the research has not been loaded"] };
+
+  const rank = new Map(ranked.suggested.map((s: { id: string }, i: number) => [s.id, i]));
+  const reasonFor = new Map(
+    ranked.suggested.map((s: { id: string }, i: number) => [s.id, ranked.reasons[i] ?? ""])
+  );
+
+  const scored = options
+    .map((o) => {
+      const why =
+        o.clicks + o.saves > 0
+          ? `won here before — ${o.clicks.toLocaleString("en-US")} clicks / ${o.saves.toLocaleString("en-US")} saves`
+          : seasonalIds.has(o.id)
+            ? "its peak window opens in the next six to ten weeks"
+            : o.lead_signal === "PHASE1_TOP_PIN"
+              ? "a top performer from the phase-1 audit"
+              : o.lead_signal === "NEW_URL"
+                ? "a new URL, which the algorithm rewards heavily"
+                : reasonFor.get(o.id) || "ranked by the research";
+      // Proven first, season second, then whatever the research ranks.
+      const tier = o.clicks + o.saves > 0 ? 0 : seasonalIds.has(o.id) ? 1 : 2;
+      return { o, why, tier, sub: rank.get(o.id) ?? 999 };
+    })
+    .sort((a, b) => a.tier - b.tier || b.o.clicks - a.o.clicks || a.sub - b.sub);
+
+  return {
+    target,
+    started: Number(started.rows[0].n),
+    proposed: scored.slice(0, Math.max(target * 2, 8)).map((s) => ({
+      url_id: s.o.id,
+      name: s.o.name,
+      url: s.o.url,
+      type: s.o.type,
+      why: s.why,
+      proven_clicks: s.o.clicks,
+      proven_saves: s.o.saves,
+      seasonal: seasonalIds.has(s.o.id),
+    })),
+    gaps: ranked.gaps,
   };
 }
 
