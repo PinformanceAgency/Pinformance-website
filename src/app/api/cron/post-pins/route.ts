@@ -156,6 +156,14 @@ async function handlePostPins(request: NextRequest) {
     (onlyParam ? onlyParam.split(",") : []).map((s) => s.trim()).filter(Boolean)
   );
   const pass = Math.max(1, Number(request.nextUrl.searchParams.get("pass")) || 1);
+  // `?budget_ms=` shortens the run on purpose. It exists so the continuation
+  // chain can be exercised against real data without waiting for a day busy
+  // enough to run the budget out — clamped, and behind the same cron secret as
+  // everything else here.
+  const budgetOverride = Number(request.nextUrl.searchParams.get("budget_ms"));
+  const runBudgetMs = Number.isFinite(budgetOverride) && budgetOverride > 0
+    ? Math.min(Math.max(budgetOverride, 5_000), 120_000)
+    : RUN_BUDGET_MS;
 
   // Self-heal: reset pins stuck in "posting" for > 10 minutes back to scheduled
   const stuckCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -217,7 +225,7 @@ async function handlePostPins(request: NextRequest) {
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
   // Raised to VIDEO_RUN_BUDGET_MS for the rest of the run once a video starts.
-  let budgetMs = RUN_BUDGET_MS;
+  let budgetMs = runBudgetMs;
   const budgetLeft = () => budgetMs - elapsed();
   let videosThisRun = 0;
   const notReached: Array<{ id: string; name: string }> = [];
@@ -724,7 +732,8 @@ async function handlePostPins(request: NextRequest) {
     const base = process.env.NEXT_PUBLIC_APP_URL || `https://${request.nextUrl.host}`;
     const url = `${base}/api/cron/post-pins?pass=${pass + 1}`
       + `&only=${notReached.map((n) => n.id).join(",")}`
-      + (forcedOrgIds.size > 0 ? `&force_org=${Array.from(forcedOrgIds).join(",")}` : "");
+      + (forcedOrgIds.size > 0 ? `&force_org=${Array.from(forcedOrgIds).join(",")}` : "")
+      + (runBudgetMs !== RUN_BUDGET_MS ? `&budget_ms=${runBudgetMs}` : "");
     after(async () => {
       try {
         await fetch(url, { headers: { "x-cron-secret": process.env.CRON_SECRET ?? "" } });
