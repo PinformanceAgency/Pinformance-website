@@ -26,10 +26,24 @@ const RUN_BUDGET_MS = Number(process.env.POST_PINS_BUDGET_MS) || 50_000;
 /**
  * Videos are register → upload → poll, and the poll alone runs to 60s while
  * the file sits in memory as one Buffer. Two of those in a run is the memory
- * kill. One per run, and only when there is time left to finish it.
+ * kill, so: one per run.
+ *
+ * A video does not fit in RUN_BUDGET_MS and never will — the first version of
+ * this guard asked for 90s of a 50s budget, which is a condition that cannot
+ * be true, so every video pin was deferred on every run forever. So a video
+ * is only started in the first VIDEO_START_BEFORE_MS of a run, and once one is
+ * in flight the run is allowed to grow to VIDEO_RUN_BUDGET_MS to finish it.
+ * Starting late is the thing that kills a run; running long on purpose, with
+ * exactly one file in memory, is not.
  */
 const MAX_VIDEOS_PER_RUN = 1;
-const VIDEO_MIN_BUDGET_MS = 90_000;
+const VIDEO_START_BEFORE_MS = 15_000;
+const VIDEO_RUN_BUDGET_MS = 110_000;
+
+/** Refuse to pull an unreasonably large file into memory. Our pins are a few
+ *  MB; anything near this is a mistake upstream and taking the run down with
+ *  it helps nobody. */
+const MAX_VIDEO_BYTES = 120 * 1024 * 1024;
 
 /**
  * Is this failure worth trying again in five seconds?
@@ -151,7 +165,10 @@ async function handlePostPins(request: NextRequest) {
   const lastPostedByOrg = new Map(due.map((d) => [d.org_id, d.last_posted]));
 
   const startedAt = Date.now();
-  const budgetLeft = () => RUN_BUDGET_MS - (Date.now() - startedAt);
+  const elapsed = () => Date.now() - startedAt;
+  // Raised to VIDEO_RUN_BUDGET_MS for the rest of the run once a video starts.
+  let budgetMs = RUN_BUDGET_MS;
+  const budgetLeft = () => budgetMs - elapsed();
   let videosThisRun = 0;
   const notReached: string[] = [];
 
@@ -384,11 +401,12 @@ async function handlePostPins(request: NextRequest) {
             orgErrors.push(`Pin ${pin.id}: video deferred, one per run`);
             continue;
           }
-          if (budgetLeft() < VIDEO_MIN_BUDGET_MS) {
-            orgErrors.push(`Pin ${pin.id}: video deferred, not enough time left this run`);
+          if (elapsed() > VIDEO_START_BEFORE_MS) {
+            orgErrors.push(`Pin ${pin.id}: video deferred, too late in the run to start one`);
             continue;
           }
           videosThisRun++;
+          budgetMs = VIDEO_RUN_BUDGET_MS;
         }
 
         // Mark as posting
@@ -418,6 +436,10 @@ async function handlePostPins(request: NextRequest) {
 
               const videoRes = await fetch(videoUrl);
               if (!videoRes.ok) throw new Error(`Video download: ${videoRes.status}`);
+              const declared = Number(videoRes.headers.get("content-length") || 0);
+              if (declared > MAX_VIDEO_BYTES) {
+                throw new Error(`Video is ${Math.round(declared / 1048576)}MB, over the ${MAX_VIDEO_BYTES / 1048576}MB limit`);
+              }
               const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
               const videoContentType = videoRes.headers.get("content-type") || "video/mp4";
 
