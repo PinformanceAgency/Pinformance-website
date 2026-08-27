@@ -149,6 +149,16 @@ Defined in migrations 031-041. Called from `team-activity.ts` via direct pg conn
 
 Follow the pattern in `scripts/create-tola-orgs.ts` / `scripts/create-additional-orgs.ts`. Insert into `organizations` (with slug + default settings JSON), then insert an empty `brand_profiles` row.
 
+To catch up with the Monday clients board (board 5091362359, group `topics` = active), use the pair:
+
+```bash
+DOTENV_CONFIG_PATH=.env.local npx tsx scripts/diff-monday-vs-dashboard.ts          # read-only diff
+ADD_STORES_DRY_RUN=1 DOTENV_CONFIG_PATH=.env.local npx tsx scripts/add-monday-active-stores.ts
+DOTENV_CONFIG_PATH=.env.local npx tsx scripts/add-monday-active-stores.ts          # create the missing orgs
+```
+
+**Match on ad account ID, never on name.** The board names and the org names diverge systematically — `www.terrahouseco.com` is `Terrahouse`, `Nova's Jewelry` is `Nova Jewelry`, `Tola Jewelry` is `Tola Jewelry US`. A name-only comparison reported 26 of 52 active stores as missing where only 4 really were; acting on that would have created 22 duplicate orgs. The ad account → org mapping comes from the snapshot tables (same source as `dashboardLinks()`), with normalised name only as the fallback for stores that never had a snapshot — which is exactly the fresh ones. The add script deliberately creates **no** `store_settings` row: department/niche/BER/invoice ROAS/buyer are decisions, not derivable data, so the store lands on "Needs setup" and stays out of Zones and Benchmarks until someone configures it.
+
 Or inline SQL:
 ```sql
 INSERT INTO organizations (name, slug, onboarding_step, onboarding_completed_at, settings)
