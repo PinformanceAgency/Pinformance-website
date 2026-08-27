@@ -28,6 +28,7 @@ const STATUS_FILTERS: { label: string; value: PinStatus | "all" }[] = [
   { label: "Posted", value: "posted" },
   { label: "Rejected", value: "rejected" },
   { label: "Failed", value: "failed" },
+  { label: "Cancelled", value: "cancelled" },
 ];
 
 export default function PinsPage() {

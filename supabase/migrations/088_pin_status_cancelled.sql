@@ -1,0 +1,25 @@
+-- 088 — een pin kan bewust vervallen: status 'cancelled'.
+--
+-- WHY A NEW VALUE WHEN 'CANCELLED' ALREADY EXISTS
+-- -----------------------------------------------
+-- The enum carries a legacy uppercase set (PLANNED, SCHEDULED, PUBLISHED,
+-- FAILED, CANCELLED) alongside the lowercase one the application actually
+-- writes. Every query in the app is lowercase — `.eq("status", "cancelled")`
+-- against an uppercase row matches nothing, silently. Reusing the uppercase
+-- value would put 55 pins in a state no filter, type or count in the codebase
+-- can see, which is the same "invisible backlog" problem this whole thread has
+-- been about.
+--
+-- WHAT IT IS FOR
+-- --------------
+-- A pin nobody is waiting for any more. Not `failed` (that means something went
+-- wrong and might be worth fixing) and not `rejected` (a judgement on the pin
+-- itself). Offboarded stores are the first case: Smartsporter left with 55 pins
+-- queued, and the posting cron kept picking the store up on every run, failing
+-- on a dead token refresh, and reporting a backlog nobody intended to publish.
+--
+-- ADD VALUE runs inside a transaction on PG12+, but the new value cannot be
+-- USED until that transaction commits — so the rows are moved by
+-- scripts/cancel-org-pins.ts, not here.
+
+ALTER TYPE public.pin_status ADD VALUE IF NOT EXISTS 'cancelled';

@@ -14,7 +14,10 @@ export type PinStatus =
   | "posting"
   | "posted"
   | "failed"
-  | "rejected";
+  | "rejected"
+  // Deliberately dropped — an offboarded store's queue, not a failure and not
+  // a judgement on the pin. See migration 088.
+  | "cancelled";
 
 export type BoardStatus = "draft" | "created" | "active" | "archived";
 

@@ -180,6 +180,19 @@ lowers the interval to `floor(1440 / cap)` where it has to, and never raises it
 past what somebody chose. The check in the route uses
 `min(cap, floor(1440 / interval))` for the same reason.
 
+**Offboarding a store: cancel its queue.** A store that leaves keeps whatever
+was scheduled, and `pins_due_orgs()` keeps handing it to the cron — Smartsporter
+left with 55 pins queued and a dead refresh token, so every run spent time
+failing on it and every backlog figure counted work nobody intended to publish.
+`scripts/cancel-org-pins.ts "Store Name"` moves the open pins (`generated`,
+`approved`, `scheduled`) to `cancelled` with a reason; posted pins are history
+and are never touched, and nothing is deleted.
+
+`cancelled` is a **new lowercase** enum value (migration 088), not the legacy
+uppercase `CANCELLED` that was already there. The enum carries both cases; the
+application writes lowercase everywhere, so `.eq("status", "cancelled")` against
+an uppercase row matches nothing, silently. Never write the uppercase values.
+
 **When pins are not appearing on Pinterest, check in this order:**
 `organizations.pinterest_last_error`; is the pin `posted` with a
 `pinterest_pin_id` (then it exists — verify with `GET /pins/{id}` before
