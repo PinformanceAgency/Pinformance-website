@@ -180,6 +180,25 @@ Deliberately not asked: *what* the check found. That belongs in the work panel
 every one of these tasks already has. Ask for it twice and it gets recorded in
 neither place.
 
+**Retiring a task: `active = false`, and never reuse the id.** Migration 084
+folded P1.1.8 (Other social content) into P1.1.7 — one drive link and one
+Instagram export are one conversation, and two tasks meant waiting on the same
+client twice. The pattern, also used by P1.1.2, P1.1.5 and P4.1.5:
+
+1. Fold the surviving text into the keeper, and move notes and `time_spent_min`
+   across.
+2. Reopen a keeper that was DONE while the retired half was not — the merged
+   task now covers work that never happened.
+3. `DELETE` the retired task's `client_tasks` and `task_preconditions` rows, then
+   `active = false` on the definition. `activate.ts` filters on `active`, so new
+   stores never see it; `loadClientTasks` filters on it too, so a lingering row
+   could not render either.
+4. **Leave the id in `reconcile-spec.ts`'s SPEC list.** It is reported under
+   RETIRED, where it is explained. Drop it and it reappears under EXTRA, reading
+   as something nobody meant to build.
+5. Never renumber the ids that follow. They appear in guidance prose,
+   preconditions, the research record and this file. Step 1 has a gap at 8.
+
 Surfaces:
 
 | Route | What it is |

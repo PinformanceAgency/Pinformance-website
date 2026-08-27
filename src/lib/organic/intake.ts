@@ -63,9 +63,11 @@ export interface IntakePayload {
   total_time_min: number;
 }
 
+// P1.1.8 is absent, not forgotten: it was folded into P1.1.7 by migration
+// 084 and the id is deliberately not reused. Step 1 has a gap at 8.
 const P1_1_TASKS = [
   "P1.1.1","P1.1.2","P1.1.3","P1.1.4","P1.1.5","P1.1.6",
-  "P1.1.7","P1.1.8","P1.1.9","P1.1.10","P1.1.11",
+  "P1.1.7","P1.1.9","P1.1.10","P1.1.11",
 ];
 
 export async function saveIntake(orgId: string, p: IntakePayload) {

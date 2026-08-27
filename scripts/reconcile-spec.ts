@@ -1,7 +1,14 @@
 import "dotenv/config";
 import { Client } from "pg";
 
-/** The 116 tasks the specification defines, by phase. */
+/** The 116 tasks the specification defines, by phase.
+ *
+ *  Retired tasks stay listed. P1.1.8 was folded into P1.1.7 by migration 084
+ *  and P1.1.2, P1.1.5 and P4.1.5 went the same way earlier: active = false,
+ *  id never reused, because these ids appear in guidance prose, preconditions
+ *  and the research record. Dropping them from here would move them from the
+ *  RETIRED section — where they are explained — into EXTRA, where they read
+ *  as something nobody meant to build. */
 const SPEC: Record<number, string[]> = {
   1: [
     "P1.0.1","P1.0.2","P1.0.3","P1.0.4",
