@@ -194,6 +194,7 @@ async function handlePostPins(request: NextRequest) {
   let videosThisRun = 0;
   const notReached: string[] = [];
   const newlyBlocked: Array<{ org: string; reason: string }> = [];
+  const recovered: string[] = [];
 
   /**
    * Persist why a store is not publishing — or clear it once one does.
@@ -210,6 +211,13 @@ async function handlePostPins(request: NextRequest) {
       // same thing 96 times is a channel nobody reads.
       if (now && now !== before) {
         newlyBlocked.push({ org: (byId.get(orgId)?.name as string) || orgId, reason: now });
+      }
+      // And the other direction. A store that was blocked and is publishing
+      // again is the message somebody is actually waiting for — petcura sat
+      // on Trial access for weeks, and the day that is granted the only
+      // signal would otherwise be somebody thinking to go and look.
+      if (!now && before) {
+        recovered.push((byId.get(orgId)?.name as string) || orgId);
       }
       if (now === before) return;
       await admin.from("organizations").update({
@@ -667,6 +675,16 @@ async function handlePostPins(request: NextRequest) {
         `${newlyBlocked.length} store(s) publiceren niet meer. Pins blijven op scheduled staan ` +
         `tot dit opgelost is.`,
       error: newlyBlocked.map((b) => `${b.org}: ${b.reason}`).join("\n"),
+    });
+  }
+
+  if (recovered.length > 0) {
+    await alertCronFailure({
+      cron: "post-pins",
+      level: "attention",
+      message:
+        `${recovered.join(", ")} publiceert weer. De achterstand loopt vanaf nu terug op ` +
+        `de dagcap van de store.`,
     });
   }
 
