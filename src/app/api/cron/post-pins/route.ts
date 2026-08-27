@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
+import { alertCronFailure } from "@/lib/alerts";
 
 export const maxDuration = 300;
 
@@ -172,7 +173,7 @@ async function handlePostPins(request: NextRequest) {
 
   const { data: orgRows } = await admin
     .from("organizations")
-    .select("id, name, pinterest_access_token_encrypted, pinterest_refresh_token_encrypted, pinterest_token_expires_at, pinterest_app_id, pinterest_app_secret_encrypted, settings")
+    .select("id, name, pinterest_access_token_encrypted, pinterest_refresh_token_encrypted, pinterest_token_expires_at, pinterest_app_id, pinterest_app_secret_encrypted, settings, pinterest_last_error")
     .not("pinterest_access_token_encrypted", "is", null)
     .in("id", due.map((d) => d.org_id));
 
@@ -192,6 +193,7 @@ async function handlePostPins(request: NextRequest) {
   const budgetLeft = () => budgetMs - elapsed();
   let videosThisRun = 0;
   const notReached: string[] = [];
+  const newlyBlocked: Array<{ org: string; reason: string }> = [];
 
   /**
    * Persist why a store is not publishing — or clear it once one does.
@@ -201,9 +203,18 @@ async function handlePostPins(request: NextRequest) {
    */
   const recordOrgOutcome = async (orgId: string, reason: string | null) => {
     try {
+      const before = (byId.get(orgId)?.pinterest_last_error as string | null) ?? null;
+      const now = reason ? reason.slice(0, 500) : null;
+      // Only shout when something changed. A store blocked on trial access is
+      // blocked on every one of the 96 runs a day, and a channel that says the
+      // same thing 96 times is a channel nobody reads.
+      if (now && now !== before) {
+        newlyBlocked.push({ org: (byId.get(orgId)?.name as string) || orgId, reason: now });
+      }
+      if (now === before) return;
       await admin.from("organizations").update({
-        pinterest_last_error: reason ? reason.slice(0, 500) : null,
-        pinterest_last_error_at: reason ? new Date().toISOString() : null,
+        pinterest_last_error: now,
+        pinterest_last_error_at: now ? new Date().toISOString() : null,
       }).eq("id", orgId);
     } catch {
       /* bookkeeping only */
@@ -642,6 +653,21 @@ async function handlePostPins(request: NextRequest) {
       ...(storeBlocked ? { blocked: storeBlocked } : {}),
     });
     totalPosted += orgPosted;
+  }
+
+  // A store that has stopped publishing is worth a message the first time it
+  // happens, and never again until something changes. Without this the reason
+  // sits in a database column that nobody has a reason to look at — which is
+  // how petcura went from onboarding to zero posts unnoticed.
+  if (newlyBlocked.length > 0) {
+    await alertCronFailure({
+      cron: "post-pins",
+      level: "attention",
+      message:
+        `${newlyBlocked.length} store(s) publiceren niet meer. Pins blijven op scheduled staan ` +
+        `tot dit opgelost is.`,
+      error: newlyBlocked.map((b) => `${b.org}: ${b.reason}`).join("\n"),
+    });
   }
 
   // The run says what it did AND what it did not get to. A cron that reports

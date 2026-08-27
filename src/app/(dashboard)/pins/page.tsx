@@ -15,6 +15,7 @@ import {
   CheckSquare,
   Square,
   XCircle,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 import type { Pin, PinStatus } from "@/lib/types";
@@ -39,6 +40,16 @@ export default function PinsPage() {
   const [toast, setToast] = useState<{ kind: "success" | "error"; msg: string } | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [perDay, setPerDay] = useState(5);
+  /**
+   * Why this store's pins are not going out, if they are not.
+   *
+   * Written by the post-pins cron (migration 087) and shown here because this
+   * is the page where somebody looks when they wonder why the queue is not
+   * moving. Before this, a store could be blocked for weeks — petcura was
+   * refused by Pinterest on every single pin from onboarding onwards — and
+   * every screen in the app showed a healthy list of "scheduled" pins.
+   */
+  const [blocked, setBlocked] = useState<{ reason: string; at: string | null } | null>(null);
 
   async function load() {
     if (!org) return;
@@ -52,6 +63,17 @@ export default function PinsPage() {
     if (filter !== "all") query = query.eq("status", filter);
     const { data } = await query;
     setPins((data as Pin[]) || []);
+
+    const { data: orgRow } = await supabase
+      .from("organizations")
+      .select("pinterest_last_error, pinterest_last_error_at")
+      .eq("id", org!.id)
+      .single();
+    setBlocked(
+      orgRow?.pinterest_last_error
+        ? { reason: orgRow.pinterest_last_error as string, at: (orgRow.pinterest_last_error_at as string) ?? null }
+        : null
+    );
     // Drop any selection that's no longer visible.
     setSelected((prev) => {
       const next = new Set<string>();
@@ -152,6 +174,8 @@ export default function PinsPage() {
           All generated and posted pins for your brand
         </p>
       </div>
+
+      {blocked && <PublishingBlocked reason={blocked.reason} at={blocked.at} />}
 
       <div className="flex items-center gap-2 flex-wrap">
         <Filter className="w-4 h-4 text-muted-foreground" />
@@ -448,6 +472,49 @@ export default function PinsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Pinterest is refusing this store's pins, and says why.
+ *
+ * The raw API message is shown rather than a friendly paraphrase: the two
+ * causes seen in practice — an app still on Trial access, and a token that
+ * cannot be refreshed — need completely different people to fix them, and a
+ * paraphrase that blurs them costs more than it saves. `explain()` adds the
+ * one sentence that says which of those it is.
+ */
+function PublishingBlocked({ reason, at }: { reason: string; at: string | null }) {
+  const explain = (r: string): string | null => {
+    if (r.includes("Trial access")) {
+      return "This store's own Pinterest app has not been granted Standard access. A Trial app cannot create pins in production at all — request Standard access for it in the Pinterest developer portal. Nothing in the dashboard can work around this.";
+    }
+    if (r.toLowerCase().includes("token")) {
+      return "Reconnect the Pinterest account under Integrations. Until then nothing will publish.";
+    }
+    return null;
+  };
+  const help = explain(reason);
+
+  return (
+    <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4" role="alert">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">
+            Pinterest is not accepting this store&rsquo;s pins
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Scheduled pins stay scheduled until this is resolved &mdash; they are not being published.
+            {at && ` Last attempt ${new Date(at).toLocaleString()}.`}
+          </p>
+          {help && <p className="mt-2 text-sm text-foreground">{help}</p>}
+          <pre className="mt-2 text-[11px] text-muted-foreground whitespace-pre-wrap break-words">
+            {reason}
+          </pre>
+        </div>
+      </div>
     </div>
   );
 }
