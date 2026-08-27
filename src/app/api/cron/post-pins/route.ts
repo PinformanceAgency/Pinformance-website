@@ -162,7 +162,7 @@ async function handlePostPins(request: NextRequest) {
   // everything else here.
   const budgetOverride = Number(request.nextUrl.searchParams.get("budget_ms"));
   const runBudgetMs = Number.isFinite(budgetOverride) && budgetOverride > 0
-    ? Math.min(Math.max(budgetOverride, 5_000), 120_000)
+    ? Math.min(Math.max(budgetOverride, 1_000), 120_000)
     : RUN_BUDGET_MS;
 
   // Self-heal: reset pins stuck in "posting" for > 10 minutes back to scheduled
