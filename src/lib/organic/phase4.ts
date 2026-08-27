@@ -664,13 +664,24 @@ export async function loadWaterfallSchedule(waterfallId: string) {
 
 /** Simulated schedule push — the real Pinterest push lives with the pin
  *  scheduler and reuses the existing post-pins cron. */
+/**
+ * P4.4.1 — put an approved waterfall into the publishing queue.
+ *
+ * This does not post. The sixteen pins carry dates that are spread over
+ * weeks on purpose, so posting them here would collapse the waterfall into
+ * a single day and undo the only thing it exists to do. It moves them to
+ * SCHEDULED; `/api/cron/organic-post-pins` posts each one when its date
+ * arrives, and enforces the caps there.
+ */
 export async function pushWaterfallToPinterest(
-  waterfallId: string,
-  opts: { dryRun?: boolean } = {}
+  orgId: string,
+  ref: { waterfallId?: string; urlId?: string }
 ) {
-  if (opts.dryRun) return { queued: 0, mode: "dry-run" as const };
-  // TODO: hand off to the existing post-pins cron path. Skeleton for now.
-  return { queued: 0, mode: "handoff-todo" as const };
+  const { scheduleWaterfall, currentWaterfallForUrl } = await import("./publish");
+  const id = ref.waterfallId
+    ?? (ref.urlId ? await currentWaterfallForUrl(orgId, ref.urlId) : null);
+  if (!id) throw new Error("push needs a waterfall_id or a url_id");
+  return scheduleWaterfall(orgId, id);
 }
 
 // ---------- helpers ---------------------------------------------------------

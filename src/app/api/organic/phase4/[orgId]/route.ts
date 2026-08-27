@@ -72,8 +72,19 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       return await P4.generateWaterfall(orgId, String(body.url_id), String(body.start_date));
     case "schedule":
       return { rows: await P4.loadWaterfallSchedule(String(body.waterfall_id)) };
+    // P4.4.1 — queues the waterfall. The cron posts each pin on its date;
+    // see the note on pushWaterfallToPinterest for why this cannot publish.
     case "push":
-      return P4.pushWaterfallToPinterest(String(body.waterfall_id), { dryRun: !!body.dry_run });
+      return P4.pushWaterfallToPinterest(orgId, {
+        waterfallId: body.waterfall_id ? String(body.waterfall_id) : undefined,
+        urlId: body.url_id ? String(body.url_id) : undefined,
+      });
+    // P4.4.2 — publication status, failures, and whether the token is the
+    // thing standing in the way.
+    case "publish_health": {
+      const { loadPublishHealth } = await import("@/lib/organic/publish");
+      return { health: await loadPublishHealth(orgId) };
+    }
     case "complete_cycle_task": {
       await P4.completeCycleTask(orgId, String(body.cycle), String(body.task_id), t(), body.notes as string | undefined);
       return { ok: true };
