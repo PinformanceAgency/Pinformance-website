@@ -1,5 +1,5 @@
 /**
- * Intake form — P1.1.1 through P1.1.11.
+ * Intake form — P1.1.1 through P1.1.10.
  *
  * One submit writes:
  *   - organic.client_intake       (structured client info)
@@ -63,11 +63,11 @@ export interface IntakePayload {
   total_time_min: number;
 }
 
-// P1.1.8 is absent, not forgotten: it was folded into P1.1.7 by migration
-// 084 and the id is deliberately not reused. Step 1 has a gap at 8.
+// Ten, not eleven: "Other social content" was folded into P1.1.7 by
+// migration 084 and 085 closed the gap, so 9/10/11 are now 8/9/10.
 const P1_1_TASKS = [
-  "P1.1.1","P1.1.2","P1.1.3","P1.1.4","P1.1.5","P1.1.6",
-  "P1.1.7","P1.1.9","P1.1.10","P1.1.11",
+  "P1.1.1","P1.1.2","P1.1.3","P1.1.4","P1.1.5",
+  "P1.1.6","P1.1.7","P1.1.8","P1.1.9","P1.1.10",
 ];
 
 export async function saveIntake(orgId: string, p: IntakePayload) {
@@ -204,7 +204,7 @@ export async function saveIntake(orgId: string, p: IntakePayload) {
     const id = await autoLinkAsset({ orgId, url, taskId, title });
     if (id) captured.push(id);
   };
-  await cap(p.product_feed_url, "P1.1.11", "Product feed URL");
+  await cap(p.product_feed_url, "P1.1.10", "Product feed URL");
   await cap(p.existing_pinterest?.match(/^https?:\/\//) ? p.existing_pinterest! : null,
             "P1.1.5", "Existing Pinterest profile");
 

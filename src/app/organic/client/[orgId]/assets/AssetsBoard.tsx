@@ -22,9 +22,9 @@ const TYPES = [
 const TASK_HINTS = [
   ["P1.1.6", "Collect brand book"],
   ["P1.1.7", "Connect content drive"],
-  ["P1.1.9", "Request Google keyword list"],
-  ["P1.1.10", "Audience document"],
-  ["P1.1.11", "Connect product feed"],
+  ["P1.1.8", "Request Google keyword list"],
+  ["P1.1.9", "Audience document"],
+  ["P1.1.10", "Connect product feed"],
   ["P2.1.6", "Export competitor pins (PinInspector)"],
   ["P2.1.7", "Collect top pin designs"],
   ["P1.2.2", "Flagged pin check"],

@@ -22,9 +22,9 @@ type AssetType =
 const TASK_TO_TYPE: Record<string, AssetType> = {
   "P1.1.6":  "BRAND_BOOK",
   "P1.1.7":  "CONTENT_DRIVE",
-  "P1.1.9":  "GOOGLE_KEYWORD_LIST",
-  "P1.1.10": "AUDIENCE_DOCUMENT",
-  "P1.1.11": "PRODUCT_FEED",
+  "P1.1.8":  "GOOGLE_KEYWORD_LIST",
+  "P1.1.9":  "AUDIENCE_DOCUMENT",
+  "P1.1.10": "PRODUCT_FEED",
   "P1.2.2":  "FLAGGED_PIN_REPORT",
   "P2.1.6":  "PININSPECTOR_EXPORT",
   "P2.1.7":  "MOODBOARD",           // top-pin designs collected as boards

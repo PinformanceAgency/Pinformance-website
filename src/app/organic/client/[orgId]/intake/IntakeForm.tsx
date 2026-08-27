@@ -261,7 +261,7 @@ export function IntakeForm({
         </Grid>
       </Section>
 
-      <Section title="Access (P1.1.2 – P1.1.5, P1.1.11)">
+      <Section title="Access (P1.1.2 – P1.1.5, P1.1.10)">
         <Grid>
           <Field label="Pinterest login (P1.1.2)"><Bool v={v.pinterest_login} on={(x) => set("pinterest_login", x)} /></Field>
           <Field label="Login end date (required if granted)">
@@ -272,7 +272,7 @@ export function IntakeForm({
           <Field label="GSC (P1.1.4)"><Bool v={v.gsc_access} on={(x) => set("gsc_access", x)} /></Field>
           <Field label="CMS access (P1.1.5)"><Bool v={v.cms_access} on={(x) => set("cms_access", x)} /></Field>
           <Field label="CMS platform"><Select v={v.cms_platform} on={(x) => set("cms_platform", x)} opts={CMS_PLATFORMS} /></Field>
-          <Field label="Product feed URL (P1.1.11)" span={3}><Text v={v.product_feed_url} on={(x) => set("product_feed_url", x)} placeholder="https://.../feed.xml" /></Field>
+          <Field label="Product feed URL (P1.1.10)" span={3}><Text v={v.product_feed_url} on={(x) => set("product_feed_url", x)} placeholder="https://.../feed.xml" /></Field>
           <Field label="Access notes" span={3}><TextArea v={v.access_notes} on={(x) => set("access_notes", x)} /></Field>
         </Grid>
       </Section>

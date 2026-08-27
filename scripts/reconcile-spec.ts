@@ -1,18 +1,22 @@
 import "dotenv/config";
 import { Client } from "pg";
 
-/** The 116 tasks the specification defines, by phase.
+/** The 115 tasks the specification defines, by phase.
  *
- *  Retired tasks stay listed. P1.1.8 was folded into P1.1.7 by migration 084
- *  and P1.1.2, P1.1.5 and P4.1.5 went the same way earlier: active = false,
- *  id never reused, because these ids appear in guidance prose, preconditions
- *  and the research record. Dropping them from here would move them from the
- *  RETIRED section — where they are explained — into EXTRA, where they read
- *  as something nobody meant to build. */
+ *  Retired tasks stay listed — P1.1.2, P1.1.5 and P4.1.5 are active = false in
+ *  the database and are reported under RETIRED, where they are explained.
+ *  Dropping them from here would move them into EXTRA, where they read as
+ *  something nobody meant to build.
+ *
+ *  Step 1 lost a task rather than retiring one: "Other social content" was
+ *  folded into P1.1.7 (migration 084) and the ids after it were closed up
+ *  (085), so step 1 runs 1-10 with no gap. P1.1.8 now means "Request Google
+ *  keyword list" — in migrations 057, 069 and 084 that id means the task that
+ *  no longer exists. */
 const SPEC: Record<number, string[]> = {
   1: [
     "P1.0.1","P1.0.2","P1.0.3","P1.0.4",
-    "P1.1.1","P1.1.2","P1.1.3","P1.1.4","P1.1.5","P1.1.6","P1.1.7","P1.1.8","P1.1.9","P1.1.10","P1.1.11",
+    "P1.1.1","P1.1.2","P1.1.3","P1.1.4","P1.1.5","P1.1.6","P1.1.7","P1.1.8","P1.1.9","P1.1.10",
     "P1.2.1","P1.2.2","P1.2.3","P1.2.4","P1.2.5","P1.2.6","P1.2.7","P1.2.8","P1.2.9","P1.2.10","P1.2.11","P1.2.12","P1.2.13","P1.2.14","P1.2.15",
     "P1.3.1","P1.3.2","P1.3.3","P1.3.4","P1.3.5","P1.3.6","P1.3.7","P1.3.8","P1.3.9","P1.3.10","P1.3.11","P1.3.12","P1.3.13","P1.3.14",
   ],
@@ -45,7 +49,7 @@ const SPEC_TYPES: Record<string, string> = {
   "P1.0.1":"IN_DASHBOARD","P1.0.2":"IN_DASHBOARD","P1.0.3":"AUTO","P1.0.4":"IN_DASHBOARD",
   "P1.1.1":"IN_DASHBOARD","P1.1.2":"IN_DASHBOARD","P1.1.3":"IN_DASHBOARD","P1.1.4":"EXTERNAL",
   "P1.1.5":"IN_DASHBOARD","P1.1.6":"EXTERNAL","P1.1.7":"EXTERNAL","P1.1.8":"EXTERNAL",
-  "P1.1.9":"EXTERNAL","P1.1.10":"EXTERNAL","P1.1.11":"IN_DASHBOARD",
+  "P1.1.9":"EXTERNAL","P1.1.10":"IN_DASHBOARD",
   "P1.2.1":"EXTERNAL","P1.2.2":"EXTERNAL","P1.2.3":"EXTERNAL","P1.2.4":"AUTO","P1.2.5":"AUTO",
   "P1.2.6":"EXTERNAL","P1.2.7":"IN_DASHBOARD","P1.2.8":"AUTO","P1.2.9":"AUTO","P1.2.10":"EXTERNAL",
   "P1.2.11":"AUTO","P1.2.12":"IN_DASHBOARD","P1.2.13":"AUTO","P1.2.14":"AUTO","P1.2.15":"EXTERNAL",
@@ -74,7 +78,7 @@ const SPEC_TYPES: Record<string, string> = {
   "P5.3.1":"EXTERNAL","P5.3.2":"EXTERNAL","P5.3.3":"AI_DRAFT","P5.3.4":"IN_DASHBOARD",
 };
 
-/** Tasks added beyond the 116, per OPEN ITEM 2 of the spec. */
+/** Tasks added beyond the spec list, per OPEN ITEM 2 of the spec. */
 const SANCTIONED_ADDITIONS = new Set(["P1.3.15","P1.3.16","P1.3.17","P5.4.1","P5.5.1"]);
 
 (async () => {
@@ -112,12 +116,12 @@ const SANCTIONED_ADDITIONS = new Set(["P1.3.15","P1.3.16","P1.3.17","P5.4.1","P5
   console.log("MISSING · in spec but not in DB");
   console.log("=".repeat(70));
   const missing = specAll.filter((id) => !liveById.has(id));
-  if (missing.length === 0) console.log("  none — all 116 spec tasks exist");
+  if (missing.length === 0) console.log(`  none — all ${specAll.length} spec tasks exist`);
   else for (const m of missing) console.log(`  ✗ ${m}`);
 
   console.log();
   console.log("=".repeat(70));
-  console.log("EXTRA · in DB but not in the 116");
+  console.log(`EXTRA · in DB but not in the ${specAll.length}`);
   console.log("=".repeat(70));
   const extra = live.rows.filter((r) => !specAll.includes(r.id));
   for (const e of extra) {
@@ -152,7 +156,7 @@ const SANCTIONED_ADDITIONS = new Set(["P1.3.15","P1.3.16","P1.3.17","P5.4.1","P5
 
   console.log();
   console.log("=".repeat(70));
-  console.log("TYPE DISTRIBUTION · spec target vs live actual (116 spec tasks only)");
+  console.log(`TYPE DISTRIBUTION · spec target vs live actual (${specAll.length} spec tasks only)`);
   console.log("=".repeat(70));
   const specDist: Record<string, number> = {};
   const liveDist: Record<string, number> = {};
@@ -163,7 +167,7 @@ const SANCTIONED_ADDITIONS = new Set(["P1.3.15","P1.3.16","P1.3.17","P5.4.1","P5
   }
   for (const t of ["IN_DASHBOARD","EXTERNAL","AUTO","AI_DRAFT"]) {
     const s = specDist[t] ?? 0, l = liveDist[t] ?? 0;
-    console.log(`  ${t.padEnd(14)} spec ${String(s).padStart(3)} (${String(Math.round(s/116*100)).padStart(2)}%)   live ${String(l).padStart(3)} (${String(Math.round(l/116*100)).padStart(2)}%)   ${s === l ? "match" : `${l - s > 0 ? "+" : ""}${l - s}`}`);
+    console.log(`  ${t.padEnd(14)} spec ${String(s).padStart(3)} (${String(Math.round(s/specAll.length*100)).padStart(2)}%)   live ${String(l).padStart(3)} (${String(Math.round(l/specAll.length*100)).padStart(2)}%)   ${s === l ? "match" : `${l - s > 0 ? "+" : ""}${l - s}`}`);
   }
 
   console.log();

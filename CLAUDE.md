@@ -180,24 +180,49 @@ Deliberately not asked: *what* the check found. That belongs in the work panel
 every one of these tasks already has. Ask for it twice and it gets recorded in
 neither place.
 
-**Retiring a task: `active = false`, and never reuse the id.** Migration 084
-folded P1.1.8 (Other social content) into P1.1.7 — one drive link and one
-Instagram export are one conversation, and two tasks meant waiting on the same
-client twice. The pattern, also used by P1.1.2, P1.1.5 and P4.1.5:
+**Retiring a task versus merging two.** These are different operations with
+different rules, and the difference is whether the SOP still has that many
+steps.
 
-1. Fold the surviving text into the keeper, and move notes and `time_spent_min`
+*Retiring* (P1.1.2, P1.1.5, P4.1.5): set `active = false` and leave everything
+else alone. `activate.ts` filters on `active` so new stores never see it, and
+`loadClientTasks` filters on it too, so a lingering row could not render. The id
+**stays in `reconcile-spec.ts`'s SPEC list** — it is reported under RETIRED,
+where it is explained; drop it and it reappears under EXTRA, reading as
+something nobody meant to build. The ids after it are not touched, because the
+task could come back. Step 1 therefore still shows gaps at 2 and 5.
+
+*Merging* (P1.1.8 into P1.1.7, migrations 084 + 085): the step genuinely has one
+fewer task, so it gets renumbered and there is no gap. Migration 084 did the
+merge and left a hole at 8 on the argument that ids appear in prose; that was
+overruled on 27-08-2026 — a numbered SOP that runs 7, 9, 10, 11 is not a
+numbered SOP, and "there is no eight" is a thing somebody has to be told every
+time. 085 closed it. The full sequence:
+
+1. Fold the surviving text into the keeper; move notes and `time_spent_min`
    across.
-2. Reopen a keeper that was DONE while the retired half was not — the merged
-   task now covers work that never happened.
-3. `DELETE` the retired task's `client_tasks` and `task_preconditions` rows, then
-   `active = false` on the definition. `activate.ts` filters on `active`, so new
-   stores never see it; `loadClientTasks` filters on it too, so a lingering row
-   could not render either.
-4. **Leave the id in `reconcile-spec.ts`'s SPEC list.** It is reported under
-   RETIRED, where it is explained. Drop it and it reappears under EXTRA, reading
-   as something nobody meant to build.
-5. Never renumber the ids that follow. They appear in guidance prose,
-   preconditions, the research record and this file. Step 1 has a gap at 8.
+2. Reopen a keeper that was DONE while the merged-away half was not — it now
+   covers work that never happened.
+3. `DELETE` the absorbed task's `client_tasks` and `task_preconditions` rows,
+   then its definition.
+4. Renumber everything after it, **ascending**, one id at a time. The FKs from
+   `client_tasks` and `task_preconditions` are `ON UPDATE NO ACTION` and not
+   deferrable, so renaming a definition in place fails at end of statement: each
+   rename has to be insert-new, repoint-children, delete-old. The children are
+   `client_tasks.task_id`, `task_answers.task_id`, `assets.linked_task_id` and
+   both columns of `task_preconditions`.
+5. Fix the code in the same commit. Today that is `intake.ts` (`P1_1_TASKS` and
+   the `cap()` calls), `assets-auto.ts`, `AssetsBoard.tsx`, `IntakeForm.tsx` and
+   `reconcile-spec.ts` — `grep -rn "P1\.1\." src/ scripts/` before assuming that
+   list is still complete.
+6. Grep the *data* too, not just the code. 085 had to rewrite a note 084 had
+   written ("carried over from P1.1.8"), because that id now means a different
+   task. Prefer naming the task over quoting its id in anything stored.
+
+**An id in an old migration does not mean what it means today.** P1.1.8 is
+"Request Google keyword list" now; in 057, 069 and 084 it is "Other social
+content", which no longer exists. Old migrations are history and are not
+rewritten — read them against the numbering of their own date.
 
 Surfaces:
 
