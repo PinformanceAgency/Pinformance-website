@@ -80,6 +80,27 @@ function isRetryable(message: string): boolean {
  * out once and moving on is the difference between serving the other twelve
  * stores and serving none of them.
  */
+/**
+ * Failures that will still be true next time, for this pin specifically.
+ *
+ * A 303MB video (Mylifetrove, found 27-08-2026 — and the reason this route
+ * kept running out of memory) does not get smaller on the next run, and a
+ * request Pinterest rejects as malformed does not become well-formed. Retrying
+ * these is how a pin sits at the head of the queue for two months. They go to
+ * `failed` with the reason, where somebody can see it and re-cut the video.
+ *
+ * Checked after isStoreLevel, so a trial-access 403 is treated as the store
+ * problem it is rather than retiring the store's pins one by one.
+ */
+function isPermanentPinFailure(message: string): boolean {
+  const m = message.toLowerCase();
+  if (m.includes("over the") && m.includes("limit")) return true;
+  if (m.includes("video processing failed")) return true;
+  // Pinterest saying 4xx about the request itself — not 429, which is timing.
+  if (/error 4\d\d/.test(m) && !m.includes("error 429")) return true;
+  return false;
+}
+
 function isStoreLevel(message: string): boolean {
   const m = message.toLowerCase();
   return m.includes("trial access")
@@ -421,6 +442,9 @@ async function handlePostPins(request: NextRequest) {
 
         // Try posting with retry
         let posted = false;
+        // Set when the pin was taken out of the queue for good, so the
+        // reschedule below does not put it straight back in.
+        let retired = false;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             if (isVideo && pin.video_url) {
@@ -564,6 +588,12 @@ async function handlePostPins(request: NextRequest) {
               break;
             }
 
+            if (isPermanentPinFailure(errMsg)) {
+              await retire(errMsg);
+              retired = true;
+              break;
+            }
+
             if (!isRetryable(errMsg)) {
               orgErrors.push(`Pin ${pin.id}: ${errMsg} (not retryable)`);
               break;
@@ -578,8 +608,10 @@ async function handlePostPins(request: NextRequest) {
           }
         }
 
-        // If all retries failed, reschedule for now so next cron run (15 min) picks it up again
-        if (!posted) {
+        // If all retries failed, reschedule for now so next cron run (15 min)
+        // picks it up again — unless the pin was retired, in which case
+        // rescheduling would undo that and hand it back to the queue.
+        if (!posted && !retired) {
           await admin.from("pins").update({
             status: "scheduled",
             scheduled_at: new Date().toISOString(),
@@ -621,7 +653,7 @@ async function handlePostPins(request: NextRequest) {
     elapsed_ms: Date.now() - startedAt,
     orgs_considered: orgs.length,
     not_reached: notReached,
-    videos_posted: videosThisRun,
+    videos_attempted: videosThisRun,
     results,
     forced_org_ids: Array.from(forcedOrgIds),
   });
