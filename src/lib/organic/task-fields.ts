@@ -92,6 +92,21 @@ export interface TaskField {
    * until somebody has said how it gets solved).
    */
   concern?: FieldConcern;
+  /**
+   * While this boolean stands at `false`, the task does not close itself.
+   *
+   * For the audit step (P1.2.*), where every task ends in "and which of
+   * them have been fixed". Answering the rest of the form is not the same
+   * as having done the work, and a task that reads DONE with three broken
+   * redirects still on the site is worse than one that reads IN_PROGRESS —
+   * it is the same failure as a red flag you could click past.
+   *
+   * It holds the *derived* status only. The manual dropdown still works,
+   * so a manager who knows the remaining item is the client's problem can
+   * still close it (or skip it with a reason). This stops the form from
+   * declaring the work finished on its own; it does not overrule a person.
+   */
+  holdsCompletionWhenFalse?: boolean;
 }
 
 export interface FieldConcern {
@@ -768,6 +783,192 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
   ),
 };
 
+/* ------------------------------------------------------------------ *
+ * PHASE 1 · STEP 2 — the audit
+ *
+ * Every task in this step finds something and then somebody has to fix
+ * it: homepage pins get repointed, cryptic boards get renamed, broken
+ * canonicals get corrected. The finding went into the work panel and the
+ * fixing went nowhere — so a week later the only way to know whether the
+ * 40 homepage pins had actually been repointed was to go and look.
+ *
+ * One box per task closes that: is everything this check turned up now
+ * fixed? Not ticked, and the task does not close itself and says why.
+ * ------------------------------------------------------------------ */
+
+/**
+ * One audit task: did it find anything, and is that thing dealt with.
+ *
+ * The shape is identical across all twelve on purpose. Twelve checks with
+ * twelve differently-worded confirmations is twelve things to read; one
+ * gesture repeated is a gesture you stop having to read after the second
+ * task and can trust on the twelfth.
+ *
+ * Note what it does NOT ask for: what was found. That belongs in the work
+ * panel below, which every one of these tasks already has and which takes
+ * the report, the screenshot and the list. Asking for it twice is how you
+ * get it recorded in neither place.
+ */
+function audit(
+  intro: string,
+  fixed: { question: string; why: string; how: string },
+  example: string
+): TaskFieldSet {
+  return {
+    intro,
+    scoring:
+      "Nothing found, or everything found now fixed — tick it and the task closes. Anything still " +
+      "outstanding: leave it unticked, say what is left and who has it. The task stays open until it is " +
+      "ticked, which is the whole point of the box.",
+    fields: [
+      {
+        key: "all_fixed",
+        question: fixed.question,
+        why: fixed.why,
+        how: fixed.how,
+        kind: "boolean",
+        holdsCompletionWhenFalse: true,
+      },
+      {
+        key: "still_open",
+        question: "What is still open, and who is fixing it?",
+        why:
+          "Most of what this step finds is not ours to fix — it is the client's developer, their content " +
+          "person, or Pinterest support. Named and dated, it is a thing somebody chases; unnamed, it is a " +
+          "task sitting at IN_PROGRESS that nobody can act on.",
+        how:
+          "Name what is left, who owns it, and when it was last chased. If the answer is that it will not " +
+          "be fixed, say that and say what we do instead — that is a decision and it closes the loop.",
+        kind: "longtext",
+        evidence: example,
+        onlyWhen: { anyOf: ["all_fixed"], is: false },
+      },
+    ],
+  };
+}
+
+const AUDIT_STEP: Record<string, TaskFieldSet> = {
+  "P1.2.1": audit(
+    "A blocked domain makes every pin pointing at it worthless, so this is the first thing the audit asks.",
+    {
+      question: "Is the domain unblocked?",
+      why: "While the domain is blocked, every pin we publish is a pin that cannot be clicked. Nothing else in phase 1 is worth doing until this is resolved.",
+      how: "A clean result on blockedlinks. A support ticket that is still open is not fixed — the ticket reference goes in the box below.",
+    },
+    "e.g. \"Blocked. Ticket #482913 opened 24-08, replied to their automated rejection to force a human review. Nothing published until it comes back.\""
+  ),
+
+  "P1.2.2": audit(
+    "The flagged-pin report says which existing pins Pinterest is already suppressing, and how badly.",
+    {
+      question: "Has every flagged pin been dealt with?",
+      why: "Blacklisted pins drag on the account they sit in. Left in place they suppress the boards we are about to build on.",
+      how: "Work down the report by priority: blacklisted first, idea pins last. Deleted or corrected both count as dealt with.",
+    },
+    "e.g. \"31 flagged, 24 deleted. 7 blacklisted product pins still up — client wants to keep the URLs live, deciding Thursday.\""
+  ),
+
+  "P1.2.3": audit(
+    "Broken redirects and wrong canonicals slow distribution on every pin pointing through them.",
+    {
+      question: "Are the broken redirects and canonical errors fixed?",
+      why: "A pin pointing at a redirect chain loses the signal at every hop, and a wrong canonical hands the credit to another page.",
+      how: "Fixed in the CMS, and the pins repointed at the final URL rather than the one that redirects.",
+    },
+    "e.g. \"14 broken redirects, 11 fixed in Shopify. 3 point at a discontinued collection their developer has to rebuild — with him since 25-08.\""
+  ),
+
+  "P1.2.4": audit(
+    "Pinterest cannot tell the homepage apart from any other page, so a homepage pin measures nothing.",
+    {
+      question: "Do no pins point at the homepage any more?",
+      why: "Every homepage pin is a pin whose performance cannot be attributed to anything, and they are usually the account's oldest and strongest.",
+      how: "Repoint each one at the page it is actually about. Mind the 150 pin edits per day limit — spread over days is fine, half-done is not.",
+    },
+    "e.g. \"63 homepage pins. 150/day limit means three passes; 150 done 25-08, 150 on 26-08, last 63 tomorrow.\""
+  ),
+
+  "P1.2.5": audit(
+    "A pin with no destination is the one loss that cannot be recovered later — the reach happens and returns nothing.",
+    {
+      question: "Does every pin now carry a destination URL?",
+      why: "This is the biggest single missed opportunity in the audit. A pin that goes viral without a link earns the account nothing at all.",
+      how: "Every pin found gets the URL it should have had. Fix these before anything else in this step.",
+    },
+    "e.g. \"18 pins with no link, 18 repointed. Two had no obvious destination — pointed at the closest collection and noted for the client.\""
+  ),
+
+  "P1.2.6": audit(
+    "The canonical pin is the one Pinterest treats as the original. If another brand holds it, our traffic goes to them.",
+    {
+      question: "Do we hold the canonical pin on the pins that were checked?",
+      why: "Someone else holding the canonical means the clicks earned by our image land on their site, and nothing in our reporting shows it.",
+      how: "Held, or reported to Pinterest and the report acknowledged. A report sent and unanswered is not fixed.",
+    },
+    "e.g. \"Two of six checked resolve to a reseller's account. Both reported 26-08, no reply yet. Pin URLs in the work panel.\""
+  ),
+
+  "P1.2.7": audit(
+    "Board names are read by the algorithm as interests, not as brand voice. A cryptic name is a board with no context.",
+    {
+      question: "Has every cryptic board name been renamed?",
+      why: "\"Dream Vibe\" tells Pinterest nothing about who should see it. The exact parent interest is what gets the board distributed at all.",
+      how: "Renamed live on Pinterest, not just written down. The rename list belongs in the work panel; this box is whether it has been applied.",
+    },
+    "e.g. \"9 of 12 renamed. 3 are the client's campaign names and they want to keep them — flagged the cost, they accept it.\""
+  ),
+
+  "P1.2.8": audit(
+    "Group boards pull in pins from other accounts and dilute the context of everything around them.",
+    {
+      question: "Has every group board been left in place or archived deliberately?",
+      why: "The dangerous state is neither: a group board nobody has looked at, quietly mixing someone else's pins into our topic signal.",
+      how: "A decision per board, not a blanket one. Archived, or left with a reason recorded.",
+    },
+    "e.g. \"4 group boards, 3 archived. One is a genuine partner collab that still drives saves — left, revisit in month 3.\""
+  ),
+
+  "P1.2.9": audit(
+    "A public board with a handful of pins gives Pinterest too little to work out what it is about.",
+    {
+      question: "Is every board under ten pins set back to secret?",
+      why: "A thin public board dilutes the profile's topic signal, and it stays thin until we fill it — which is phase 3, not now.",
+      how: "Secret until it holds ten to fifteen pins. Boards we are about to fill this week can stay public if you say so below.",
+    },
+    "e.g. \"7 boards under ten pins, 5 set to secret. 2 are being filled in the first cycle so left public deliberately.\""
+  ),
+
+  "P1.2.10": audit(
+    "Rich Pins pull title, price and availability from the page automatically. Without them every pin carries whatever was typed by hand.",
+    {
+      question: "Do Rich Pins pull title and price through in the Pin Builder?",
+      why: "Rich pins update themselves when the page changes. Hand-typed pins go stale the moment a price moves, and a wrong price is a lost click.",
+      how: "Paste a product URL into the Pin Builder and look. If nothing appears, the Open Graph tags are missing — the per-CMS fix is in the SOP.",
+    },
+    "e.g. \"No og: tags at all on product pages. Their Shopify theme is custom; developer has the SOP fix, scheduled for next sprint.\""
+  ),
+
+  "P1.2.11": audit(
+    "The inactivity period decides the account class, which decides the pin spacing for every cycle after this.",
+    {
+      question: "Is the inactivity period recorded and the account class set from it?",
+      why: "Longer than six months silent puts an old account back to NEW with 48-hour spacing. Getting this wrong sets the posting rhythm wrong for the whole engagement.",
+      how: "Recorded on the client settings, not only written in a note. Check the class on the settings screen actually changed.",
+    },
+    "e.g. \"Last pin 14 months ago, so NEW with 48h spacing. Settings still show ESTABLISHED — changing it now.\""
+  ),
+
+  "P1.2.12": audit(
+    "A shadowbanned account publishes into nothing, and every number after it is a number about nothing.",
+    {
+      question: "Are the shadowban signals cleared, or confirmed absent?",
+      why: "Building a Strategy Core on a suppressed account wastes the whole of phases 2 and 3, and the symptom — single-digit impressions — looks like a slow start.",
+      how: "Absent is a real answer and the common one. If signals are there, the recovery route is what goes in the box, not the observation.",
+    },
+    "e.g. \"Single-digit impressions on 400 pins with three years of history. Suspect suppression after 14 months silent; running the reactivation route before phase 2.\""
+  ),
+};
+
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ *
@@ -844,6 +1045,7 @@ const BY_TASK: Record<string, TaskFieldSet> = {
   "P1.0.2": RED_FLAGS,
   "P1.0.3": URL_COUNT,
   "P1.0.4": VERDICT,
+  ...AUDIT_STEP,
   ...TECHNICAL_SETUP,
   "P4.2.1": GRID_READING,
 };
@@ -888,6 +1090,22 @@ export function visibleFields(
 ): TaskField[] {
   return set.fields.filter((f) =>
     !f.onlyWhen || f.onlyWhen.anyOf.some((k) => answerOf(k) === f.onlyWhen!.is)
+  );
+}
+
+/**
+ * The visible fields that are holding this task open, if any.
+ *
+ * Read by both the form and the status derivation, so what the screen says
+ * and what the database does cannot drift apart — which is the usual way a
+ * task ends up refusing to close for a reason nobody can see.
+ */
+export function completionHolds(
+  set: TaskFieldSet,
+  answerOf: (key: string) => boolean | null | undefined
+): TaskField[] {
+  return visibleFields(set, answerOf).filter(
+    (f) => f.holdsCompletionWhenFalse && answerOf(f.key) === false
   );
 }
 

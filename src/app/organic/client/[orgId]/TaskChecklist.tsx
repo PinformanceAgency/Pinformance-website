@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, Loader2, HelpCircle, CircleDot, Paperclip, ExternalLink, AlertTriangle, OctagonAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { visibleFields, raisedConcerns, planKeyFor } from "@/lib/organic/task-fields";
+import { visibleFields, raisedConcerns, planKeyFor, completionHolds } from "@/lib/organic/task-fields";
 import type { TaskField, TaskFieldSet, FieldConcern, RaisedConcern } from "@/lib/organic/task-fields";
 import type { TaskAnswer } from "@/lib/organic/workspace";
 
@@ -41,6 +41,7 @@ export function TaskChecklist({
     (k) => byKey.get(k)?.answer_bool,
     (k) => byKey.get(k)?.answer_text
   );
+  const holds = completionHolds(set, (k) => byKey.get(k)?.answer_bool);
   const answered = fields.filter((f) => {
     const a = byKey.get(f.key);
     if (!a) return false;
@@ -80,6 +81,7 @@ export function TaskChecklist({
       </div>
 
       {concerns.length > 0 && <ConcernSummary concerns={concerns} />}
+      {holds.length > 0 && <CompletionHoldNote holds={holds} />}
 
       <div className="divide-y divide-o-hairline">
         {fields.map((f, i) => (
@@ -157,6 +159,30 @@ function ConcernSummary({ concerns }: { concerns: RaisedConcern[] }) {
           </ul>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Why this task will not close itself.
+ *
+ * A form that silently refuses to finish is the worst kind: the boxes are
+ * all filled, the ring reads full, and the status sits at IN_PROGRESS for
+ * a reason nobody can see. So the rule says itself, next to the box that
+ * clears it — and it says the manual way out too, because on the audit
+ * step the remaining item is usually somebody else's developer and
+ * closing the task by hand is a legitimate call, not a workaround.
+ */
+function CompletionHoldNote({ holds }: { holds: TaskField[] }) {
+  return (
+    <div className="px-6 py-3.5 border-t border-o-hairline bg-o-sunk/40">
+      <p className="text-sm text-o-ink-2 leading-relaxed">
+        <span className="font-semibold text-foreground">Stays open. </span>
+        {holds.length === 1
+          ? `Until “${holds[0].question}” is ticked, this task does not close itself.`
+          : `${holds.length} checks here are not ticked, so this task does not close itself.`}{" "}
+        Set the status by hand if the remaining work is not ours to do.
+      </p>
     </div>
   );
 }

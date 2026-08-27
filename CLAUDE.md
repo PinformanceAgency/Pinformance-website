@@ -163,6 +163,23 @@ Three things about it that are decisions, not accidents:
   27-08-2026, when the alternative was reopening a store whose flags cannot be
   fixed. The warnings show on those stores regardless.
 
+**The audit step (P1.2.1–P1.2.12) carries an "all fixed" box.** Every task there
+ends in "and which of them have been fixed" — the finding went into the work
+panel and the fixing went nowhere, so a week later the only way to know whether
+the 63 homepage pins had been repointed was to go and look. Each of the twelve
+now asks one boolean plus a conditional "what is still open, and who is fixing
+it?". The boolean carries `holdsCompletionWhenFalse`, which is honoured in
+`deriveTaskStatusFromAnswers`: filling in every box is not the same as having
+done the work, so the task will not close itself while it stands at no, and
+`completionHolds()` renders the reason rather than leaving a form that silently
+refuses to finish. **The manual status dropdown still closes it** — on this step
+the remaining item is usually the client's developer, and closing by hand is a
+legitimate call, not a workaround.
+
+Deliberately not asked: *what* the check found. That belongs in the work panel
+every one of these tasks already has. Ask for it twice and it gets recorded in
+neither place.
+
 Surfaces:
 
 | Route | What it is |

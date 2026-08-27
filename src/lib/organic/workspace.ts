@@ -4,7 +4,7 @@
  * live in phase[1-5].ts.
  */
 import { organicPool } from "./db";
-import { fieldsFor, visibleFields } from "./task-fields";
+import { fieldsFor, visibleFields, completionHolds } from "./task-fields";
 
 // ---------- LEAKS (Overview leak panel) -------------------------------------
 
@@ -1039,7 +1039,7 @@ export async function deriveTaskStatusFromAnswers(
   const byKey = new Map(ans.rows.map((a) => [a.field_key, a]));
 
   const visible = visibleFields(set, (k) => byKey.get(k)?.answer_bool);
-  const complete = visible.every((f) => {
+  const answeredThrough = visible.every((f) => {
     const a = byKey.get(f.key);
     if (!a) return false;
     const answered =
@@ -1049,5 +1049,12 @@ export async function deriveTaskStatusFromAnswers(
     return true;
   });
 
-  return { current: status, next: complete ? "DONE" : "IN_PROGRESS" };
+  // Filling in every box is not the same as having done the work. On the
+  // audit step "is everything this check found now fixed?" answered `no`
+  // holds the task open however completely the rest is written out — see
+  // TaskField.holdsCompletionWhenFalse. The manual dropdown still closes
+  // it; this only stops the form from closing it on its own.
+  const held = completionHolds(set, (k) => byKey.get(k)?.answer_bool).length > 0;
+
+  return { current: status, next: answeredThrough && !held ? "DONE" : "IN_PROGRESS" };
 }
