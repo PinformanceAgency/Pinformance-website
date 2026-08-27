@@ -2,10 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X, Loader2, HelpCircle, CircleDot, Paperclip, ExternalLink } from "lucide-react";
+import { Check, X, Loader2, HelpCircle, CircleDot, Paperclip, ExternalLink, AlertTriangle, OctagonAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { visibleFields } from "@/lib/organic/task-fields";
-import type { TaskField, TaskFieldSet } from "@/lib/organic/task-fields";
+import { visibleFields, raisedConcerns, planKeyFor } from "@/lib/organic/task-fields";
+import type { TaskField, TaskFieldSet, FieldConcern, RaisedConcern } from "@/lib/organic/task-fields";
 import type { TaskAnswer } from "@/lib/organic/workspace";
 
 /**
@@ -36,6 +36,11 @@ export function TaskChecklist({
   const byKey = new Map(answers.filter((a) => a.task_id === taskId).map((a) => [a.field_key, a]));
   // Conditional fields count only once they are on screen — see visibleFields.
   const fields = visibleFields(set, (k) => byKey.get(k)?.answer_bool);
+  const concerns = raisedConcerns(
+    set,
+    (k) => byKey.get(k)?.answer_bool,
+    (k) => byKey.get(k)?.answer_text
+  );
   const answered = fields.filter((f) => {
     const a = byKey.get(f.key);
     if (!a) return false;
@@ -74,6 +79,8 @@ export function TaskChecklist({
         )}
       </div>
 
+      {concerns.length > 0 && <ConcernSummary concerns={concerns} />}
+
       <div className="divide-y divide-o-hairline">
         {fields.map((f, i) => (
           <FieldRow
@@ -84,6 +91,7 @@ export function TaskChecklist({
             taskId={taskId}
             field={f}
             answer={byKey.get(f.key) ?? null}
+            planAnswer={byKey.get(planKeyFor(f.key)) ?? null}
             readOnly={readOnly}
           />
         ))}
@@ -94,8 +102,247 @@ export function TaskChecklist({
 
 /* ------------------------------------------------------------------ */
 
+/**
+ * What this assessment found wrong, before you have scrolled to it.
+ *
+ * The per-row warning is where the thinking happens, but a fit check runs
+ * five questions deep and the flag raised on question one is off screen by
+ * the time you answer question three. This is the same information as a
+ * standing tally: what was raised, and whether anybody has said what we do
+ * about it.
+ */
+function ConcernSummary({ concerns }: { concerns: RaisedConcern[] }) {
+  const unplanned = concerns.filter((c) => !c.planned).length;
+  const worst = concerns.some((c) => c.concern.severity === "reconsider")
+    ? "reconsider"
+    : "work_around";
+
+  return (
+    <div className={cn(
+      "px-6 py-4 border-t",
+      worst === "reconsider"
+        ? "bg-o-accent/[0.055] border-o-accent/25"
+        : "bg-o-accent/[0.03] border-o-hairline"
+    )}>
+      <div className="flex items-start gap-3">
+        <span className={cn("shrink-0 mt-0.5", worst === "reconsider" ? "text-o-accent" : "text-o-accent/80")}>
+          {worst === "reconsider"
+            ? <OctagonAlert className="w-4 h-4" />
+            : <AlertTriangle className="w-4 h-4" />}
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">
+            {concerns.length === 1
+              ? "One thing on this account needs an answer"
+              : `${concerns.length} things on this account need an answer`}
+            {unplanned > 0 && (
+              <span className="font-normal text-o-accent"> — {unplanned} still without a plan</span>
+            )}
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {concerns.map((c) => (
+              <li key={c.field.key} className="text-sm text-o-ink-2 flex items-baseline gap-2">
+                <a href={`#field-${c.field.key}`}
+                   className="text-foreground hover:text-o-accent underline underline-offset-2 decoration-o-hairline-firm">
+                  {c.concern.headline}
+                </a>
+                <span className={cn(
+                  "o-eyebrow shrink-0",
+                  c.planned ? "text-o-ink-3" : "text-o-accent"
+                )}>
+                  {c.planned ? "plan written" : "no plan yet"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The warning on the answer that caused it.
+ *
+ * Drawn under the Yes/No buttons the moment the concerning answer is
+ * given, because that is the second the person is still thinking about
+ * this question. It states the cost rather than the fact — "the account
+ * plateaus around month two" tells you something "this is a negative
+ * signal" does not — and it points at the plan box that has just opened
+ * underneath it, so the warning has somewhere to go.
+ */
+function ConcernPanel({
+  concern, planned, onOpen,
+}: {
+  concern: FieldConcern;
+  planned: boolean;
+  /** Reopen the dialog. The pop-up fires on the answer, and somebody who
+   *  put it off needs a way back to it that is not "answer the question
+   *  again". */
+  onOpen: () => void;
+}) {
+  const hard = concern.severity === "reconsider";
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "mt-4 max-w-3xl rounded-lg overflow-hidden ring-1 ring-inset",
+        hard ? "ring-o-accent/40 bg-o-accent/[0.05]" : "ring-o-accent/25 bg-o-accent/[0.028]"
+      )}
+    >
+      <div className={cn(
+        "flex items-center gap-2 px-4 py-2.5 border-b",
+        hard ? "border-o-accent/25" : "border-o-accent/15"
+      )}>
+        <span className="text-o-accent shrink-0">
+          {hard ? <OctagonAlert className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+        </span>
+        <span className="o-eyebrow text-o-accent">
+          {hard ? "Stop and think" : "Watch out"}
+        </span>
+        <span className="text-sm font-semibold text-foreground">{concern.headline}</span>
+      </div>
+      <div className="px-4 py-3.5">
+        <p className="text-sm text-o-ink-2 leading-relaxed">{concern.consequence}</p>
+        <p className={cn(
+          "mt-3 text-sm leading-relaxed",
+          planned ? "text-o-ink-2" : "text-foreground font-medium"
+        )}>
+          {planned
+            ? "Answered below."
+            : `${concern.ask} Answer it in the box below — this check stays open until you do.`}
+        </p>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="mt-2.5 text-xs text-o-accent hover:text-foreground underline underline-offset-2"
+        >
+          {planned ? "Read the warning again" : "Answer it now"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The warning, in the way.
+ *
+ * The inline panel is the standing record; this is the moment it happens.
+ * It opens on the click that raises the concern, because that is the one
+ * second the person is still thinking about this question and has the
+ * client on the phone — half an hour later they are three tasks further
+ * and the answer has become a row in a table.
+ *
+ * It takes the plan itself rather than only acknowledging: a dialog you
+ * dismiss with "OK" teaches you to dismiss it with "OK". And it can be
+ * left for later on purpose — some of these cannot be solved (a
+ * one-product store is a one-product store) and pretending otherwise
+ * would make the honest answer the one you have to lie to get past. The
+ * flag does not go away either way; it stays on the row and in the tally
+ * at the top until a plan is written.
+ */
+function ConcernDialog({
+  concern, field, plan, saving, error,
+  onSavePlan, onRevert, onClose,
+}: {
+  concern: FieldConcern;
+  field: TaskField;
+  plan: string;
+  saving: boolean;
+  error: string | null;
+  onSavePlan: (text: string) => void;
+  onRevert: () => void;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState(plan);
+  const hard = concern.severity === "reconsider";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={concern.headline}
+    >
+      <div
+        className="w-full max-w-xl max-h-[88vh] overflow-y-auto rounded-xl bg-o-surface shadow-2xl ring-1 ring-black/5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={cn(
+          "flex items-start gap-3 px-6 py-4 border-b",
+          hard ? "bg-o-accent/[0.07] border-o-accent/25" : "bg-o-accent/[0.04] border-o-hairline"
+        )}>
+          <span className="text-o-accent shrink-0 mt-0.5">
+            {hard ? <OctagonAlert className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+          </span>
+          <div className="min-w-0">
+            <div className="o-eyebrow text-o-accent">
+              {hard ? "Stop and think" : "Watch out"}
+            </div>
+            <h3 className="mt-1 o-h3 text-foreground">{concern.headline}</h3>
+            <p className="mt-0.5 text-xs text-o-ink-3">
+              In answer to: {field.question}
+            </p>
+          </div>
+        </div>
+
+        <div className="px-6 py-5">
+          <p className="text-sm text-o-ink-2 leading-relaxed">{concern.consequence}</p>
+
+          <label className="mt-5 block text-sm font-semibold text-foreground">
+            {concern.ask}
+          </label>
+          <p className="mt-1 text-xs text-o-ink-2 leading-relaxed">
+            If it cannot be solved, say so and say what we accept because of it — a stated
+            ceiling is an answer, an empty box is not.
+          </p>
+          <textarea
+            autoFocus
+            rows={4}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={concern.example}
+            className="o-input mt-2 w-full"
+          />
+
+          {error && (
+            <p className="mt-2 text-xs text-red-600 break-words" role="alert">
+              Could not save: {error}
+            </p>
+          )}
+
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={onRevert}
+              disabled={saving}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              That is not what I meant — change my answer
+            </button>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={onClose} disabled={saving} className="o-btn">
+                Later
+              </button>
+              <button
+                type="button"
+                onClick={() => onSavePlan(text)}
+                disabled={saving || !text.trim()}
+                className={cn("o-btn", "o-btn-primary")}
+              >
+                {saving ? "Saving…" : "Save the plan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FieldRow({
-  index, orgId, taskId, field, answer, readOnly, conditional,
+  index, orgId, taskId, field, answer, readOnly, conditional, planAnswer,
 }: {
   index: number;
   orgId: string;
@@ -105,32 +352,50 @@ function FieldRow({
   readOnly?: boolean;
   /** This row is on screen because an answer above it failed. */
   conditional?: boolean;
+  /** The plan written for this field's concern, where it has one. Passed in
+   *  rather than derived here because the dialog opens with it already in
+   *  the box: coming back to a raised flag should show what was said last
+   *  time, not an empty textarea. */
+  planAnswer?: TaskAnswer | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [busy, setBusy] = useState<null | "answer" | "evidence" | "file">(null);
+  const [busy, setBusy] = useState<null | "answer" | "evidence" | "file" | "plan">(null);
   const [err, setErr] = useState<string | null>(null);
   const [evidence, setEvidence] = useState(answer?.evidence ?? "");
   const [text, setText] = useState(answer?.answer_text ?? "");
   const [num, setNum] = useState(answer?.answer_number != null ? String(answer.answer_number) : "");
   const [fileUrl, setFileUrl] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
+  const [concernOpen, setConcernOpen] = useState(false);
+  const [planErr, setPlanErr] = useState<string | null>(null);
 
   const bool = answer?.answer_bool ?? null;
+  const planned = !!(planAnswer?.answer_text ?? "").trim();
   const hasAnswer =
     bool !== null || answer?.answer_text != null || answer?.answer_number != null;
   const evidenceMissing = hasAnswer && field.evidenceRequired && !(answer?.evidence ?? "").trim();
+  // The concerning answer, given. Not "an answer we dislike" — an answer
+  // that has a stated cost and an unanswered question attached to it.
+  const concerned = field.concern != null && bool === field.concern.when;
   // A row that appeared because a check failed is owed an answer by
   // definition — that is the only reason it is here.
-  const owed = evidenceMissing || (conditional && !hasAnswer);
+  const owed = evidenceMissing || (conditional && !hasAnswer) || (concerned && !planned);
 
-  async function save(patch: Record<string, unknown>, which: "answer" | "evidence" | "file") {
-    setErr(null); setBusy(which);
+  /** Returns whether the write actually landed, so a caller can act on it —
+   *  the concern dialog must not open over a save that failed. */
+  async function save(
+    patch: Record<string, unknown>,
+    which: "answer" | "evidence" | "file" | "plan",
+    fieldKey: string = field.key
+  ): Promise<boolean> {
+    const fail = which === "plan" ? setPlanErr : setErr;
+    fail(null); setBusy(which);
     try {
       const res = await fetch(`/api/organic/answers/${orgId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ task_id: taskId, field_key: field.key, ...patch }),
+        body: JSON.stringify({ task_id: taskId, field_key: fieldKey, ...patch }),
         redirect: "error",
       });
       const raw = await res.text();
@@ -140,18 +405,32 @@ function FieldRow({
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1600);
       startTransition(() => router.refresh());
+      return true;
     } catch (e) {
-      setErr((e as Error).message);
+      fail((e as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
   }
 
+  /**
+   * Answering a yes/no, and putting the warning in front of whoever did.
+   *
+   * The dialog opens on the answer landing rather than on the click, so a
+   * save that failed cannot leave somebody planning around a concern the
+   * database never recorded.
+   */
+  async function answerBool(v: boolean) {
+    const ok = await save({ answer_bool: v }, "answer");
+    if (ok && field.concern && v === field.concern.when) setConcernOpen(true);
+  }
+
   const answerCls = "o-btn";
 
   return (
-    <div className={cn(
-      "relative px-6 py-6 transition-colors",
+    <div id={`field-${field.key}`} className={cn(
+      "relative px-6 py-6 transition-colors scroll-mt-24",
       owed && "bg-primary/[0.022]"
     )}>
       {/* A left rule marks the row that still owes something, rather than
@@ -204,14 +483,14 @@ function FieldRow({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button" disabled={readOnly || busy !== null}
-                  onClick={() => save({ answer_bool: true }, "answer")}
+                  onClick={() => answerBool(true)}
                   className={cn(answerCls, bool === true && "o-btn-primary")}
                 >
                   <Check className="w-4 h-4" /> Yes
                 </button>
                 <button
                   type="button" disabled={readOnly || busy !== null}
-                  onClick={() => save({ answer_bool: false }, "answer")}
+                  onClick={() => answerBool(false)}
                   className={cn(answerCls, bool === false && "o-btn-dark")}
                 >
                   <X className="w-4 h-4" /> No
@@ -225,6 +504,13 @@ function FieldRow({
                 )}
                 {busy === "answer" && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
               </div>
+            )}
+
+            {/* The whole point of the check. Without it a yes and a no are
+                the same click and the assessment assesses nothing. */}
+            {concerned && field.concern && (
+              <ConcernPanel concern={field.concern} planned={planned}
+                             onOpen={() => setConcernOpen(true)} />
             )}
 
             {field.kind === "choice" && (
@@ -375,6 +661,25 @@ function FieldRow({
           )}
         </div>
       </div>
+
+      {concernOpen && field.concern && !readOnly && (
+        <ConcernDialog
+          concern={field.concern}
+          field={field}
+          plan={planAnswer?.answer_text ?? ""}
+          saving={busy === "plan" || busy === "answer"}
+          error={planErr}
+          onClose={() => setConcernOpen(false)}
+          onRevert={async () => {
+            const ok = await save({ clear: "answer" }, "answer");
+            if (ok) setConcernOpen(false);
+          }}
+          onSavePlan={async (t) => {
+            const ok = await save({ answer_text: t }, "plan", planKeyFor(field.key));
+            if (ok) setConcernOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

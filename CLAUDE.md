@@ -134,6 +134,35 @@ statement_timeout` on a checked-out client), which is why it stays on session
 mode. Explicit `BEGIN`/`COMMIT` on a checked-out client is fine either way — the
 pooler pins the connection for the transaction.
 
+**The viability gate flags its own bad answers (P1.0.1 / P1.0.2).** A `TaskField`
+in `task-fields.ts` can carry a `concern`: which answer is the bad news, what it
+costs downstream, and the question that then has to be answered.
+`concernFields()` turns each one into three things — a modal that opens on the
+answer landing, a warning panel that stays on the row, and a conditional plan box
+(`<key>__plan`, stored in `task_answers`; no migration, `field_key` is free
+text). Because the plan box is a real visible field,
+`syncTaskStatusFromAnswers` holds the task at IN_PROGRESS until it is filled in.
+Before this, "no" and "yes" were the same click: The Longevity store sat at DONE
+with two failed fit signals and both red flags raised, and nothing on any screen
+said so.
+
+Three things about it that are decisions, not accidents:
+
+- **The modal takes the plan, it does not just acknowledge.** A dialog you
+  dismiss with "OK" teaches you to dismiss it with "OK".
+- **It can be left for later.** Some of these cannot be solved — a one-product
+  store is a one-product store — and blocking would make the honest answer the
+  one you have to lie to get past. "We accept the ceiling, here is what it costs"
+  is a valid plan and the box says so. The flag stays on the row and in the tally
+  either way.
+- **Adding a `concern` changes what "answered" means for stores assessed
+  earlier**, which would silently reopen their finished tasks. It does not:
+  status is only re-derived when somebody saves an answer. `scripts/resync-viability-tasks.ts`
+  re-derives in bulk (`RESYNC_DRY_RUN=1` first) and is
+  deliberately **not** run as part of shipping a new concern — decided
+  27-08-2026, when the alternative was reopening a store whose flags cannot be
+  fixed. The warnings show on those stores regardless.
+
 Surfaces:
 
 | Route | What it is |

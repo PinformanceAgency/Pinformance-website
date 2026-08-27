@@ -987,6 +987,35 @@ export function pctChange(now: number | null, before: number | null): number | n
 export async function syncTaskStatusFromAnswers(
   orgId: string, taskId: string
 ): Promise<"DONE" | "IN_PROGRESS" | null> {
+  const d = await deriveTaskStatusFromAnswers(orgId, taskId);
+  if (!d) return null;
+  if (d.next === d.current) return d.next;
+
+  await organicPool().query(
+    `UPDATE organic.client_tasks
+        SET status = $3::organic.task_status,
+            completed_at = CASE WHEN $3 = 'DONE' THEN now() ELSE NULL END
+      WHERE org_id = $1 AND task_id = $2 AND cycle IS NULL`,
+    [orgId, taskId, d.next]
+  );
+  return d.next;
+}
+
+/**
+ * What the answers say the status should be, without writing it.
+ *
+ * Split out of syncTaskStatusFromAnswers so a status can be *inspected*
+ * rather than only corrected — scripts/resync-viability-tasks.ts reports a
+ * dry run off this, and a rule that changes what "answered" means (a new
+ * required field, a new conditional one) can then be checked against the
+ * live stores before it is applied to them.
+ *
+ * Returns null for the cases sync refuses to touch: no checklist, no such
+ * task, BLOCKED or SKIPPED.
+ */
+export async function deriveTaskStatusFromAnswers(
+  orgId: string, taskId: string
+): Promise<{ current: string; next: "DONE" | "IN_PROGRESS" } | null> {
   const set = fieldsFor(taskId);
   if (!set) return null;
 
@@ -1020,15 +1049,5 @@ export async function syncTaskStatusFromAnswers(
     return true;
   });
 
-  const next = complete ? "DONE" : "IN_PROGRESS";
-  if (next === status) return next;
-
-  await pool.query(
-    `UPDATE organic.client_tasks
-        SET status = $3::organic.task_status,
-            completed_at = CASE WHEN $3 = 'DONE' THEN now() ELSE NULL END
-      WHERE org_id = $1 AND task_id = $2 AND cycle IS NULL`,
-    [orgId, taskId, next]
-  );
-  return next;
+  return { current: status, next: complete ? "DONE" : "IN_PROGRESS" };
 }

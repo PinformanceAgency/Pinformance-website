@@ -76,6 +76,50 @@ export interface TaskField {
    * screen asking to be filled in.
    */
   onlyWhen?: { anyOf: string[]; is: boolean };
+  /**
+   * The answer that is bad news, and what the form says when it arrives.
+   *
+   * Without this a yes and a no are the same event: the button goes dark,
+   * the row counts as answered, and you move on. On a fit assessment that
+   * is the whole failure — "are there more than five things to pin?" → no
+   * → next question is not an assessment, it is data entry with a verdict
+   * bolted on at the end that nobody can reconstruct.
+   *
+   * A concern turns the bad answer into two things at once: a warning
+   * stating what it costs downstream, and a plan box that the task cannot
+   * close without (see concernFields — the box is a real conditional
+   * field, so syncTaskStatusFromAnswers holds the task at IN_PROGRESS
+   * until somebody has said how it gets solved).
+   */
+  concern?: FieldConcern;
+}
+
+export interface FieldConcern {
+  /** The answer that raises it: `false` for a good-fit signal that failed,
+   *  `true` for a red flag that is present. */
+  when: boolean;
+  /** What has just been established, in one line. */
+  headline: string;
+  /** What it costs if nobody does anything about it. Written in terms of
+   *  the account, not the form: "the account plateaus in month two", not
+   *  "this is a negative signal". */
+  consequence: string;
+  /** The question the plan box asks. */
+  ask: string;
+  /** Placeholder for the plan box — a real worked answer, never "describe
+   *  your approach". A blank prompt gets a blank plan. */
+  example: string;
+  /**
+   * How bad.
+   *
+   * `work_around` — real, and solvable by deciding something now.
+   * `reconsider` — the account should probably not be taken on in this
+   * shape at all, and the plan box is where that case gets made or the
+   * client gets told. The two render differently on purpose: if every
+   * warning looks identical, the one that should stop a signature reads
+   * like the one that costs a week.
+   */
+  severity: "work_around" | "reconsider";
 }
 
 export interface TaskFieldSet {
@@ -84,6 +128,59 @@ export interface TaskFieldSet {
   /** How the answers add up to a decision. */
   scoring?: string;
   fields: TaskField[];
+}
+
+/**
+ * The field key the plan for a concern is stored under.
+ *
+ * A suffix on the question's own key rather than a hand-picked name, so
+ * the two can never drift apart and the research record renders the plan
+ * directly beneath the answer that caused it. task_answers.field_key is
+ * free text, so this needs no migration.
+ */
+export function planKeyFor(fieldKey: string): string {
+  return `${fieldKey}__plan`;
+}
+
+/**
+ * Every question, each one followed by its plan box.
+ *
+ * The plan box is a plain conditional field — the same `onlyWhen`
+ * machinery the conformance checklists use — and that is the point.
+ * Being a real field means it counts in the progress ring, and it means
+ * syncTaskStatusFromAnswers holds the task at IN_PROGRESS until it is
+ * filled in. A warning nobody has to answer is a warning everybody
+ * scrolls past; this one keeps the task open.
+ *
+ * Interleaved rather than collected at the bottom, because on a fit check
+ * each failure has a different answer and a shared "anything wrong?" box
+ * at the end loses which one is being talked about.
+ */
+function concernFields(fields: TaskField[]): TaskField[] {
+  return fields.flatMap((f) => {
+    if (!f.concern) return [f];
+    const c = f.concern;
+    return [
+      f,
+      {
+        key: planKeyFor(f.key),
+        question: c.ask,
+        why:
+          c.severity === "reconsider"
+            ? "This is the record of why the account was taken on despite the flag — or of the moment " +
+              "we told the client it was not worth their money. Either one is worth having in writing."
+            : "A flag with no plan next to it is a flag nobody acted on. This is what phase 2 reads " +
+              "when it plans frequency, and what the verdict in P1.0.4 rests on.",
+        how:
+          "Name the concrete change, who makes it (us, the client, their developer), by when, and what " +
+          "we do differently in the meantime. If the answer is that we take the account anyway and " +
+          "accept the ceiling, write that down — it is a decision, not a gap.",
+        kind: "longtext",
+        evidence: c.example,
+        onlyWhen: { anyOf: [f.key], is: c.when },
+      },
+    ];
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -97,8 +194,9 @@ const GOOD_FIT: TaskFieldSet = {
   scoring:
     "All three yes and the account can carry an ambitious plan. Two is workable if the red-flag check is " +
     "clean. One or none means Pinterest will be slow going here — which the client can be told now, and " +
-    "that is cheaper than telling them in month four.",
-  fields: [
+    "that is cheaper than telling them in month four. Every no raises a flag and opens a plan box: this " +
+    "check does not close until each one has an answer.",
+  fields: concernFields([
     {
       key: "more_than_5_products",
       question: "Are there more than five distinct products or ideas to pin?",
@@ -111,6 +209,19 @@ const GOOD_FIT: TaskFieldSet = {
       kind: "boolean",
       evidence: "e.g. \"Six collections, ~40 SKUs, plus a journal with 12 posts we can pin as ideas.\"",
       evidenceRequired: true,
+      concern: {
+        when: false,
+        severity: "work_around",
+        headline: "Fewer than five distinct things to pin.",
+        consequence:
+          "The engine runs on variety. A handful of items becomes the same pin over and over, Pinterest " +
+          "reads that as repetition and caps distribution — the account plateaus around month two and no " +
+          "amount of extra posting moves it.",
+        ask: "Where is the variety going to come from?",
+        example:
+          "e.g. \"Three SKUs, but the founder has 14 journal posts we can pin as ideas and four use-case " +
+          "angles per product. Agreed on the call: eight editorial pages live before cycle 1.\"",
+      },
     },
     {
       key: "url_volume",
@@ -124,6 +235,19 @@ const GOOD_FIT: TaskFieldSet = {
       kind: "boolean",
       evidence: "e.g. \"Sitemap gives 34 usable URLs: 6 collections, 24 products, 4 guides. Comfortable at 2 URLs/month.\"",
       evidenceRequired: true,
+      concern: {
+        when: false,
+        severity: "work_around",
+        headline: "Not enough distinct URLs to keep the waterfall fed.",
+        consequence:
+          "A URL rests for its cooldown after a cycle. Too few pages and it comes back before it has " +
+          "rested, so our own pins compete with each other — and the frequency the retainer was priced on " +
+          "cannot be delivered at all.",
+        ask: "How do we get to enough URLs, or what frequency do we drop to?",
+        example:
+          "e.g. \"12 usable URLs against 24 required. Client adds 10 collection pages in September; until " +
+          "then one cycle a month instead of two, and that goes in the plan rather than being discovered later.\"",
+      },
     },
     {
       key: "existing_assets",
@@ -137,8 +261,21 @@ const GOOD_FIT: TaskFieldSet = {
       kind: "boolean",
       evidence: "e.g. \"Drive folder with two 2025 shoots, ~200 images, model and flat-lay. Plenty for four designs.\"",
       evidenceRequired: true,
+      concern: {
+        when: false,
+        severity: "work_around",
+        headline: "No usable visual assets yet.",
+        consequence:
+          "Every pin then has to be shot before it can be made. The first cycle slips by weeks and the " +
+          "cost per cycle changes — which makes this a pricing conversation, not a production detail to " +
+          "sort out in phase 4.",
+        ask: "Who produces the visuals, by when, and at whose cost?",
+        example:
+          "e.g. \"No shoot exists. Client books a half-day in week 2 and delivers ~60 images; cycle 1 runs " +
+          "on product cut-outs. Extra design hours quoted separately and signed off before we start.\"",
+      },
     },
-  ],
+  ]),
 };
 
 const RED_FLAGS: TaskFieldSet = {
@@ -146,9 +283,10 @@ const RED_FLAGS: TaskFieldSet = {
     "Two things that hold a store back regardless of how good the fit looked. Flag what is true and say " +
     "what you saw.",
   scoring:
-    "Neither flag and nothing is holding the account back. One: write down how we work around it. " +
-    "Both: the plan needs resetting before it starts, and the reasoning below is what you send the client.",
-  fields: [
+    "Neither flag and nothing is holding the account back. Either one is a stop-and-think: the box that " +
+    "opens underneath is where the case gets made for taking the account on anyway, or for telling the " +
+    "client no — and it is what P1.0.4 reads when it asks for the verdict.",
+  fields: concernFields([
     {
       key: "rf_single_landing",
       question: "Is the whole site a single landing page?",
@@ -158,6 +296,19 @@ const RED_FLAGS: TaskFieldSet = {
       how: "Count real, distinct destination pages. Anchors on one page do not count.",
       kind: "boolean",
       evidence: "e.g. \"Full Shopify store, 34 URLs. No flag.\"",
+      concern: {
+        when: true,
+        severity: "reconsider",
+        headline: "The whole site is one page.",
+        consequence:
+          "One page is one URL. There is nothing for the waterfall to rotate through, every cycle competes " +
+          "with the one before it, and the cooldown that keeps the account healthy cannot exist at all. " +
+          "This is not a slow start — the method does not run in this shape.",
+        ask: "What has to change on the site before we start, and who is doing it?",
+        example:
+          "e.g. \"Single Shopify page today. Their developer splits it into 6 collections and 12 product " +
+          "pages before 15-09. Nothing gets pinned until that is live; onboarding paused, client informed.\"",
+      },
     },
     {
       key: "rf_restricted_niche",
@@ -170,8 +321,22 @@ const RED_FLAGS: TaskFieldSet = {
         "adult, medical claims, financial advice.",
       kind: "boolean",
       evidence: "e.g. \"Jewellery, no restricted categories. No flag.\"",
+      concern: {
+        when: true,
+        severity: "reconsider",
+        headline: "The niche is restricted or sensitive on Pinterest.",
+        consequence:
+          "Restricted categories get distribution capped quietly, or the account actioned outright. " +
+          "Discovering it after the board architecture is built throws away the whole Strategy Core, and " +
+          "there is no appeal that gives those months back.",
+        ask: "What exactly is restricted, and how do we stay inside the guidelines?",
+        example:
+          "e.g. \"Supplements. Checked against Pinterest's guidelines 27-08: no health claims, no " +
+          "before/after, no dosage language in copy or overlays. Ingredient and ritual angles only, and " +
+          "every caption reviewed before it goes out.\"",
+      },
     },
-  ],
+  ]),
 };
 
 const URL_COUNT: TaskFieldSet = {
@@ -724,6 +889,38 @@ export function visibleFields(
   return set.fields.filter((f) =>
     !f.onlyWhen || f.onlyWhen.anyOf.some((k) => answerOf(k) === f.onlyWhen!.is)
   );
+}
+
+export interface RaisedConcern {
+  field: TaskField;
+  concern: FieldConcern;
+  /** A plan has been written for it. */
+  planned: boolean;
+}
+
+/**
+ * The concerns this assessment has actually raised, in question order.
+ *
+ * Drawn once at the top of the checklist as well as on the row itself:
+ * three questions fit on a screen, five do not, and a flag you have to
+ * scroll to find is a flag that gets found after the contract is signed.
+ */
+export function raisedConcerns(
+  set: TaskFieldSet,
+  answerOf: (key: string) => boolean | null | undefined,
+  planOf: (key: string) => string | null | undefined
+): RaisedConcern[] {
+  const out: RaisedConcern[] = [];
+  for (const f of set.fields) {
+    if (!f.concern) continue;
+    if (answerOf(f.key) !== f.concern.when) continue;
+    out.push({
+      field: f,
+      concern: f.concern,
+      planned: !!(planOf(planKeyFor(f.key)) ?? "").trim(),
+    });
+  }
+  return out;
 }
 
 /** True when the task has hand-written questions rather than the fallback. */
