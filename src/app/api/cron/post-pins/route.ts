@@ -459,6 +459,26 @@ async function handlePostPins(request: NextRequest) {
         if (duePins.length >= perRunCap) break;
       }
 
+      /**
+       * Cheap work first, within the run.
+       *
+       * An image is about a second and a half; a video is register, upload and
+       * poll, and measured here around fifty. Taking them in date order means
+       * a store with videos at the head spends its whole budget on three of
+       * them and never reaches the twenty images behind — which is what the
+       * Longevity store did even after the window was widened to see them.
+       *
+       * Videos are not starved by this: they are rationed per run anyway, and
+       * starting one grows the budget (VIDEO_RUN_BUDGET_MS) specifically so
+       * there is room after the images are done. Both are overdue, so posting
+       * one a minute before the other changes nothing anybody can observe.
+       *
+       * Stable within each group, so date order still decides among equals.
+       */
+      const isVideoPin = (pin: (typeof duePins)[number]) =>
+        pin.pin_type === "video" || !!pin.video_url;
+      duePins.sort((a, b) => Number(isVideoPin(a)) - Number(isVideoPin(b)));
+
       if (!duePins || duePins.length === 0) {
         skipReason = "no_due_pins";
         results.push({ org: org.name || org.id, posted: 0, errors: orgErrors, skip: skipReason });
