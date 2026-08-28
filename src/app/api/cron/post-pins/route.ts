@@ -414,7 +414,29 @@ async function handlePostPins(request: NextRequest) {
         }
       }
 
-      // Get overdue pins, then filter by per-category remaining capacity
+      // Forced "Post Now" batches skip the daily caps but still cap at 10 per
+      // invocation so we don't blow the Vercel 300s function budget.
+      const perRunCap = forced ? 10 : SWIMWEAR_CAP + OTHER_CAP;
+
+      /**
+       * How far down the queue to look.
+       *
+       * This was a flat 10, which broke twice over once the caps were raised
+       * and videos became rationed:
+       *
+       *   - A store with a cap of 15 could never post more than 10 in a run,
+       *     because the window was smaller than its own allowance.
+       *   - Worse, a deferred video still occupied a slot in that window. The
+       *     Longevity store had thirteen videos queued ahead of eight images,
+       *     so every run pulled ten videos, deferred nine of them, and the
+       *     images behind them were never even looked at — the same head-of-
+       *     line block that broken pins used to cause, wearing a new hat.
+       *
+       * Looking wider costs one query either way; `perRunCap` is still what
+       * actually bounds how many get posted.
+       */
+      const windowSize = Math.min(60, Math.max(perRunCap * 3, 30));
+
       const { data: allDuePins } = await admin
         .from("pins")
         .select("*, boards(pinterest_board_id, name)")
@@ -422,13 +444,10 @@ async function handlePostPins(request: NextRequest) {
         .in("status", ["approved", "scheduled"])
         .lte("scheduled_at", now)
         .order("scheduled_at", { ascending: true })
-        .limit(10);
+        .limit(windowSize);
 
       let remainingSwim = forced ? Infinity : SWIMWEAR_CAP - swimwearPostedToday;
       let remainingOther = forced ? Infinity : OTHER_CAP - otherPostedToday;
-      // Forced "Post Now" batches skip the daily caps but still cap at 10 per
-      // invocation so we don't blow the Vercel 300s function budget.
-      const perRunCap = forced ? 10 : SWIMWEAR_CAP + OTHER_CAP;
       const duePins: typeof allDuePins = [];
       for (const pin of allDuePins || []) {
         const bn = (pin.boards as { name: string | null } | null)?.name;

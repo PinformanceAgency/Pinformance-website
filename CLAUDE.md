@@ -107,9 +107,17 @@ single pin. Four things were wrong at once and each is worth not reintroducing.
   the 131 pins behind them had not moved since 2 July. They now go to `failed`
   with a reason in `rejected_reason` (nothing is deleted, so the copy can be
   reused). `scripts/retire-unpostable-pins.ts` clears a backlog in one pass.
-- **Video pins are rationed: one per run, and only with ≥90s of budget left.**
-  Register → upload → poll runs to 60s with the whole file held in memory as a
-  Buffer. Two in one run is the memory kill.
+- **Video pins are rationed** (`?max_videos=`, one by default) and only started
+  when a whole one still fits in the budget. Register → upload → poll runs to
+  60s with the file held in memory as a Buffer; the memory kill was a single
+  303MB file, and a 120MB size guard now stands in front of every one.
+- **The due-pins window is wider than the per-run cap, deliberately.** It was a
+  flat 10, which broke twice once caps were raised and videos rationed: a store
+  capped at 15 could never post more than 10 a run, and a *deferred* video still
+  occupied a slot — The Longevity store had 13 videos queued ahead of 8 images,
+  so every run pulled ten videos, deferred nine, and never looked at the images.
+  Head-of-line blocking wearing a new hat. `perRunCap` bounds what is posted;
+  the window only bounds what is considered.
 
 The per-org caps (`settings.max_pins_per_day`, default 5; swimwear hard-capped
 at 2 because Pinterest throttles it) and `settings.min_post_interval_minutes`
