@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { TaskRow } from "@/lib/organic/types";
+import { cn } from "@/lib/utils";
 
 export interface Phase2Snapshot {
   keywords: string[];
@@ -31,6 +32,9 @@ interface CompetitorRow {
   niche_fit: string | null;
   pins_per_day_4mo: number | null;
   pin_export_path: string | null;
+  /** How many rows are already in competitor_pins for this competitor —
+   *  the upload screen's "done / not done" signal. */
+  pins_imported: number | null;
 }
 interface TasteGraphRow {
   core_products: string[] | null;
@@ -317,42 +321,218 @@ function CompetitorsForm({ orgId, snapshot, onDone }: Props) {
   );
 }
 
-// ---------- P2.1.6 (import CSV) ---------------------------------------------
+// ---------- P2.1.6 (upload the PinInspector exports) -------------------------
+
+/** What the server reports back per file. */
+interface ImportPinsResult {
+  parsed: number;
+  imported: number;
+  duplicates: number;
+  skipped_no_url: number;
+  columns: Record<string, string | null>;
+  covered: number;
+  total_competitors: number;
+  total_pins: number;
+}
+type RowState =
+  | { kind: "idle" }
+  | { kind: "busy" }
+  | { kind: "done"; result: ImportPinsResult }
+  | { kind: "error"; message: string };
+
+/** Vercel refuses a request body over 4.5MB, and the failure arrives as an
+ *  opaque 413 rather than as anything about CSVs. Caught here so the file
+ *  that is too big is named, with the count that makes it too big. */
+const MAX_CSV_BYTES = 4_000_000;
+
+/** Strip everything that differs between a brand's name and its export's
+ *  file name — case, @, spaces, punctuation — so "@LuluAndGeorgia" matches
+ *  "lulu_and_georgia_pins_2026-08.csv". */
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 
 function ImportPinsForm({ orgId, snapshot, onDone }: Props) {
-  const [profile, setProfile] = useState(snapshot.competitors[0]?.profile_url ?? "");
-  const [csv, setCsv] = useState("");
+  const competitors = snapshot.competitors;
+  const [files, setFiles] = useState<Record<string, File | null>>({});
+  const [state, setState] = useState<Record<string, RowState>>({});
+  const [unmatched, setUnmatched] = useState<File[]>([]);
   const [time, setTime] = useState("");
-  const [result, setResult] = useState<{ imported: number } | null>(null);
-  if (snapshot.competitors.length === 0) return <Notice>Save competitors first (P2.1.5).</Notice>;
+
+  if (competitors.length === 0) return <Notice>Save competitors first (P2.1.5).</Notice>;
+
+  const covered = competitors.filter((c) => (c.pins_imported ?? 0) > 0).length;
+  const queued = competitors.filter((c) => files[c.id]).length;
+
+  /** Drop several exports at once and let each find its competitor. A file
+   *  that matches nobody is not silently discarded — it is listed with a
+   *  picker, because a name that does not match is the normal case for a
+   *  brand whose handle differs from its own name. */
+  function takeFiles(list: FileList | null) {
+    if (!list?.length) return;
+    const next = { ...files };
+    const leftover: File[] = [];
+    for (const f of Array.from(list)) {
+      const name = slug(f.name);
+      const hit = competitors.find((c) => {
+        const keys = [c.handle, c.name].filter(Boolean).map((k) => slug(String(k)));
+        return keys.some((k) => k.length >= 3 && name.includes(k));
+      });
+      if (hit && !next[hit.id]) next[hit.id] = f;
+      else leftover.push(f);
+    }
+    setFiles(next);
+    setUnmatched(leftover);
+  }
+
+  function assign(compId: string, f: File) {
+    setFiles((prev) => ({ ...prev, [compId]: f }));
+    setUnmatched((prev) => prev.filter((x) => x !== f));
+  }
+
+  async function importAll() {
+    const todo = competitors.filter((c) => files[c.id]);
+    if (todo.length === 0) throw new Error("Pick at least one CSV first.");
+    const minutes = n(time);
+    let first = true;
+    let failures = 0;
+
+    for (const c of todo) {
+      const file = files[c.id]!;
+      setState((s) => ({ ...s, [c.id]: { kind: "busy" } }));
+      try {
+        const text = await file.text();
+        if (text.length > MAX_CSV_BYTES) {
+          throw new Error(
+            `${(text.length / 1_000_000).toFixed(1)}MB is over the 4MB upload limit — ` +
+            `export this competitor in two halves and import both.`
+          );
+        }
+        // The batch's time is booked once, on the first file: the manager
+        // spent it on the export run, not on each upload.
+        const r = (await post(orgId, {
+          action: "import_pins",
+          profile_url: c.profile_url,
+          csv: text,
+          file_name: file.name,
+          time_spent_min: first ? minutes : 0,
+        })) as ImportPinsResult;
+        first = false;
+        setState((s) => ({ ...s, [c.id]: { kind: "done", result: r } }));
+      } catch (e) {
+        failures++;
+        setState((s) => ({ ...s, [c.id]: { kind: "error", message: (e as Error).message } }));
+      }
+    }
+    onDone();
+    if (failures > 0) throw new Error(`${failures} of ${todo.length} file(s) failed — see the rows above.`);
+  }
+
   return (
     <FormShell
-      title="Import PinInspector CSV"
+      title="Upload the PinInspector exports"
       body={
-        <div className="space-y-2">
-          <select value={profile} onChange={(e) => setProfile(e.target.value)}
-            className="w-full max-w-md rounded border border-neutral-300 px-2 py-1 text-xs bg-white">
-            {snapshot.competitors.map((c) => (
-              <option key={c.id} value={c.profile_url}>{c.name || c.profile_url}</option>
-            ))}
-          </select>
-          <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={6}
-            placeholder="Paste PinInspector CSV export here — first row = column headers."
-            className="w-full rounded border border-neutral-300 px-2 py-1 text-[10px] font-mono" />
-          {result && (
-            <div className="rounded border border-foreground bg-foreground text-white px-2 py-1 text-xs">
-              Imported <strong>{result.imported}</strong> rows.
+        <div className="space-y-3">
+          <div className="text-[11px] text-neutral-600">
+            One CSV per competitor, 700–1000 pins each. Drop them all at once — each file
+            looks for its competitor by name. Re-importing the same export is safe:
+            rows already stored are counted as duplicates, not written again.
+          </div>
+
+          <label className="block rounded-md border border-dashed border-neutral-300 bg-white px-3 py-4 text-center cursor-pointer hover:border-neutral-400">
+            <input type="file" accept=".csv,text/csv,text/plain" multiple className="hidden"
+              onChange={(e) => { takeFiles(e.target.files); e.target.value = ""; }} />
+            <span className="text-xs font-medium text-neutral-700">Choose CSV files</span>
+            <span className="block text-[11px] text-neutral-500 mt-0.5">
+              comma, semicolon or tab-separated — detected per file
+            </span>
+          </label>
+
+          {unmatched.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 space-y-1.5">
+              <div className="text-[11px] font-medium text-amber-900">
+                {unmatched.length} file(s) matched no competitor by name — assign them:
+              </div>
+              {unmatched.map((f, i) => (
+                <div key={`${f.name}-${i}`} className="flex items-center gap-2">
+                  <span className="text-[11px] text-neutral-700 truncate flex-1">{f.name}</span>
+                  <select defaultValue="" onChange={(e) => e.target.value && assign(e.target.value, f)}
+                    className="rounded border border-neutral-300 px-1.5 py-0.5 text-[11px] bg-white">
+                    <option value="" disabled>assign to…</option>
+                    {competitors.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name || c.profile_url}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
             </div>
           )}
+
+          <ul className="space-y-1">
+            {competitors.map((c) => {
+              const st = state[c.id] ?? { kind: "idle" as const };
+              const picked = files[c.id];
+              const already = c.pins_imported ?? 0;
+              return (
+                <li key={c.id} className="rounded-md border border-neutral-200 bg-white px-2.5 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-neutral-800 truncate flex-1">
+                      {c.name || c.profile_url}
+                      {c.handle && <span className="text-neutral-400 font-normal"> · {c.handle}</span>}
+                    </span>
+                    <span className={cn(
+                      "text-[11px] tabular-nums shrink-0",
+                      already > 0 ? "text-neutral-600" : "text-amber-700"
+                    )}>
+                      {already > 0 ? `${already.toLocaleString("en-US")} pins` : "no export yet"}
+                    </span>
+                    <label className="shrink-0 text-[11px] text-primary hover:underline cursor-pointer">
+                      <input type="file" accept=".csv,text/csv,text/plain" className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) assign(c.id, f); e.target.value = ""; }} />
+                      {picked ? "replace" : "choose file"}
+                    </label>
+                  </div>
+
+                  {picked && st.kind !== "done" && (
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-500">
+                      <span className="truncate">{picked.name}</span>
+                      <span className="tabular-nums shrink-0">{(picked.size / 1024).toFixed(0)} KB</span>
+                      {st.kind === "busy" && <span className="text-neutral-700 shrink-0">importing…</span>}
+                    </div>
+                  )}
+
+                  {st.kind === "done" && (
+                    <div className="mt-1 text-[11px] text-neutral-600">
+                      <span className="font-medium text-neutral-800">
+                        {st.result.imported.toLocaleString("en-US")} new
+                      </span>
+                      {" · "}{st.result.parsed.toLocaleString("en-US")} rows read
+                      {st.result.duplicates > 0 && <> · {st.result.duplicates.toLocaleString("en-US")} already stored</>}
+                      {st.result.skipped_no_url > 0 && <> · {st.result.skipped_no_url} without a URL</>}
+                      <div className="text-neutral-400">
+                        read from: {Object.entries(st.result.columns)
+                          .map(([field, col]) => `${field} ← ${col ?? "—"}`).join(", ")}
+                      </div>
+                    </div>
+                  )}
+
+                  {st.kind === "error" && (
+                    <div className="mt-1 text-[11px] text-red-600 break-words">{st.message}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="text-[11px] text-neutral-500">
+            {covered}/{competitors.length} competitors have an export.
+            {covered < competitors.length && " The task closes itself once every one does."}
+          </div>
         </div>
       }
       time={time} setTime={setTime}
-      submitLabel="Parse & import"
-      onSubmit={async () => {
-        const r = await post(orgId, { action: "import_pins", profile_url: profile, csv, time_spent_min: n(time) });
-        setResult(r as { imported: number });
-        onDone();
-      }}
+      submitLabel={queued > 0 ? `Import ${queued} file(s)` : "Import"}
+      onSubmit={importAll}
     />
   );
 }

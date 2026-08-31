@@ -60,7 +60,8 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
         orgId,
         String(body.profile_url),
         String(body.csv),
-        Number(body.time_spent_min)
+        Number(body.time_spent_min ?? 0),
+        body.file_name ? String(body.file_name) : null
       );
     case "generate_analysis":
       return generateMarketAnalysis(orgId, Number(body.time_spent_min));

@@ -148,69 +148,214 @@ export async function saveCompetitors(orgId: string, list: CompetitorInput[], ti
   return { count: list.length, recomputed: await recomputeAfter(orgId) };
 }
 
-/** P2.1.6 — parse PinInspector-shaped CSV. Column names PinInspector uses
- *  vary; we accept the common ones and fall back to positional order. */
+/** P2.1.6 — import one competitor's PinInspector export.
+ *
+ *  Three things here are the difference between this working on a real
+ *  export and the table staying empty, which is what it was on every live
+ *  store until today:
+ *
+ *  - **Rows go in 500 at a time through unnest().** One INSERT per row is
+ *    ~1000 round trips for a single competitor, and the route it runs in
+ *    stops at 60 seconds. The method asks for 700-1000 pins from each of
+ *    five to ten competitors, so the slow path could not finish even once.
+ *  - **The delimiter is detected, not configured.** A European Excel
+ *    writes semicolons where PinInspector's docs show commas, and a
+ *    comma-only parser reads such a file as a single column: every field
+ *    null, and "Imported 1000 rows" printed over the top of it. A manager
+ *    asked to pick a delimiter picks the wrong one for the same reason.
+ *  - **A file with no pin-URL column is refused.** Without it nothing can
+ *    be deduplicated and P2.2.1 has no pin to point at, so importing it
+ *    produces volume and no evidence — the one failure mode that looks
+ *    like success everywhere downstream.
+ *
+ *  Re-importing the same file is safe (unique index from migration 089,
+ *  ON CONFLICT DO NOTHING): duplicates are counted and reported, not
+ *  written. That is what makes recovering a half-finished import a matter
+ *  of dragging the file in again.
+ */
+export interface ImportPinsResult {
+  competitor_id: string;
+  /** Data rows the parser read, after dropping blank lines. */
+  parsed: number;
+  /** Rows genuinely written. */
+  imported: number;
+  /** Rows already present — from an earlier run, or repeated in the file. */
+  duplicates: number;
+  /** Rows dropped because they carried no pin URL. */
+  skipped_no_url: number;
+  /** Which CSV column each field was read from, so a wrong guess is visible. */
+  columns: Record<string, string | null>;
+  /** Competitors with at least one pin, out of all of them. */
+  covered: number;
+  total_competitors: number;
+  total_pins: number;
+  recomputed: number;
+}
+
+const IMPORT_BATCH = 500;
+
 export async function importCompetitorPinsCsv(
   orgId: string,
   competitorProfileUrl: string,
   csv: string,
-  timeSpentMin: number
-) {
+  timeSpentMin: number,
+  fileName?: string | null
+): Promise<ImportPinsResult> {
   const pool = organicPool();
-  const comp = await pool.query<{ id: string }>(
-    `SELECT id::text FROM organic.competitors WHERE org_id=$1 AND profile_url=$2`,
+  const comp = await pool.query<{ id: string; name: string | null }>(
+    `SELECT id::text, name FROM organic.competitors WHERE org_id=$1 AND profile_url=$2`,
     [orgId, competitorProfileUrl]
   );
   if (comp.rowCount === 0) throw new Error(`competitor not found: ${competitorProfileUrl}`);
   const competitor_id = comp.rows[0].id;
 
-  const rows = parseCsv(csv);
-  if (rows.length < 2) throw new Error("CSV appears empty");
+  // Excel prefixes a BOM; left in place it becomes part of the first
+  // header name, and the URL column stops being found on file one.
+  const text = csv.replace(/^﻿/, "");
+  const rows = parseCsv(text, detectDelimiter(text));
+  if (rows.length < 2) throw new Error("CSV appears empty — no rows below the header.");
+
   const header = rows[0].map((h) => h.trim().toLowerCase());
   const idx = (candidates: string[]): number => {
     for (const c of candidates) {
-      const i = header.findIndex((h) => h === c || h.includes(c));
+      const i = header.findIndex((h) => h === c);
+      if (i >= 0) return i;
+    }
+    // Exact names first across all candidates, then substrings — otherwise
+    // "url" matches "image url" in a file that also has "pin url".
+    for (const c of candidates) {
+      const i = header.findIndex((h) => h.includes(c));
       if (i >= 0) return i;
     }
     return -1;
   };
-  const iUrl   = idx(["pin url", "pin_url", "url", "link"]);
-  const iTitle = idx(["title"]);
+  const iUrl   = idx(["pin url", "pin_url", "pin link", "url", "link"]);
+  const iTitle = idx(["title", "pin title"]);
   const iDesc  = idx(["description", "desc"]);
-  const iBoard = idx(["board", "board name", "board_name"]);
+  const iBoard = idx(["board name", "board_name", "board"]);
   const iSaves = idx(["saves", "repins"]);
   const iClicks= idx(["outbound clicks", "outbound_clicks", "clicks"]);
   const iImp   = idx(["impressions", "views"]);
 
-  let inserted = 0;
+  if (iUrl < 0) {
+    throw new Error(
+      `No pin URL column found. Columns read: ${header.filter(Boolean).join(", ") || "(none)"}. ` +
+      `Export again from PinInspector with the pin URL included.`
+    );
+  }
+
+  const columns: Record<string, string | null> = {
+    pin_url: header[iUrl] ?? null,
+    title: iTitle >= 0 ? header[iTitle] : null,
+    description: iDesc >= 0 ? header[iDesc] : null,
+    board_name: iBoard >= 0 ? header[iBoard] : null,
+    saves: iSaves >= 0 ? header[iSaves] : null,
+    outbound_clicks: iClicks >= 0 ? header[iClicks] : null,
+    impressions: iImp >= 0 ? header[iImp] : null,
+  };
+
+  type Rec = {
+    url: string; title: string | null; desc: string | null; board: string | null;
+    saves: number | null; clicks: number | null; imp: number | null; raw: string;
+  };
+  const records: Rec[] = [];
+  const seen = new Set<string>();
+  let parsed = 0, skippedNoUrl = 0, dupInFile = 0;
+
   for (let r = 1; r < rows.length; r++) {
     const cols = rows[r];
     if (cols.every((c) => !c.trim())) continue;
-    await pool.query(
-      `INSERT INTO organic.competitor_pins (org_id, competitor_id, pin_url, title, description, board_name, saves, outbound_clicks, impressions, raw)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    parsed++;
+    const url = (cols[iUrl] ?? "").trim();
+    if (!url) { skippedNoUrl++; continue; }
+    if (seen.has(url)) { dupInFile++; continue; }
+    seen.add(url);
+    records.push({
+      url,
+      title: iTitle >= 0 ? cols[iTitle] ?? null : null,
+      desc:  iDesc  >= 0 ? cols[iDesc]  ?? null : null,
+      board: iBoard >= 0 ? cols[iBoard] ?? null : null,
+      saves: iSaves >= 0 ? intOrNull(cols[iSaves]) : null,
+      clicks:iClicks>= 0 ? intOrNull(cols[iClicks]): null,
+      imp:   iImp   >= 0 ? intOrNull(cols[iImp])   : null,
+      raw: JSON.stringify(Object.fromEntries(header.map((h, i) => [h, cols[i] ?? null]))),
+    });
+  }
+
+  let imported = 0;
+  for (let i = 0; i < records.length; i += IMPORT_BATCH) {
+    const batch = records.slice(i, i + IMPORT_BATCH);
+    const res = await pool.query(
+      `INSERT INTO organic.competitor_pins
+              (org_id, competitor_id, pin_url, title, description, board_name, saves, outbound_clicks, impressions, raw)
+       SELECT $1, $2, u.pin_url, u.title, u.description, u.board_name, u.saves, u.outbound_clicks, u.impressions, u.raw
+         FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::int[], $9::int[], $10::jsonb[])
+              AS u(pin_url, title, description, board_name, saves, outbound_clicks, impressions, raw)
+       ON CONFLICT (competitor_id, pin_url) WHERE pin_url IS NOT NULL DO NOTHING`,
       [
         orgId, competitor_id,
-        iUrl >= 0 ? cols[iUrl] : null,
-        iTitle >= 0 ? cols[iTitle] : null,
-        iDesc >= 0 ? cols[iDesc] : null,
-        iBoard >= 0 ? cols[iBoard] : null,
-        iSaves >= 0 ? intOrNull(cols[iSaves]) : null,
-        iClicks >= 0 ? intOrNull(cols[iClicks]) : null,
-        iImp >= 0 ? intOrNull(cols[iImp]) : null,
-        JSON.stringify(Object.fromEntries(header.map((h, i) => [h, cols[i] ?? null]))),
+        batch.map((b) => b.url),
+        batch.map((b) => b.title),
+        batch.map((b) => b.desc),
+        batch.map((b) => b.board),
+        batch.map((b) => b.saves),
+        batch.map((b) => b.clicks),
+        batch.map((b) => b.imp),
+        batch.map((b) => b.raw),
       ]
     );
-    inserted++;
+    imported += res.rowCount ?? 0;
   }
+  const duplicates = (records.length - imported) + dupInFile;
 
   await pool.query(
     `UPDATE organic.competitors SET pin_export_path = $1 WHERE id = $2`,
-    [`csv-${inserted}-rows`, competitor_id]
+    [fileName?.trim() || `csv-${imported}-rows`, competitor_id]
   );
-  await completeTaskByDefinition({ orgId, taskId: "P2.1.6", timeSpentMin,
-    notes: `Imported ${inserted} pins from ${competitorProfileUrl}` });
-  return { imported: inserted, competitor_id, recomputed: await recomputeAfter(orgId) };
+
+  const coverage = await pool.query<{ pins: number }>(
+    `SELECT (SELECT COUNT(*) FROM organic.competitor_pins p WHERE p.competitor_id = c.id)::int AS pins
+       FROM organic.competitors c WHERE c.org_id = $1`,
+    [orgId]
+  );
+  const total_competitors = coverage.rowCount ?? 0;
+  const covered = coverage.rows.filter((r) => r.pins > 0).length;
+  const total_pins = coverage.rows.reduce((s, r) => s + r.pins, 0);
+
+  await recordImportProgress(orgId, timeSpentMin, covered >= total_competitors && total_competitors > 0,
+    `Imported ${total_pins.toLocaleString("en-US")} competitor pins across ${covered}/${total_competitors} competitors.`);
+
+  return {
+    competitor_id, parsed, imported, duplicates, skipped_no_url: skippedNoUrl,
+    columns, covered, total_competitors, total_pins,
+    recomputed: await recomputeAfter(orgId),
+  };
+}
+
+/** P2.1.6 completes per competitor, so it cannot use completeTaskByDefinition:
+ *  that one overwrites time and demands a positive number, and one import of
+ *  five is not a finished task. Time accumulates across the batch (the screen
+ *  sends it once, with the first file), the task closes only when every
+ *  competitor has pins, and a BLOCKED task is left alone — blocked is computed
+ *  from preconditions and importing a file does not clear one. */
+async function recordImportProgress(
+  orgId: string, addMinutes: number, done: boolean, note: string
+): Promise<void> {
+  await organicPool().query(
+    `UPDATE organic.client_tasks
+        SET time_spent_min = CASE WHEN $1 > 0 THEN COALESCE(time_spent_min, 0) + $1 ELSE time_spent_min END,
+            started_at     = COALESCE(started_at, now()),
+            notes          = $2,
+            status         = CASE
+                               WHEN status = 'BLOCKED'::organic.task_status THEN status
+                               WHEN $3 THEN 'DONE'::organic.task_status
+                               WHEN status = 'DONE'::organic.task_status THEN status
+                               ELSE 'IN_PROGRESS'::organic.task_status
+                             END,
+            completed_at   = CASE WHEN $3 THEN COALESCE(completed_at, now()) ELSE completed_at END
+      WHERE org_id = $4 AND task_id = 'P2.1.6'`,
+    [Math.max(0, Math.round(addMinutes || 0)), note, done, orgId]
+  );
 }
 
 // ---------- Market analysis (P2.2.1, P2.2.2) --------------------------------
@@ -488,7 +633,9 @@ export async function loadPhase2Snapshot(orgId: string) {
   const [keywords, grids, competitors, taste, market, cs] = await Promise.all([
     pool.query(`SELECT term FROM organic.keywords WHERE org_id=$1 ORDER BY term`, [orgId]),
     pool.query(`SELECT target_keyword, fmt_simple_pins, fmt_infographics, fmt_video_916, fmt_pure_aesthetic, fmt_text_heavy, has_visible_ctas, text_overlay_bucket, look_and_feel, hex_1, hex_2, hex_3 FROM organic.grid_analyses WHERE org_id=$1 ORDER BY target_keyword`, [orgId]),
-    pool.query(`SELECT id::text, name, handle, profile_url, niche_fit, pins_per_day_4mo, pin_export_path FROM organic.competitors WHERE org_id=$1 ORDER BY name`, [orgId]),
+    pool.query(`SELECT c.id::text, c.name, c.handle, c.profile_url, c.niche_fit, c.pins_per_day_4mo, c.pin_export_path,
+                       (SELECT COUNT(*) FROM organic.competitor_pins p WHERE p.competitor_id = c.id)::int AS pins_imported
+                  FROM organic.competitors c WHERE c.org_id=$1 ORDER BY c.name`, [orgId]),
     pool.query(`SELECT * FROM organic.taste_graph WHERE org_id=$1`, [orgId]),
     pool.query(`SELECT id::text, kind, title, detail, status, reject_reason FROM organic.market_analysis_items WHERE org_id=$1 ORDER BY kind, created_at`, [orgId]),
     pool.query(`SELECT daily_pin_target, urls_per_month FROM organic.client_settings WHERE org_id=$1`, [orgId]),
@@ -511,8 +658,32 @@ function intOrNull(s: string | undefined | null): number | null {
   return isFinite(n) ? n : null;
 }
 
-/** Small CSV parser that handles quoted fields with commas + escaped quotes. */
-function parseCsv(text: string): string[][] {
+/** Which delimiter this file actually uses. Counted on the header line
+ *  only, outside quotes: a description field full of commas would outvote
+ *  the semicolons that separate the columns around it. */
+function detectDelimiter(text: string): "," | ";" | "\t" {
+  let line = "", inQuotes = false;
+  for (const ch of text) {
+    if (ch === '"') inQuotes = !inQuotes;
+    if (ch === "\n" && !inQuotes) break;
+    line += ch;
+  }
+  const count = (d: string) => {
+    let n = 0, q = false;
+    for (const ch of line) {
+      if (ch === '"') q = !q;
+      else if (ch === d && !q) n++;
+    }
+    return n;
+  };
+  const scores: Array<["," | ";" | "\t", number]> = [[",", count(",")], [";", count(";")], ["\t", count("\t")]];
+  scores.sort((a, b) => b[1] - a[1]);
+  return scores[0][1] > 0 ? scores[0][0] : ",";
+}
+
+/** Small CSV parser that handles quoted fields with embedded delimiters +
+ *  escaped quotes. */
+function parseCsv(text: string, delimiter: string = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [], cell = "", inQuotes = false;
   for (let i = 0; i < text.length; i++) {
@@ -524,7 +695,7 @@ function parseCsv(text: string): string[][] {
       } else cell += ch;
     } else {
       if (ch === '"') inQuotes = true;
-      else if (ch === ",") { row.push(cell); cell = ""; }
+      else if (ch === delimiter) { row.push(cell); cell = ""; }
       else if (ch === "\n") { row.push(cell); cell = ""; rows.push(row); row = []; }
       else if (ch === "\r") { /* skip */ }
       else cell += ch;
