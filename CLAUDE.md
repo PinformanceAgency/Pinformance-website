@@ -435,6 +435,26 @@ keywords never deployed, two failed pins, a client sitting on an approval for
 three weeks. A demo where everything is green exercises none of the screens that
 matter. **Remove it before any client sees the client list.**
 
+### Add or remove a media buyer
+
+`MEDIA_BUYERS` in `src/lib/media-buying/config.ts`. Lowercase first names —
+that is what sits in `store_settings.media_buyer` and what every table renders
+verbatim, so a capitalised entry reads as a different kind of value next to
+`dylan`.
+
+Every buyer dropdown used to derive its options from whichever stores were
+assigned, which cannot represent a buyer who has no stores yet: they are absent
+from the app, so there is no way to hand them their first store. `mediaBuyerOptions()`
+unions the roster with what is actually assigned — both halves matter, because
+dropping a buyer who left the team must not make the stores still carrying their
+name unfilterable. Removing someone from the roster is therefore safe and does
+not touch a single store.
+
+The one picker deliberately left on data alone is the **Benchmarks** filter: its
+options reflect the currently loaded cohort, and a benchmark needs three stores
+before it says anything at all (`BENCHMARK_MIN_STORES`), so an option that can
+only produce an empty cohort would be noise there.
+
 ### Refresh Team Activity cache manually
 
 ```bash

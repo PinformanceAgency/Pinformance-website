@@ -25,7 +25,7 @@ import {
 } from "@/lib/media-buying/rollups";
 import { benchmarksFor } from "@/lib/media-buying/benchmarks";
 import type { Zone } from "@/lib/media-buying/config";
-import { DEPARTMENT_LABELS, COUNTRY_OPTIONS, DEFAULT_ZONE_THRESHOLDS, INVOICING_MODEL_LABELS, classifyZone } from "@/lib/media-buying/config";
+import { DEPARTMENT_LABELS, COUNTRY_OPTIONS, DEFAULT_ZONE_THRESHOLDS, INVOICING_MODEL_LABELS, classifyZone, mediaBuyerOptions } from "@/lib/media-buying/config";
 import type { DailyPoint, HubSeries } from "@/lib/media-buying/hub-series";
 import {
   fmtCurrency,
@@ -259,11 +259,10 @@ function HubFilterBar({
     }
     return Array.from(set).sort();
   }, [hub.stores]);
-  const buyers = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of hub.stores) if (s.media_buyer) set.add(s.media_buyer);
-    return Array.from(set).sort();
-  }, [hub.stores]);
+  const buyers = useMemo(
+    () => mediaBuyerOptions(hub.stores.map((s) => s.media_buyer)),
+    [hub.stores]
+  );
 
   return (
     <div className="flex flex-wrap gap-2">

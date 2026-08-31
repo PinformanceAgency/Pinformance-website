@@ -1,5 +1,7 @@
 "use client";
 
+import { mediaBuyerOptions } from "@/lib/media-buying/config";
+
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, ArrowUpDown, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -70,12 +72,10 @@ export default function StoreRankingPage() {
     return () => abort.abort();
   }, [start, end]);
 
-  const buyers = useMemo(() => {
-    if (!data) return [];
-    const set = new Set<string>();
-    for (const s of data.stores) if (s.media_buyer) set.add(s.media_buyer);
-    return Array.from(set).sort();
-  }, [data]);
+  const buyers = useMemo(
+    () => mediaBuyerOptions(data?.stores.map((s) => s.media_buyer) ?? []),
+    [data]
+  );
   const departments = useMemo(() => {
     if (!data) return [];
     const set = new Set<string>();

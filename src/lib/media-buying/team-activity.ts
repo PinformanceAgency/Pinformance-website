@@ -21,6 +21,7 @@
  *   - pins_added: pins.created_at in the week
  */
 import { Pool, types } from "pg";
+import { mediaBuyerOptions } from "./config";
 
 // Force Postgres DATE (OID 1082) to come back as a raw "YYYY-MM-DD" string
 // instead of a JS Date at LOCAL midnight — which shifts by one day when the
@@ -327,7 +328,10 @@ export async function computeTeamActivity(): Promise<TeamActivityResponse> {
         byOrg
       ),
     },
-    buyers: Array.from(buyers).sort(),
+    // The roster too, not only who is currently assigned: a buyer who has just
+    // joined has to appear in the filter, otherwise "no activity" and "not on
+    // the team" look identical here.
+    buyers: mediaBuyerOptions(buyers),
     per_store: buildPerStoreRows(weekSeq, byOrg, paidRows, organicRows),
     stores: Array.from(byOrg.entries())
       .map(([org_id, info]) => ({

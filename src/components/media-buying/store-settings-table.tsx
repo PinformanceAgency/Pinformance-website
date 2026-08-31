@@ -7,6 +7,7 @@ import {
   DEPARTMENTS,
   DEPARTMENT_LABELS,
   COUNTRY_OPTIONS,
+  mediaBuyerOptions,
 } from "@/lib/media-buying/config";
 import type {
   StoreSettings,
@@ -38,13 +39,13 @@ export function StoreSettingsTable({ rows, canEdit, onRowSaved }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [editing, setEditing] = useState<StoreSettingsRow | null>(null);
 
-  const buyerSuggestions = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of rows) {
-      if (r.settings?.media_buyer) set.add(r.settings.media_buyer);
-    }
-    return Array.from(set).sort();
-  }, [rows]);
+  // Roster first, assigned buyers folded in: this is the screen where a store
+  // is handed to somebody, so a buyer who has no stores yet has to be pickable
+  // here or they can never get their first one.
+  const buyerSuggestions = useMemo(
+    () => mediaBuyerOptions(rows.map((r) => r.settings?.media_buyer)),
+    [rows]
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

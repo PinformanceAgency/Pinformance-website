@@ -162,6 +162,52 @@ export const COUNTRY_OPTIONS: { code: string; label: string }[] = [
   { code: "CA", label: "Canada" },
 ];
 
+/**
+ * The media buyers on the team.
+ *
+ * Every buyer picker in the hub used to derive its options from whichever
+ * stores happened to be assigned, which has one failure it cannot recover
+ * from: a buyer with no stores yet does not exist anywhere in the app, so
+ * there is no way to assign them their first one. Louiza joined with none.
+ *
+ * Lowercase because that is what is in `store_settings.media_buyer` and what
+ * the tables render verbatim — a capitalised "David" here would sit next to
+ * "dylan" in the same column and read as a different kind of value.
+ *
+ * Someone who leaves is removed from this list, not from the stores: their
+ * history stays readable because `mediaBuyerOptions()` unions the roster with
+ * whatever is actually assigned.
+ */
+export const MEDIA_BUYERS = [
+  "david",
+  "dylan",
+  "jovita",
+  "louiza",
+  "rens",
+] as const;
+export type MediaBuyer = (typeof MEDIA_BUYERS)[number];
+
+/**
+ * The roster plus anyone actually assigned, deduplicated and sorted — what a
+ * buyer dropdown or datalist should offer.
+ *
+ * Both halves are load-bearing. Without the roster a new buyer is unpickable;
+ * without the assigned values a store whose buyer has left the team shows a
+ * name that its own filter cannot select.
+ */
+export function mediaBuyerOptions(
+  assigned: Iterable<string | null | undefined> = [],
+): string[] {
+  const seen = new Map<string, string>();
+  for (const name of [...MEDIA_BUYERS, ...assigned]) {
+    const value = (name ?? "").trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (!seen.has(key)) seen.set(key, value);
+  }
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+}
+
 // ─── Human-friendly labels ─────────────────────────────────────────────────
 export const DEPARTMENT_LABELS: Record<Department, string> = {
   branding: "Branding",
