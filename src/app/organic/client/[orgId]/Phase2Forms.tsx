@@ -564,7 +564,20 @@ function GenerateAIForm({ orgId, snapshot, onDone }: Props) {
 // ---------- P2.2.2 (review insights) ----------------------------------------
 
 function ReviewInsightsForm({ orgId, snapshot, onDone }: Props) {
-  const [items, setItems] = useState(snapshot.market_items);
+  // The list is DERIVED from the snapshot, never copied into state, and this
+  // is the whole reason P2.2.2 read "No AI items yet. Run P2.2.1 first." on a
+  // store that had just generated twenty of them. Every task with a form and
+  // a status of TODO opens expanded on page load, so this form mounts before
+  // the analysis exists; `useState(snapshot.market_items)` then froze the
+  // empty list, and the router.refresh() fired after P2.2.1 handed it fresh
+  // props that useState ignores by definition. Only a hard reload fixed it —
+  // and nothing on screen suggested a reload was what was missing.
+  //
+  // Approving is still optimistic: the verdict is held per id and merged over
+  // the server rows, so a click shows immediately and a later refresh cannot
+  // undo it either.
+  const [verdicts, setVerdicts] = useState<Record<string, { status: MarketItem["status"]; reject_reason: string | null }>>({});
+  const items = snapshot.market_items.map((it) => verdicts[it.id] ? { ...it, ...verdicts[it.id] } : it);
   const [time, setTime] = useState("");
 
   async function review(id: string, status: "APPROVED" | "REJECTED", reason?: string) {
@@ -578,7 +591,7 @@ function ReviewInsightsForm({ orgId, snapshot, onDone }: Props) {
     let data: { error?: string } = {};
     try { data = JSON.parse(text); } catch { /* keep raw */ }
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status} — ${text.slice(0, 140)}`);
-    setItems((prev) => prev.map((it) => it.id === id ? { ...it, status, reject_reason: reason ?? null } : it));
+    setVerdicts((prev) => ({ ...prev, [id]: { status, reject_reason: reason ?? null } }));
   }
 
   const grouped: Record<string, MarketItem[]> = { STEAL_LIST: [], BOARD_GAP: [], CONTENT_ANGLE: [] };
