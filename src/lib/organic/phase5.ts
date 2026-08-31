@@ -195,14 +195,29 @@ async function seedBaselineFromP1_2_13(orgId: string): Promise<BaselineRow | nul
     const n = Number(v.replace(/[^\d.-]/g, ""));
     return isFinite(n) ? n : null;
   };
+  // Nothing parsed means the note is the header and no more — P1.2.13 can be
+  // marked done with every field empty, and Valerie Mason's note was exactly
+  // "Baseline KPIs (3mo):". Writing a row of nulls there is worse than
+  // writing nothing: it is indistinguishable from "measured, and it was
+  // nothing", and because this seeder only runs when no row exists, that
+  // empty row would be the store's baseline forever — including after
+  // somebody goes back and fills the thirteen numbers in properly.
+  if (kv.size === 0) return null;
+  // period is written out and named in the conflict target on purpose. The
+  // key became (org_id, period) in migration 055, and this INSERT kept the
+  // old ON CONFLICT (org_id) — which Postgres answers with "there is no
+  // unique or exclusion constraint matching the ON CONFLICT specification",
+  // a 500 on the page rather than a swallowed no-op. It only fires for a
+  // store that has a P1.2.13 baseline note and no baseline row yet, so it
+  // stayed invisible until the first such store opened its overview.
   await pool.query(
     `INSERT INTO organic.baseline_kpis (
-       org_id, impressions, engagements, engagement_rate,
+       org_id, period, impressions, engagements, engagement_rate,
        outbound_clicks, pin_saves, profile_visits, monthly_views,
        followers_start, followers_end, top_click_pin_clicks, top_save_pin_saves,
        audience_top_country_pct, audience_top_age_bracket
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-     ON CONFLICT (org_id) DO NOTHING`,
+     ) VALUES ($1,'last_30d',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     ON CONFLICT (org_id, period) DO NOTHING`,
     [orgId, num("impressions"), num("engagements"), num("engagement_rate"),
      num("outbound_clicks"), num("pin_saves"), num("profile_visits"), num("monthly_views"),
      num("followers_start"), num("followers_end"), num("top_click_pin_clicks"), num("top_save_pin_saves"),

@@ -270,8 +270,15 @@ function AnalyticsBaselineForm({ orgId, task, onDone }: FormBaseProps) {
         </div>
       }
       onSubmit={async () => {
+        const filled = Object.entries(numbers).filter(([, v]) => v);
+        // Submitting nothing used to close the task and write a note that was
+        // only its own header. Phase 5 reads that note as the baseline, so the
+        // store ended up DONE on "record the baseline" with no baseline at all.
+        if (filled.length === 0) {
+          throw new Error("Fill in at least one KPI — this task is the baseline every phase-5 figure is measured against.");
+        }
         const notes = "Baseline KPIs (3mo):\n" +
-          Object.entries(numbers).filter(([, v]) => v).map(([k, v]) => `  ${k}: ${v}`).join("\n");
+          filled.map(([k, v]) => `  ${k}: ${v}`).join("\n");
         // Complete via generic status PATCH — this is note-only, no dedicated table yet.
         await genericComplete(task.client_task_id, parseTime(time), notes);
         onDone();
