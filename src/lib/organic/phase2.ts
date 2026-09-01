@@ -720,26 +720,68 @@ export interface TopPinDesign {
   note: string | null;
 }
 
-export async function saveTopPinDesigns(orgId: string, rows: TopPinDesign[]) {
-  const pool = organicPool();
-  // Replace rather than merge: the form shows every row, so what it sends
-  // is the complete answer. Merging would make a deleted row reappear.
-  await pool.query(`DELETE FROM organic.top_pin_designs WHERE org_id = $1`, [orgId]);
-  for (const r of rows) {
-    if (!r.keyword?.trim() || !r.pin_url?.trim()) continue;
-    await pool.query(
-      `INSERT INTO organic.top_pin_designs
-         (org_id, keyword, pin_url, title, description, annotations, hex_1, hex_2, hex_3, note)
-       VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10)
-       ON CONFLICT (org_id, keyword, pin_url) DO UPDATE SET
-         title = EXCLUDED.title, description = EXCLUDED.description,
-         annotations = EXCLUDED.annotations, hex_1 = EXCLUDED.hex_1,
-         hex_2 = EXCLUDED.hex_2, hex_3 = EXCLUDED.hex_3, note = EXCLUDED.note`,
-      [orgId, r.keyword.trim(), r.pin_url.trim(), r.title, r.description,
-       r.annotations ?? [], r.hex_1, r.hex_2, r.hex_3, r.note]
+export async function saveTopPinDesigns(
+  orgId: string, rows: TopPinDesign[], timeSpentMin: number
+) {
+  const kept = rows.filter((r) => !isBlankPinDesign(r));
+  // A row that is half filled in is not a row to throw away. The old loop
+  // `continue`d past anything without a keyword or a pin URL, so a list of
+  // six pins where five were still missing their URL saved as one and
+  // reported success — the form then reloaded that one row and looked as if
+  // the rest had never been typed.
+  const incomplete = kept
+    .map((r, i) => ({ i: i + 1, r }))
+    .filter(({ r }) => !r.keyword?.trim() || !r.pin_url?.trim());
+  if (incomplete.length) {
+    throw new Error(
+      `Every pin needs a keyword and a pin URL. Missing on row ${incomplete
+        .map(({ i, r }) => `${i}${r.keyword?.trim() ? ` (${r.keyword.trim()})` : ""}`)
+        .join(", ")}.`
     );
   }
-  return { ok: true, saved: rows.filter((r) => r.keyword?.trim() && r.pin_url?.trim()).length };
+  if (kept.length === 0) throw new Error("Add at least one pin before saving.");
+
+  // Replace rather than merge: the form shows every row, so what it sends
+  // is the complete answer. Merging would make a deleted row reappear.
+  // In one transaction, because a DELETE followed by an INSERT that fails
+  // half way is exactly the "my list vanished" the replace is supposed to
+  // make impossible.
+  const db = await organicPool().connect();
+  try {
+    await db.query("BEGIN");
+    await db.query(`DELETE FROM organic.top_pin_designs WHERE org_id = $1`, [orgId]);
+    for (const r of kept) {
+      await db.query(
+        `INSERT INTO organic.top_pin_designs
+           (org_id, keyword, pin_url, title, description, annotations, hex_1, hex_2, hex_3, note)
+         VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10)
+         ON CONFLICT (org_id, keyword, pin_url) DO UPDATE SET
+           title = EXCLUDED.title, description = EXCLUDED.description,
+           annotations = EXCLUDED.annotations, hex_1 = EXCLUDED.hex_1,
+           hex_2 = EXCLUDED.hex_2, hex_3 = EXCLUDED.hex_3, note = EXCLUDED.note`,
+        [orgId, r.keyword.trim(), r.pin_url.trim(), r.title, r.description,
+         r.annotations ?? [], r.hex_1, r.hex_2, r.hex_3, r.note ?? null]
+      );
+    }
+    await db.query("COMMIT");
+  } catch (e) {
+    await db.query("ROLLBACK");
+    throw e;
+  } finally {
+    db.release();
+  }
+
+  await completeTaskByDefinition({ orgId, taskId: "P2.1.7", timeSpentMin,
+    notes: `Top pin designs recorded for ${kept.length} pin(s).` });
+  return { count: kept.length, saved: kept.length, recomputed: await recomputeAfter(orgId) };
+}
+
+/** The trailing row the "+ Add pin" button leaves behind is not an answer;
+ *  anything with a single character in it is. */
+function isBlankPinDesign(r: TopPinDesign): boolean {
+  return !r.keyword?.trim() && !r.pin_url?.trim() && !r.title?.trim() &&
+    !r.description?.trim() && !(r.annotations ?? []).some((a) => a?.trim()) &&
+    !r.hex_1?.trim() && !r.hex_2?.trim() && !r.hex_3?.trim() && !r.note?.trim();
 }
 
 export async function loadTopPinDesigns(orgId: string): Promise<TopPinDesign[]> {
@@ -757,22 +799,47 @@ export interface AudienceAffinity {
   note: string | null;
 }
 
-export async function saveAudienceAffinities(orgId: string, rows: AudienceAffinity[]) {
-  const pool = organicPool();
-  await pool.query(`DELETE FROM organic.audience_affinities WHERE org_id = $1`, [orgId]);
-  for (const r of rows) {
-    if (!r.name?.trim()) continue;
-    await pool.query(
-      `INSERT INTO organic.audience_affinities (org_id, name, affinity_index, is_surprising, note)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (org_id, name) DO UPDATE SET
-         affinity_index = EXCLUDED.affinity_index,
-         is_surprising = EXCLUDED.is_surprising,
-         note = EXCLUDED.note`,
-      [orgId, r.name.trim(), r.affinity_index, !!r.is_surprising, r.note]
+export async function saveAudienceAffinities(
+  orgId: string, rows: AudienceAffinity[], timeSpentMin: number
+) {
+  const kept = rows.filter(
+    (r) => r.name?.trim() || r.note?.trim() || r.affinity_index != null || r.is_surprising
+  );
+  const unnamed = kept.map((r, i) => ({ i: i + 1, r })).filter(({ r }) => !r.name?.trim());
+  if (unnamed.length) {
+    throw new Error(
+      `Every affinity needs a name. Missing on row ${unnamed.map(({ i }) => i).join(", ")}.`
     );
   }
-  return { ok: true, saved: rows.filter((r) => r.name?.trim()).length };
+  if (kept.length === 0) throw new Error("Add at least one affinity before saving.");
+
+  const db = await organicPool().connect();
+  try {
+    await db.query("BEGIN");
+    await db.query(`DELETE FROM organic.audience_affinities WHERE org_id = $1`, [orgId]);
+    for (const r of kept) {
+      await db.query(
+        `INSERT INTO organic.audience_affinities (org_id, name, affinity_index, is_surprising, note)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (org_id, name) DO UPDATE SET
+           affinity_index = EXCLUDED.affinity_index,
+           is_surprising = EXCLUDED.is_surprising,
+           note = EXCLUDED.note`,
+        [orgId, r.name.trim(), r.affinity_index, !!r.is_surprising, r.note]
+      );
+    }
+    await db.query("COMMIT");
+  } catch (e) {
+    await db.query("ROLLBACK");
+    throw e;
+  } finally {
+    db.release();
+  }
+
+  const surprising = kept.filter((r) => r.is_surprising).length;
+  await completeTaskByDefinition({ orgId, taskId: "P2.3.2", timeSpentMin,
+    notes: `${kept.length} affinities recorded, ${surprising} marked surprising.` });
+  return { count: kept.length, saved: kept.length, recomputed: await recomputeAfter(orgId) };
 }
 
 export async function loadAudienceAffinities(orgId: string): Promise<AudienceAffinity[]> {

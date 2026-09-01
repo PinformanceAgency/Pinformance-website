@@ -37,11 +37,13 @@ export async function POST(
 async function dispatch(orgId: string, body: { action: string } & Record<string, unknown>) {
   switch (body.action) {
     case "top_pin_designs":
-      return await saveTopPinDesigns(orgId, body.rows as TopPinDesign[]);
+      return await saveTopPinDesigns(
+        orgId, body.rows as TopPinDesign[], Number(body.time_spent_min));
     case "load_top_pin_designs":
       return { rows: await loadTopPinDesigns(orgId) };
     case "audience_affinities":
-      return await saveAudienceAffinities(orgId, body.rows as AudienceAffinity[]);
+      return await saveAudienceAffinities(
+        orgId, body.rows as AudienceAffinity[], Number(body.time_spent_min));
     case "load_audience_affinities":
       return { rows: await loadAudienceAffinities(orgId) };
     case "seed_keywords":

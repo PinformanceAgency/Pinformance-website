@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { SkipReason, TaskRow, TaskStatus, TaskType, ViabilityRow } from "@/lib/organic/types";
 import { TaskFormFor } from "./TaskForms";
-import { Phase2FormFor, type Phase2Snapshot } from "./Phase2Forms";
+import { Phase2FormFor, PHASE2_FORM_TASKS, type Phase2Snapshot } from "./Phase2Forms";
 import { Phase3FormFor, type Phase3Snapshot } from "./Phase3Forms";
 import { SkipDialog } from "./SkipDialog";
 
@@ -15,8 +15,7 @@ const STATUS_CHOICES: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE", "
 // domain data always gets written.
 const CUSTOM_FORM_TASKS = new Set([
   "P1.0.1", "P1.0.2", "P1.0.3", "P1.0.4", "P1.2.13",
-  "P2.1.1", "P2.1.3", "P2.1.4", "P2.1.5", "P2.1.6",
-  "P2.2.1", "P2.2.2", "P2.3.1", "P2.3.3", "P2.4.1", "P2.4.2",
+  ...PHASE2_FORM_TASKS,
   "P3.1.1","P3.1.2","P3.1.3","P3.1.4","P3.1.5","P3.1.6","P3.1.7","P3.1.8",
   "P3.1.9","P3.1.10","P3.1.11","P3.1.12","P3.1.13","P3.1.14",
   "P3.2.1","P3.2.2",
