@@ -75,27 +75,32 @@ function fmtDay(iso: string): string {
   });
 }
 
-/** What the store's month looked like. Counting days cannot separate "this
- *  store was offboarded on the 8th" from "we lost eight days of data", and
- *  the first is the normal case: a store gets invoiced for the part of the
- *  month it ran. So report the SHAPE — when it started, when it stopped, and
- *  whether anything is missing in between. Only the last one is a defect. */
+/** The period the store actually ran that month.
+ *
+ *  A day with no row is NOT a missing day. Pinterest leaves a day with zero
+ *  activity out of the daily breakdown and the cron writes only what it gets
+ *  back, so an absent day is a day nothing happened. Verified 02-09-2026
+ *  against Pinterest's own aggregate for the two stores this had flagged:
+ *  its total for 27 Aug–1 Sep matched the sum of the days we hold to the
+ *  sixth decimal, so the absent days contributed nothing.
+ *
+ *  An earlier version put an amber warning on exactly those days and was
+ *  wrong on all three of its hits. A panel that cries wolf every month is a
+ *  panel nobody reads, and whether the snapshot cron is healthy is not
+ *  something to make a media buyer adjudicate while writing invoices. */
 type MonthShape =
   | { kind: "none" }
   | { kind: "full" }
-  | { kind: "partial"; label: string }
-  | { kind: "gap"; label: string; gapDays: number };
+  | { kind: "partial"; label: string };
 
 function monthShape(s: StoreZoneRow): MonthShape {
   const lm = s.last_month;
   if (lm.days_with_data === 0 || !lm.measured_from || !lm.measured_through) return { kind: "none" };
-  const period = `${fmtDay(lm.measured_from)} – ${fmtDay(lm.measured_through)}`;
-  if (lm.gap_days > 0) return { kind: "gap", label: period, gapDays: lm.gap_days };
   if (lm.days_with_data === lm.days_in_month) return { kind: "full" };
-  return { kind: "partial", label: period };
+  return { kind: "partial", label: `${fmtDay(lm.measured_from)} – ${fmtDay(lm.measured_through)}` };
 }
 
-type SortKey = "store" | "buyer" | "spend" | "revenue" | "roas" | "basis" | "zone";
+type SortKey = "store" | "buyer" | "spend" | "revenue" | "roas" | "zone";
 type SortDir = "asc" | "desc";
 
 const ZONE_ORDER: Record<string, number> = { red: 0, orange: 1, green: 2 };
@@ -145,8 +150,6 @@ export function InvoiceMonthTable({
           return s.last_month.days_with_data === 0 ? -1 : s.last_month.revenue;
         case "roas":
           return s.last_month.roas ?? -1;
-        case "basis":
-          return basisOf(s) ?? -1;
         case "zone":
           return s.last_month.zone ? ZONE_ORDER[s.last_month.zone] : 9;
       }
@@ -186,15 +189,10 @@ export function InvoiceMonthTable({
     }
     return max || null;
   }, [rows]);
-  /** Days missing INSIDE the period the store ran. The only shortfall that
-   *  means something is wrong — a short month at either end is the store
-   *  being onboarded or offboarded, which is what invoicing is for. */
-  const gappy = useMemo(() => rows.filter((s) => s.last_month.gap_days > 0), [rows]);
   const partial = useMemo(
     () =>
       rows.filter(
         (s) =>
-          s.last_month.gap_days === 0 &&
           s.last_month.days_with_data > 0 &&
           s.last_month.days_with_data < s.last_month.days_in_month
       ),
@@ -218,13 +216,11 @@ export function InvoiceMonthTable({
     "Revenue",
     "ROAS",
     "Invoice ROAS",
-    "Invoice basis",
     "Monthly floor",
     "Zone",
     "Ran from",
     "Ran through",
     "Days with data",
-    "Days missing in between",
   ];
 
   const bodyRows = (): string[][] =>
@@ -240,13 +236,11 @@ export function InvoiceMonthTable({
         has ? num(lm.revenue) : "",
         num(lm.roas),
         num(s.invoice_roas),
-        num(basisOf(s)),
         num(lm.scale_target),
         lm.zone ?? "",
         lm.measured_from ?? "",
         lm.measured_through ?? "",
         `${lm.days_with_data}`,
-        `${lm.gap_days}`,
       ];
     });
 
@@ -302,7 +296,7 @@ export function InvoiceMonthTable({
     <section className="bg-card border border-border rounded-2xl p-5">
       <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
         <div>
-          <h3 className="text-lg font-semibold">Invoice basis — {fmtMonthKeyLong(month)}</h3>
+          <h3 className="text-lg font-semibold">{fmtMonthKeyLong(month)} — closed month</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {rows.length} {rows.length === 1 ? "store" : "stores"}
             {measuredThrough && <> · measured through {measuredThrough}</>} · amounts in each
@@ -327,23 +321,11 @@ export function InvoiceMonthTable({
         </div>
       </div>
 
-      {(gappy.length > 0 || noData.length > 0 || unconfiguredWithSpend.length > 0) && (
+      {(noData.length > 0 || unconfiguredWithSpend.length > 0) && (
         <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 space-y-1">
-          {gappy.length > 0 && (
+          {noData.length > 0 && (
             <div className="flex items-start gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
-              <span>
-                {gappy.length} store{gappy.length === 1 ? "" : "s"} with days missing inside the
-                period they ran:{" "}
-                {gappy
-                  .map((s) => `${s.store_name} (${s.last_month.gap_days}d)`)
-                  .join(", ")}
-                . Those amounts are short by whatever ran on the missing days.
-              </span>
-            </div>
-          )}
-          {noData.length > 0 && (
-            <div>
               {noData.length} store{noData.length === 1 ? "" : "s"} have no snapshots for this
               month at all — shown as dashes, not as zero.
             </div>
@@ -376,7 +358,6 @@ export function InvoiceMonthTable({
               <Th k="revenue" align="right">Revenue</Th>
               <Th k="roas" align="right">ROAS</Th>
               <th className="px-2 py-2 text-right font-medium whitespace-nowrap">Invoice ROAS</th>
-              <Th k="basis" align="right">Invoice basis</Th>
               <th className="px-2 py-2 text-right font-medium whitespace-nowrap">Monthly floor</th>
               <Th k="zone">Zone</Th>
               <th className="px-2 py-2 text-right font-medium whitespace-nowrap">Ran</th>
@@ -421,12 +402,6 @@ export function InvoiceMonthTable({
                   <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-foreground">
                     {fmtRoas(s.invoice_roas)}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap font-semibold">
-                    {basis == null ? "—" : fmtCurrency(basis, s.currency ?? "EUR")}
-                    <div className="text-[10px] font-normal text-muted-foreground">
-                      {lm.scale_metric === "spend" ? "spend fee" : "revenue fee"}
-                    </div>
-                  </td>
                   <td
                     className={cn(
                       "px-2 py-2 text-right tabular-nums whitespace-nowrap",
@@ -455,28 +430,19 @@ export function InvoiceMonthTable({
                   </td>
                   <td
                     className={cn(
-                      "px-2 py-2 text-right whitespace-nowrap text-xs",
-                      shape.kind === "gap"
-                        ? "text-amber-600 dark:text-amber-400 font-medium"
-                        : "text-muted-foreground"
+                      "px-2 py-2 text-right whitespace-nowrap text-xs text-muted-foreground"
                     )}
                   >
                     {shape.kind === "none" && "—"}
                     {shape.kind === "full" && "full month"}
                     {shape.kind === "partial" && shape.label}
-                    {shape.kind === "gap" && (
-                      <>
-                        {shape.label}
-                        <div className="text-[10px]">{shape.gapDays}d missing</div>
-                      </>
-                    )}
                   </td>
                 </tr>
               );
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-2 py-6 text-center text-sm text-muted-foreground">
+                <td colSpan={9} className="px-2 py-6 text-center text-sm text-muted-foreground">
                   No stores match the current filters.
                 </td>
               </tr>

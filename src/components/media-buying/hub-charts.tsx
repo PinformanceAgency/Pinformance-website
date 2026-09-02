@@ -856,14 +856,6 @@ function ZoneColumn({
                         {fmtCurrency(s.last_month.revenue, s.currency ?? "EUR")} rev ·{" "}
                         {fmtCurrency(s.last_month.spend, s.currency ?? "EUR")} spend ·{" "}
                         {fmtRoas(s.last_month.roas)}
-                        {/* Only a hole INSIDE the period the store ran is a
-                            defect; a short month at either end is the store
-                            being onboarded or offboarded. */}
-                        {s.last_month.gap_days > 0 && (
-                          <span className="text-amber-600 dark:text-amber-400">
-                            {" "}· {s.last_month.gap_days}d missing
-                          </span>
-                        )}
                       </>
                     ) : (
                       <>no data for this month</>

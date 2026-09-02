@@ -88,22 +88,28 @@ async function main() {
 
   const listed = rows.filter((s) => s.configured && s.last_month.days_with_data > 0);
   console.log(`${rows.length} stores nagerekend, ${withData} met data, ${bad} afwijkingen.`);
-  // Dagen tellen kan "offboard op de 8e" niet onderscheiden van "acht dagen
-  // data kwijt". De vorm wel: een gat BINNEN de periode dat de store liep is
-  // een defect, korter aan de randen is de store zelf.
+  // Een dag zonder rij is GEEN ontbrekende dag: Pinterest laat een dag zonder
+  // activiteit weg uit de dagsplitsing en de cron schrijft alleen wat hij
+  // terugkrijgt. Nagerekend 02-09-2026 tegen Pinterest' eigen totaal voor de
+  // twee stores die hier uit kwamen -- dat totaal was tot op de zesde decimaal
+  // gelijk aan de som van de dagen die wij hebben, dus de afwezige dagen
+  // droegen niets bij. Daarom staat dit hier ter informatie en niet als fout.
+  // Een echt gat zou binnen het refresh-venster van 30 dagen sowieso de
+  // volgende nacht worden bijgevuld; wat daarna nog ontbreekt, ontbreekt bij
+  // Pinterest zelf.
   const gaps = listed.filter((s) => s.last_month.gap_days > 0);
   if (gaps.length) {
     console.log(
-      `\n${gaps.length} store(s) met een gat BINNEN hun looptijd in ${month}: ` +
+      `\n${gaps.length} store(s) hebben dagen zonder rij binnen hun looptijd in ${month} ` +
+        `(vrijwel zeker dagen zonder activiteit, geen datagat -- naslaan tegen Pinterest' ` +
+        `totaal over die periode bevestigt dat): ` +
         gaps
           .map(
             (s) =>
-              `${s.store_name} (${s.last_month.measured_from} t/m ${s.last_month.measured_through}, ${s.last_month.gap_days}d weg)`
+              `${s.store_name} (${s.last_month.measured_from} t/m ${s.last_month.measured_through}, ${s.last_month.gap_days}d)`
           )
           .join(", ")
     );
-  } else {
-    console.log(`\nGeen enkele store heeft een gat binnen zijn looptijd in ${month}.`);
   }
   const partial = listed.filter(
     (s) => s.last_month.gap_days === 0 && s.last_month.days_with_data < s.last_month.days_in_month
