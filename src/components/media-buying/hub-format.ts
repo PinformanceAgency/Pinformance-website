@@ -19,6 +19,19 @@ export const fmtRoas = (n: number | null | undefined): string =>
 export const fmtPct = (n: number | null | undefined, digits = 1): string =>
   n == null || !isFinite(n) ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(digits)}%`;
 
+/** "2026-08" → "Aug 2026". Month buckets are labelled with the calendar
+ *  month they actually are: the zone window ends yesterday, so "last month"
+ *  and "this month" are wrong for two days out of every month. */
+export const fmtMonthKeyShort = (key: string): string => {
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return key;
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+};
+
 export const fmtCtr = (n: number | null | undefined): string =>
   n == null || !isFinite(n) ? "—" : `${n.toFixed(2)}%`;
 

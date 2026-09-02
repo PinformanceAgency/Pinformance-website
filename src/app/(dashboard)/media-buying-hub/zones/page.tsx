@@ -9,10 +9,6 @@ import {
   type HubFilters,
 } from "@/components/media-buying/hub-panels";
 import { ZoneBlocksSection } from "@/components/media-buying/hub-charts";
-import {
-  InvoiceMonthTable,
-  fmtMonthKeyLong,
-} from "@/components/media-buying/hub-invoice-table";
 import { StoreDeepDive } from "@/components/media-buying/hub-store-deepdive";
 import { cn } from "@/lib/utils";
 
@@ -38,9 +34,9 @@ export default function ZonesPage() {
         <h1 className="text-2xl font-semibold">Zones</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Red / orange / green at company, department and media-buyer level.
-          The last four weeks show short-term flips; this month shows who is on
-          pace; last month is the finished month, with the figures the invoices
-          are written from.
+          The last four weeks show short-term flips, this month shows who is on
+          pace, and last month is the finished month with its own numbers on
+          every store.
         </p>
       </header>
 
@@ -74,20 +70,6 @@ export default function ZonesPage() {
               </button>
             ))}
           </div>
-          {scope === "last-month" && (
-            <>
-              {/* The figures come first here: on the 3rd of the month this
-                  page is opened to write invoices, not to read colours. */}
-              <InvoiceMonthTable hub={hub} filters={filters} onStoreClick={openStore} />
-              <p className="text-xs text-muted-foreground">
-                Pinterest keeps attributing conversions to a day for about 30 days
-                afterwards, and the snapshot cron re-reads that window — so{" "}
-                {fmtMonthKeyLong(hub.meta.last_completed_month)} can still creep up
-                slightly during the first weeks of this month. What you export now is
-                what Pinterest reports now.
-              </p>
-            </>
-          )}
           <ZoneBlocksSection hub={hub} filters={filters} onStoreClick={openStore} mode={scope} />
         </>
       )}

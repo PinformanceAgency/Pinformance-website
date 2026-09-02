@@ -17,8 +17,15 @@ import type { StoreZoneRow } from "@/lib/media-buying/zones";
 import type { DailyPoint, HubSeries } from "@/lib/media-buying/hub-series";
 import { classifyZone, DEPARTMENT_LABELS, type Zone } from "@/lib/media-buying/config";
 import type { HubFilters } from "./hub-panels";
-import { fmtCurrency, fmtRoas, fmtPct, zoneBg, zoneDot, zoneLabel } from "./hub-format";
-import { fmtMonthKeyShort } from "./hub-invoice-table";
+import {
+  fmtCurrency,
+  fmtRoas,
+  fmtPct,
+  fmtMonthKeyShort,
+  zoneBg,
+  zoneDot,
+  zoneLabel,
+} from "./hub-format";
 
 // ─── Filter helper (mirrors filterStores in hub-panels) ─────────────────────
 export function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
