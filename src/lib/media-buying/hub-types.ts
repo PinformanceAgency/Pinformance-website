@@ -32,6 +32,12 @@ export interface HubResponse {
   meta: {
     window: { start: string; end: string };
     window_days: number;
+    /** The three calendar months the monthly zone buckets cover, oldest
+     *  first, as "YYYY-MM". The window ends yesterday, so these are NOT
+     *  always [2 months ago, last month, this month] — label from these. */
+    month_buckets: string[];
+    /** The last completed calendar month, "YYYY-MM" — the invoiced month. */
+    last_completed_month: string;
     benchmark_windows: { short: number; long: number };
     benchmark_min_stores: number;
     default_zone_thresholds: ZoneThresholds;

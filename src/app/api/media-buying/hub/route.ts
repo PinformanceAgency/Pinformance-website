@@ -28,6 +28,8 @@ import {
   computeCampaignZones,
   tallyZones,
   zoneWindow,
+  monthBucketKeys,
+  lastCompletedMonthKey,
 } from "@/lib/media-buying/zones";
 import { computeBenchmarks } from "@/lib/media-buying/benchmarks";
 import { computeMovers, computeWeekOverWeek } from "@/lib/media-buying/history";
@@ -96,6 +98,8 @@ export async function GET(req: NextRequest) {
       meta: {
         window: zoneWindow(windowDays),
         window_days: windowDays,
+        month_buckets: monthBucketKeys(zoneWindow(windowDays).end),
+        last_completed_month: lastCompletedMonthKey(),
         benchmark_windows: {
           short: BENCHMARK_WINDOW_DAYS_SHORT,
           long: BENCHMARK_WINDOW_DAYS_LONG,

@@ -9,10 +9,20 @@ import {
   type HubFilters,
 } from "@/components/media-buying/hub-panels";
 import { ZoneBlocksSection } from "@/components/media-buying/hub-charts";
+import {
+  InvoiceMonthTable,
+  fmtMonthKeyLong,
+} from "@/components/media-buying/hub-invoice-table";
 import { StoreDeepDive } from "@/components/media-buying/hub-store-deepdive";
 import { cn } from "@/lib/utils";
 
-type ZoneScope = "weekly" | "monthly";
+type ZoneScope = "weekly" | "monthly" | "last-month";
+
+const SCOPE_LABELS: Record<ZoneScope, string> = {
+  weekly: "Last 4 weeks",
+  monthly: "This month",
+  "last-month": "Last month",
+};
 
 export default function ZonesPage() {
   const { hub, error } = useHubData();
@@ -27,9 +37,10 @@ export default function ZonesPage() {
       <header>
         <h1 className="text-2xl font-semibold">Zones</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Red / orange / green at company, department and media-buyer level. Switch
-          between the last four weeks (short-term flips) and last three months
-          (which stores are green enough to invoice this month).
+          Red / orange / green at company, department and media-buyer level.
+          The last four weeks show short-term flips; this month shows who is on
+          pace; last month is the finished month, with the figures the invoices
+          are written from.
         </p>
       </header>
 
@@ -48,7 +59,7 @@ export default function ZonesPage() {
         <>
           <GlobalFilterBar hub={hub} filters={filters} onChange={setFilters} />
           <div className="inline-flex bg-muted rounded-lg p-1">
-            {(["weekly", "monthly"] as const).map((s) => (
+            {(["weekly", "monthly", "last-month"] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setScope(s)}
@@ -59,10 +70,24 @@ export default function ZonesPage() {
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {s === "weekly" ? "Last 4 weeks" : "This month"}
+                {SCOPE_LABELS[s]}
               </button>
             ))}
           </div>
+          {scope === "last-month" && (
+            <>
+              {/* The figures come first here: on the 3rd of the month this
+                  page is opened to write invoices, not to read colours. */}
+              <InvoiceMonthTable hub={hub} filters={filters} onStoreClick={openStore} />
+              <p className="text-xs text-muted-foreground">
+                Pinterest keeps attributing conversions to a day for about 30 days
+                afterwards, and the snapshot cron re-reads that window — so{" "}
+                {fmtMonthKeyLong(hub.meta.last_completed_month)} can still creep up
+                slightly during the first weeks of this month. What you export now is
+                what Pinterest reports now.
+              </p>
+            </>
+          )}
           <ZoneBlocksSection hub={hub} filters={filters} onStoreClick={openStore} mode={scope} />
         </>
       )}

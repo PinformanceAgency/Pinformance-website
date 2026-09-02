@@ -18,6 +18,7 @@ import type { DailyPoint, HubSeries } from "@/lib/media-buying/hub-series";
 import { classifyZone, DEPARTMENT_LABELS, type Zone } from "@/lib/media-buying/config";
 import type { HubFilters } from "./hub-panels";
 import { fmtCurrency, fmtRoas, fmtPct, zoneBg, zoneDot, zoneLabel } from "./hub-format";
+import { fmtMonthKeyShort } from "./hub-invoice-table";
 
 // ─── Filter helper (mirrors filterStores in hub-panels) ─────────────────────
 export function filterStores(stores: StoreZoneRow[], f: HubFilters): StoreZoneRow[] {
@@ -526,7 +527,7 @@ export function ZoneBlocksSection({
   hub: HubResponse;
   filters: HubFilters;
   onStoreClick?: (orgId: string) => void;
-  mode?: "weekly" | "monthly";
+  mode?: ZoneBlockMode;
 }) {
   const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
   const groups = useMemo(() => {
@@ -551,26 +552,48 @@ export function ZoneBlocksSection({
     return { departments, buyers };
   }, [filteredStores]);
 
-  const scope = mode === "monthly" ? "month" : "week";
+  // Month buckets are labelled with the calendar months they actually are.
+  // The zone window ends YESTERDAY, so on the 1st and 2nd of a month the
+  // three buckets are the three months BEFORE it — "last month / this month"
+  // is wrong for two days out of every month, and this page is now read on
+  // exactly those days. Fall back to the relative labels only if an older
+  // API response has no month_buckets.
+  const monthLabels = useMemo(() => {
+    const keys = hub.meta.month_buckets;
+    return keys && keys.length === 3 ? keys.map(fmtMonthKeyShort) : MONTH_LABELS_FULL;
+  }, [hub.meta.month_buckets]);
+  const invoicedIdx = useMemo(() => {
+    const keys = hub.meta.month_buckets;
+    const i = keys ? keys.indexOf(hub.meta.last_completed_month) : -1;
+    return i >= 0 ? i : 1;
+  }, [hub.meta.month_buckets, hub.meta.last_completed_month]);
+
+  const labels = mode === "weekly" ? WEEK_LABELS_FULL : monthLabels;
+  const currentIdx =
+    mode === "weekly" ? 3 : mode === "monthly" ? 2 : invoicedIdx;
+  const blockProps = { mode, labels, currentIdx, onStoreClick };
+
+  const scopeNote =
+    mode === "weekly"
+      ? "last 3 weeks plus current"
+      : mode === "monthly"
+      ? "last 2 months plus the month in progress"
+      : `three months, with ${labels[currentIdx]} in focus`;
+
   return (
     <div className="space-y-4">
-      <SectionTitle label="Company" description={`Zone composition for the whole filtered book — last 3 ${scope === "month" ? "months" : "weeks"} plus current.`} />
-      <ZoneBlock
-        title="Company"
-        stores={filteredStores}
-        onStoreClick={onStoreClick}
-        mode={mode}
-      />
+      <SectionTitle label="Company" description={`Zone composition for the whole filtered book — ${scopeNote}.`} />
+      <ZoneBlock title="Company" stores={filteredStores} {...blockProps} />
       <SectionTitle label="By department" description="Same view per department." />
       <div className="space-y-4">
         {groups.departments.map((g) => (
-          <ZoneBlock key={g.key} title={g.label} stores={g.stores} onStoreClick={onStoreClick} mode={mode} />
+          <ZoneBlock key={g.key} title={g.label} stores={g.stores} {...blockProps} />
         ))}
       </div>
       <SectionTitle label="By media buyer" description="Same view per buyer." />
       <div className="space-y-4">
         {groups.buyers.map((g) => (
-          <ZoneBlock key={g.key} title={g.label} stores={g.stores} onStoreClick={onStoreClick} mode={mode} />
+          <ZoneBlock key={g.key} title={g.label} stores={g.stores} {...blockProps} />
         ))}
       </div>
     </div>
@@ -587,7 +610,12 @@ interface ZoneCounts {
 const WEEK_LABELS_FULL = ["3w ago", "2w ago", "Last week", "This week"];
 const MONTH_LABELS_FULL = ["2 months ago", "Last month", "This month"];
 
-type ZoneBlockMode = "weekly" | "monthly";
+/** "last-month" reads the same monthly buckets as "monthly"; it just puts a
+ *  different one of them in focus — the month being invoiced. */
+type ZoneBlockMode = "weekly" | "monthly" | "last-month";
+
+const zonesFor = (s: StoreZoneRow, mode: ZoneBlockMode) =>
+  mode === "weekly" ? s.weekly_zones : s.monthly_zones;
 
 function countZonesAtIndex(
   stores: StoreZoneRow[],
@@ -596,7 +624,7 @@ function countZonesAtIndex(
 ): ZoneCounts {
   const c: ZoneCounts = { red: 0, orange: 0, green: 0, unclassified: 0 };
   for (const s of stores) {
-    const arr = mode === "weekly" ? s.weekly_zones : s.monthly_zones;
+    const arr = zonesFor(s, mode);
     const z = arr?.[index] ?? null;
     if (z === "red") c.red++;
     else if (z === "orange") c.orange++;
@@ -611,17 +639,22 @@ function ZoneBlock({
   stores,
   onStoreClick,
   mode = "weekly",
+  labels,
+  currentIdx,
 }: {
   title: string;
   stores: StoreZoneRow[];
   onStoreClick?: (orgId: string) => void;
   mode?: ZoneBlockMode;
+  /** One label per bucket, oldest first. */
+  labels: string[];
+  /** Which bucket the tallies and the store lists are about. */
+  currentIdx: number;
 }) {
-  const labels = mode === "weekly" ? WEEK_LABELS_FULL : MONTH_LABELS_FULL;
-  const currentIdx = labels.length - 1;
   const priorIdx = Math.max(0, currentIdx - 1);
   const deltaSuffix = mode === "weekly" ? "wk/wk" : "mo/mo";
-  const noSpendLabel = mode === "weekly" ? "this week" : "this month";
+  const noSpendLabel =
+    mode === "weekly" ? "this week" : `in ${labels[currentIdx] ?? "this month"}`;
 
   // Build one row per bucket for the grouped bar chart.
   const chartData = labels.map((label, i) => {
@@ -632,8 +665,12 @@ function ZoneBlock({
   const prior = countZonesAtIndex(stores, mode, priorIdx);
   const currentZoneByStore = new Map<string, Zone | null>(
     stores.map((s) => {
-      const arr = mode === "weekly" ? s.weekly_zones : s.monthly_zones;
-      return [s.org_id, (arr?.[currentIdx] ?? s.zone) as Zone | null];
+      const arr = zonesFor(s, mode);
+      // Falling back to the live zone is right for the bucket in progress; for
+      // a FINISHED month it would show today's colour under last month's
+      // heading, so a month with no data stays unclassified.
+      const fallback = mode === "last-month" ? null : s.zone;
+      return [s.org_id, (arr?.[currentIdx] ?? fallback) as Zone | null];
     })
   );
   const red = stores.filter((s) => currentZoneByStore.get(s.org_id) === "red");
@@ -694,9 +731,9 @@ function ZoneBlock({
 
       {/* Store lists per zone */}
       <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-border pt-4">
-        <ZoneColumn kind="red" stores={red} onStoreClick={onStoreClick} />
-        <ZoneColumn kind="orange" stores={orange} onStoreClick={onStoreClick} />
-        <ZoneColumn kind="green" stores={green} onStoreClick={onStoreClick} />
+        <ZoneColumn kind="red" stores={red} onStoreClick={onStoreClick} showLastMonth={mode === "last-month"} />
+        <ZoneColumn kind="orange" stores={orange} onStoreClick={onStoreClick} showLastMonth={mode === "last-month"} />
+        <ZoneColumn kind="green" stores={green} onStoreClick={onStoreClick} showLastMonth={mode === "last-month"} />
       </div>
       {unclassified.length > 0 && (
         <div className="mt-2 text-[11px] text-muted-foreground italic">
@@ -755,10 +792,14 @@ function ZoneColumn({
   kind,
   stores,
   onStoreClick,
+  showLastMonth = false,
 }: {
   kind: "red" | "orange" | "green";
   stores: StoreZoneRow[];
   onStoreClick?: (orgId: string) => void;
+  /** On the invoiced-month view, put that month's figures on the card — the
+   *  colour alone is not what anyone is here for. */
+  showLastMonth?: boolean;
 }) {
   const styles = {
     red: {
@@ -807,6 +848,24 @@ function ZoneColumn({
                 <div className="text-sm font-medium truncate">{s.store_name}</div>
                 {s.media_buyer && (
                   <div className="text-[11px] text-muted-foreground truncate">{s.media_buyer}</div>
+                )}
+                {showLastMonth && (
+                  <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
+                    {s.last_month.days_with_data > 0 ? (
+                      <>
+                        {fmtCurrency(s.last_month.revenue, s.currency ?? "EUR")} rev ·{" "}
+                        {fmtCurrency(s.last_month.spend, s.currency ?? "EUR")} spend ·{" "}
+                        {fmtRoas(s.last_month.roas)}
+                        {s.last_month.days_with_data < s.last_month.days_in_month && (
+                          <span className="text-amber-600 dark:text-amber-400">
+                            {" "}· {s.last_month.days_with_data}/{s.last_month.days_in_month} days
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>no data for this month</>
+                    )}
+                  </div>
                 )}
               </button>
             </li>

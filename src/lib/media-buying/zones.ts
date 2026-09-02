@@ -102,6 +102,37 @@ export interface StoreZoneRow {
      *  1 for EUR stores. */
     fx_per_eur: number;
   };
+  /** The last COMPLETED calendar month — what the agency invoices on.
+   *
+   *  Same numbers the corresponding `monthly_zones` bucket is classified on,
+   *  exposed so the Zones page can show an invoice basis per store instead of
+   *  only a colour. Located by month key rather than by bucket index: the
+   *  window ends YESTERDAY, so on the 1st and 2nd of a month the three
+   *  buckets are still the three months before it and index 1 is the month
+   *  before the one being invoiced.
+   *
+   *  `scale_target` is the FULL-month floor (never pro-rated — the month is
+   *  over) and `scale_metric` says which figure it applies to. `days_with_data`
+   *  is how many distinct days of that month we hold snapshots for: a store at
+   *  28 of 31 is missing three days of revenue, which is indistinguishable
+   *  from a bad month unless it is said out loud. */
+  last_month: {
+    /** "2026-08" — which calendar month these figures are for. */
+    month: string;
+    spend: number;
+    revenue: number;
+    roas: number | null;
+    zone: Zone | null;
+    scale_metric: "revenue" | "spend";
+    scale_target: number;
+    /** The same floor before currency conversion, in euros. */
+    scale_target_eur: number;
+    fx_per_eur: number;
+    days_with_data: number;
+    days_in_month: number;
+    /** Newest snapshot_date we hold inside that month for this store. */
+    measured_through: string | null;
+  };
   /** Rolling 12-week zone history, oldest first. Same bucketing logic as
    *  weekly_zones just wider — used by Critical Attention "Long red/orange/
    *  green" cards to compute how many consecutive weeks the store has been
@@ -217,6 +248,34 @@ export function zoneWindow(days = ZONE_ROAS_WINDOW_DAYS): {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
+/** The three calendar months the monthly buckets cover, oldest first, as
+ *  "YYYY-MM". Derived from the window end (which is YESTERDAY), so on the 1st
+ *  of a month this returns the three months BEFORE the current one. The UI
+ *  labels the buckets from this rather than from "last month / this month",
+ *  because those words are wrong for two days out of every month. */
+export function monthBucketKeys(endIso: string): [string, string, string] {
+  const d = new Date(endIso + "T00:00:00Z");
+  const key = (offset: number) =>
+    new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + offset, 1))
+      .toISOString()
+      .slice(0, 7);
+  return [key(-2), key(-1), key(0)];
+}
+
+/** The last completed calendar month as "YYYY-MM", relative to TODAY rather
+ *  than to the window end — this is the month being invoiced. */
+export function lastCompletedMonthKey(now: Date = new Date()): string {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+    .toISOString()
+    .slice(0, 7);
+}
+
+/** Number of days in a "YYYY-MM" month. */
+export function daysInMonthKey(monthKey: string): number {
+  const [y, m] = monthKey.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
 /**
  * Compute per-store zones for every org the caller can see (RLS-filtered by
  * the passed supabase client). Includes unconfigured stores with
@@ -239,6 +298,14 @@ export async function computeStoreZones(
   const thisMonthStart = monthStart(0, 0);
   const lastMonthStart = monthStart(0, -1);
   const prevMonthStart = monthStart(0, -2);
+  // Which calendar months those three buckets actually are, and which of them
+  // is the month being invoiced. See monthBucketKeys() for why this is not
+  // simply index 1.
+  const monthKeys = monthBucketKeys(end);
+  const lastCompletedMonth = lastCompletedMonthKey();
+  const daysInLastCompletedMonth = daysInMonthKey(lastCompletedMonth);
+  /** The calendar month TODAY is in — the only bucket that may be pro-rated. */
+  const currentCalendarMonth = new Date().toISOString().slice(0, 7);
   // 12 weeks of history for the persistence view on Critical Attention
   // ("how long has this store been red/orange/green"). We need enough weeks
   // to spot multi-month streaks — 4 weeks alone caps the answer at "4+".
@@ -285,6 +352,15 @@ export async function computeStoreZones(
       .lte("snapshot_date", end)
       .in("org_id", orgIds)
       .order("snapshot_date", { ascending: false })
+      // Tiebreaker on the primary key. Ordering by snapshot_date ALONE is not
+      // a total order — hundreds of rows share a date — and PostgREST is free
+      // to return those in a different order per page request. At ~3000 rows
+      // over three pages that quietly duplicated some rows across a page
+      // boundary and dropped others: measured 02-09-2026, 21 of 48 stores had
+      // a month total that disagreed with a plain SQL SUM over the same rows,
+      // in BOTH directions, by up to 3%. Zones, the 12-week history, MTD and
+      // the invoiced month all read these sums.
+      .order("id", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
     if (mErr) throw new Error(mErr.message);
     const page = (data ?? []) as MetricRow[];
@@ -305,12 +381,17 @@ export async function computeStoreZones(
   const weeklyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
   const monthlyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
   const historyByOrg = new Map<string, Array<{ spend: number; revenue: number }>>();
+  /** Distinct snapshot dates per org per month bucket — how complete each
+   *  month's data is for that store. An org with two ad accounts contributes
+   *  two rows for the same date, hence a Set. */
+  const monthDatesByOrg = new Map<string, Array<Set<string>>>();
   const emptyBucket = () => ({ spend: 0, revenue: 0 });
   /** Newest snapshot_date seen inside the current month, "" if none yet. */
   let lastDateThisMonth = "";
   for (const orgId of orgIds) {
     weeklyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket(), emptyBucket()]);
     monthlyByOrg.set(orgId, [emptyBucket(), emptyBucket(), emptyBucket()]);
+    monthDatesByOrg.set(orgId, [new Set(), new Set(), new Set()]);
     historyByOrg.set(orgId, Array.from({ length: HISTORY_WEEKS }, () => emptyBucket()));
   }
   for (const r of allMetrics) {
@@ -355,6 +436,8 @@ export async function computeStoreZones(
         mb[monthIndex].spend += n(r.spend);
         mb[monthIndex].revenue += n(r.revenue);
       }
+      const md = monthDatesByOrg.get(r.org_id);
+      if (md) md[monthIndex].add(r.snapshot_date);
       if (monthIndex === 2 && r.snapshot_date > lastDateThisMonth) {
         lastDateThisMonth = r.snapshot_date;
       }
@@ -458,10 +541,15 @@ export async function computeStoreZones(
       const weekly_zones: (Zone | null)[] = configured
         ? buckets.map(classifyBucket)
         : [null, null, null, null];
-      // Month buckets get the MONTHLY floor, not the weekly one. Buckets 0
-      // and 1 are finished months and are held to the full floor; bucket 2 is
-      // the month in progress and is held to its pro-rata share, so a store is
-      // judged on being on pace rather than on the month not being over yet.
+      // Month buckets get the MONTHLY floor, not the weekly one. A FINISHED
+      // month is held to the full floor; the month in progress is held to its
+      // pro-rata share, so a store is judged on being on pace rather than on
+      // the month not being over yet.
+      //
+      // "In progress" is decided by the bucket's own month key against today,
+      // not by index 2. The window ends yesterday, so on the 1st of a month
+      // bucket 2 is LAST month — finished, and pro-rating it there quietly
+      // lowered its floor by however far behind the snapshot cron was.
       const classifyMonthBucket = (
         b: { spend: number; revenue: number },
         index: number
@@ -478,7 +566,8 @@ export async function computeStoreZones(
           minMonthlySpend,
           fxPerEur,
           scaleBasis: "month",
-          monthProgress: index === 2 ? thisMonthProgress : 1,
+          monthProgress:
+            monthKeys[index] === currentCalendarMonth ? thisMonthProgress : 1,
         });
       };
       const monthBuckets = monthlyByOrg.get(o.id as string) ?? [
@@ -508,6 +597,32 @@ export async function computeStoreZones(
         scale_target_full_month: fullMonthGate.floor,
         scale_target_full_month_eur: fullMonthGate.floor_eur,
         fx_per_eur: fxPerEur,
+      };
+      // The month being invoiced. Found by name in monthKeys, not at a fixed
+      // index — see monthBucketKeys(). -1 cannot happen while `end` is
+      // yesterday, but an absent bucket reads as "no data", never as zero
+      // revenue on a real month.
+      const lmIndex = monthKeys.indexOf(lastCompletedMonth);
+      const lmBucket = lmIndex >= 0 ? monthBuckets[lmIndex] : emptyBucket();
+      const lmDates =
+        lmIndex >= 0
+          ? monthDatesByOrg.get(o.id as string)?.[lmIndex] ?? new Set<string>()
+          : new Set<string>();
+      const lmSorted = Array.from(lmDates).sort();
+      const last_month = {
+        month: lastCompletedMonth,
+        spend: lmBucket.spend,
+        revenue: lmBucket.revenue,
+        roas: lmBucket.spend > 0 ? lmBucket.revenue / lmBucket.spend : null,
+        zone: lmIndex >= 0 ? monthly_zones[lmIndex] ?? null : null,
+        // Full-month floor: the month is finished, so nothing is pro-rated.
+        scale_metric: fullMonthGate.metric,
+        scale_target: fullMonthGate.floor,
+        scale_target_eur: fullMonthGate.floor_eur,
+        fx_per_eur: fxPerEur,
+        days_with_data: lmDates.size,
+        days_in_month: daysInLastCompletedMonth,
+        measured_through: lmSorted.length ? lmSorted[lmSorted.length - 1] : null,
       };
       const historyBuckets = historyByOrg.get(o.id as string) ?? Array.from({ length: HISTORY_WEEKS }, emptyBucket);
       const zone_history: (Zone | null)[] = configured
@@ -555,6 +670,7 @@ export async function computeStoreZones(
         weekly_zones,
         monthly_zones,
         mtd,
+        last_month,
         zone_history,
       };
     });

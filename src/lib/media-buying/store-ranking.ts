@@ -79,6 +79,11 @@ export async function computeStoreRankingForRange(
       .lte("snapshot_date", endISO)
       .in("org_id", orgIds)
       .order("snapshot_date", { ascending: false })
+      // Tiebreaker on the primary key — snapshot_date alone is not a total
+      // order, and PostgREST may then return a row on two pages or on none.
+      // These rows are SUMMED, so that lands as a wrong number rather than as
+      // an error. Same defect measured and fixed in zones.ts on 02-09-2026.
+      .order("id", { ascending: true })
       .range(offset, offset + PAGE - 1);
     if (error) throw new Error(error.message);
     const page = (data ?? []) as MetricRow[];
