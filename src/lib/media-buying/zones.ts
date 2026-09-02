@@ -130,8 +130,17 @@ export interface StoreZoneRow {
     fx_per_eur: number;
     days_with_data: number;
     days_in_month: number;
-    /** Newest snapshot_date we hold inside that month for this store. */
+    /** Oldest and newest snapshot_date we hold inside that month for this
+     *  store — the period it actually ran. A store onboarded on the 12th or
+     *  offboarded on the 8th has a short month because that is its month, not
+     *  because data is missing, and counting days alone cannot tell those
+     *  apart from a hole. */
+    measured_from: string | null;
     measured_through: string | null;
+    /** Days with no snapshot BETWEEN measured_from and measured_through. This
+     *  is the only shortfall worth a warning: days before the first or after
+     *  the last are the store starting or stopping. */
+    gap_days: number;
   };
   /** Rolling 12-week zone history, oldest first. Same bucketing logic as
    *  weekly_zones just wider — used by Critical Attention "Long red/orange/
@@ -268,6 +277,13 @@ export function lastCompletedMonthKey(now: Date = new Date()): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
     .toISOString()
     .slice(0, 7);
+}
+
+/** Inclusive day count between two ISO dates. */
+function daysBetween(fromIso: string, toIso: string): number {
+  const a = new Date(fromIso + "T00:00:00Z").getTime();
+  const b = new Date(toIso + "T00:00:00Z").getTime();
+  return Math.round((b - a) / 86400000) + 1;
 }
 
 /** Number of days in a "YYYY-MM" month. */
@@ -622,7 +638,9 @@ export async function computeStoreZones(
         fx_per_eur: fxPerEur,
         days_with_data: lmDates.size,
         days_in_month: daysInLastCompletedMonth,
+        measured_from: lmSorted.length ? lmSorted[0] : null,
         measured_through: lmSorted.length ? lmSorted[lmSorted.length - 1] : null,
+        gap_days: lmSorted.length ? daysBetween(lmSorted[0], lmSorted[lmSorted.length - 1]) - lmDates.size : 0,
       };
       const historyBuckets = historyByOrg.get(o.id as string) ?? Array.from({ length: HISTORY_WEEKS }, emptyBucket);
       const zone_history: (Zone | null)[] = configured

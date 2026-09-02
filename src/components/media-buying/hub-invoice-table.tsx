@@ -66,6 +66,35 @@ export function fmtMonthKeyShort(key: string): string {
   });
 }
 
+/** "2026-08-14" → "14 Aug". */
+function fmtDay(iso: string): string {
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+/** What the store's month looked like. Counting days cannot separate "this
+ *  store was offboarded on the 8th" from "we lost eight days of data", and
+ *  the first is the normal case: a store gets invoiced for the part of the
+ *  month it ran. So report the SHAPE — when it started, when it stopped, and
+ *  whether anything is missing in between. Only the last one is a defect. */
+type MonthShape =
+  | { kind: "none" }
+  | { kind: "full" }
+  | { kind: "partial"; label: string }
+  | { kind: "gap"; label: string; gapDays: number };
+
+function monthShape(s: StoreZoneRow): MonthShape {
+  const lm = s.last_month;
+  if (lm.days_with_data === 0 || !lm.measured_from || !lm.measured_through) return { kind: "none" };
+  const period = `${fmtDay(lm.measured_from)} – ${fmtDay(lm.measured_through)}`;
+  if (lm.gap_days > 0) return { kind: "gap", label: period, gapDays: lm.gap_days };
+  if (lm.days_with_data === lm.days_in_month) return { kind: "full" };
+  return { kind: "partial", label: period };
+}
+
 type SortKey = "store" | "buyer" | "spend" | "revenue" | "roas" | "basis" | "zone";
 type SortDir = "asc" | "desc";
 
@@ -157,10 +186,17 @@ export function InvoiceMonthTable({
     }
     return max || null;
   }, [rows]);
-  const incomplete = useMemo(
+  /** Days missing INSIDE the period the store ran. The only shortfall that
+   *  means something is wrong — a short month at either end is the store
+   *  being onboarded or offboarded, which is what invoicing is for. */
+  const gappy = useMemo(() => rows.filter((s) => s.last_month.gap_days > 0), [rows]);
+  const partial = useMemo(
     () =>
       rows.filter(
-        (s) => s.last_month.days_with_data > 0 && s.last_month.days_with_data < s.last_month.days_in_month
+        (s) =>
+          s.last_month.gap_days === 0 &&
+          s.last_month.days_with_data > 0 &&
+          s.last_month.days_with_data < s.last_month.days_in_month
       ),
     [rows]
   );
@@ -185,8 +221,10 @@ export function InvoiceMonthTable({
     "Invoice basis",
     "Monthly floor",
     "Zone",
+    "Ran from",
+    "Ran through",
     "Days with data",
-    "Measured through",
+    "Days missing in between",
   ];
 
   const bodyRows = (): string[][] =>
@@ -205,8 +243,10 @@ export function InvoiceMonthTable({
         num(basisOf(s)),
         num(lm.scale_target),
         lm.zone ?? "",
-        `${lm.days_with_data}/${lm.days_in_month}`,
+        lm.measured_from ?? "",
         lm.measured_through ?? "",
+        `${lm.days_with_data}`,
+        `${lm.gap_days}`,
       ];
     });
 
@@ -287,19 +327,18 @@ export function InvoiceMonthTable({
         </div>
       </div>
 
-      {(incomplete.length > 0 || noData.length > 0 || unconfiguredWithSpend.length > 0) && (
+      {(gappy.length > 0 || noData.length > 0 || unconfiguredWithSpend.length > 0) && (
         <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 space-y-1">
-          {incomplete.length > 0 && (
+          {gappy.length > 0 && (
             <div className="flex items-start gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
               <span>
-                {incomplete.length} store{incomplete.length === 1 ? "" : "s"} missing days:{" "}
-                {incomplete
-                  .slice(0, 6)
-                  .map((s) => `${s.store_name} (${s.last_month.days_with_data}/${s.last_month.days_in_month})`)
+                {gappy.length} store{gappy.length === 1 ? "" : "s"} with days missing inside the
+                period they ran:{" "}
+                {gappy
+                  .map((s) => `${s.store_name} (${s.last_month.gap_days}d)`)
                   .join(", ")}
-                {incomplete.length > 6 && ` +${incomplete.length - 6} more`}. Those amounts are
-                short by whatever ran on the missing days.
+                . Those amounts are short by whatever ran on the missing days.
               </span>
             </div>
           )}
@@ -319,6 +358,13 @@ export function InvoiceMonthTable({
           )}
         </div>
       )}
+      {partial.length > 0 && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {partial.length} store{partial.length === 1 ? "" : "s"} ran only part of{" "}
+          {fmtMonthKeyLong(month)} — onboarded or offboarded mid-month. Their period is in the
+          Ran column; the amounts are complete for the days they ran.
+        </p>
+      )}
 
       <div className="overflow-x-auto -mx-1 px-1">
         <table className="w-full text-sm border-collapse">
@@ -333,14 +379,14 @@ export function InvoiceMonthTable({
               <Th k="basis" align="right">Invoice basis</Th>
               <th className="px-2 py-2 text-right font-medium whitespace-nowrap">Monthly floor</th>
               <Th k="zone">Zone</Th>
-              <th className="px-2 py-2 text-right font-medium whitespace-nowrap">Days</th>
+              <th className="px-2 py-2 text-right font-medium whitespace-nowrap">Ran</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((s) => {
               const lm = s.last_month;
               const has = lm.days_with_data > 0;
-              const short = has && lm.days_with_data < lm.days_in_month;
+              const shape = monthShape(s);
               const basis = basisOf(s);
               const clearsFloor = basis != null && lm.scale_target > 0 && basis >= lm.scale_target;
               return (
@@ -409,11 +455,21 @@ export function InvoiceMonthTable({
                   </td>
                   <td
                     className={cn(
-                      "px-2 py-2 text-right tabular-nums whitespace-nowrap text-xs",
-                      short ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"
+                      "px-2 py-2 text-right whitespace-nowrap text-xs",
+                      shape.kind === "gap"
+                        ? "text-amber-600 dark:text-amber-400 font-medium"
+                        : "text-muted-foreground"
                     )}
                   >
-                    {lm.days_with_data}/{lm.days_in_month}
+                    {shape.kind === "none" && "—"}
+                    {shape.kind === "full" && "full month"}
+                    {shape.kind === "partial" && shape.label}
+                    {shape.kind === "gap" && (
+                      <>
+                        {shape.label}
+                        <div className="text-[10px]">{shape.gapDays}d missing</div>
+                      </>
+                    )}
                   </td>
                 </tr>
               );
