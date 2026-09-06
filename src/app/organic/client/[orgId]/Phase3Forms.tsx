@@ -61,8 +61,12 @@ function FormShell({
 }: {
   title: string;
   body: React.ReactNode;
-  time: string;
-  setTime: (v: string) => void;
+  /** Kept in the signature so the call sites still compile; the field is
+   *  gone. Time on task was mandatory to submit, told nobody anything they
+   *  acted on, and stood between a person and recording their work — the same
+   *  reason phase 1 dropped it. Decided 06-09-2026. */
+  time?: string;
+  setTime?: (v: string) => void;
   submitLabel: string;
   /** A returned string is shown as the result of the save, so a partial save
    *  can say what landed and what is still open. */
@@ -99,15 +103,8 @@ function FormShell({
       )}
       {body}
       <div className="flex items-center gap-2 pt-1 border-t border-neutral-200">
-        <label className="text-[11px] text-neutral-600 flex items-center gap-1.5"
-               title="Minutes you spent on this task. It is what the margin per client is computed from.">
-          Time spent (min):
-          <input type="number" min={1} value={time} onChange={(e) => setTime(e.target.value)}
-            className="w-20 rounded-md border border-neutral-300 px-2 py-1 text-xs tabular-nums" placeholder="10" />
-        </label>
         <span className="flex-1" />
-        {!time && <span className="text-[11px] text-neutral-500 mr-2">Enter the time spent to save.</span>}
-        <button onClick={go} disabled={submitting || !time}
+        <button onClick={go} disabled={submitting}
           className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
           {submitting ? "Saving…" : submitLabel}
         </button>
@@ -130,10 +127,10 @@ async function post(orgId: string, body: Record<string, unknown>): Promise<Recor
   return data;
 }
 
-function n(s: string): number {
-  const x = Number(s);
-  if (!isFinite(x) || x <= 0) throw new Error("Enter a positive time value.");
-  return Math.round(x);
+/** No longer collected. Returns 0, which every write path treats as "not
+ *  recorded" and leaves the column alone. */
+function n(_s: string): number {
+  return 0;
 }
 
 function TextList({ v, on, rows = 5, placeholder }: { v: string; on: (v: string) => void; rows?: number; placeholder?: string }) {

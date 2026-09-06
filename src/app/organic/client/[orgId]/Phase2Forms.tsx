@@ -560,7 +560,9 @@ function ImportPinsForm({ orgId, snapshot, onDone }: Props) {
       body={
         <div className="space-y-3">
           <div className="text-[11px] text-neutral-600">
-            One CSV per competitor, 700–1000 pins each. Drop them all at once — each file
+            One CSV per competitor: 700–1000 pins where the competitor has them, and everything
+            they do have where they do not — the count is what matters and it is recorded per
+            competitor below. Drop them all at once — each file
             looks for its competitor by name. Re-importing the same export is safe:
             rows already stored are counted as duplicates, not written again.
           </div>
@@ -674,6 +676,17 @@ function GenerateAIForm({ orgId, snapshot, onDone }: Props) {
       body={
         <div className="text-xs text-neutral-600 space-y-1">
           <div>Prompt is assembled server-side from intake, taste graph, grid analyses and competitor data — nothing to paste.</div>
+          {/* What it will actually read, with numbers. Without this the task
+              asks you to remember which research is in and which is not, and
+              the guidance used to name inputs (brand book, catalogue) that
+              this analysis has never read. */}
+          <div className="rounded border border-border bg-card px-2 py-1.5 text-[11px] text-neutral-600">
+            Reading now: {snapshot.competitors.length} competitor(s) with{" "}
+            {snapshot.competitors.reduce((n, c) => n + (c.pins_imported ?? 0), 0).toLocaleString("en-US")} imported pin(s)
+            {" · "}{snapshot.grid_analyses.length} grid record(s)
+            {" · "}taste graph {snapshot.taste_graph ? "✓" : "— not filled in yet"}
+            {" · "}the intake questionnaire.
+          </div>
           <div>Output: Steal List + Board Gap + Content Angles, each item approvable individually in P2.2.2.</div>
           {snapshot.market_items.length > 0 && (
             <div className="text-neutral-500">Currently {snapshot.market_items.length} item(s) in the review queue ({pending} pending).</div>
@@ -995,8 +1008,12 @@ function FormShell({
 }: {
   title: string;
   body: React.ReactNode;
-  time: string;
-  setTime: (v: string) => void;
+  /** Kept in the signature so the call sites still compile; the field is
+   *  gone. Time on task was mandatory to submit, told nobody anything they
+   *  acted on, and stood between a person and recording their work — the same
+   *  reason phase 1 dropped it. Decided 06-09-2026. */
+  time?: string;
+  setTime?: (v: string) => void;
   submitLabel: string;
   /** A returned string is shown as the result of the save — what landed and
    *  what is still open — instead of the form going quiet on success. */
@@ -1036,15 +1053,8 @@ function FormShell({
       )}
       {body}
       <div className="flex items-center gap-2 pt-1 border-t border-neutral-200">
-        <label className="text-[11px] text-neutral-600 flex items-center gap-1.5"
-               title="Minutes you spent on this task. It is what the margin per client is computed from.">
-          Time spent (min):
-          <input type="number" min={1} value={time} onChange={(e) => setTime(e.target.value)}
-            className="w-20 rounded-md border border-neutral-300 px-2 py-1 text-xs tabular-nums" placeholder="15" />
-        </label>
         <span className="flex-1" />
-        {!time && <span className="text-[11px] text-neutral-500 mr-2">Enter the time spent to save.</span>}
-        <button onClick={go} disabled={submitting || !time}
+        <button onClick={go} disabled={submitting}
           className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
           {submitting ? "Saving…" : submitLabel}
         </button>
@@ -1059,10 +1069,10 @@ function Notice({ children }: { children: React.ReactNode }) {
   );
 }
 
-function n(s: string): number {
-  const x = Number(s);
-  if (!isFinite(x) || x <= 0) throw new Error("Enter a positive time value.");
-  return Math.round(x);
+/** No longer collected. Returns 0, which every write path treats as "not
+ *  recorded" and leaves the column alone. */
+function n(_s: string): number {
+  return 0;
 }
 
 async function post(orgId: string, body: Record<string, unknown>): Promise<unknown> {

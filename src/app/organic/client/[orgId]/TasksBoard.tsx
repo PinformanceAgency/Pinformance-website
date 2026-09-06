@@ -122,7 +122,6 @@ function TaskCard({
     hasCustomForm && (task.status === "TODO" || task.status === "IN_PROGRESS")
   );
   const [showSkip, setShowSkip] = useState(false);
-  const [showComplete, setShowComplete] = useState(false);
   const [, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -157,7 +156,13 @@ function TaskCard({
     if (next === task.status) return;
     if (next === "DONE") {
       if (hasCustomForm) { setExpanded(true); return; }
-      setShowComplete(true);
+      // Picking DONE just does it. This used to open a dialog demanding a
+      // positive number of minutes — the phase pages dropped that long ago,
+      // this surface kept it, and the two disagreed about what finishing a
+      // task costs. Decided 06-09-2026: time is recorded where somebody wants
+      // to record it, never as the price of marking work done. The artefact
+      // link the dialog also asked for has its own place: the work panel.
+      await patch({ status: "DONE" });
       return;
     }
     if (next === "SKIPPED") { setShowSkip(true); return; }
@@ -278,17 +283,6 @@ function TaskCard({
           }}
         />
       )}
-
-      {showComplete && (
-        <CompleteDialog
-          taskName={task.name}
-          onCancel={() => setShowComplete(false)}
-          onConfirm={async (minutes, link) => {
-            setShowComplete(false);
-            await patch({ status: "DONE", time_spent_min: minutes, ...(link ? { link } : {}) });
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -349,60 +343,4 @@ function statusColor(s: TaskStatus): string {
     case "TODO":
     default: return "border-border bg-card text-neutral-700";
   }
-}
-
-function CompleteDialog({
-  taskName, onCancel, onConfirm,
-}: {
-  taskName: string;
-  onCancel: () => void;
-  onConfirm: (minutes: number, link?: string) => void | Promise<void>;
-}) {
-  const [minutes, setMinutes] = useState("");
-  const [link, setLink] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  async function confirm() {
-    const n = Number(minutes);
-    if (!isFinite(n) || n <= 0) { setErr("Enter a positive number of minutes."); return; }
-    const trimmedLink = link.trim();
-    if (trimmedLink && !/^https?:\/\//i.test(trimmedLink)) {
-      setErr("Link must start with http(s):// — leave empty if there is no artefact.");
-      return;
-    }
-    await onConfirm(Math.round(n), trimmedLink || undefined);
-  }
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onCancel}>
-      <div className="w-full max-w-sm rounded-lg bg-white shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-sm font-semibold text-neutral-900">Log time spent</h3>
-        <p className="mt-1 text-xs text-neutral-500">
-          How many minutes did &ldquo;{taskName}&rdquo; take? (required)
-        </p>
-        <input
-          type="number"
-          min={1}
-          autoFocus
-          value={minutes}
-          onChange={(e) => { setMinutes(e.target.value); if (err) setErr(null); }}
-          placeholder="e.g. 15"
-          className="mt-3 w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm"
-        />
-        <label className="mt-3 block">
-          <span className="text-xs text-neutral-500">Artefact link (optional) — auto-added to Assets</span>
-          <input
-            type="url"
-            value={link}
-            onChange={(e) => { setLink(e.target.value); if (err) setErr(null); }}
-            placeholder="https://drive.google.com/…, https://canva.com/…"
-            className="mt-1 w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs"
-          />
-        </label>
-        {err && <div className="mt-1 text-xs text-red-600">{err}</div>}
-        <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onCancel} className="px-3 py-1.5 text-xs font-medium rounded-md border border-neutral-300 hover:bg-neutral-50">Cancel</button>
-          <button onClick={confirm} className="px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:opacity-90">Mark done</button>
-        </div>
-      </div>
-    </div>
-  );
 }

@@ -18,20 +18,27 @@ interface Params {
   db?: PoolClient; // when called inside an existing transaction
 }
 
+/**
+ * Time on task is recorded when it is given, and no longer demanded.
+ *
+ * It used to be mandatory here, which put a required number field between a
+ * person and the work they had just done — phase 1 dropped it for that reason
+ * long ago, and phases 2 and 3 kept it, so the Save button sat greyed out with
+ * nothing saying why ("Time (min) ????" — flow test, 06-09-2026). Decided
+ * 06-09-2026: drop it there too. A falsy value now means "not recorded" and
+ * leaves the column alone, exactly as the status route already treated it.
+ */
 export async function completeTaskByDefinition(p: Params): Promise<void> {
-  if (!(p.timeSpentMin > 0)) {
-    throw new Error("time_spent_min (positive number) is required to complete a task");
-  }
   const runner = p.db ?? organicPool();
   const patch = await runner.query(
     `UPDATE organic.client_tasks
         SET status = 'DONE'::organic.task_status,
             completed_at = now(),
             started_at = COALESCE(started_at, now()),
-            time_spent_min = $1,
+            time_spent_min = CASE WHEN $1 > 0 THEN $1 ELSE time_spent_min END,
             notes = COALESCE($2, notes)
       WHERE org_id = $3 AND task_id = $4 AND status <> 'DONE'`,
-    [p.timeSpentMin, p.notes ?? null, p.orgId, p.taskId]
+    [p.timeSpentMin > 0 ? p.timeSpentMin : 0, p.notes ?? null, p.orgId, p.taskId]
   );
   if (patch.rowCount === 0) {
     // Either the task was already DONE (idempotent) or it wasn't

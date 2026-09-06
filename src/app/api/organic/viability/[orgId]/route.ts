@@ -34,10 +34,6 @@ export async function POST(
   const { orgId } = await params;
   const body = (await req.json()) as Body;
 
-  if (!(body.time_spent_min > 0)) {
-    return NextResponse.json({ error: "time_spent_min (positive) required" }, { status: 400 });
-  }
-
   try {
     let recomputed = 0;
     if (body.section === "good_fit") {

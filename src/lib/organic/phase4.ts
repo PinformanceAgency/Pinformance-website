@@ -732,6 +732,24 @@ function addDaysISO(startISO: string, days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
+/**
+ * A storage object name that Pinterest can read.
+ *
+ * Pinterest runs OCR over the image and also reads the file name in the URL,
+ * which is why fileNameFor() builds one from the primary keyword. It was only
+ * ever written to the database, though — every uploaded object was called
+ * design-1.jpg, so the signal was computed, stored and then thrown away at
+ * the one moment it mattered.
+ *
+ * Falls back to the positional name rather than failing: a design with no
+ * filename recorded still has to publish.
+ */
+function storageName(filename: string | null, fallback: string): string {
+  const base = (filename ?? "").toLowerCase().replace(/\.jpe?g$/i, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${base || fallback}.jpg`;
+}
+
 /** SOP file name rule: lowercase, hyphens, keyword included. */
 export function fileNameFor(primaryKeyword: string, designNumber: number): string {
   const slug = primaryKeyword.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -1892,10 +1910,10 @@ export async function generateDesignImages(
   const pool = organicPool();
   const designs = await pool.query<{
     id: string; design_number: number; intent: string; route: string;
-    qc_status: string; qc_notes: string | null;
+    qc_status: string; qc_notes: string | null; filename: string | null;
   }>(
     `SELECT d.id::text, d.design_number, d.intent::text AS intent, d.route::text AS route,
-            d.qc_status::text AS qc_status, d.qc_notes
+            d.qc_status::text AS qc_status, d.qc_notes, d.filename
        FROM organic.designs d
        JOIN organic.waterfalls w ON w.id = d.waterfall_id
       WHERE w.org_id = $1 AND w.url_id = $2
@@ -1941,7 +1959,15 @@ export async function generateDesignImages(
     const img = await fetch(url);
     if (!img.ok) throw new Error(`Could not fetch the generated image for design ${d.design_number}`);
     const buf = Buffer.from(await img.arrayBuffer());
-    const path = `organic/${orgId}/${d.id}/design-${d.design_number}.jpg`;
+    // Named for the keyword, not for its position in the waterfall.
+    // `designs.filename` has carried the SOP name since generateWaterfall
+    // (P4.2.6 — Pinterest reads file names with OCR), but the object we
+    // uploaded was `design-1.jpg`, so the only name Pinterest could actually
+    // read was the one that says nothing. Reported from the other side on the
+    // Valerie Mason flow test (06-09-2026): clients hand over files called
+    // whatever ChatGPT called them, and the dashboard should be the thing
+    // that fixes that — starting with its own.
+    const path = `organic/${orgId}/${d.id}/${storageName(d.filename, `design-${d.design_number}`)}`;
     const { error } = await admin.storage.from("pin-images")
       .upload(path, buf, { contentType: "image/jpeg", upsert: true });
     if (error) throw new Error(`Upload failed for design ${d.design_number}: ${error.message}`);
@@ -1984,10 +2010,10 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
 
   const pins = await pool.query<{
     pin_id: string; design_id: string; design_number: number;
-    copy_variant: string; asset_path: string | null;
+    copy_variant: string; asset_path: string | null; filename: string | null;
   }>(
     `SELECT p.id::text AS pin_id, d.id::text AS design_id, d.design_number,
-            p.copy_variant, d.asset_path
+            p.copy_variant, d.asset_path, d.filename
        FROM organic.pins p
        JOIN organic.designs d ON d.id = p.design_id
        JOIN organic.waterfalls w ON w.id = p.waterfall_id
@@ -2033,7 +2059,12 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
       .jpeg({ quality: 90 })
       .toBuffer();
 
-    const path = `organic/${orgId}/${p.design_id}/crop-${p.copy_variant}.jpg`;
+    // Same rule for the crops: the variant letter is appended to the
+    // keyword name rather than replacing it.
+    const path = `organic/${orgId}/${p.design_id}/${storageName(
+      p.filename ? p.filename.replace(/\.jpg$/i, "") + "-" + p.copy_variant : null,
+      `crop-${p.copy_variant}`,
+    )}`;
     const { error } = await admin.storage.from("pin-images")
       .upload(path, out, { contentType: "image/jpeg", upsert: true });
     if (error) throw new Error(`Upload failed for ${p.design_number}${p.copy_variant}: ${error.message}`);

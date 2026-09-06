@@ -185,6 +185,118 @@ function SitemapCountForm({ orgId, viability, onDone }: FormBaseProps) {
         </div>
       )}
       {err && <div className="text-red-600">{err}</div>}
+      <SitemapUrlList orgId={orgId} />
+    </div>
+  );
+}
+
+/**
+ * The list itself, not only how many there were.
+ *
+ * P1.0.3 counted the sitemap and threw the URLs away, so every later task
+ * that says "the URL pool from P1.0.3" pointed at something that did not
+ * exist yet — reported on the flow test as "point 2 talks about the sitemap,
+ * but the sitemap itself is missing at this step" (06-09-2026).
+ *
+ * It runs the same import phase 4 uses (`import_sitemap` proposes,
+ * `accept_urls` writes through upsertUrl), so there is no second, laxer path
+ * into the pool: locale variants are folded, shorteners refused, types
+ * classified. Importing here rather than in phase 4 only means it happens
+ * earlier — the pool dedupes, so a later import adds what is new.
+ */
+function SitemapUrlList({ orgId }: { orgId: string }) {
+  const [state, setState] = useState<{
+    proposals: Array<{ url: string; name: string; type: string; reason: string }>;
+    scanned: number; pinnable: number; folded: number; source: string;
+  } | null>(null);
+  const [busy, setBusy] = useState<"fetch" | "add" | null>(null);
+  const [added, setAdded] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function call(body: Record<string, unknown>) {
+    const res = await fetch(`/api/organic/phase4/${orgId}`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json() as Record<string, unknown> & { error?: string };
+    if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
+    return j;
+  }
+
+  async function fetchList() {
+    setBusy("fetch"); setErr(null); setAdded(null);
+    try {
+      const j = await call({ action: "import_sitemap" }) as {
+        proposals: Array<{ url: string; name: string; type: string; reason: string }>;
+        scanned: number; pinnable: number; locale_variants_folded: number; source: string;
+      };
+      setState({
+        proposals: j.proposals ?? [], scanned: j.scanned, pinnable: j.pinnable,
+        folded: j.locale_variants_folded, source: j.source,
+      });
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  async function addAll() {
+    if (!state) return;
+    setBusy("add"); setErr(null);
+    try {
+      const j = await call({
+        action: "accept_urls",
+        urls: state.proposals.map(({ url, name, type, reason }) => ({ url, name, type, reason })),
+      }) as { added: number; errors: Array<{ url: string; message: string }> };
+      setAdded(j.added);
+      if (j.errors?.length) setErr(`${j.errors.length} URL(s) were refused: ${j.errors[0].message}`);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-muted/30 p-2 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={fetchList} disabled={busy !== null}
+          className="o-btn text-xs disabled:opacity-50">
+          {busy === "fetch" ? "Reading the sitemap…" : "Show the URL list"}
+        </button>
+        <span className="text-[11px] text-muted-foreground">
+          The count answers the viability question; the list is what phase 4 later selects from.
+        </span>
+      </div>
+      {state && (
+        <>
+          <div className="text-[11px] text-neutral-600">
+            {state.pinnable.toLocaleString("en-US")} pinnable of {state.scanned.toLocaleString("en-US")} scanned
+            {state.folded > 0 && <> · {state.folded} locale variant(s) folded into their main URL</>}
+            {state.source && <> · {state.source}</>}
+          </div>
+          <div className="max-h-48 overflow-y-auto rounded border border-border bg-card divide-y divide-neutral-100">
+            {state.proposals.slice(0, 200).map((p) => (
+              <div key={p.url} className="flex items-center gap-2 px-2 py-1 text-[11px]">
+                <span className="w-20 shrink-0 text-neutral-500">{p.type}</span>
+                <span className="truncate text-neutral-700">{p.url}</span>
+              </div>
+            ))}
+            {state.proposals.length === 0 && (
+              <div className="px-2 py-2 text-[11px] text-neutral-500">
+                Nothing pinnable came back. Check the domain on the client settings — the sitemap is read from there.
+              </div>
+            )}
+          </div>
+          {state.proposals.length > 0 && (
+            <button onClick={addAll} disabled={busy !== null}
+              className="o-btn text-xs disabled:opacity-50">
+              {busy === "add" ? "Adding…" : `Add these ${state.proposals.length} to the URL pool`}
+            </button>
+          )}
+          {added != null && (
+            <div className="text-[11px] text-emerald-700">
+              {added} URL(s) in the pool. Already-known URLs keep what was recorded about them.
+            </div>
+          )}
+        </>
+      )}
+      {err && <div className="text-[11px] text-red-600">{err}</div>}
     </div>
   );
 }
