@@ -203,13 +203,31 @@ async function seedBaselineFromP1_2_13(orgId: string): Promise<BaselineRow | nul
   // empty row would be the store's baseline forever — including after
   // somebody goes back and fills the thirteen numbers in properly.
   if (kv.size === 0) return null;
-  // period is written out and named in the conflict target on purpose. The
-  // key became (org_id, period) in migration 055, and this INSERT kept the
-  // old ON CONFLICT (org_id) — which Postgres answers with "there is no
-  // unique or exclusion constraint matching the ON CONFLICT specification",
-  // a 500 on the page rather than a swallowed no-op. It only fires for a
-  // store that has a P1.2.13 baseline note and no baseline row yet, so it
-  // stayed invisible until the first such store opened its overview.
+
+  /*
+   * The note holds three months; every reader of this row compares it to a
+   * month.
+   *
+   * `computeDeltas` puts it beside one report period, health.ts beside the
+   * last 30 days, workspace.ts beside two consecutive months, agency.ts
+   * beside clicks_last_30d. Stored as recorded, a store performing exactly
+   * at its baseline would read as three times below it — in the health
+   * score, in the leak list, and in the client report. Nobody had hit it
+   * because no store had ever filled P1.2.13 in; the button that now fills
+   * it from Pinterest in one click is exactly what would have made this
+   * fire on every store at once (06-09-2026).
+   *
+   * So counts are stored as the monthly equivalent, and only counts:
+   * a rate does not divide, and a follower count is a level rather than
+   * something accumulated over the period. The note keeps the figures as
+   * they were recorded — this row is the comparable form of them, not a
+   * replacement for them.
+   */
+  const MONTHS = 3;
+  const perMonth = (k: string) => {
+    const v = num(k);
+    return v == null ? null : Math.round(v / MONTHS);
+  };
   await pool.query(
     `INSERT INTO organic.baseline_kpis (
        org_id, period, impressions, engagements, engagement_rate,
@@ -218,9 +236,17 @@ async function seedBaselineFromP1_2_13(orgId: string): Promise<BaselineRow | nul
        audience_top_country_pct, audience_top_age_bracket
      ) VALUES ($1,'last_30d',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      ON CONFLICT (org_id, period) DO NOTHING`,
-    [orgId, num("impressions"), num("engagements"), num("engagement_rate"),
-     num("outbound_clicks"), num("pin_saves"), num("profile_visits"), num("monthly_views"),
-     num("followers_start"), num("followers_end"), num("top_click_pin_clicks"), num("top_save_pin_saves"),
+    [orgId,
+     // Accumulated over the period — divided.
+     perMonth("impressions"), perMonth("engagements"),
+     // A rate is already normalised.
+     num("engagement_rate"),
+     perMonth("outbound_clicks"), perMonth("pin_saves"), perMonth("profile_visits"),
+     // Monthly views is monthly by definition, and follower counts are levels.
+     num("monthly_views"), num("followers_start"), num("followers_end"),
+     // Top-pin figures are per pin over the window, not a monthly rate; they
+     // are read as context, never differenced against a month.
+     num("top_click_pin_clicks"), num("top_save_pin_saves"),
      num("audience_top_country_pct"), kv.get("audience_top_age_bracket") ?? null]
   );
   return loadBaseline(orgId);
