@@ -24,19 +24,32 @@ import { useState } from "react";
  * comes back should find what was typed for it, and the submit handlers read
  * per key from the visible list rather than iterating the whole object.
  */
+/**
+ * Every key in `keys` present, without disturbing the ones already there.
+ *
+ * Pure, exported and asserted by scripts/check-keyed-form-rows.ts, because
+ * this one line is what stands between a growing keyword list and a white
+ * screen — and a regression here is invisible until somebody clicks.
+ */
+export function withMissingKeys<T>(
+  state: Record<string, T>, keys: string[], make: (key: string) => T
+): Record<string, T> {
+  const missing = keys.filter((k) => !(k in state));
+  if (missing.length === 0) return state;
+  return { ...state, ...Object.fromEntries(missing.map((k) => [k, make(k)])) };
+}
+
 export function useKeyedRows<T>(keys: string[], make: (key: string) => T) {
   const [state, setState] = useState<Record<string, T>>({});
 
-  const missing = keys.filter((k) => !(k in state));
-  const rows = missing.length
-    ? { ...state, ...Object.fromEntries(missing.map((k) => [k, make(k)])) }
-    : state;
+  const rows = withMissingKeys(state, keys, make);
+  const missing = rows !== state;
 
   // Update during render — allowed, and the right tool here: React re-runs
   // this component with the merged value before committing, and `rows` above
   // already carries it, so the pass that discovers the new keys can render
   // them instead of throwing on them.
-  if (missing.length) setState(rows);
+  if (missing) setState(rows);
 
   return [rows, setState] as const;
 }

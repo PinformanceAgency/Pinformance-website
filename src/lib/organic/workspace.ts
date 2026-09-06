@@ -5,6 +5,7 @@
  */
 import { organicPool } from "./db";
 import { fieldsFor, visibleFields, completionHolds } from "./task-fields";
+import { recomputeStatuses } from "./status";
 
 // ---------- LEAKS (Overview leak panel) -------------------------------------
 
@@ -998,6 +999,16 @@ export async function syncTaskStatusFromAnswers(
       WHERE org_id = $1 AND task_id = $2 AND cycle IS NULL`,
     [orgId, taskId, d.next]
   );
+
+  // Finishing a task is exactly what unblocks the tasks waiting on it, and
+  // this path used to be the one that forgot. Every other way of completing
+  // a task recomputes; a checklist task closed by answering its last question
+  // did not, so its dependents stayed BLOCKED until some unrelated save
+  // happened to trigger a recompute. Fit Cherries, 06-09-2026: P1.3.14 was
+  // ticked off at 09:22 and P2.1.1 — the first task of market research, whose
+  // only precondition it is — was still blocked hours later. From a desk that
+  // reads as "the tool doesn't work for me", with nothing to click.
+  await recomputeStatuses(orgId);
   return d.next;
 }
 

@@ -177,7 +177,7 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [rowErr, setRowErr] = useState<Record<string, string>>({});
   const draft = useFormDraft(orgId, "P2.1.3", { rows, time }, (d) => {
-    if (d.rows) setRows(d.rows as Record<string, GridRowState>);
+    if (d.rows) setRows((cur) => ({ ...cur, ...(d.rows as Record<string, GridRowState>) }));
     if (typeof d.time === "string") setTime(d.time);
   });
 
@@ -300,7 +300,7 @@ function HexForm({ orgId, snapshot, onDone }: Props) {
     Object.fromEntries(snapshot.grid_analyses.filter((g) => g.hex_1).map((g) => [g.target_keyword, true])));
   const [busy, setBusy] = useState<string | null>(null);
   const draft = useFormDraft(orgId, "P2.1.4", { rows, time }, (d) => {
-    if (d.rows) setRows(d.rows as Record<string, [string, string, string]>);
+    if (d.rows) setRows((cur) => ({ ...cur, ...(d.rows as Record<string, [string, string, string]>) }));
     if (typeof d.time === "string") setTime(d.time);
   });
   if (keywords.length === 0) return <Notice>Save seed keywords first (P2.1.1).</Notice>;
@@ -807,7 +807,7 @@ function TasteGraphForm({ orgId, snapshot, onDone }: Props) {
   });
   const [time, setTime] = useState("");
   const draft = useFormDraft(orgId, "P2.3.1", { v, time }, (d) => {
-    if (d.v && typeof d.v === "object") setV(d.v as typeof v);
+    if (d.v && typeof d.v === "object") setV((cur) => ({ ...cur, ...(d.v as typeof v) }));
     if (typeof d.time === "string") setTime(d.time);
   });
   const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
@@ -918,7 +918,7 @@ function VelocityForm({ orgId, snapshot, onDone }: Props) {
   );
   const [time, setTime] = useState("");
   const draft = useFormDraft(orgId, "P2.4.1", { rows, time }, (d) => {
-    if (d.rows) setRows(d.rows as Record<string, string>);
+    if (d.rows) setRows((cur) => ({ ...cur, ...(d.rows as Record<string, string>) }));
     if (typeof d.time === "string") setTime(d.time);
   });
   if (snapshot.competitors.length === 0) return <Notice>Add competitors first (P2.1.5).</Notice>;
@@ -1042,7 +1042,7 @@ function FormShell({
             className="w-20 rounded-md border border-neutral-300 px-2 py-1 text-xs tabular-nums" placeholder="15" />
         </label>
         <span className="flex-1" />
-        {err && <span className="text-xs text-red-600 mr-2 break-words max-w-md">{err}</span>}
+        {!time && <span className="text-[11px] text-neutral-500 mr-2">Enter the time spent to save.</span>}
         <button onClick={go} disabled={submitting || !time}
           className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
           {submitting ? "Saving…" : submitLabel}

@@ -105,7 +105,7 @@ function FormShell({
             className="w-20 rounded-md border border-neutral-300 px-2 py-1 text-xs tabular-nums" placeholder="10" />
         </label>
         <span className="flex-1" />
-        {err && <span className="text-xs text-red-600 mr-2 break-words max-w-md">{err}</span>}
+        {!time && <span className="text-[11px] text-neutral-500 mr-2">Enter the time spent to save.</span>}
         <button onClick={go} disabled={submitting || !time}
           className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
           {submitting ? "Saving…" : submitLabel}
@@ -309,7 +309,7 @@ function PinClicksForm({ orgId, snapshot, onDone }: Props) {
   const [extra, setExtra] = useState("");
   const [time, setTime] = useState("");
   const draft = useFormDraft(orgId, "P3.1.8", { values, extra, time }, (d) => {
-    if (d.values) setValues(d.values as Record<string, { volume: string; not_found: boolean }>);
+    if (d.values) setValues((cur) => ({ ...cur, ...(d.values as Record<string, { volume: string; not_found: boolean }>) }));
     if (typeof d.extra === "string") setExtra(d.extra);
     if (typeof d.time === "string") setTime(d.time);
   });
@@ -487,7 +487,7 @@ function SeasonalForm({ orgId, snapshot, onDone }: Props) {
   const set = (t: string, patch: Partial<{ type: string; start: string; end: string }>) => setPick({ ...pick, [t]: { ...pick[t], ...patch } });
   const classified = Object.values(pick).filter((v) => v.type).length;
   const draft = useFormDraft(orgId, "P3.1.12", { pick, time }, (d) => {
-    if (d.pick) setPick(d.pick as Record<string, { type: string; start: string; end: string }>);
+    if (d.pick) setPick((cur) => ({ ...cur, ...(d.pick as Record<string, { type: string; start: string; end: string }>) }));
     if (typeof d.time === "string") setTime(d.time);
   });
 
@@ -742,7 +742,7 @@ function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
   );
   const [time, setTime] = useState("");
   const draft = useFormDraft(orgId, "P3.3.3", { rows, time }, (d) => {
-    if (d.rows) setRows(d.rows as Record<string, Row>);
+    if (d.rows) setRows((cur) => ({ ...cur, ...(d.rows as Record<string, Row>) }));
     if (typeof d.time === "string") setTime(d.time);
   });
   const set = (id: string, patch: Partial<Row>) =>
