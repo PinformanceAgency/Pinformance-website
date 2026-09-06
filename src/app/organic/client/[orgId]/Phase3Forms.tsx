@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useKeyedRows } from "./useKeyedRows";
 import type { TaskRow } from "@/lib/organic/types";
 
 export interface Phase3Snapshot {
@@ -253,8 +254,10 @@ function ActionForm({ orgId, task, onDone, action, title, desc }: Props & { acti
 function PinClicksForm({ orgId, snapshot, onDone }: Props) {
   // Queue: cache misses for this org.
   const queued = snapshot.queue.filter((q) => q.status === "QUEUED");
-  const [values, setValues] = useState<Record<string, { volume: string; not_found: boolean }>>(() =>
-    Object.fromEntries(queued.map((q) => [q.term, { volume: "", not_found: false }])));
+  const [values, setValues] = useKeyedRows<{ volume: string; not_found: boolean }>(
+    queued.map((q) => q.term),
+    () => ({ volume: "", not_found: false }),
+  );
   const [extra, setExtra] = useState("");
   const [time, setTime] = useState("");
   if (queued.length === 0) {
@@ -399,8 +402,14 @@ function ClustersForm({ orgId, onDone }: Props) {
 
 function SeasonalForm({ orgId, snapshot, onDone }: Props) {
   const terms = snapshot.keywords.map((k) => k.term);
-  const [pick, setPick] = useState<Record<string, { type: string; start: string; end: string }>>(() =>
-    Object.fromEntries(snapshot.keywords.map((k) => [k.term, { type: k.seasonal_type ?? "", start: "", end: "" }])));
+  const seeded = useMemo(
+    () => Object.fromEntries(snapshot.keywords.map((k) => [k.term, k.seasonal_type])),
+    [snapshot.keywords],
+  );
+  const [pick, setPick] = useKeyedRows<{ type: string; start: string; end: string }>(
+    terms,
+    (t) => ({ type: seeded[t] ?? "", start: "", end: "" }),
+  );
   const [time, setTime] = useState("");
   const set = (t: string, patch: Partial<{ type: string; start: string; end: string }>) => setPick({ ...pick, [t]: { ...pick[t], ...patch } });
   const classified = Object.values(pick).filter((v) => v.type).length;

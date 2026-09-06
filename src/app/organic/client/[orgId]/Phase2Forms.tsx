@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useKeyedRows } from "./useKeyedRows";
 import type { TaskRow } from "@/lib/organic/types";
 import { cn } from "@/lib/utils";
 
@@ -129,18 +130,16 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
     fmt_pure_aesthetic: boolean; fmt_text_heavy: boolean; has_visible_ctas: boolean;
     text_overlay_bucket: string; look_and_feel: string;
   };
-  const [rows, setRows] = useState<Record<string, Row>>(() =>
-    Object.fromEntries(keywords.map((k) => [k, {
-      fmt_simple_pins:    !!seeded[k]?.fmt_simple_pins,
-      fmt_infographics:   !!seeded[k]?.fmt_infographics,
-      fmt_video_916:      !!seeded[k]?.fmt_video_916,
-      fmt_pure_aesthetic: !!seeded[k]?.fmt_pure_aesthetic,
-      fmt_text_heavy:     !!seeded[k]?.fmt_text_heavy,
-      has_visible_ctas:   !!seeded[k]?.has_visible_ctas,
-      text_overlay_bucket: seeded[k]?.text_overlay_bucket ?? "",
-      look_and_feel:       seeded[k]?.look_and_feel ?? "",
-    }]))
-  );
+  const [rows, setRows] = useKeyedRows<Row>(keywords, (k) => ({
+    fmt_simple_pins:    !!seeded[k]?.fmt_simple_pins,
+    fmt_infographics:   !!seeded[k]?.fmt_infographics,
+    fmt_video_916:      !!seeded[k]?.fmt_video_916,
+    fmt_pure_aesthetic: !!seeded[k]?.fmt_pure_aesthetic,
+    fmt_text_heavy:     !!seeded[k]?.fmt_text_heavy,
+    has_visible_ctas:   !!seeded[k]?.has_visible_ctas,
+    text_overlay_bucket: seeded[k]?.text_overlay_bucket ?? "",
+    look_and_feel:       seeded[k]?.look_and_feel ?? "",
+  }));
   const [time, setTime] = useState("");
   if (keywords.length === 0) {
     return <Notice>Save seed keywords first (P2.1.1).</Notice>;
@@ -216,13 +215,11 @@ const HEX_RE = /^#?[0-9a-fA-F]{6}$/;
 function HexForm({ orgId, snapshot, onDone }: Props) {
   const keywords = snapshot.keywords;
   const seeded = useMemo(() => Object.fromEntries(snapshot.grid_analyses.map((g) => [g.target_keyword, g])), [snapshot.grid_analyses]);
-  const [rows, setRows] = useState<Record<string, [string, string, string]>>(() =>
-    Object.fromEntries(keywords.map((k) => [k, [
-      seeded[k]?.hex_1 ?? "",
-      seeded[k]?.hex_2 ?? "",
-      seeded[k]?.hex_3 ?? "",
-    ] as [string, string, string]]))
-  );
+  const [rows, setRows] = useKeyedRows<[string, string, string]>(keywords, (k) => [
+    seeded[k]?.hex_1 ?? "",
+    seeded[k]?.hex_2 ?? "",
+    seeded[k]?.hex_3 ?? "",
+  ]);
   const [time, setTime] = useState("");
   if (keywords.length === 0) return <Notice>Save seed keywords first (P2.1.1).</Notice>;
 
@@ -782,8 +779,13 @@ function ThreeAWMForm({ orgId, snapshot, onDone }: Props) {
 // ---------- P2.4.1 (velocity) -----------------------------------------------
 
 function VelocityForm({ orgId, snapshot, onDone }: Props) {
-  const [rows, setRows] = useState<Record<string, string>>(() =>
-    Object.fromEntries(snapshot.competitors.map((c) => [c.profile_url, c.pins_per_day_4mo?.toString() ?? ""]))
+  const seeded = useMemo(
+    () => Object.fromEntries(snapshot.competitors.map((c) => [c.profile_url, c.pins_per_day_4mo])),
+    [snapshot.competitors],
+  );
+  const [rows, setRows] = useKeyedRows<string>(
+    snapshot.competitors.map((c) => c.profile_url),
+    (u) => seeded[u]?.toString() ?? "",
   );
   const [time, setTime] = useState("");
   if (snapshot.competitors.length === 0) return <Notice>Add competitors first (P2.1.5).</Notice>;
