@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useKeyedRows } from "./useKeyedRows";
+import { useFormDraft, type FormDraft } from "./useFormDraft";
+import { DraftHint, DraftBanner } from "./DraftBanner";
 import type { TaskRow } from "@/lib/organic/types";
 
 export interface Phase3Snapshot {
@@ -55,26 +57,46 @@ export function Phase3FormFor(p: Props): React.ReactNode {
 // --- shared ------------------------------------------------------------------
 
 function FormShell({
-  title, body, time, setTime, submitLabel, onSubmit,
+  title, body, time, setTime, submitLabel, onSubmit, draft,
 }: {
   title: string;
   body: React.ReactNode;
   time: string;
   setTime: (v: string) => void;
   submitLabel: string;
-  onSubmit: () => Promise<void>;
+  /** A returned string is shown as the result of the save, so a partial save
+   *  can say what landed and what is still open. */
+  onSubmit: () => Promise<void | string>;
+  draft?: FormDraft;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
   async function go() {
-    setErr(null); setSubmitting(true);
-    try { await onSubmit(); }
+    setErr(null); setOk(null); setSubmitting(true);
+    try {
+      const msg = await onSubmit();
+      await draft?.clear();
+      if (typeof msg === "string") setOk(msg);
+    }
     catch (e) { setErr((e as Error).message); }
     finally { setSubmitting(false); }
   }
   return (
     <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-3">
-      <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">{title}</div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">{title}</div>
+        <span className="flex-1" />
+        <DraftHint draft={draft} />
+      </div>
+      {draft?.restoredAt && <DraftBanner draft={draft} />}
+      {(err || ok) && (
+        <div className={`rounded border px-2 py-1.5 text-[11px] ${err
+          ? "border-red-300 bg-red-50 text-red-700"
+          : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}>
+          {err ?? ok}
+        </div>
+      )}
       {body}
       <div className="flex items-center gap-2 pt-1 border-t border-neutral-200">
         <label className="text-[11px] text-neutral-600 flex items-center gap-1.5">
@@ -127,8 +149,15 @@ function SearchBarForm({ orgId, onDone }: Props) {
   const [raw, setRaw] = useState("");
   const [time, setTime] = useState("");
   const list = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+  const draft = useFormDraft(orgId, "P3.1.1", { seed, raw, time }, (d) => {
+    if (typeof d.seed === "string") setSeed(d.seed);
+    if (typeof d.raw === "string") setRaw(d.raw);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title="P3.1.1 — Search-bar suggestions (order = volume proxy)"
       body={
         <div className="space-y-2">
@@ -153,8 +182,14 @@ function BubblesForm({ orgId, onDone }: Props) {
   const [raw, setRaw] = useState("");
   const [time, setTime] = useState("");
   const list = raw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  const draft = useFormDraft(orgId, "P3.1.2", { raw, time }, (d) => {
+    if (typeof d.raw === "string") setRaw(d.raw);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title="P3.1.2 — Bubbles + related searches"
       body={
         <>
@@ -182,8 +217,14 @@ function InterestPicksForm({ orgId, onDone }: Props) {
       setResults((r.results as Array<{ interest_id: string; name: string; crumb: string }>) ?? []);
     } finally { setSearching(false); }
   }
+  const draft = useFormDraft(orgId, "P3.1.3", { picked: Array.from(picked), time }, (d) => {
+    if (Array.isArray(d.picked)) setPicked(new Set(d.picked as string[]));
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title="P3.1.3 — Pick from Pinterest interest taxonomy (3,437 terms)"
       body={
         <div className="space-y-2">
@@ -220,8 +261,15 @@ function CloakedForm({ orgId, onDone }: Props) {
   const [cloaked, setCloaked] = useState(false);
   const [notes, setNotes] = useState("");
   const [time, setTime] = useState("");
+  const draft = useFormDraft(orgId, "P3.1.5", { cloaked, notes, time }, (d) => {
+    if (typeof d.cloaked === "boolean") setCloaked(d.cloaked);
+    if (typeof d.notes === "string") setNotes(d.notes);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title="P3.1.5 — Cloaked niche?"
       body={
         <div className="space-y-2 text-xs">
@@ -260,11 +308,18 @@ function PinClicksForm({ orgId, snapshot, onDone }: Props) {
   );
   const [extra, setExtra] = useState("");
   const [time, setTime] = useState("");
+  const draft = useFormDraft(orgId, "P3.1.8", { values, extra, time }, (d) => {
+    if (d.values) setValues(d.values as Record<string, { volume: string; not_found: boolean }>);
+    if (typeof d.extra === "string") setExtra(d.extra);
+    if (typeof d.time === "string") setTime(d.time);
+  });
   if (queued.length === 0) {
     return <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground">No queue items. Run P3.1.7 first.</div>;
   }
+
   return (
     <FormShell
+      draft={draft}
       title={`P3.1.8 — PinClicks session (${queued.length} lookups)`}
       body={
         <div className="space-y-2">
@@ -306,8 +361,14 @@ function ParentInterestsForm({ orgId, onDone }: Props) {
   const [raw, setRaw] = useState("");
   const [time, setTime] = useState("");
   const list = raw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  const draft = useFormDraft(orgId, "P3.1.9", { raw, time }, (d) => {
+    if (typeof d.raw === "string") setRaw(d.raw);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title="P3.1.9 — Parent interests (≥5)"
       body={<>
         <TextList v={raw} on={setRaw} rows={4} placeholder="Home Decor, Living Room, Vanity Lighting, Small Bedroom, Interior Design" />
@@ -325,8 +386,14 @@ function GenericTestForm({ orgId, snapshot, onDone }: Props) {
   const [pass, setPass] = useState<Set<string>>(new Set(snapshot.keywords.filter((k) => k.generic_applies_to_all).map((k) => k.term)));
   const [time, setTime] = useState("");
   const toggle = (t: string) => { const nx = new Set(pass); nx.has(t) ? nx.delete(t) : nx.add(t); setPass(nx); };
+  const draft = useFormDraft(orgId, "P3.1.10", { pass: Array.from(pass), time }, (d) => {
+    if (Array.isArray(d.pass)) setPass(new Set(d.pass as string[]));
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title={`P3.1.10 — Applies to every product? (5–10 pass)`}
       body={
         <div className="space-y-1">
@@ -357,8 +424,14 @@ function ClustersForm({ orgId, onDone }: Props) {
   const [rows, setRows] = useState<Cl[]>(Array.from({ length: 3 }, () => ({ name: "", axis: "MOMENT", keywords: "" })));
   const [time, setTime] = useState("");
   const set = (i: number, patch: Partial<Cl>) => setRows(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const draft = useFormDraft(orgId, "P3.1.11", { rows, time }, (d) => {
+    if (Array.isArray(d.rows)) setRows(d.rows as Cl[]);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title="P3.1.11 — Topic clusters (≥3, each 10–15 keywords)"
       body={
         <div className="space-y-2">
@@ -413,8 +486,14 @@ function SeasonalForm({ orgId, snapshot, onDone }: Props) {
   const [time, setTime] = useState("");
   const set = (t: string, patch: Partial<{ type: string; start: string; end: string }>) => setPick({ ...pick, [t]: { ...pick[t], ...patch } });
   const classified = Object.values(pick).filter((v) => v.type).length;
+  const draft = useFormDraft(orgId, "P3.1.12", { pick, time }, (d) => {
+    if (d.pick) setPick(d.pick as Record<string, { type: string; start: string; end: string }>);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title={`P3.1.12 — Seasonal classification (${classified}/${terms.length} set)`}
       body={
         <div className="max-h-72 overflow-y-auto rounded border border-border bg-card divide-y divide-neutral-100 text-xs">
@@ -453,8 +532,15 @@ function AlignmentForm({ orgId, onDone }: Props) {
   const [raw, setRaw] = useState("");
   const [notes, setNotes] = useState("");
   const [time, setTime] = useState("");
+  const draft = useFormDraft(orgId, "P3.1.14", { raw, notes, time }, (d) => {
+    if (typeof d.raw === "string") setRaw(d.raw);
+    if (typeof d.notes === "string") setNotes(d.notes);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title="P3.1.14 — Client alignment (forbidden terms)"
       body={<>
         <TextList v={raw} on={setRaw} rows={3} placeholder="Comma-separated or per line" />
@@ -490,8 +576,14 @@ function DisplayNameForm({ orgId, snapshot, onDone }: Props) {
     finally { setGenLoading(false); }
   }
 
+  const draft = useFormDraft(orgId, "P3.2.1", { name, time }, (d) => {
+    if (typeof d.name === "string") setName(d.name);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title={`P3.2.1 — Display name (${name.length}/65, must contain a volume-cached keyword)`}
       body={
         <div className="space-y-2">
@@ -536,8 +628,14 @@ function BioForm({ orgId, snapshot, onDone }: Props) {
     finally { setGenLoading(false); }
   }
 
+  const draft = useFormDraft(orgId, "P3.2.2", { bio, time }, (d) => {
+    if (typeof d.bio === "string") setBio(d.bio);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title={`P3.2.2 — Bio (${bio.length}/500, ≥3 volume-cached keywords, CTA at end)`}
       body={
         <div className="space-y-2">
@@ -572,8 +670,14 @@ function BoardListForm({ orgId, snapshot, onDone }: Props) {
   const [rows, setRows] = useState<Row[]>(seed.length > 0 ? seed : Array.from({ length: 20 }, () => ({ name: "", topic_name: "", primary_keyword: "", breadth: "BROAD" })));
   const [time, setTime] = useState("");
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const draft = useFormDraft(orgId, "P3.3.1", { rows, time }, (d) => {
+    if (Array.isArray(d.rows)) setRows(d.rows as Row[]);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   return (
     <FormShell
+      draft={draft}
       title={`P3.3.1 — Finalise board list (${rows.length}, must be 20–30)`}
       body={
         <div className="space-y-1 max-h-96 overflow-y-auto">
@@ -616,28 +720,53 @@ function BoardListForm({ orgId, snapshot, onDone }: Props) {
   );
 }
 
+/**
+ * P3.3.3 — a description per board.
+ *
+ * Keyed on the board id, not built once from a snapshot array: P3.3.1
+ * (finalise the board list) sits on this same step page and creates the very
+ * boards this form is about, so its `router.refresh()` hands this form a
+ * longer list while it is still mounted. Built at mount, the new boards
+ * simply never appeared here and the title kept reporting the old count —
+ * the quiet half of the bug that made the grid form crash (04-09-2026).
+ */
 function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
-  const [rows, setRows] = useState(() => snapshot.boards.map((b) => ({ board_id: b.id, name: b.name, description: b.description ?? "", draft_id: null as string | null, generating: false, err: null as string | null })));
+  type Row = { description: string; draft_id: string | null; generating: boolean; err: string | null };
+  const seeded = useMemo(
+    () => Object.fromEntries(snapshot.boards.map((b) => [b.id, b.description ?? ""])),
+    [snapshot.boards],
+  );
+  const [rows, setRows] = useKeyedRows<Row>(
+    snapshot.boards.map((b) => b.id),
+    (id) => ({ description: seeded[id] ?? "", draft_id: null, generating: false, err: null }),
+  );
   const [time, setTime] = useState("");
-  const set = (i: number, patch: Partial<typeof rows[0]>) => setRows(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const draft = useFormDraft(orgId, "P3.3.3", { rows, time }, (d) => {
+    if (d.rows) setRows(d.rows as Record<string, Row>);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+  const set = (id: string, patch: Partial<Row>) =>
+    setRows((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
 
-  async function generateOne(i: number) {
-    set(i, { generating: true, err: null });
+  async function generateOne(id: string) {
+    set(id, { generating: true, err: null });
     try {
-      const r = await post(orgId, { action: "draft_board_description", board_id: rows[i].board_id }) as { draft_id: string; text: string; attempts: number };
-      set(i, { description: r.text, draft_id: r.draft_id, generating: false });
-    } catch (e) { set(i, { err: (e as Error).message, generating: false }); }
+      const r = await post(orgId, { action: "draft_board_description", board_id: id }) as { draft_id: string; text: string; attempts: number };
+      set(id, { description: r.text, draft_id: r.draft_id, generating: false });
+    } catch (e) { set(id, { err: (e as Error).message, generating: false }); }
   }
 
   async function generateAll() {
-    for (let i = 0; i < rows.length; i++) {
-      if (!rows[i].draft_id) await generateOne(i);
+    for (const b of snapshot.boards) {
+      if (!rows[b.id]?.draft_id) await generateOne(b.id);
     }
   }
 
+  const filled = snapshot.boards.filter((b) => rows[b.id]?.description.trim()).length;
   return (
     <FormShell
-      title={`P3.3.3 — Board descriptions (${rows.length} boards; 400–480 chars, name in first sentence)`}
+      draft={draft}
+      title={`P3.3.3 — Board descriptions (${filled}/${snapshot.boards.length} written; 400–480 chars, name in first sentence)`}
       body={
         <div className="space-y-2">
           <div className="flex items-center gap-2">
@@ -648,19 +777,20 @@ function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
             <span className="text-[10px] text-neutral-500">Each proposal is regenerated up to 3× until it satisfies the validators.</span>
           </div>
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {rows.map((r, i) => {
+            {snapshot.boards.map((b) => {
+              const r = rows[b.id];
               const len = r.description.length;
               const lenOk = len >= 400 && len <= 480;
               return (
-                <div key={i} className="rounded border border-border bg-card p-2">
+                <div key={b.id} className="rounded border border-border bg-card p-2">
                   <div className="flex items-center justify-between mb-1">
-                    <div className="text-[11px] font-medium text-neutral-800">{r.name}</div>
-                    <button type="button" onClick={() => generateOne(i)} disabled={r.generating}
+                    <div className="text-[11px] font-medium text-neutral-800">{b.name}</div>
+                    <button type="button" onClick={() => generateOne(b.id)} disabled={r.generating}
                       className="text-[10px] px-1.5 py-0.5 rounded border border-border text-foreground hover:bg-muted disabled:opacity-50">
                       {r.generating ? "…" : r.draft_id ? "↻ Regenerate" : "🤖 Generate"}
                     </button>
                   </div>
-                  <textarea value={r.description} onChange={(e) => set(i, { description: e.target.value })} rows={3}
+                  <textarea value={r.description} onChange={(e) => set(b.id, { description: e.target.value })} rows={3}
                     className="w-full rounded border border-neutral-300 px-2 py-1 text-[11px]" />
                   <div className={`text-[10px] tabular-nums ${lenOk ? "text-neutral-500" : "text-red-600"}`}>
                     {len}/480 · target 400–480 {r.draft_id && "· ✓ AI drafted"}
@@ -675,16 +805,23 @@ function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
       time={time} setTime={setTime} submitLabel="Save descriptions (approves any AI drafts too)"
       onSubmit={async () => {
         // For rows with a draft_id, call approve_board_description; for others, the generic save.
-        for (const r of rows) {
-          if (!r.description.trim()) continue;
+        for (const b of snapshot.boards) {
+          const r = rows[b.id];
+          if (!r?.description.trim()) continue;
           if (r.draft_id) {
-            await post(orgId, { action: "approve_board_description", draft_id: r.draft_id, board_name: r.name, approved_text: r.description });
+            await post(orgId, { action: "approve_board_description", draft_id: r.draft_id, board_name: b.name, approved_text: r.description });
           }
         }
         // Then also fire the generic save for anything missed.
-        const rowsToSend = rows.filter((r) => r.description.trim()).map(({ name, description }) => ({ name, description }));
+        const rowsToSend = snapshot.boards
+          .filter((b) => rows[b.id]?.description.trim())
+          .map((b) => ({ name: b.name, description: rows[b.id].description }));
         if (rowsToSend.length > 0) await post(orgId, { action: "descriptions", rows: rowsToSend, time_spent_min: n(time) });
         onDone();
+        const open = snapshot.boards.length - rowsToSend.length;
+        return open === 0
+          ? `Saved ${rowsToSend.length} description(s) — every board has one.`
+          : `Saved ${rowsToSend.length} description(s); ${open} board(s) still without one.`;
       }}
     />
   );

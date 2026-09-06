@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useKeyedRows } from "./useKeyedRows";
+import { useFormDraft, type FormDraft } from "./useFormDraft";
+import { DraftHint, DraftBanner } from "./DraftBanner";
 import type { TaskRow } from "@/lib/organic/types";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +14,8 @@ export interface Phase2Snapshot {
   taste_graph: TasteGraphRow | null;
   market_items: MarketItem[];
   client_settings: { daily_pin_target: number; urls_per_month: number | null } | null;
+  /** Every keyword the store holds, seeds and imported bank together. */
+  keyword_bank_size?: number;
 }
 interface GridRow {
   target_keyword: string;
@@ -101,16 +105,31 @@ export function Phase2FormFor(p: Props): React.ReactNode {
 function SeedKeywordsForm({ orgId, snapshot, onDone }: Props) {
   const [text, setText] = useState(snapshot.keywords.join("\n"));
   const [time, setTime] = useState("");
+  const draft = useFormDraft(orgId, "P2.1.1", { text, time }, (d) => {
+    if (typeof d.text === "string") setText(d.text);
+    if (typeof d.time === "string") setTime(d.time);
+  });
   const list = text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  // A store whose keyword bank was imported by the main dashboard opens this
+  // form empty, which reads as data loss unless the bank is mentioned.
+  const bank = snapshot.keyword_bank_size ?? 0;
+  const extra = Math.max(0, bank - snapshot.keywords.length);
   return (
     <FormShell
+      draft={draft}
       title="Seed keywords (5–10)"
       body={
         <>
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5}
             placeholder="one per line — e.g. modern living room&#10;vanity lighting&#10;home decor inspiration"
             className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs" />
-          <div className="text-[11px] text-neutral-500 mt-1">{list.length}/10 entered · minimum 5.</div>
+          <div className="text-[11px] text-neutral-500 mt-1">
+            {list.length}/10 entered · minimum 5.
+            {extra > 0 && (
+              <> · This store also holds {extra.toLocaleString("en-US")} keyword(s) imported from the dashboard.
+                Those stay in the bank; phase 2 asks its questions about the seeds you name here.</>
+            )}
+          </div>
         </>
       }
       time={time} setTime={setTime}
@@ -122,15 +141,24 @@ function SeedKeywordsForm({ orgId, snapshot, onDone }: Props) {
 
 // ---------- P2.1.3 (grid) ---------------------------------------------------
 
+type GridRowState = {
+  fmt_simple_pins: boolean; fmt_infographics: boolean; fmt_video_916: boolean;
+  fmt_pure_aesthetic: boolean; fmt_text_heavy: boolean; has_visible_ctas: boolean;
+  text_overlay_bucket: string; look_and_feel: string;
+};
+
+/**
+ * The grid record, one card per seed keyword.
+ *
+ * Three rules here are the answer to how a day of research went missing:
+ * a keyword can be saved on its own, the bottom Save takes everything that
+ * is filled in rather than refusing the form over a blank row, and what is
+ * typed is mirrored into a draft while it is being typed.
+ */
 function GridForm({ orgId, snapshot, onDone }: Props) {
   const keywords = snapshot.keywords;
   const seeded = useMemo(() => Object.fromEntries(snapshot.grid_analyses.map((g) => [g.target_keyword, g])), [snapshot.grid_analyses]);
-  type Row = {
-    fmt_simple_pins: boolean; fmt_infographics: boolean; fmt_video_916: boolean;
-    fmt_pure_aesthetic: boolean; fmt_text_heavy: boolean; has_visible_ctas: boolean;
-    text_overlay_bucket: string; look_and_feel: string;
-  };
-  const [rows, setRows] = useKeyedRows<Row>(keywords, (k) => ({
+  const [rows, setRows] = useKeyedRows<GridRowState>(keywords, (k) => ({
     fmt_simple_pins:    !!seeded[k]?.fmt_simple_pins,
     fmt_infographics:   !!seeded[k]?.fmt_infographics,
     fmt_video_916:      !!seeded[k]?.fmt_video_916,
@@ -141,21 +169,62 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
     look_and_feel:       seeded[k]?.look_and_feel ?? "",
   }));
   const [time, setTime] = useState("");
+  // Which keywords are in the database right now — seeded from the snapshot,
+  // then updated by each per-keyword save so the ticks are honest without a
+  // page refresh.
+  const [stored, setStored] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(snapshot.grid_analyses.filter((g) => g.text_overlay_bucket).map((g) => [g.target_keyword, true])));
+  const [busy, setBusy] = useState<string | null>(null);
+  const [rowErr, setRowErr] = useState<Record<string, string>>({});
+  const draft = useFormDraft(orgId, "P2.1.3", { rows, time }, (d) => {
+    if (d.rows) setRows(d.rows as Record<string, GridRowState>);
+    if (typeof d.time === "string") setTime(d.time);
+  });
+
   if (keywords.length === 0) {
-    return <Notice>Save seed keywords first (P2.1.1).</Notice>;
+    return <Notice>Save seed keywords first (P2.1.1) — the grid is recorded per seed keyword.</Notice>;
   }
   const buckets = ["NONE","MINIMAL","HALF","MOST","ALL"] as const;
+  const filled = (k: string) => !!rows[k]?.text_overlay_bucket;
+  const recordFor = (k: string) => ({
+    target_keyword: k, ...rows[k],
+    text_overlay_bucket: rows[k].text_overlay_bucket as "NONE"|"MINIMAL"|"HALF"|"MOST"|"ALL",
+  });
+
+  /** One keyword, on its own, without a time entry — the point is that
+   *  finishing a card is enough to make it safe. */
+  async function saveOne(k: string) {
+    setRowErr((e) => ({ ...e, [k]: "" }));
+    setBusy(k);
+    try {
+      await post(orgId, { action: "grid_records", records: [recordFor(k)], time_spent_min: 0 });
+      setStored((v) => ({ ...v, [k]: true }));
+    } catch (e) {
+      setRowErr((v) => ({ ...v, [k]: (e as Error).message }));
+    } finally { setBusy(null); }
+  }
+
+  const openCount = keywords.filter((k) => !filled(k)).length;
   return (
     <FormShell
-      title={`Grid record per keyword (${keywords.length})`}
+      draft={draft}
+      title={`Grid record per keyword (${keywords.length - openCount}/${keywords.length} filled in)`}
       body={
-        <div className="space-y-2">
+        <div className="space-y-2 max-h-[34rem] overflow-y-auto">
           {keywords.map((k) => {
             const r = rows[k];
-            const setRow = (patch: Partial<Row>) => setRows({ ...rows, [k]: { ...r, ...patch } });
+            const setRow = (patch: Partial<GridRowState>) => setRows({ ...rows, [k]: { ...r, ...patch } });
             return (
               <div key={k} className="rounded border border-border bg-card p-2 space-y-1.5">
-                <div className="text-xs font-medium text-neutral-800">{k}</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-xs font-medium text-neutral-800 flex-1">{k}</div>
+                  {stored[k] && <span className="text-[10px] text-emerald-700">✓ saved</span>}
+                  <button type="button" onClick={() => saveOne(k)} disabled={!filled(k) || busy === k}
+                    title={filled(k) ? "Save just this keyword" : "Pick a text-overlay bucket first"}
+                    className="text-[10px] px-1.5 py-0.5 rounded border border-border text-foreground hover:bg-muted disabled:opacity-40">
+                    {busy === k ? "…" : stored[k] ? "Save again" : "Save keyword"}
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-3 text-[11px]">
                   <FormatToggle label="2:3 simple" v={r.fmt_simple_pins} on={(x) => setRow({ fmt_simple_pins: x })} />
                   <FormatToggle label="Infographic" v={r.fmt_infographics} on={(x) => setRow({ fmt_infographics: x })} />
@@ -180,20 +249,26 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
                 <input value={r.look_and_feel} onChange={(e) => setRow({ look_and_feel: e.target.value })}
                   placeholder="One-line impression of page 1 — colours, mood, subject"
                   className="w-full rounded border border-neutral-300 px-2 py-1 text-xs" />
+                {rowErr[k] && <div className="text-[10px] text-red-600">{rowErr[k]}</div>}
               </div>
             );
           })}
         </div>
       }
       time={time} setTime={setTime}
-      submitLabel="Save grid records"
-      onSubmit={() => {
-        const records = keywords.map((k) => {
-          const r = rows[k];
-          if (!r.text_overlay_bucket) throw new Error(`"${k}": pick a text-overlay bucket`);
-          return { target_keyword: k, ...r, text_overlay_bucket: r.text_overlay_bucket as "NONE"|"MINIMAL"|"HALF"|"MOST"|"ALL" };
-        });
-        return post(orgId, { action: "grid_records", records, time_spent_min: n(time) }).then(onDone);
+      submitLabel={openCount > 0 ? `Save ${keywords.length - openCount} filled-in keyword(s)` : "Save grid records"}
+      onSubmit={async () => {
+        const records = keywords.filter(filled).map(recordFor);
+        if (records.length === 0) {
+          throw new Error("Nothing to save yet — pick a text-overlay bucket for at least one keyword.");
+        }
+        const r = await post(orgId, { action: "grid_records", records, time_spent_min: n(time) }) as
+          { count: number; remaining: string[]; done: boolean };
+        setStored(Object.fromEntries(records.map((x) => [x.target_keyword, true])));
+        onDone();
+        return r.done
+          ? `Saved ${r.count} keyword(s) — the grid is complete and P2.1.3 is done.`
+          : `Saved ${r.count} keyword(s). Still open: ${r.remaining.join(", ")}. The task stays in progress.`;
       }}
     />
   );
@@ -221,13 +296,37 @@ function HexForm({ orgId, snapshot, onDone }: Props) {
     seeded[k]?.hex_3 ?? "",
   ]);
   const [time, setTime] = useState("");
+  const [stored, setStored] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(snapshot.grid_analyses.filter((g) => g.hex_1).map((g) => [g.target_keyword, true])));
+  const [busy, setBusy] = useState<string | null>(null);
+  const draft = useFormDraft(orgId, "P2.1.4", { rows, time }, (d) => {
+    if (d.rows) setRows(d.rows as Record<string, [string, string, string]>);
+    if (typeof d.time === "string") setTime(d.time);
+  });
   if (keywords.length === 0) return <Notice>Save seed keywords first (P2.1.1).</Notice>;
 
+  const complete = (k: string) => (rows[k] ?? []).every((h) => HEX_RE.test(h));
+  const started = (k: string) => (rows[k] ?? []).some((h) => h.trim() !== "");
+  const recordFor = (k: string) => {
+    const [h1, h2, h3] = rows[k];
+    return { target_keyword: k, hex_1: h1, hex_2: h2, hex_3: h3 };
+  };
+
+  async function saveOne(k: string) {
+    setBusy(k);
+    try {
+      await post(orgId, { action: "hexes", records: [recordFor(k)], time_spent_min: 0 });
+      setStored((v) => ({ ...v, [k]: true }));
+    } finally { setBusy(null); }
+  }
+
+  const filledCount = keywords.filter(complete).length;
   return (
     <FormShell
-      title={`Dominant hex codes per keyword (${keywords.length})`}
+      draft={draft}
+      title={`Dominant hex codes per keyword (${filledCount}/${keywords.length} filled in)`}
       body={
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 max-h-[34rem] overflow-y-auto">
           {keywords.map((k) => {
             const trio = rows[k];
             return (
@@ -254,22 +353,35 @@ function HexForm({ orgId, snapshot, onDone }: Props) {
                     </div>
                   );
                 })}
+                {stored[k] && <span className="text-[10px] text-emerald-700">✓</span>}
+                <button type="button" onClick={() => saveOne(k)} disabled={!complete(k) || busy === k}
+                  title={complete(k) ? "Save just this keyword" : "Three valid hex codes first"}
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-border text-foreground hover:bg-muted disabled:opacity-40">
+                  {busy === k ? "…" : "Save"}
+                </button>
               </div>
             );
           })}
         </div>
       }
       time={time} setTime={setTime}
-      submitLabel="Save hex codes"
-      onSubmit={() => {
-        const records = keywords.map((k) => {
-          const [h1, h2, h3] = rows[k];
-          if (![h1, h2, h3].every((h) => HEX_RE.test(h))) {
-            throw new Error(`"${k}": three valid hex codes required (6 hex digits each)`);
-          }
-          return { target_keyword: k, hex_1: h1, hex_2: h2, hex_3: h3 };
-        });
-        return post(orgId, { action: "hexes", records, time_spent_min: n(time) }).then(onDone);
+      submitLabel={filledCount < keywords.length ? `Save ${filledCount} filled-in keyword(s)` : "Save hex codes"}
+      onSubmit={async () => {
+        // A half-typed row is an error and is named; an untouched one is
+        // simply not done yet. Neither may cost the rows that are finished.
+        const halfTyped = keywords.filter((k) => started(k) && !complete(k));
+        if (halfTyped.length > 0) {
+          throw new Error(`Three valid 6-digit hex codes needed for: ${halfTyped.join(", ")}. Nothing was saved — correct or clear those and save again.`);
+        }
+        const records = keywords.filter(complete).map(recordFor);
+        if (records.length === 0) throw new Error("Nothing to save yet — fill in the three hex codes for at least one keyword.");
+        const r = await post(orgId, { action: "hexes", records, time_spent_min: n(time) }) as
+          { count: number; remaining: string[]; done: boolean };
+        setStored(Object.fromEntries(records.map((x) => [x.target_keyword, true])));
+        onDone();
+        return r.done
+          ? `Saved ${r.count} keyword(s) — all seed keywords have their colours.`
+          : `Saved ${r.count} keyword(s). Still open: ${r.remaining.join(", ")}. The task stays in progress.`;
       }}
     />
   );
@@ -288,9 +400,14 @@ function CompetitorsForm({ orgId, snapshot, onDone }: Props) {
       : Array.from({ length: 5 }, () => ({ name: "", handle: "", profile_url: "", niche_fit: "PARTIAL" }))
   );
   const [time, setTime] = useState("");
+  const draft = useFormDraft(orgId, "P2.1.5", { rows, time }, (d) => {
+    if (Array.isArray(d.rows)) setRows(d.rows as Row[]);
+    if (typeof d.time === "string") setTime(d.time);
+  });
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
   return (
     <FormShell
+      draft={draft}
       title={`Competitors (5–10) — currently ${rows.length}`}
       body={
         <div className="space-y-1">
@@ -689,9 +806,14 @@ function TasteGraphForm({ orgId, snapshot, onDone }: Props) {
     related_interests: (t?.related_interests ?? []).join(", "),
   });
   const [time, setTime] = useState("");
+  const draft = useFormDraft(orgId, "P2.3.1", { v, time }, (d) => {
+    if (d.v && typeof d.v === "object") setV(d.v as typeof v);
+    if (typeof d.time === "string") setTime(d.time);
+  });
   const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
   return (
     <FormShell
+      draft={draft}
       title="Taste graph — 7 fields, multiple entries each (comma-separated)"
       body={
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -742,6 +864,12 @@ function ThreeAWMForm({ orgId, snapshot, onDone }: Props) {
   const [worlds, setWorlds] = useState(init(t?.visual_worlds));
   const [moments, setMoments] = useState(init(t?.key_moments));
   const [time, setTime] = useState("");
+  const draft = useFormDraft(orgId, "P2.3.3", { angles, worlds, moments, time }, (d) => {
+    if (Array.isArray(d.angles)) setAngles(d.angles as [string, string, string]);
+    if (Array.isArray(d.worlds)) setWorlds(d.worlds as [string, string, string]);
+    if (Array.isArray(d.moments)) setMoments(d.moments as [string, string, string]);
+    if (typeof d.time === "string") setTime(d.time);
+  });
   const Row = ({ label, values, on }: { label: string; values: [string, string, string]; on: (v: [string,string,string]) => void }) => (
     <div>
       <div className="text-[11px] font-semibold text-neutral-600 mb-1">{label}</div>
@@ -755,6 +883,7 @@ function ThreeAWMForm({ orgId, snapshot, onDone }: Props) {
   );
   return (
     <FormShell
+      draft={draft}
       title="3 angles · 3 worlds · 3 moments (feeds boards + prompts)"
       body={
         <div className="space-y-3">
@@ -788,9 +917,14 @@ function VelocityForm({ orgId, snapshot, onDone }: Props) {
     (u) => seeded[u]?.toString() ?? "",
   );
   const [time, setTime] = useState("");
+  const draft = useFormDraft(orgId, "P2.4.1", { rows, time }, (d) => {
+    if (d.rows) setRows(d.rows as Record<string, string>);
+    if (typeof d.time === "string") setTime(d.time);
+  });
   if (snapshot.competitors.length === 0) return <Notice>Add competitors first (P2.1.5).</Notice>;
   return (
     <FormShell
+      draft={draft}
       title="Competitor velocity — pins/day averaged over 4 months"
       body={
         <div className="space-y-1">
@@ -857,26 +991,49 @@ function FrequencyForm({ orgId, snapshot, onDone }: Props) {
 // ---------- shared ----------------------------------------------------------
 
 function FormShell({
-  title, body, time, setTime, submitLabel, onSubmit,
+  title, body, time, setTime, submitLabel, onSubmit, draft,
 }: {
   title: string;
   body: React.ReactNode;
   time: string;
   setTime: (v: string) => void;
   submitLabel: string;
-  onSubmit: () => Promise<void>;
+  /** A returned string is shown as the result of the save — what landed and
+   *  what is still open — instead of the form going quiet on success. */
+  onSubmit: () => Promise<void | string>;
+  draft?: FormDraft;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
   async function go() {
-    setErr(null); setSubmitting(true);
-    try { await onSubmit(); }
+    setErr(null); setOk(null); setSubmitting(true);
+    try {
+      const msg = await onSubmit();
+      // The record now holds it, so the draft has done its job.
+      await draft?.clear();
+      if (typeof msg === "string") setOk(msg);
+    }
     catch (e) { setErr((e as Error).message); }
     finally { setSubmitting(false); }
   }
   return (
     <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-3">
-      <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">{title}</div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">{title}</div>
+        <span className="flex-1" />
+        <DraftHint draft={draft} />
+      </div>
+      {draft?.restoredAt && <DraftBanner draft={draft} />}
+      {/* The result of a save belongs where the eye already is, not only at
+          the bottom of a form that can be several screens long. */}
+      {(err || ok) && (
+        <div className={`rounded border px-2 py-1.5 text-[11px] ${err
+          ? "border-red-300 bg-red-50 text-red-700"
+          : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}>
+          {err ?? ok}
+        </div>
+      )}
       {body}
       <div className="flex items-center gap-2 pt-1 border-t border-neutral-200">
         <label className="text-[11px] text-neutral-600 flex items-center gap-1.5">
@@ -973,6 +1130,11 @@ function TopPinDesignsForm({ orgId, onDone }: Props) {
   }, [orgId]);
   useEffect(() => { void load(); }, [load]);
 
+  const draft = useFormDraft(orgId, "P2.1.7", { rows, time }, (d) => {
+    if (Array.isArray(d.rows)) setRows(d.rows as TopPinRow[]);
+    if (typeof d.time === "string") setTime(d.time);
+  }, { enabled: !loading });
+
   const set = (i: number, k: keyof TopPinRow, v: string) =>
     setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
 
@@ -989,6 +1151,7 @@ function TopPinDesignsForm({ orgId, onDone }: Props) {
 
   return (
     <FormShell
+      draft={draft}
       title="Top pin designs per keyword"
       body={
         <div className="space-y-2 text-xs">
@@ -1103,6 +1266,11 @@ function AudienceAffinitiesForm({ orgId, onDone }: Props) {
   }, [orgId]);
   useEffect(() => { void load(); }, [load]);
 
+  const draft = useFormDraft(orgId, "P2.3.2", { rows, time }, (d) => {
+    if (Array.isArray(d.rows)) setRows(d.rows as AffinityRow[]);
+    if (typeof d.time === "string") setTime(d.time);
+  }, { enabled: !loading });
+
   const set = (i: number, patch: Partial<AffinityRow>) =>
     setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
@@ -1115,6 +1283,7 @@ function AudienceAffinitiesForm({ orgId, onDone }: Props) {
 
   return (
     <FormShell
+      draft={draft}
       title="Audience affinities"
       body={
         <div className="space-y-2 text-xs">

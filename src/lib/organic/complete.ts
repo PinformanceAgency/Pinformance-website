@@ -47,6 +47,44 @@ export async function completeTaskByDefinition(p: Params): Promise<void> {
   }
 }
 
+/**
+ * Record work on a task that is not finished yet.
+ *
+ * The counterpart to `completeTaskByDefinition`, and the reason both exist:
+ * a form that can only either complete its task or write nothing has to
+ * refuse a half-filled save, and refusing a save is how a day of research
+ * ends up in no table at all (Fit Cherries, 06-09-2026). Saving what is
+ * filled in and holding the task at IN_PROGRESS says the same thing without
+ * throwing the work away.
+ *
+ * Minutes accumulate rather than overwrite — five sessions of twenty minutes
+ * is what the task cost. BLOCKED is never touched (that is computed from
+ * preconditions) and a DONE task is never reopened by a further save.
+ */
+export async function recordTaskProgress(p: {
+  orgId: string;
+  taskId: string;
+  addMinutes?: number;
+  done: boolean;
+  notes?: string | null;
+}): Promise<void> {
+  await organicPool().query(
+    `UPDATE organic.client_tasks
+        SET time_spent_min = CASE WHEN $1 > 0 THEN COALESCE(time_spent_min, 0) + $1 ELSE time_spent_min END,
+            started_at     = COALESCE(started_at, now()),
+            notes          = COALESCE($2, notes),
+            status         = CASE
+                               WHEN status = 'BLOCKED'::organic.task_status THEN status
+                               WHEN $3 THEN 'DONE'::organic.task_status
+                               WHEN status = 'DONE'::organic.task_status THEN status
+                               ELSE 'IN_PROGRESS'::organic.task_status
+                             END,
+            completed_at   = CASE WHEN $3 THEN COALESCE(completed_at, now()) ELSE completed_at END
+      WHERE org_id = $4 AND task_id = $5`,
+    [Math.max(0, Math.round(p.addMinutes || 0)), p.notes ?? null, p.done, p.orgId, p.taskId]
+  );
+}
+
 /** Run recompute after all writes in a flow are done, so downstream tasks
  *  unlock in one round-trip regardless of how many tasks a form completes. */
 export async function recomputeAfter(orgId: string): Promise<number> {

@@ -4,7 +4,7 @@
  * pieces are small and share the same pool/complete plumbing.
  */
 import { organicPool } from "./db";
-import { completeTaskByDefinition, recomputeAfter } from "./complete";
+import { completeTaskByDefinition, recordTaskProgress, recomputeAfter } from "./complete";
 
 // ---------- Grid analysis (P2.1.1, P2.1.3, P2.1.4) --------------------------
 
@@ -20,17 +20,49 @@ export async function saveSeedKeywords(orgId: string, p: SeedKeywordsPayload) {
   }
   const pool = organicPool();
   // Upsert as broad GENERIC keywords, source=MANUAL.
+  //
+  // `is_seed` is what the rest of phase 2 works from, and it is a flag rather
+  // than a source value on purpose: a store can arrive with a keyword bank
+  // imported from the main dashboard (Fit Cherries had 185 rows at
+  // source=MIGRATED), and picking one of those as a seed must not rewrite
+  // where it came from. Without the flag every "per keyword" form in phase 2
+  // rendered the whole bank and refused to save until all 185 were filled in.
   for (const term of cleaned) {
     await pool.query(
-      `INSERT INTO organic.keywords (id, org_id, term, type, source, volume_validated, client_forbidden, created_at)
-       VALUES (gen_random_uuid(), $1, $2, 'GENERIC'::organic.keyword_type, 'MANUAL'::organic.keyword_source, false, false, now())
-       ON CONFLICT (org_id, term) DO NOTHING`,
+      `INSERT INTO organic.keywords (id, org_id, term, type, source, volume_validated, client_forbidden, is_seed, created_at)
+       VALUES (gen_random_uuid(), $1, $2, 'GENERIC'::organic.keyword_type, 'MANUAL'::organic.keyword_source, false, false, true, now())
+       ON CONFLICT (org_id, term) DO UPDATE SET is_seed = true`,
       [orgId, term]
     );
   }
+  // Editing the seed list is allowed to shrink it. Nothing is deleted — a
+  // dropped term keeps its row, its volume and any grid recorded against it.
+  await pool.query(
+    `UPDATE organic.keywords SET is_seed = false
+      WHERE org_id = $1 AND is_seed = true AND NOT (term = ANY($2::text[]))`,
+    [orgId, cleaned]
+  );
   await completeTaskByDefinition({ orgId, taskId: "P2.1.1", timeSpentMin: p.time_spent_min,
     notes: `Seed keywords: ${cleaned.join(", ")}` });
   return { keywords: cleaned, recomputed: await recomputeAfter(orgId) };
+}
+
+/** Seed keywords still missing the thing a task asks for, by name — so a
+ *  partial save can say what is left instead of refusing the whole form. */
+async function seedKeywordsMissing(orgId: string, column: "text_overlay_bucket" | "hex_1"): Promise<string[]> {
+  const r = await organicPool().query(
+    `SELECT k.term
+       FROM organic.keywords k
+      WHERE k.org_id = $1 AND k.is_seed
+        AND NOT EXISTS (
+          SELECT 1 FROM organic.grid_analyses g
+           WHERE g.org_id = k.org_id AND g.target_keyword = k.term
+             AND g.${column} IS NOT NULL AND g.${column} <> ''
+        )
+      ORDER BY k.term`,
+    [orgId]
+  );
+  return r.rows.map((x) => x.term as string);
 }
 
 export interface GridRecord {
@@ -45,9 +77,17 @@ export interface GridRecord {
   look_and_feel: string;
 }
 
-/** P2.1.3 — one grid row per keyword. */
+/**
+ * P2.1.3 — one grid row per keyword.
+ *
+ * Takes whatever is filled in. It used to complete-or-refuse: the form threw
+ * on the first keyword without a text-overlay bucket and posted nothing, so
+ * an afternoon of reading Pinterest result pages could end with zero rows in
+ * this table and no trace that it had happened. What is recorded is recorded;
+ * the task only closes when every seed keyword has a grid.
+ */
 export async function saveGridRecords(orgId: string, records: GridRecord[], timeSpentMin: number) {
-  if (records.length === 0) throw new Error("at least one grid record required");
+  if (records.length === 0) throw new Error("Fill in at least one keyword before saving.");
   const pool = organicPool();
   for (const r of records) {
     await pool.query(
@@ -70,9 +110,15 @@ export async function saveGridRecords(orgId: string, records: GridRecord[], time
        r.fmt_pure_aesthetic, r.fmt_text_heavy, r.has_visible_ctas, r.text_overlay_bucket, r.look_and_feel]
     );
   }
-  await completeTaskByDefinition({ orgId, taskId: "P2.1.3", timeSpentMin,
-    notes: `Grid recorded for ${records.length} keyword(s).` });
-  return { count: records.length, recomputed: await recomputeAfter(orgId) };
+  const remaining = await seedKeywordsMissing(orgId, "text_overlay_bucket");
+  await recordTaskProgress({
+    orgId, taskId: "P2.1.3", addMinutes: timeSpentMin, done: remaining.length === 0,
+    notes: remaining.length === 0
+      ? `Grid recorded for ${records.length} keyword(s).`
+      : `Grid recorded for ${records.length} keyword(s); still open: ${remaining.join(", ")}.`,
+  });
+  return { count: records.length, remaining, done: remaining.length === 0,
+           recomputed: await recomputeAfter(orgId) };
 }
 
 const HEX_RE = /^#?[0-9a-fA-F]{6}$/;
@@ -88,9 +134,14 @@ export interface HexRecord {
   hex_3: string;
 }
 
-/** P2.1.4 — three dominant hex codes per keyword. */
+/**
+ * P2.1.4 — three dominant hex codes per keyword.
+ *
+ * Same rule as the grid: save what is filled in, and say by name what is
+ * still open rather than dropping the lot on the first empty row.
+ */
 export async function saveHexes(orgId: string, records: HexRecord[], timeSpentMin: number) {
-  if (records.length === 0) throw new Error("at least one hex record required");
+  if (records.length === 0) throw new Error("Fill in the three hex codes for at least one keyword before saving.");
   const pool = organicPool();
   for (const r of records) {
     const h1 = normHex(r.hex_1), h2 = normHex(r.hex_2), h3 = normHex(r.hex_3);
@@ -111,9 +162,15 @@ export async function saveHexes(orgId: string, records: HexRecord[], timeSpentMi
       );
     }
   }
-  await completeTaskByDefinition({ orgId, taskId: "P2.1.4", timeSpentMin,
-    notes: `Hex colors recorded for ${records.length} keyword(s).` });
-  return { count: records.length, recomputed: await recomputeAfter(orgId) };
+  const remaining = await seedKeywordsMissing(orgId, "hex_1");
+  await recordTaskProgress({
+    orgId, taskId: "P2.1.4", addMinutes: timeSpentMin, done: remaining.length === 0,
+    notes: remaining.length === 0
+      ? `Hex colors recorded for ${records.length} keyword(s).`
+      : `Hex colors recorded for ${records.length} keyword(s); still open: ${remaining.join(", ")}.`,
+  });
+  return { count: records.length, remaining, done: remaining.length === 0,
+           recomputed: await recomputeAfter(orgId) };
 }
 
 // ---------- Competitors (P2.1.5, P2.1.6, P2.1.7) ----------------------------
@@ -630,8 +687,13 @@ export async function persistFrequency(orgId: string, timeSpentMin: number) {
 
 export async function loadPhase2Snapshot(orgId: string) {
   const pool = organicPool();
-  const [keywords, grids, competitors, taste, market, cs] = await Promise.all([
-    pool.query(`SELECT term FROM organic.keywords WHERE org_id=$1 ORDER BY term`, [orgId]),
+  const [keywords, grids, competitors, taste, market, cs, bank] = await Promise.all([
+    // The seed list (P2.1.1), not the whole keyword bank: every "per keyword"
+    // form in phase 2 asks about the 5–10 keywords the operator researched by
+    // hand. A store whose bank was imported from the main dashboard carries
+    // hundreds, and rendering those turned P2.1.3 into 185 cards that could
+    // not be saved.
+    pool.query(`SELECT term FROM organic.keywords WHERE org_id=$1 AND is_seed ORDER BY term`, [orgId]),
     pool.query(`SELECT target_keyword, fmt_simple_pins, fmt_infographics, fmt_video_916, fmt_pure_aesthetic, fmt_text_heavy, has_visible_ctas, text_overlay_bucket, look_and_feel, hex_1, hex_2, hex_3 FROM organic.grid_analyses WHERE org_id=$1 ORDER BY target_keyword`, [orgId]),
     pool.query(`SELECT c.id::text, c.name, c.handle, c.profile_url, c.niche_fit, c.pins_per_day_4mo, c.pin_export_path,
                        (SELECT COUNT(*) FROM organic.competitor_pins p WHERE p.competitor_id = c.id)::int AS pins_imported
@@ -639,6 +701,7 @@ export async function loadPhase2Snapshot(orgId: string) {
     pool.query(`SELECT * FROM organic.taste_graph WHERE org_id=$1`, [orgId]),
     pool.query(`SELECT id::text, kind, title, detail, status, reject_reason FROM organic.market_analysis_items WHERE org_id=$1 ORDER BY kind, created_at`, [orgId]),
     pool.query(`SELECT daily_pin_target, urls_per_month FROM organic.client_settings WHERE org_id=$1`, [orgId]),
+    pool.query(`SELECT count(*)::int AS n FROM organic.keywords WHERE org_id=$1`, [orgId]),
   ]);
   return {
     keywords: keywords.rows.map((r) => r.term as string),
@@ -647,6 +710,9 @@ export async function loadPhase2Snapshot(orgId: string) {
     taste_graph: taste.rows[0] ?? null,
     market_items: market.rows,
     client_settings: cs.rows[0] ?? null,
+    // How many keywords the store holds in total, so the seed form can say
+    // where they came from instead of looking empty for no reason.
+    keyword_bank_size: (bank.rows[0]?.n as number) ?? 0,
   };
 }
 
