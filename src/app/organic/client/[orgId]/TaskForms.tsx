@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useFormDraft } from "./useFormDraft";
+import { DraftHint, DraftBanner } from "./DraftBanner";
 import type { TaskRow, ViabilityRow, ViabilityVerdict } from "@/lib/organic/types";
 
 /**
@@ -233,37 +235,109 @@ function VerdictForm({ orgId, task, viability, onDone }: FormBaseProps) {
 
 // --- P1.2.13 -----------------------------------------------------------------
 
+const BASELINE_KPIS = [
+  "impressions", "engagements", "engagement_rate",
+  "outbound_clicks", "pin_saves", "profile_visits",
+  "monthly_views", "followers_start", "followers_end",
+  "top_click_pin_clicks", "top_save_pin_saves",
+  "audience_top_country_pct", "audience_top_age_bracket",
+];
+
+/**
+ * P1.2.13 — the three-month baseline every phase-5 figure is measured against.
+ *
+ * Thirteen empty boxes with the store's Pinterest account connected two
+ * screens away is work we were asking somebody to do twice. Five of them come
+ * from the API now; the other eight say where they come from instead of
+ * looking like something that failed to load.
+ */
 function AnalyticsBaselineForm({ orgId, task, onDone }: FormBaseProps) {
   const [numbers, setNumbers] = useState<Record<string, string>>({});
   const [time, setTime] = useState("");
-  const kpis = [
-    "impressions", "engagements", "engagement_rate",
-    "outbound_clicks", "pin_saves", "profile_visits",
-    "monthly_views", "followers_start", "followers_end",
-    "top_click_pin_clicks", "top_save_pin_saves",
-    "audience_top_country_pct", "audience_top_age_bracket",
-  ];
+  const [pulling, setPulling] = useState(false);
+  const [pullErr, setPullErr] = useState<string | null>(null);
+  const [pulled, setPulled] = useState<{ from: string; to: string; keys: string[]; manual: Record<string, string> } | null>(null);
+  const draft = useFormDraft(orgId, "P1.2.13", { numbers }, (d) => {
+    if (d.numbers && typeof d.numbers === "object") {
+      setNumbers((cur) => ({ ...cur, ...(d.numbers as Record<string, string>) }));
+    }
+  });
+
+  async function pull() {
+    setPulling(true); setPullErr(null);
+    try {
+      const res = await fetch(`/api/organic/baseline/${orgId}`, { method: "POST" });
+      const j = await res.json() as {
+        error?: string; measured_from: string; measured_to: string;
+        values: Record<string, number>; manual: Array<{ key: string; reason: string }>;
+      };
+      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
+      // Fill what is empty; never overwrite a figure somebody typed.
+      setNumbers((cur) => {
+        const next = { ...cur };
+        for (const [k, v] of Object.entries(j.values)) {
+          if (!next[k]) next[k] = String(v);
+        }
+        return next;
+      });
+      setPulled({
+        from: j.measured_from, to: j.measured_to,
+        keys: Object.keys(j.values),
+        manual: Object.fromEntries(j.manual.map((m) => [m.key, m.reason])),
+      });
+    } catch (e) { setPullErr((e as Error).message); }
+    finally { setPulling(false); }
+  }
+
   return (
     <FormShell
+      draft={draft}
       title="Thirteen KPIs — three-month baseline"
       time={time}
       setTime={setTime}
       submitLabel={task.status === "DONE" ? "Update" : "Save & mark done"}
       body={
         <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" onClick={pull} disabled={pulling}
+              className="o-btn text-xs disabled:opacity-50">
+              {pulling ? "Asking Pinterest…" : "Load what Pinterest knows"}
+            </button>
+            <span className="text-[11px] text-muted-foreground">
+              Fills impressions, engagements, engagement rate, outbound clicks, saves and follower count. Never overwrites a box you already filled in.
+            </span>
+          </div>
+          {pullErr && <div className="text-xs text-red-600">{pullErr}</div>}
+          {pulled && (
+            <div className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-900">
+              Loaded {pulled.from} → {pulled.to}. That is 90 days, not three months: Pinterest
+              refuses anything older on this endpoint, so the last month of a true three-month
+              baseline has to come off the Pinterest screen by hand if you need it. The API also
+              applies the organic filter but has no claimed-domain filter, so these can sit slightly
+              above what the screen shows with the task&apos;s own filters — check before saving.
+              Follower count is today&apos;s; Pinterest keeps no history, so followers at the start
+              stays manual.
+            </div>
+          )}
           <div className="text-[11px] text-neutral-500">
             Filters in Pinterest analytics: Organic, Claimed Domain, Your Pins. Untick realtime.
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {kpis.map((k) => (
+            {BASELINE_KPIS.map((k) => (
               <label key={k} className="text-[11px] text-neutral-700">
-                <span className="block text-neutral-500 mb-0.5">{k.replace(/_/g, " ")}</span>
+                <span className="block text-neutral-500 mb-0.5">
+                  {k.replace(/_/g, " ")}
+                  {pulled?.keys.includes(k) && <span className="text-emerald-700"> · from Pinterest</span>}
+                </span>
                 <input
                   type="text"
                   value={numbers[k] ?? ""}
                   onChange={(e) => setNumbers({ ...numbers, [k]: e.target.value })}
                   className="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs tabular-nums"
                 />
+                {pulled?.manual[k] && (
+                  <span className="block text-[10px] text-neutral-400 mt-0.5">{pulled.manual[k]}</span>
+                )}
               </label>
             ))}
           </div>
@@ -279,8 +353,10 @@ function AnalyticsBaselineForm({ orgId, task, onDone }: FormBaseProps) {
         }
         const notes = "Baseline KPIs (3mo):\n" +
           filled.map(([k, v]) => `  ${k}: ${v}`).join("\n");
-        // Complete via generic status PATCH — this is note-only, no dedicated table yet.
+        // Complete via generic status PATCH — this is note-only; phase 5
+        // parses the note into organic.baseline_kpis when it first needs it.
         await genericComplete(task.client_task_id, parseTime(time), notes);
+        await draft.clear();
         onDone();
       }}
     />
@@ -290,7 +366,7 @@ function AnalyticsBaselineForm({ orgId, task, onDone }: FormBaseProps) {
 // --- shared shell + helpers -------------------------------------------------
 
 function FormShell({
-  title, body, submitLabel, onSubmit,
+  title, body, submitLabel, onSubmit, draft,
 }: {
   title: string;
   body: React.ReactNode;
@@ -302,6 +378,7 @@ function FormShell({
   setTime?: (v: string) => void;
   submitLabel: string;
   onSubmit: () => Promise<void>;
+  draft?: import("./useFormDraft").FormDraft;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -314,7 +391,12 @@ function FormShell({
   }
   return (
     <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3">
-      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{title}</div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{title}</div>
+        <span className="flex-1" />
+        <DraftHint draft={draft} />
+      </div>
+      {draft?.restoredAt && <DraftBanner draft={draft} />}
       {body}
       <div className="flex items-center gap-2 pt-3 border-t border-border">
         {err && <span className="text-sm text-red-600 mr-2 break-words max-w-md">{err}</span>}

@@ -99,8 +99,9 @@ function FormShell({
       )}
       {body}
       <div className="flex items-center gap-2 pt-1 border-t border-neutral-200">
-        <label className="text-[11px] text-neutral-600 flex items-center gap-1.5">
-          Time (min):
+        <label className="text-[11px] text-neutral-600 flex items-center gap-1.5"
+               title="Minutes you spent on this task. It is what the margin per client is computed from.">
+          Time spent (min):
           <input type="number" min={1} value={time} onChange={(e) => setTime(e.target.value)}
             className="w-20 rounded-md border border-neutral-300 px-2 py-1 text-xs tabular-nums" placeholder="10" />
         </label>

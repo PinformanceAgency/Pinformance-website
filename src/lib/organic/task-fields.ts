@@ -455,7 +455,14 @@ interface Check {
  * seventeen taps and nothing typed, and a broken one asks for exactly the
  * detail that a fix needs.
  */
-function conformance(intro: string, checks: Check[], example: string): TaskFieldSet {
+function conformance(
+  intro: string, checks: Check[], example: string,
+  /** Fields that are not yes/no. A check whose honest answer is "submitted,
+   *  waiting" cannot be a boolean, and forcing it into one gets a tick that
+   *  means nothing (P1.3.17, reported 06-09-2026). They sit after the checks
+   *  and outside the "what is not right" trigger, which only reads booleans. */
+  extra: TaskField[] = [],
+): TaskFieldSet {
   return {
     intro,
     scoring:
@@ -463,6 +470,7 @@ function conformance(intro: string, checks: Check[], example: string): TaskField
       "say what is wrong and what has to happen, because that is what the next person needs.",
     fields: [
       ...checks.map((c): TaskField => ({ ...c, kind: "boolean" })),
+      ...extra,
       {
         key: "not_right",
         question: "What is not right, and what has to happen?",
@@ -499,13 +507,13 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
         key: "domain_claimed",
         question: "Does the domain show as claimed, with the checkmark visible?",
         why: "Unclaimed means no attribution on pins others save from the site, and no rich pin data.",
-        how: "Settings → Claimed accounts. The domain should show a checkmark, not 'pending'.",
+        how: "Settings → Claimed accounts. It has to be the shop's own domain (valerie-mason.com), never the myshopify.com address — claiming the wrong one leaves the live site unclaimed and looks identical on this screen. Check the profile username is right while you are there. A checkmark, not 'pending'.",
       },
       {
         key: "claim_is_permanent",
-        question: "Is the verification tag somewhere a redeploy will not remove it?",
-        why: "A tag pasted into a preview theme or a trial app disappears at the next deploy and the claim silently lapses.",
-        how: "Check it is in the live theme's head or a permanent CMS setting, not in an app that could be uninstalled.",
+        question: "Is the verification tag in the live theme, where a theme update cannot wipe it?",
+        why: "A tag pasted into a duplicated or preview theme disappears the moment the live theme is republished, and the claim lapses without anything saying so.",
+        how: "Shopify: Online Store → Themes → the theme marked Live → Edit code → theme.liquid, inside <head>. Not in a duplicate, not in a preview, and not inside an app block that disappears when the app is uninstalled. Claiming by DNS record counts too, and is the more permanent option.",
       },
     ],
     "e.g. \"Claim shows pending — meta tag went into the preview theme, not the live one. Their developer has to move it before we can continue.\""
@@ -566,7 +574,7 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
       key: "shopping_recs_off",
       question: "Are shopping recommendations turned off?",
       why: "Left on, Pinterest shows similar products from other shops directly under the pin.",
-      how: "Settings → Social permissions → shopping recommendations.",
+      how: "Settings → Social permissions → shopping recommendations. Needs the account owner's login — if we only have partner access, this is a request to the client rather than something we can do, and that is a legitimate reason to skip it with a note.",
     }],
     "e.g. \"Setting is not available on their account type yet — revisit after the business conversion.\""
   ),
@@ -577,7 +585,7 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
       key: "messages_setting_right",
       question: "Does the messages setting match whether the client actually monitors it?",
       why: "Unanswered messages sit publicly on the profile and read as an abandoned account.",
-      how: "Ask who reads the Pinterest inbox. If the honest answer is nobody, turn messages off.",
+      how: "Ask who reads the Pinterest inbox. If the honest answer is nobody, turn messages off: Settings → the messages section on the business account. It needs the owner's login, so without it this is a request to the client — say so in the box rather than leaving it unanswered.",
     }],
     "e.g. \"Client wants messages on and says their service desk will cover it. Left on, noted to check in month two.\""
   ),
@@ -614,7 +622,7 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
         key: "slug_advice_recorded",
         question: "Has the convention for new pages been agreed with the client?",
         why: "This is advice, not a change we make. Unrecorded advice is advice nobody follows.",
-        how: "Write the rule down and confirm it with whoever creates new pages.",
+        how: "Only worth agreeing where new pages are actually coming — because the URL pool is thin (see P1.0.3), or because the client publishes regularly. A shop with enough URLs and no plans for more is a yes with 'no new pages planned' in the box; it is not an open item.",
       },
     ],
     "e.g. \"Product slugs are numeric IDs. Not changing them — Google would break. Agreed a words-based convention for new pages from September.\""
@@ -664,7 +672,7 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
       key: "save_button_present",
       question: "Is there a working Pinterest save button on product and content pages?",
       why: "Saves from real visitors are the strongest early distribution signal an account can get.",
-      how: "Hover a product image on the live site. If there is no button, recommend a plugin or the widget builder.",
+      how: "Hover a product image on the live site. If there is no button, recommend the official widget — this is advice to the client, not a change we make, and a client who declines it (some find it intrusive on a product page) is a recorded decision, not an open item.",
     }],
     "e.g. \"No button anywhere. Recommended the official widget; their developer has it scheduled for next sprint.\""
   ),
@@ -674,7 +682,7 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
     [
       {
         key: "mobile_browse_ok",
-        question: "Do loading and scrolling hold up on a real phone?",
+        question: "Does the site scroll smoothly on a real phone, with any popup dismissable?",
         why: "Emulators hide the things that actually lose the click — janky scroll, popups that cannot be dismissed.",
         how: "Open the site on your own phone on mobile data, not office wifi.",
       },
@@ -739,7 +747,7 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
   ),
 
   "P1.3.16": conformance(
-    "Pins that already have impressions are the highest-return edits available — the distribution exists, only the destination is missing.",
+    "Pins that already have impressions are the highest-return edits available — the distribution exists, only the destination is missing. This is a takeover task: an account that has never published organically has nothing to re-optimise, and skipping it with that reason is the right answer rather than three empty ticks.",
     [
       {
         key: "impression_pins_linked",
@@ -772,14 +780,26 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
         why: "Applying before these are in place gets a rejection, and a rejected account waits before it can reapply.",
         how: "Walk back through P1.3.1, P1.3.2 and P1.3.4. All three have to be green first.",
       },
-      {
-        key: "vm_applied",
-        question: "Has the application been submitted, or is the badge already granted?",
-        why: "This is the only task in the step whose outcome we do not control, so the date it went in is what gets tracked.",
-        how: "Settings → Verified Merchant. Note the submission date; some verticals get an extra review round.",
-      },
     ],
-    "e.g. \"Catalogue is still rejecting products so we have not applied — applying now would burn the attempt. Revisit once the feed is clean.\""
+    "e.g. \"Catalogue is still rejecting products so we have not applied — applying now would burn the attempt. Revisit once the feed is clean.\"",
+    [
+      {
+        // Was a yes/no, which it never was: "submitted, or granted?" has
+        // three answers and a tick could mean either of two of them.
+        key: "vm_status",
+        question: "Where does the Verified Merchant application stand?",
+        why: "This is the only item in the step whose outcome we do not control, so what gets tracked is the state and the date — not a tick that could mean either.",
+        how: "Settings → Verified Merchant. Some verticals get an extra review round, so 'submitted' can sit for weeks — put the submission or rejection date in the box at the bottom, since that is the date the wait is counted from.",
+        kind: "choice",
+        options: ["NOT_APPLIED", "SUBMITTED", "GRANTED", "REJECTED"],
+        optionLabels: {
+          NOT_APPLIED: "Not applied yet",
+          SUBMITTED: "Submitted, waiting",
+          GRANTED: "Badge granted",
+          REJECTED: "Rejected",
+        },
+      },
+    ]
   ),
 };
 
@@ -812,7 +832,10 @@ const TECHNICAL_SETUP: Record<string, TaskFieldSet> = {
 function audit(
   intro: string,
   fixed: { question: string; why: string; how: string },
-  example: string
+  example: string,
+  /** What the check actually found, where that is a value rather than a
+   *  yes/no — recorded before "and is it fixed", because it is the output. */
+  found: TaskField[] = [],
 ): TaskFieldSet {
   return {
     intro,
@@ -821,6 +844,7 @@ function audit(
       "outstanding: leave it unticked, say what is left and who has it. The task stays open until it is " +
       "ticked, which is the whole point of the box.",
     fields: [
+      ...found,
       {
         key: "all_fixed",
         question: fixed.question,
@@ -853,7 +877,7 @@ const AUDIT_STEP: Record<string, TaskFieldSet> = {
     {
       question: "Is the domain unblocked?",
       why: "While the domain is blocked, every pin we publish is a pin that cannot be clicked. Nothing else in phase 1 is worth doing until this is resolved.",
-      how: "A clean result on blockedlinks. A support ticket that is still open is not fixed — the ticket reference goes in the box below.",
+      how: "Test the bare domain, not a product URL. The flagged-pin report from P1.2.2 is a per-URL list and does not answer this — a domain can be blocked while individual URLs look fine, and the other way round. A support ticket that is still open is not fixed; the reference goes in the box below.",
     },
     "e.g. \"Blocked. Ticket #482913 opened 24-08, replied to their automated rejection to force a human review. Nothing published until it comes back.\""
   ),
@@ -903,7 +927,7 @@ const AUDIT_STEP: Record<string, TaskFieldSet> = {
     {
       question: "Do we hold the canonical pin on the pins that were checked?",
       why: "Someone else holding the canonical means the clicks earned by our image land on their site, and nothing in our reporting shows it.",
-      how: "Held, or reported to Pinterest and the report acknowledged. A report sent and unanswered is not fixed.",
+      how: "Open one of our pins and take the number out of its URL (pinterest.com/pin/<id>/). Open that same URL in a private window: the account it lands on is the canonical holder. Repeat for five to ten of the best-performing pins. Ours: fine. Another brand: report it through Pinterest's copyright form and put the reference below. A report sent and unanswered is not fixed.",
     },
     "e.g. \"Two of six checked resolve to a reseller's account. Both reported 26-08, no reply yet. Pin URLs in the work panel.\""
   ),
@@ -955,7 +979,29 @@ const AUDIT_STEP: Record<string, TaskFieldSet> = {
       why: "Longer than six months silent puts an old account back to NEW with 48-hour spacing. Getting this wrong sets the posting rhythm wrong for the whole engagement.",
       how: "Recorded on the client settings, not only written in a note. Check the class on the settings screen actually changed.",
     },
-    "e.g. \"Last pin 14 months ago, so NEW with 48h spacing. Settings still show ESTABLISHED — changing it now.\""
+    "e.g. \"Last pin 14 months ago, so NEW with 48h spacing. Settings still show ESTABLISHED — changing it now.\"",
+    [
+      {
+        // The finding itself. Asking only "did you determine it" records that
+        // somebody looked, which is not the same as what they found — and the
+        // account class drives pin spacing for every cycle after this.
+        key: "months_inactive",
+        question: "How many months has the profile been silent?",
+        why: "This is the number the account class is derived from. Six months is the line.",
+        how: "The date of the most recent pin on the profile, counted back from today. A profile that has never posted counts as new, not silent.",
+        kind: "number",
+        unit: "months",
+      },
+      {
+        key: "account_class",
+        question: "Which account class does that make it?",
+        why: "NEW is 48-hour spacing; ESTABLISHED is the normal rhythm. Setting this wrong sets the posting pace wrong for the whole engagement.",
+        how: "Silent longer than six months, or never posted: NEW. Otherwise ESTABLISHED. Record it on the client settings as well — this answer does not write it there.",
+        kind: "choice",
+        options: ["NEW", "ESTABLISHED"],
+        optionLabels: { NEW: "NEW — 48h spacing", ESTABLISHED: "ESTABLISHED" },
+      },
+    ]
   ),
 
   "P1.2.12": audit(
