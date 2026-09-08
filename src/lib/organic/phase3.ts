@@ -363,23 +363,38 @@ export async function setParentInterests(orgId: string, terms: string[], timeSpe
   const cleaned = Array.from(new Set(terms.map((t) => t.trim()).filter(Boolean)));
   if (cleaned.length < 5) throw new Error(`at least 5 parent interests required (got ${cleaned.length})`);
   const pool = organicPool();
-  // Ensure the term exists as a keyword and mark it PARENT_INTEREST.
-  for (const t of cleaned) {
-    await pool.query(
-      `INSERT INTO organic.keywords (id, org_id, term, type, source, volume_validated, client_forbidden, created_at)
-       VALUES (gen_random_uuid(), $1, $2, 'PARENT_INTEREST'::organic.keyword_type, 'MANUAL'::organic.keyword_source, false, false, now())
-       ON CONFLICT (org_id, term) DO UPDATE SET type = 'PARENT_INTEREST'::organic.keyword_type`,
-      [orgId, t]
-    );
-    // Every parent interest also becomes a topic — the coverage view needs
-    // topics to check against.
-    await pool.query(
-      `INSERT INTO organic.topics (id, org_id, name)
-       VALUES (gen_random_uuid(), $1, $2)
-       ON CONFLICT (org_id, name) DO NOTHING`,
-      [orgId, t]
-    );
-  }
+  // Adopt the term that is already in the bank, whatever case it carries, and
+  // give it the label's spelling. The ON CONFLICT here matches on the exact
+  // term, so "Lingerie" arriving next to an existing "lingerie" used to create
+  // a second row for one keyword — and the older row was the one holding the
+  // validated volume and the cluster.
+  await pool.query(
+    `UPDATE organic.keywords k
+        SET type = 'PARENT_INTEREST'::organic.keyword_type, term = u.t
+       FROM unnest($2::text[]) AS u(t)
+      WHERE k.id = (SELECT k2.id FROM organic.keywords k2
+                     WHERE k2.org_id = $1 AND lower(k2.term) = lower(u.t)
+                     ORDER BY k2.created_at LIMIT 1)`,
+    [orgId, cleaned]
+  );
+  await pool.query(
+    `INSERT INTO organic.keywords (id, org_id, term, type, source, volume_validated, client_forbidden, created_at)
+     SELECT gen_random_uuid(), $1, u.t, 'PARENT_INTEREST'::organic.keyword_type,
+            'MANUAL'::organic.keyword_source, false, false, now()
+       FROM unnest($2::text[]) AS u(t)
+      WHERE NOT EXISTS (SELECT 1 FROM organic.keywords k
+                         WHERE k.org_id = $1 AND lower(k.term) = lower(u.t))
+     ON CONFLICT (org_id, term) DO UPDATE SET type = 'PARENT_INTEREST'::organic.keyword_type`,
+    [orgId, cleaned]
+  );
+  // Every parent interest also becomes a topic — the coverage view needs
+  // topics to check against.
+  await pool.query(
+    `INSERT INTO organic.topics (id, org_id, name)
+     SELECT gen_random_uuid(), $1, u.t FROM unnest($2::text[]) AS u(t)
+     ON CONFLICT (org_id, name) DO NOTHING`,
+    [orgId, cleaned]
+  );
   await completeTaskByDefinition({ orgId, taskId: "P3.1.9", timeSpentMin,
     notes: `Parent interests: ${cleaned.join(", ")}` });
   return { count: cleaned.length, recomputed: await recomputeAfter(orgId) };
@@ -442,18 +457,33 @@ export async function formTopicClusters(
        RETURNING id::text`,
       [orgId, c.name, c.axis]
     );
-    for (const kw of c.keywords) {
-      const t = normalizeTerm(kw);
-      if (!t) continue;
-      await pool.query(
-        `INSERT INTO organic.keywords (id, org_id, term, type, cluster_id, source, volume_validated, client_forbidden, created_at)
-         VALUES (gen_random_uuid(), $1, $2, 'TOPIC_CLUSTER'::organic.keyword_type, $3, 'MANUAL'::organic.keyword_source, false, false, now())
-         ON CONFLICT (org_id, term) DO UPDATE SET
-           type = 'TOPIC_CLUSTER'::organic.keyword_type,
-           cluster_id = $3`,
-        [orgId, t, cluster.rows[0].id]
-      );
-    }
+    // Same rule as the parent interests: match what is already in the bank on
+    // lower(term) so a capitalised keyword gains a cluster instead of gaining
+    // a lowercase twin. A parent interest keeps its own type — it is the more
+    // structural role, and coverage is measured against it.
+    const terms = Array.from(new Set(c.keywords.map(normalizeTerm).filter(Boolean)));
+    const clusterId = cluster.rows[0].id;
+    await pool.query(
+      `UPDATE organic.keywords k
+          SET cluster_id = $3,
+              type = CASE WHEN k.type = 'PARENT_INTEREST'::organic.keyword_type
+                          THEN k.type ELSE 'TOPIC_CLUSTER'::organic.keyword_type END
+         FROM unnest($2::text[]) AS u(t)
+        WHERE k.org_id = $1 AND lower(k.term) = u.t`,
+      [orgId, terms, clusterId]
+    );
+    await pool.query(
+      `INSERT INTO organic.keywords (id, org_id, term, type, cluster_id, source, volume_validated, client_forbidden, created_at)
+       SELECT gen_random_uuid(), $1, u.t, 'TOPIC_CLUSTER'::organic.keyword_type, $3,
+              'MANUAL'::organic.keyword_source, false, false, now()
+         FROM unnest($2::text[]) AS u(t)
+        WHERE NOT EXISTS (SELECT 1 FROM organic.keywords k
+                           WHERE k.org_id = $1 AND lower(k.term) = u.t)
+       ON CONFLICT (org_id, term) DO UPDATE SET
+         type = 'TOPIC_CLUSTER'::organic.keyword_type,
+         cluster_id = $3`,
+      [orgId, terms, clusterId]
+    );
   }
   await completeTaskByDefinition({ orgId, taskId: "P3.1.11", timeSpentMin,
     notes: `${clusters.length} clusters formed (${clusters.map((c) => c.name).join(", ")}).` });
