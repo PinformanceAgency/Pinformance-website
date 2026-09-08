@@ -37,19 +37,28 @@ export async function addCandidates(
   entries: { term: string; source: string; autocomplete_rank?: number }[]
 ): Promise<{ inserted: number; deduped: number; total: number }> {
   const pool = organicPool();
-  let inserted = 0, deduped = 0;
+  // First spelling wins: the entries arrive in autocomplete order, so keeping
+  // the earliest keeps the better rank. Deduplicating here is also required —
+  // ON CONFLICT DO UPDATE cannot touch the same row twice in one statement.
+  const first = new Map<string, { source: string; autocomplete_rank: number | null }>();
   for (const e of entries) {
     const term = normalizeTerm(e.term);
-    if (!term) continue;
-    const r = await pool.query(
+    if (!term || first.has(term)) continue;
+    first.set(term, { source: e.source, autocomplete_rank: e.autocomplete_rank ?? null });
+  }
+  let inserted = 0, deduped = 0;
+  for (const batch of chunks([...first.keys()], 500)) {
+    const r = await pool.query<{ was_insert: boolean }>(
       `INSERT INTO organic.keywords (id, org_id, term, type, source, volume_validated, client_forbidden, autocomplete_rank, created_at)
-       VALUES (gen_random_uuid(), $1, $2, 'GENERIC'::organic.keyword_type, $3::organic.keyword_source, false, false, $4, now())
+       SELECT gen_random_uuid(), $1, u.t, 'GENERIC'::organic.keyword_type,
+              u.s::organic.keyword_source, false, false, u.r, now()
+         FROM unnest($2::text[], $3::text[], $4::int[]) AS u(t, s, r)
        ON CONFLICT (org_id, term) DO UPDATE SET
          autocomplete_rank = COALESCE(EXCLUDED.autocomplete_rank, organic.keywords.autocomplete_rank)
        RETURNING (xmax = 0) AS was_insert`,
-      [orgId, term, e.source, e.autocomplete_rank ?? null]
+      [orgId, batch, batch.map((t) => first.get(t)!.source), batch.map((t) => first.get(t)!.autocomplete_rank)]
     );
-    if (r.rows[0]?.was_insert) inserted++; else deduped++;
+    for (const row of r.rows) row.was_insert ? inserted++ : deduped++;
   }
   return { inserted, deduped, total: inserted + deduped };
 }
@@ -162,13 +171,17 @@ export async function dedupeAgainstCache(orgId: string): Promise<DedupeResult> {
   const cands = await pool.query<{ term: string }>(
     `SELECT DISTINCT term FROM organic.keywords WHERE org_id = $1`, [orgId]
   );
-  const terms = cands.rows.map((r) => r.term);
+  // Compare on the normalised term. The cache is keyed lowercase; the keyword
+  // bank is not (parent interests keep their capitals), so an exact match made
+  // every capitalised term a permanent cache miss — re-queued for a PinClicks
+  // lookup it had already had, every single round.
+  const terms = Array.from(new Set(cands.rows.map((r) => normalizeTerm(r.term)).filter(Boolean)));
   if (terms.length === 0) {
     return { candidates_total: 0, cache_hits: 0, stale_hits: 0, misses: 0, hit_rate_pct: 0, miss_terms: [], stale_terms: [] };
   }
   const cache = await pool.query<{ term: string; expires_at: string; not_found: boolean; looked_up_at: string }>(
-    `SELECT term, expires_at::text, not_found, looked_up_at::text
-       FROM organic.keyword_volume_cache WHERE term = ANY($1)`, [terms]
+    `SELECT lower(term) AS term, expires_at::text, not_found, looked_up_at::text
+       FROM organic.keyword_volume_cache WHERE lower(term) = ANY($1)`, [terms]
   );
   const cached = new Map(cache.rows.map((r) => [r.term, r]));
   const now = Date.now();
@@ -215,82 +228,125 @@ export async function generateWorkList(orgId: string, timeSpentMin: number) {
   // Fetch each miss's rank so the queue is prioritised (lower rank = earlier
   // in the autocomplete = higher volume). Priority number = smaller is better.
   const meta = await pool.query<{ term: string; autocomplete_rank: number | null; source: string }>(
-    `SELECT term, autocomplete_rank, source::text
-       FROM organic.keywords WHERE org_id = $1 AND term = ANY($2)`,
+    `SELECT lower(term) AS term, autocomplete_rank, source::text
+       FROM organic.keywords WHERE org_id = $1 AND lower(term) = ANY($2)`,
     [orgId, terms]
   );
   const rankByTerm = new Map(meta.rows.map((r) => [r.term, r]));
+  // One INSERT per batch, not per term: a work list is hundreds of terms long
+  // and the row-at-a-time version timed the route out at exactly the size a
+  // real session produces.
   let queued = 0;
-  for (const t of terms) {
-    const m = rankByTerm.get(t);
-    const priority = m?.autocomplete_rank ?? 100;
+  for (const batch of chunks(terms, 500)) {
+    const priorities = batch.map((t) => rankByTerm.get(t)?.autocomplete_rank ?? 100);
+    const sources = batch.map((t) => rankByTerm.get(t)?.source ?? "MANUAL");
+    const ranks = batch.map((t) => rankByTerm.get(t)?.autocomplete_rank ?? null);
     await pool.query(
       `INSERT INTO organic.volume_lookup_queue (term, org_id, priority, reason, source, autocomplete_rank, status)
-       VALUES ($1, $2, $3, 'cache_miss', $4::organic.keyword_source, $5, 'QUEUED'::organic.lookup_status)
+       SELECT u.t, $1, u.p, 'cache_miss', u.s::organic.keyword_source, u.r, 'QUEUED'::organic.lookup_status
+         FROM unnest($2::text[], $3::int[], $4::text[], $5::int[]) AS u(t, p, s, r)
        ON CONFLICT DO NOTHING`,
-      [t, orgId, priority, m?.source ?? "MANUAL", m?.autocomplete_rank ?? null]
+      [orgId, batch, priorities, sources, ranks]
     );
-    queued++;
+    queued += batch.length;
   }
   await completeTaskByDefinition({ orgId, taskId: "P3.1.7", timeSpentMin,
     notes: `Queued ${queued} PinClicks lookups (${d.cache_hits} hits saved ~${d.cache_hits} lookups).` });
   return { queued, cache_hits: d.cache_hits, recomputed: await recomputeAfter(orgId) };
 }
 
-/** P3.1.8 write PinClicks results back to the SHARED cache + close queue. */
+/**
+ * P3.1.8 write PinClicks results back to the SHARED cache + close queue.
+ *
+ * Set-based on purpose. The loop this replaces ran three statements per term,
+ * so a normal session — 323 lookups for Fit Cherries on 07-09-2026 — meant
+ * ~970 round trips to the pooler and the route died on
+ * FUNCTION_INVOCATION_TIMEOUT with the whole session in the balance. The work
+ * itself is four statements; only the shape was expensive.
+ *
+ * The queue is matched on `lower(term)`, which is the other half of that
+ * incident. The cache is keyed lowercase (`normalizeTerm`), the keyword bank is
+ * not — parent interests and anything else that keeps its capitals — so
+ * `WHERE term = $normalised` silently matched nothing for eleven of those 323.
+ * Their volumes went into the shared cache and their queue rows stayed QUEUED,
+ * which reads on screen as "PinClicks lost my work" and puts the same terms
+ * back in the next work list for ever.
+ */
 export async function submitPinClicksResults(
   orgId: string,
   results: { term: string; volume?: number | null; taxonomy_path?: string | null; not_found?: boolean }[],
   extraFinds: string[], // related keywords found along the way
   timeSpentMin: number
 ) {
+  // Deduplicate on the normalised term: ON CONFLICT DO UPDATE refuses to touch
+  // the same row twice inside one statement, and two spellings of one term
+  // ("V neck outfits", "v neck outfits") normalise to the same key. Last wins.
+  const byTerm = new Map<string, { volume: number | null; taxonomy_path: string | null; not_found: boolean }>();
+  for (const r of results) {
+    const term = normalizeTerm(r.term);
+    if (!term) continue;
+    byTerm.set(term, {
+      volume: r.volume ?? null,
+      taxonomy_path: r.taxonomy_path ?? null,
+      not_found: !!r.not_found,
+    });
+  }
+  const terms = [...byTerm.keys()];
+  const extras = Array.from(new Set(extraFinds.map(normalizeTerm).filter(Boolean)));
+
   const pool = organicPool();
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    let written = 0;
-    for (const r of results) {
-      const term = normalizeTerm(r.term);
-      if (!term) continue;
-      const nf = !!r.not_found;
+    for (const batch of chunks(terms, 500)) {
+      const volumes = batch.map((t) => byTerm.get(t)!.volume);
+      const paths = batch.map((t) => byTerm.get(t)!.taxonomy_path);
+      const flags = batch.map((t) => byTerm.get(t)!.not_found);
+
       await client.query(
         `INSERT INTO organic.keyword_volume_cache (term, volume, taxonomy_path, looked_up_at, expires_at, not_found)
-         VALUES ($1, $2, $3, now(), now() + interval '180 days', $4)
+         SELECT u.t, u.v, u.p, now(), now() + interval '180 days', u.nf
+           FROM unnest($1::text[], $2::int[], $3::text[], $4::boolean[]) AS u(t, v, p, nf)
          ON CONFLICT (term) DO UPDATE SET
            volume         = EXCLUDED.volume,
            taxonomy_path  = EXCLUDED.taxonomy_path,
            looked_up_at   = now(),
            expires_at     = now() + interval '180 days',
            not_found      = EXCLUDED.not_found`,
-        [term, r.volume ?? null, r.taxonomy_path ?? null, nf]
+        [batch, volumes, paths, flags]
       );
-      // Mark the queue entry DONE + flip validated on the org keyword row.
+      // Close the queue entries. lower() on both sides — see the note above.
       await client.query(
-        `UPDATE organic.volume_lookup_queue
-            SET status = CASE WHEN $2 THEN 'NOT_FOUND'::organic.lookup_status ELSE 'DONE'::organic.lookup_status END,
+        `UPDATE organic.volume_lookup_queue q
+            SET status = CASE WHEN u.nf THEN 'NOT_FOUND'::organic.lookup_status
+                              ELSE 'DONE'::organic.lookup_status END,
                 completed_at = now()
-          WHERE org_id = $1 AND term = $3`,
-        [orgId, nf, term]
+           FROM unnest($2::text[], $3::boolean[]) AS u(t, nf)
+          WHERE q.org_id = $1 AND lower(q.term) = u.t`,
+        [orgId, batch, flags]
       );
       await client.query(
-        `UPDATE organic.keywords SET volume_validated = true WHERE org_id = $1 AND term = $2`,
-        [orgId, term]
+        `UPDATE organic.keywords SET volume_validated = true
+          WHERE org_id = $1 AND lower(term) = ANY($2::text[])`,
+        [orgId, batch]
       );
-      written++;
     }
     // Related-keyword finds go straight into the org's candidate pool.
-    for (const t of extraFinds.map(normalizeTerm).filter(Boolean)) {
+    for (const batch of chunks(extras, 500)) {
       await client.query(
         `INSERT INTO organic.keywords (id, org_id, term, type, source, volume_validated, client_forbidden, created_at)
-         VALUES (gen_random_uuid(), $1, $2, 'GENERIC'::organic.keyword_type, 'PINCLICKS'::organic.keyword_source, false, false, now())
+         SELECT gen_random_uuid(), $1, u.t, 'GENERIC'::organic.keyword_type,
+                'PINCLICKS'::organic.keyword_source, false, false, now()
+           FROM unnest($2::text[]) AS u(t)
          ON CONFLICT (org_id, term) DO NOTHING`,
-        [orgId, t]
+        [orgId, batch]
       );
     }
     await client.query("COMMIT");
+    const written = terms.length;
     await completeTaskByDefinition({ orgId, taskId: "P3.1.8", timeSpentMin,
-      notes: `PinClicks: wrote ${written} to shared cache; +${extraFinds.length} related finds.` });
-    return { written, extra_finds: extraFinds.length, recomputed: await recomputeAfter(orgId) };
+      notes: `PinClicks: wrote ${written} to shared cache; +${extras.length} related finds.` });
+    return { written, extra_finds: extras.length, recomputed: await recomputeAfter(orgId) };
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
@@ -339,23 +395,24 @@ export async function setGenericKeywords(
     throw new Error(`5–10 generic keywords must pass the "applies to every product" test (got ${passes.length})`);
   }
   const pool = organicPool();
+  // One statement per batch, matched on lower(term): a keyword bank is hundreds
+  // of terms long, and the row-at-a-time version is what timed P3.1.8 out on a
+  // store of exactly this size. lower() because the cache and the normalised
+  // term are lowercase while the bank keeps its capitals.
+  const decided = new Map<string, boolean>();
   for (const d of decisions) {
     const t = normalizeTerm(d.term);
-    if (!t) continue;
-    if (d.applies_to_all) {
-      await pool.query(
-        `UPDATE organic.keywords
-            SET type = 'GENERIC'::organic.keyword_type, generic_applies_to_all = true
-          WHERE org_id = $1 AND term = $2`,
-        [orgId, t]
-      );
-    } else {
-      await pool.query(
-        `UPDATE organic.keywords SET generic_applies_to_all = false
-          WHERE org_id = $1 AND term = $2`,
-        [orgId, t]
-      );
-    }
+    if (t) decided.set(t, !!d.applies_to_all);
+  }
+  for (const batch of chunks([...decided.keys()], 500)) {
+    await pool.query(
+      `UPDATE organic.keywords k
+          SET generic_applies_to_all = u.applies,
+              type = CASE WHEN u.applies THEN 'GENERIC'::organic.keyword_type ELSE k.type END
+         FROM unnest($2::text[], $3::boolean[]) AS u(t, applies)
+        WHERE k.org_id = $1 AND lower(k.term) = u.t`,
+      [orgId, batch, batch.map((t) => decided.get(t)!)]
+    );
   }
   await completeTaskByDefinition({ orgId, taskId: "P3.1.10", timeSpentMin,
     notes: `${passes.length} keywords passed the "applies to every product" test.` });
@@ -414,16 +471,26 @@ export interface SeasonalClassification {
  *  from board candidacy in the board-list step. */
 export async function classifySeasonal(orgId: string, list: SeasonalClassification[], timeSpentMin: number) {
   const pool = organicPool();
+  const byTerm = new Map<string, SeasonalClassification>();
   for (const c of list) {
     const t = normalizeTerm(c.term);
-    if (!t) continue;
+    if (t) byTerm.set(t, c);
+  }
+  for (const batch of chunks([...byTerm.keys()], 500)) {
     await pool.query(
-      `UPDATE organic.keywords
-          SET seasonal_type = $1::organic.seasonal_type,
-              peak_window_start = $2::date,
-              peak_window_end = $3::date
-        WHERE org_id = $4 AND term = $5`,
-      [c.seasonal_type, c.peak_start ?? null, c.peak_end ?? null, orgId, t]
+      `UPDATE organic.keywords k
+          SET seasonal_type     = u.st::organic.seasonal_type,
+              peak_window_start = u.ps::date,
+              peak_window_end   = u.pe::date
+         FROM unnest($2::text[], $3::text[], $4::text[], $5::text[]) AS u(t, st, ps, pe)
+        WHERE k.org_id = $1 AND lower(k.term) = u.t`,
+      [
+        orgId,
+        batch,
+        batch.map((t) => byTerm.get(t)!.seasonal_type),
+        batch.map((t) => byTerm.get(t)!.peak_start ?? null),
+        batch.map((t) => byTerm.get(t)!.peak_end ?? null),
+      ]
     );
   }
   await completeTaskByDefinition({ orgId, taskId: "P3.1.12", timeSpentMin,
