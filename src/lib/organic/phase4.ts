@@ -547,9 +547,37 @@ export interface WaterfallReport {
   pin_schedule: { seq: number; design: number; copy: string; board_index: number; date: string }[];
   interval_days_between_same_design: number;
   spacing_hours: number;
+  /** The waterfall this run replaced, if it replaced one. */
+  superseded?: {
+    waterfall_id: string;
+    status: string;
+    pins_cancelled: number;
+    designs_discarded: number;
+    designs_with_image: number;
+    copy_sets_written: number;
+  };
 }
 
-/** Full waterfall: 4 designs, 4 copy sets, 16 pins with rotation. */
+/**
+ * Full waterfall: 4 designs, 4 copy sets, 16 pins with rotation.
+ *
+ * Regenerating replaces. The button has said "Regenerate" since phase 4
+ * shipped, but this only ever inserted a *second* waterfall for the same URL —
+ * and the board-URL trigger (migration 048: one URL per board per 180 days,
+ * between cycles) then counted the first one's sixteen unpublished pins and
+ * refused the whole transaction. So regenerating was impossible for exactly
+ * the URLs it was offered on, and the error named a cooldown the operator had
+ * not violated: it was the store's own planning row, made minutes earlier.
+ *
+ * A waterfall that has not left planning is superseded — status ABANDONED,
+ * pins CANCELLED, which is what the trigger already ignores. Nothing is
+ * deleted: the designs and copy stay attached to the abandoned row, and the
+ * report says what was discarded so the screen can too.
+ *
+ * A waterfall that is live is not touched. Once a pin is SCHEDULED or
+ * PUBLISHED the 180-day rule is a real rule about a real pin, and quietly
+ * cancelling it to make room for a new plan is a decision for a person.
+ */
 export async function generateWaterfall(
   orgId: string,
   urlId: string,
@@ -591,6 +619,69 @@ export async function generateWaterfall(
         WHERE uk.url_id = $1 AND uk.is_primary = true LIMIT 1`, [urlId]
     );
     const primaryKeyword = kwRes.rows[0]?.term ?? "";
+
+    // 0b. Supersede the previous plan for this URL, or refuse if it is live.
+    const prior = await client.query<{
+      id: string; status: string; live_pins: number; designs: number;
+      with_image: number; copy_written: number;
+    }>(
+      `SELECT w.id::text, w.status::text,
+              (SELECT count(*)::int FROM organic.pins p
+                WHERE p.waterfall_id = w.id
+                  AND p.status IN ('SCHEDULED','PUBLISHED','FAILED'))            AS live_pins,
+              (SELECT count(*)::int FROM organic.designs d
+                WHERE d.waterfall_id = w.id)                                     AS designs,
+              (SELECT count(*)::int FROM organic.designs d
+                WHERE d.waterfall_id = w.id AND d.asset_path IS NOT NULL)        AS with_image,
+              (SELECT count(*)::int FROM organic.copy_sets cs
+                JOIN organic.designs d ON d.id = cs.design_id
+               WHERE d.waterfall_id = w.id AND cs.title IS NOT NULL)             AS copy_written
+         FROM organic.waterfalls w
+        WHERE w.url_id = $1
+          AND w.status <> 'ABANDONED'::organic.waterfall_status
+          -- Only the plans that would actually trip the trigger. A cycle that
+          -- ran and finished more than 180 days ago is out of the window and
+          -- must not stand in the way of the next one.
+          AND EXISTS (SELECT 1 FROM organic.pins p
+                       WHERE p.waterfall_id = w.id
+                         AND p.status <> 'CANCELLED'::organic.pin_status
+                         AND p.scheduled_date > current_date - interval '180 days')
+        ORDER BY w.created_at DESC`,
+      [urlId]
+    );
+    // Live = a pin that actually exists on Pinterest or is queued to go there.
+    // Status alone is not enough and not too much: a RUNNING waterfall whose
+    // pins were all cancelled is a plan, not a publication.
+    const live = prior.rows.find((w) => w.live_pins > 0);
+    if (live) {
+      throw new Error(
+        `This URL already has a waterfall that is live (${live.id.slice(0, 8)}, ${live.status}` +
+        `${live.live_pins > 0 ? `, ${live.live_pins} pin(s) scheduled or published` : ""}). ` +
+        `Regenerating would plan the same boards again inside the 180-day board-URL rule. ` +
+        `Abandon that waterfall first, or run this cycle on another URL.`
+      );
+    }
+    let superseded: WaterfallReport["superseded"];
+    for (const w of prior.rows) {
+      const cancelled = await client.query(
+        `UPDATE organic.pins SET status = 'CANCELLED'::organic.pin_status
+          WHERE waterfall_id = $1 AND status <> 'CANCELLED'::organic.pin_status`,
+        [w.id]
+      );
+      await client.query(
+        `UPDATE organic.waterfalls SET status = 'ABANDONED'::organic.waterfall_status WHERE id = $1`,
+        [w.id]
+      );
+      // Report the newest one; older plans for the same URL are already history.
+      superseded ??= {
+        waterfall_id: w.id,
+        status: w.status,
+        pins_cancelled: cancelled.rowCount ?? 0,
+        designs_discarded: w.designs,
+        designs_with_image: w.with_image,
+        copy_sets_written: w.copy_written,
+      };
+    }
 
     // 1. Waterfall row
     const wf = await client.query<{ id: string }>(
@@ -675,6 +766,7 @@ export async function generateWaterfall(
       pin_schedule: schedule,
       interval_days_between_same_design: 4 * spacingDays,
       spacing_hours: spacingHours,
+      superseded,
     };
   } catch (e) {
     await client.query("ROLLBACK");

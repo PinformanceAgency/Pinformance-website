@@ -449,9 +449,18 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [generating, setGenerating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [result, setResult] = useState<{ waterfall_id: string; matrix: string[][]; pin_schedule: Array<{ seq: number; design: number; copy: string; board_index: number; date: string }>; interval_days_between_same_design: number; spacing_hours: number } | null>(null);
+  const [result, setResult] = useState<{ waterfall_id: string; matrix: string[][]; pin_schedule: Array<{ seq: number; design: number; copy: string; board_index: number; date: string }>; interval_days_between_same_design: number; spacing_hours: number; superseded?: { waterfall_id: string; status: string; pins_cancelled: number; designs_discarded: number; designs_with_image: number; copy_sets_written: number } } | null>(null);
 
   async function generate() {
+    // Regenerating replaces the plan that is there — say so before it does.
+    // The old one is abandoned rather than deleted, but its designs and copy
+    // leave the cycle, and that is worth a sentence when somebody has already
+    // made images.
+    if (cycle.waterfall && !window.confirm(
+      `This replaces the existing waterfall (${cycle.waterfall.id.slice(0, 8)}, ${cycle.waterfall.status}).\n\n` +
+      `Its sixteen pins are cancelled and its designs and copy leave the cycle. ` +
+      `Nothing is deleted — the old waterfall stays readable as ABANDONED.\n\nRegenerate?`
+    )) return;
     setErr(null); setGenerating(true); setResult(null);
     try {
       const r = await callP4(orgId, { action: "waterfall", url_id: cycle.url_id, start_date: startDate });
@@ -494,6 +503,19 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
           <div className="text-[11px] text-neutral-600">
             {result.pin_schedule.length} pins committed · same-design interval {result.interval_days_between_same_design} days · spacing {result.spacing_hours}h
           </div>
+
+          {result.superseded && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+              Replaced waterfall <span className="font-mono">{result.superseded.waterfall_id.slice(0, 8)}</span>{" "}
+              ({result.superseded.status} → ABANDONED): {result.superseded.pins_cancelled} pin
+              {result.superseded.pins_cancelled === 1 ? "" : "s"} cancelled,{" "}
+              {result.superseded.designs_discarded} design
+              {result.superseded.designs_discarded === 1 ? "" : "s"} left the cycle
+              {result.superseded.designs_with_image > 0 && `, ${result.superseded.designs_with_image} of them with an image already generated`}
+              {result.superseded.copy_sets_written > 0 && `, ${result.superseded.copy_sets_written} copy set${result.superseded.copy_sets_written === 1 ? "" : "s"} written`}.
+              Nothing was deleted.
+            </div>
+          )}
 
           {/* Design → Board matrix */}
           <div>
