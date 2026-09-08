@@ -435,6 +435,38 @@ keywords never deployed, two failed pins, a client sitting on an approval for
 three weeks. A demo where everything is green exercises none of the screens that
 matter. **Remove it before any client sees the client list.**
 
+### Give a colleague a dashboard login
+
+**The invite has to exist before the login link does.** A profile row in
+`public.users` is only ever created from a pending `org_invites` row — the
+`on_auth_user_created` trigger reads it, and so does `/auth/callback`. Send the
+magic link first and the person gets a real session, no profile, and every
+screen behaves as if the app were broken. That is what happened to Louiza on
+07-09-2026, and to two accounts before her.
+
+Order: **Settings → Team → Invite** (agency admin only) with the exact address,
+*then* let them sign in at the dashboard. "Send Invite" sends nothing — it links
+the address; hand them the URL yourself. Every agency colleague is
+`agency_admin`; the other roles scope someone to a single org, which is not what
+a media buyer needs.
+
+`/overview` now names this case rather than saying "unable to load your
+workspace", and carries a **Finish setup** button that posts to
+`/api/auth/setup-profile` — so an invite added afterwards is picked up without a
+fresh magic link. Repairing one by hand is an INSERT into `public.users` with
+the id from `auth.users`.
+
+Two things to know before touching this flow:
+
+- **The role dropdown offers "Store Owner (connect-only)", which the `user_role`
+  enum does not have** (`agency_admin`, `client_admin`, `client_viewer`,
+  `organic_manager`). Inviting one fails; until 08-09-2026 it failed silently.
+- **The magic-link box creates an account for any address typed into it**
+  (`shouldCreateUser` defaults to true), which is how a stranger's account ends
+  up in `auth.users`. They see nothing, but the accounts accumulate. Closing it
+  means having the invite route mint the account through the admin API first —
+  not done, because that is also what would make "Send Invite" send a mail.
+
 ### Add or remove a media buyer
 
 `MEDIA_BUYERS` in `src/lib/media-buying/config.ts`. Lowercase first names —
