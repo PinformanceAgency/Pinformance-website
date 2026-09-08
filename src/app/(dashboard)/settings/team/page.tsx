@@ -40,6 +40,8 @@ export default function TeamPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<UserRole>("client_viewer");
   const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [invited, setInvited] = useState<string | null>(null);
 
   useEffect(() => {
     if (!org) return;
@@ -60,20 +62,37 @@ export default function TeamPage() {
   async function handleInvite() {
     if (!org || !inviteEmail.trim()) return;
     setInviting(true);
+    setInviteError(null);
 
-    await fetch("/api/team/invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: inviteEmail.trim(),
-        role: inviteRole,
-      }),
-    });
+    // The result used to be discarded: a rejected invite closed the modal and
+    // reported nothing, and the person then signed in to an account with no
+    // profile row and a screen that said the workspace could not be loaded.
+    let message: string | null = null;
+    try {
+      const res = await fetch("/api/team/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          role: inviteRole,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) message = body.error || `Invite failed (${res.status}).`;
+    } catch {
+      message = "Could not reach the server. Nothing was saved.";
+    }
 
+    setInviting(false);
+    if (message) {
+      setInviteError(message);
+      return;
+    }
+
+    setInvited(inviteEmail.trim().toLowerCase());
     setInviteEmail("");
     setInviteRole("client_viewer");
     setShowInvite(false);
-    setInviting(false);
     loadMembers();
   }
 
@@ -203,6 +222,14 @@ export default function TeamPage() {
         ))}
       </div>
 
+      {invited && (
+        <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{invited}</span> is linked
+          to this workspace. They will not appear in the list above until they
+          have signed in once — that is the moment the account is created.
+        </div>
+      )}
+
       {members.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           No team members found.
@@ -217,7 +244,10 @@ export default function TeamPage() {
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">Invite Team Member</h3>
                 <button
-                  onClick={() => setShowInvite(false)}
+                  onClick={() => {
+                    setShowInvite(false);
+                    setInviteError(null);
+                  }}
                   className="p-1 hover:bg-muted rounded"
                 >
                   <X className="w-4 h-4" />
@@ -259,9 +289,23 @@ export default function TeamPage() {
                 )}
               </div>
 
+              {inviteError && (
+                <p className="text-xs text-red-600">{inviteError}</p>
+              )}
+
+              <p className="text-[11px] text-muted-foreground">
+                This links the address to {org?.name || "this workspace"} — it does
+                not send an email. Give them the dashboard URL; they sign in with
+                a magic link themselves, and their access is created the moment
+                they do.
+              </p>
+
               <div className="flex gap-2 pt-2">
                 <button
-                  onClick={() => setShowInvite(false)}
+                  onClick={() => {
+                    setShowInvite(false);
+                    setInviteError(null);
+                  }}
                   className="flex-1 bg-muted text-foreground py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
                 >
                   Cancel

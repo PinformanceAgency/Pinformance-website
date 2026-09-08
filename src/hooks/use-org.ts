@@ -4,11 +4,23 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Organization, User } from "@/lib/types";
 
+/**
+ * Which of the three load steps failed. `error` carries the raw message for the
+ * console; this says what to tell the person in front of the screen. The one
+ * that matters is `no_profile`: signed in, but the account was never linked to
+ * a workspace — what an invited teammate gets when the magic link goes out
+ * before the invite row exists, and what used to render as a bare
+ * "Unable to load your workspace."
+ */
+export type WorkspaceIssue = "not_authenticated" | "no_profile" | "no_org" | null;
+
 export function useOrg() {
   const [org, setOrg] = useState<Organization | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [issue, setIssue] = useState<WorkspaceIssue>(null);
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -23,9 +35,12 @@ export function useOrg() {
 
         if (authError || !authUser) {
           setError("Not authenticated");
+          setIssue("not_authenticated");
           setLoading(false);
           return;
         }
+
+        setAuthEmail(authUser.email ?? null);
 
         // Step 2: Get user profile
         const { data: profile, error: profileError } = await supabase
@@ -37,12 +52,14 @@ export function useOrg() {
         if (profileError) {
           console.error("Profile error:", profileError.message, profileError.code);
           setError(`Profile not found: ${profileError.message}`);
+          setIssue("no_profile");
           setLoading(false);
           return;
         }
 
         if (!profile) {
           setError("No profile data returned");
+          setIssue("no_profile");
           setLoading(false);
           return;
         }
@@ -65,6 +82,8 @@ export function useOrg() {
 
         if (orgError) {
           console.error("Org error:", orgError.message, orgError.code);
+          setError(`Organization not found: ${orgError.message}`);
+          setIssue("no_org");
           setOrg(null);
         } else {
           setOrg(orgData as Organization);
@@ -80,5 +99,13 @@ export function useOrg() {
     load();
   }, []);
 
-  return { org, user, loading, error, isAgencyAdmin: user?.role === "agency_admin" };
+  return {
+    org,
+    user,
+    loading,
+    error,
+    issue,
+    authEmail,
+    isAgencyAdmin: user?.role === "agency_admin",
+  };
 }

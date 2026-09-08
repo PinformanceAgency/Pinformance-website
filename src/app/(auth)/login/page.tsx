@@ -18,8 +18,12 @@ function LoginForm() {
     const code = searchParams.get("code");
     if (code) {
       const supabase = createClient();
-      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+      supabase.auth.exchangeCodeForSession(code).then(async ({ error }) => {
         if (!error) {
+          // Same step /auth/callback does: a magic link that lands here instead
+          // (an older link, a redirect that kept the code on /login) would
+          // otherwise leave an invited teammate signed in with no profile row.
+          await ensureProfile();
           router.push("/overview");
         } else {
           setError("Login link expired. Please request a new one.");

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrg } from "@/hooks/use-org";
+import { WorkspaceIssueNotice } from "@/components/shared/workspace-issue";
 import { useRouter } from "next/navigation";
 import {
   TrendingUp,
@@ -121,7 +122,7 @@ type ChartMetricKey = (typeof CHART_METRICS)[number]["key"];
 /* ─── Main Component ─── */
 
 export default function OverviewPage() {
-  const { org, user, loading } = useOrg();
+  const { org, user, loading, issue, authEmail } = useOrg();
   const router = useRouter();
   const [overall, setOverall] = useState<OverallPerformance | null>(null);
   const [conversion, setConversion] = useState<ConversionInsights | null>(null);
@@ -303,11 +304,7 @@ export default function OverviewPage() {
   }
 
   if (!org || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <p className="text-sm text-muted-foreground">Unable to load your workspace.</p>
-      </div>
-    );
+    return <WorkspaceIssueNotice issue={issue} authEmail={authEmail} />;
   }
 
   const periodLabel = period === "7d" ? "7 days" : period === "30d" ? "30 days" : "90 days";
