@@ -181,7 +181,6 @@ export const COUNTRY_OPTIONS: { code: string; label: string }[] = [
 export const MEDIA_BUYERS = [
   "david",
   "dylan",
-  "jovita",
   "louiza",
   "rens",
 ] as const;
