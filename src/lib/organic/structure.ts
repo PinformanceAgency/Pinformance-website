@@ -436,15 +436,46 @@ export interface UrlReadiness {
   cooldown_clear: boolean;
   topic_covered: boolean;
   assigned_boards: number;
+  /** Null means no topic was ever set — a different fault from an uncovered one. */
+  topic_id: string | null;
+  topic_name: string | null;
+  /** Boards under that topic that exist on Pinterest, and boards still only planned. */
+  topic_boards_active: number;
+  topic_boards_planned: number;
 }
 
+/**
+ * Why `topic_covered = false` is reported in three different ways.
+ *
+ * The view computes one boolean, and for a year every surface rendered it
+ * as "sits under a topic with fewer than five boards". That sentence is
+ * true for one of the three states it actually covers, and it sends the
+ * manager to the boards screen in all three. On Fit Cherries — 167 URLs,
+ * none of them ever eligible — it was wrong twice over: the URLs had no
+ * topic at all, so there was no topic to build boards for, and the topics
+ * that did exist held seven planned boards each and no created ones, so
+ * building more would not have moved the number either. Somebody can
+ * follow that instruction for weeks and watch nothing change.
+ */
 export function checkUrlReadiness(r: UrlReadiness | null, urlName: string): Deviation[] {
   if (!r) return [];
   const out: Deviation[] = [];
-  if (!r.topic_covered) {
+  if (r.topic_id == null) {
     out.push({
       kind: "structure",
-      what: `"${urlName}" sits under a topic with fewer than five boards`,
+      what: `"${urlName}" has no topic yet`,
+      why: "Coverage is counted per topic (P3.3.2), so a URL without one can never clear the gate — not because it is short of boards, but because there is nothing to count. Set the topic on the URL.",
+    });
+  } else if (!r.topic_covered && r.topic_boards_active === 0 && r.topic_boards_planned >= 5) {
+    out.push({
+      kind: "structure",
+      what: `"${r.topic_name}" has ${r.topic_boards_planned} boards designed and none created on Pinterest`,
+      why: "Coverage counts boards that exist on the account, not boards on paper. The architecture is done; the boards still have to be created (P3.3.4).",
+    });
+  } else if (!r.topic_covered) {
+    out.push({
+      kind: "structure",
+      what: `"${r.topic_name}" has ${r.topic_boards_active} of the five boards it needs`,
       why: "Board coverage gates phase 4 for that topic (P3.3.2). Pins land in too few contexts, and the rotation has nothing to rotate through.",
     });
   }

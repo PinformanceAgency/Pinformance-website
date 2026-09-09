@@ -40,6 +40,7 @@ import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
 import { loadAccountBrief, productionSplit, formatNotesFromGrid } from "./brief";
 import { adviseBoards, adviseKeywords, adviseUrls, checkBoards, checkKeywords, checkUrlReadiness } from "./structure";
+import type { UrlReadiness } from "./structure";
 import { generateWithValidator, persistDraft } from "./ai";
 import type { Deviation } from "./structure";
 
@@ -209,7 +210,12 @@ export async function upsertUrl(orgId: string, u: UrlInput): Promise<string> {
        is_seasonal = EXCLUDED.is_seasonal,
        peak_window_start = EXCLUDED.peak_window_start,
        peak_window_end = EXCLUDED.peak_window_end,
-       topic_id = EXCLUDED.topic_id,
+       -- Never blank a topic that is already set. A re-import proposes a
+       -- topic only where the account's board names matched, so an
+       -- unmatched row carries null, and EXCLUDED would have wiped a topic
+       -- somebody chose by hand on the second run of the same sitemap.
+       -- Clearing one is setUrlTopic, which is explicit about it.
+       topic_id = COALESCE(EXCLUDED.topic_id, organic.urls.topic_id),
        funnel_stage = EXCLUDED.funnel_stage
      RETURNING id::text`,
     [orgId, u.url, u.name, u.type, u.reason, u.reason_note ?? null,
@@ -217,6 +223,38 @@ export async function upsertUrl(orgId: string, u: UrlInput): Promise<string> {
      u.topic_id ?? null, u.funnel_stage ?? null]
   );
   return r.rows[0].id;
+}
+
+/**
+ * The topic a URL sits under, on its own.
+ *
+ * Deliberately not done through `upsertUrl`: that upsert rewrites name,
+ * type, reason, seasonality and funnel stage from whatever the caller
+ * happens to be holding, which is right when a form owns the whole row and
+ * wrong when a picker owns one column. A topic set from the URL library
+ * must not quietly reset the reason somebody chose in phase 4.
+ *
+ * Null is allowed — clearing a wrong topic is a legitimate answer, and it
+ * is reported honestly by the readiness list either way.
+ */
+export async function setUrlTopic(orgId: string, urlId: string, topicId: string | null): Promise<void> {
+  const pool = organicPool();
+  if (topicId) {
+    const ok = await pool.query(
+      `SELECT 1 FROM organic.topics WHERE id = $1::uuid AND org_id = $2`, [topicId, orgId]);
+    if (ok.rowCount === 0) throw new Error("That topic does not belong to this store.");
+  }
+  await pool.query(
+    `UPDATE organic.urls SET topic_id = $1::uuid WHERE id = $2::uuid AND org_id = $3`,
+    [topicId, urlId, orgId]
+  );
+}
+
+/** The store's topics, for any picker that has to offer them. */
+export async function loadTopicOptions(orgId: string): Promise<Array<{ id: string; name: string }>> {
+  const r = await organicPool().query<{ id: string; name: string }>(
+    `SELECT id::text, name FROM organic.topics WHERE org_id = $1 ORDER BY name`, [orgId]);
+  return r.rows;
 }
 
 /**
@@ -1052,14 +1090,23 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
     }
   }
   const boardMeta = new Map<string, { topic_id: string | null; pin_count: number | null; status: string | null }>();
-  const readiness = new Map<string, { cooldown_clear: boolean; topic_covered: boolean; assigned_boards: number }>();
+  const readiness = new Map<string, UrlReadiness>();
   if (brief) {
     const [bm, rd] = await Promise.all([
       pool.query<{ id: string; topic_id: string | null; pin_count: number | null; status: string | null }>(
         `SELECT id::text, topic_id::text, pin_count, status::text FROM organic.boards WHERE org_id = $1`, [orgId]),
-      pool.query<{ id: string; cooldown_clear: boolean; topic_covered: boolean; assigned_boards: string }>(
-        `SELECT id::text, cooldown_clear, topic_covered, assigned_boards::text
-           FROM organic.urls_selectable WHERE org_id = $1`, [orgId]),
+      pool.query<{
+        id: string; cooldown_clear: boolean; topic_covered: boolean; assigned_boards: string;
+        topic_id: string | null; topic_name: string | null;
+        topic_boards_active: string | null; topic_boards_planned: string | null;
+      }>(
+        `SELECT u.id::text, u.cooldown_clear, u.topic_covered, u.assigned_boards::text,
+                u.topic_id::text, tc.topic_name,
+                tc.active_boards::text  AS topic_boards_active,
+                tc.planned_boards::text AS topic_boards_planned
+           FROM organic.urls_selectable u
+           LEFT JOIN organic.topic_coverage tc ON tc.topic_id = u.topic_id
+          WHERE u.org_id = $1`, [orgId]),
     ]);
     for (const b of bm.rows) boardMeta.set(b.id, { topic_id: b.topic_id, pin_count: b.pin_count, status: b.status });
     for (const r of rd.rows) {
@@ -1067,6 +1114,10 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
         cooldown_clear: r.cooldown_clear,
         topic_covered: r.topic_covered,
         assigned_boards: Number(r.assigned_boards),
+        topic_id: r.topic_id,
+        topic_name: r.topic_name,
+        topic_boards_active: Number(r.topic_boards_active ?? 0),
+        topic_boards_planned: Number(r.topic_boards_planned ?? 0),
       });
     }
   }
@@ -1796,15 +1847,19 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
   const pool = organicPool();
   const [rows, running, brief] = await Promise.all([
     pool.query<{
-      id: string; name: string; topic_name: string | null;
+      id: string; name: string; topic_id: string | null; topic_name: string | null;
       cooldown_clear: boolean; topic_covered: boolean;
       assigned_boards: string; is_selectable: boolean; cooldown_until: string | null;
+      topic_boards_active: string | null; topic_boards_planned: string | null;
     }>(
-      `SELECT u.id::text, u.name, t.name AS topic_name,
+      `SELECT u.id::text, u.name, u.topic_id::text, t.name AS topic_name,
               u.cooldown_clear, u.topic_covered, u.assigned_boards::text,
-              u.is_selectable, u.cooldown_until::text
+              u.is_selectable, u.cooldown_until::text,
+              tc.active_boards::text  AS topic_boards_active,
+              tc.planned_boards::text AS topic_boards_planned
          FROM organic.urls_selectable u
          LEFT JOIN organic.topics t ON t.id = u.topic_id
+         LEFT JOIN organic.topic_coverage tc ON tc.topic_id = u.topic_id
         WHERE u.org_id = $1
         ORDER BY u.name`, [orgId]),
     pool.query<{ n: string }>(
@@ -1858,9 +1913,30 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
     // Reported independently: a URL can be short on both, and telling
     // somebody to fix coverage when boards are also missing sends them back
     // twice.
-    const noCoverage = free.filter((u) => !u.topic_covered);
+    //
+    // `topic_covered` is one boolean covering three different faults, and
+    // naming them apart is the whole point of this list. Fit Cherries had
+    // 167 URLs with no topic at all and six topics whose boards were all
+    // still on paper; both were reported as "topic has fewer than five
+    // boards", which pointed at the boards screen where there was nothing
+    // to do. A fix that cannot work is worse than no fix, because somebody
+    // follows it.
+    const noTopic = free.filter((u) => u.topic_id == null);
+    const boardsUnbuilt = free.filter((u) =>
+      u.topic_id != null && !u.topic_covered &&
+      Number(u.topic_boards_active ?? 0) === 0 && Number(u.topic_boards_planned ?? 0) >= 5);
+    const noCoverage = free.filter((u) =>
+      u.topic_id != null && !u.topic_covered && !boardsUnbuilt.includes(u));
     const fewBoards = free.filter((u) => Number(u.assigned_boards) < 5);
     const cooling = free.filter((u) => !u.cooldown_clear);
+    push(noTopic,
+      `have no topic`,
+      "Coverage is counted per topic, so a URL without one can never clear the gate. Set the topic on the URL — the import proposes one where it can.",
+      "urls");
+    push(boardsUnbuilt,
+      `sit under a topic whose boards are designed but not created`,
+      "The architecture is done; create those boards on Pinterest (P3.3.4). Coverage counts boards that exist on the account, not boards on paper.",
+      "boards");
     push(noCoverage,
       `topic has fewer than five boards`,
       "Build boards for that topic. Coverage gates phase 4 for everything under it (P3.3.2).",

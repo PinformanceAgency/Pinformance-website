@@ -8,7 +8,9 @@
  */
 import { loadUrls } from "@/lib/organic/workspace";
 import { computeUrlRequirement, assessViability, loadProposals } from "@/lib/organic/expansion";
+import { loadTopicOptions } from "@/lib/organic/phase4";
 import { ExpansionPanel } from "./ExpansionPanel";
+import { TopicCell, BulkTopicAssign } from "./TopicCell";
 import { Band, Panel, Empty } from "@/components/organic/primitives";
 import { Table, TH, TD, Pill, Metric, Toolbar, CooldownTimeline } from "@/components/organic/internal";
 
@@ -20,16 +22,18 @@ const REASON_TONE: Record<string, "good" | "warn" | "accent" | "neutral"> = {
 
 export default async function UrlsPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
-  const [urls, requirement, assessment, proposals] = await Promise.all([
+  const [urls, requirement, assessment, proposals, topics] = await Promise.all([
     loadUrls(orgId),
     computeUrlRequirement(orgId),
     assessViability(orgId),
     loadProposals(orgId),
+    loadTopicOptions(orgId),
   ]);
 
   const selectable = urls.filter((u) => u.is_selectable && !u.active_waterfall_status).length;
   const running = urls.filter((u) => u.active_waterfall_status).length;
   const inCooldown = urls.filter((u) => !u.cooldown_clear).length;
+  const untopicked = urls.filter((u) => u.topic_id == null);
 
   // Derived on the server so the timeline's "today" matches the cooldown
   // dates it is drawn against, whatever the viewer's clock says.
@@ -74,6 +78,7 @@ export default async function UrlsPage({ params }: { params: Promise<{ orgId: st
       </Band>
 
       <Band title="All URLs" sub={`${urls.length} captured.`}>
+        <BulkTopicAssign orgId={orgId} topics={topics} untopicked={untopicked.map((u) => u.id)} />
         {urls.length === 0 ? (
           <Empty
             headline="No URLs captured yet."
@@ -84,6 +89,7 @@ export default async function UrlsPage({ params }: { params: Promise<{ orgId: st
             <thead>
               <tr>
                 <TH>URL</TH>
+                <TH>Topic</TH>
                 <TH>Reason</TH>
                 <TH>Funnel</TH>
                 <TH align="right">Cycles</TH>
@@ -104,6 +110,9 @@ export default async function UrlsPage({ params }: { params: Promise<{ orgId: st
                     </span>
                   </TD>
                   <TD>
+                    <TopicCell orgId={orgId} urlId={u.id} topicId={u.topic_id} topics={topics} />
+                  </TD>
+                  <TD>
                     <Pill tone={REASON_TONE[u.reason] ?? "neutral"}>
                       {u.reason.toLowerCase().replace(/_/g, " ")}
                     </Pill>
@@ -112,7 +121,15 @@ export default async function UrlsPage({ params }: { params: Promise<{ orgId: st
                   <TD align="right">{u.waterfalls_run}</TD>
                   <TD align="right">
                     {u.assigned_boards}
-                    {!u.topic_covered && <span className="ml-1 text-o-neg" title="Topic under five boards — blocks selection">!</span>}
+                    {!u.topic_covered && (
+                      <span className="ml-1 text-o-neg" title={
+                        u.topic_id == null
+                          ? "No topic — coverage is counted per topic, so this URL can never be selected until one is set"
+                          : u.topic_boards_active === 0 && u.topic_boards_planned >= 5
+                            ? `${u.topic_name}: ${u.topic_boards_planned} boards designed, none created on Pinterest yet`
+                            : `${u.topic_name}: ${u.topic_boards_active} of the five boards it needs`
+                      }>!</span>
+                    )}
                   </TD>
                   <TD align="right">{u.total_outbound_clicks.toLocaleString("en-US")}</TD>
                   <TD align="right">{u.total_saves.toLocaleString("en-US")}</TD>

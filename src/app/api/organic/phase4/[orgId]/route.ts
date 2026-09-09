@@ -49,6 +49,9 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       const { acceptProposals } = await import("@/lib/organic/url-import");
       return await acceptProposals(orgId, body.urls as Parameters<typeof acceptProposals>[1]);
     }
+    case "set_url_topic":
+      await P4.setUrlTopic(orgId, String(body.url_id), body.topic_id ? String(body.topic_id) : null);
+      return { ok: true };
     case "assign_boards":
       await P4.assignBoardsToUrl(String(body.url_id), body.board_ids as string[]);
       return { ok: true };

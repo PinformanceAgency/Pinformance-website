@@ -41,6 +41,11 @@ export interface ProposedUrl {
   /** From Pinterest only. */
   proven_clicks?: number;
   proven_saves?: number;
+  /** Proposed topic — null when nothing in the account's own architecture matched. */
+  topic_id: string | null;
+  topic_name: string | null;
+  /** What matched, so the manager can see why before confirming. */
+  topic_basis: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -185,6 +190,113 @@ export function nameFromUrl(raw: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Topic proposal                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Which topic an imported URL belongs under.
+ *
+ * The import used to leave `topic_id` null on every row it wrote, and
+ * nothing else in the app ever set it. That is not a cosmetic gap:
+ * `organic.urls_selectable` gates on `topic_covered`, which is a LEFT JOIN
+ * on `topic_id`, so a null topic joins nothing, is coalesced to false, and
+ * the URL is ineligible for a cycle for ever. Fit Cherries imported 167
+ * URLs and could never start a single cycle — the screen said "0 URLs
+ * eligible" next to "167 URLs in the pool" and no amount of board building
+ * would have changed it.
+ *
+ * Matching is against the account's own architecture rather than the topic
+ * label alone. A topic called "Women's Underwear" shares no word with
+ * "Wireless Push Up Bra", but the boards under it are called "Push Up Bras
+ * For Small Bust" and "Supportive Bras", and those do. Board names are the
+ * vocabulary the account actually uses.
+ *
+ * It proposes and stops there. The proposal is shown per row before the
+ * manager confirms the import, a URL that matches nothing keeps a null
+ * topic and is reported as such, and the topic stays editable afterwards.
+ * Guessing quietly would be worse than the bug it replaces.
+ */
+export interface TopicVocabulary {
+  id: string;
+  name: string;
+  /** Significant words drawn from the topic name and its boards. */
+  words: Set<string>;
+}
+
+const STOP = new Set([
+  "the", "and", "for", "with", "your", "our", "from", "that", "this", "you",
+  "all", "new", "best", "top", "shop", "buy", "sale", "page", "pages", "collection",
+  "collections", "product", "products", "ideas", "inspiration", "tips",
+]);
+
+function words(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOP.has(w));
+}
+
+/** Singular/plural is the one inflection worth folding — "bras" against "bra". */
+function stem(w: string): string {
+  if (w.length > 4 && w.endsWith("ies")) return w.slice(0, -3) + "y";
+  if (w.length > 3 && w.endsWith("es") && !w.endsWith("ses")) return w.slice(0, -2);
+  if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0, -1);
+  return w;
+}
+
+export async function loadTopicVocabulary(orgId: string): Promise<TopicVocabulary[]> {
+  const r = await organicPool().query<{
+    id: string; name: string; board_names: string[] | null; keywords: string[] | null;
+  }>(
+    `SELECT t.id::text, t.name,
+            array_remove(array_agg(DISTINCT b.name), NULL)            AS board_names,
+            array_remove(array_agg(DISTINCT b.primary_keyword), NULL) AS keywords
+       FROM organic.topics t
+       LEFT JOIN organic.boards b ON b.topic_id = t.id
+      WHERE t.org_id = $1
+      GROUP BY t.id, t.name`, [orgId]
+  );
+  return r.rows.map((t) => {
+    const bag = new Set<string>();
+    for (const w of words(t.name)) bag.add(stem(w));
+    for (const n of [...(t.board_names ?? []), ...(t.keywords ?? [])]) {
+      for (const w of words(n)) bag.add(stem(w));
+    }
+    return { id: t.id, name: t.name, words: bag };
+  });
+}
+
+/**
+ * Best topic for one URL, or null.
+ *
+ * The runner-up has to be beaten outright. A tie means the account's own
+ * board names do not separate the two topics for this page, and picking
+ * the first alphabetically would be a coin toss presented as a decision.
+ */
+export function matchTopic(
+  url: string, name: string, vocab: TopicVocabulary[]
+): { id: string; name: string; basis: string } | null {
+  if (vocab.length === 0) return null;
+  let path = "";
+  try { path = decodeURIComponent(new URL(url).pathname); } catch { path = url; }
+  const bag = new Set([...words(name), ...words(path)].map(stem));
+  if (bag.size === 0) return null;
+
+  const scored = vocab
+    .map((t) => {
+      const hits = [...bag].filter((w) => t.words.has(w));
+      return { t, hits };
+    })
+    .filter((x) => x.hits.length > 0)
+    .sort((a, b) => b.hits.length - a.hits.length);
+
+  if (scored.length === 0) return null;
+  if (scored.length > 1 && scored[1].hits.length === scored[0].hits.length) return null;
+  return {
+    id: scored[0].t.id,
+    name: scored[0].t.name,
+    basis: scored[0].hits.slice(0, 3).join(", "),
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Source 1 — the sitemap                                              */
 /* ------------------------------------------------------------------ */
 
@@ -271,7 +383,7 @@ export async function fromSitemap(
   }
   pageUrls = pageUrls.slice(0, MAX_URLS);
 
-  const known = await knownUrls(orgId);
+  const [known, vocab] = await Promise.all([knownUrls(orgId), loadTopicVocabulary(orgId)]);
   const seen = new Set<string>();
   const proposals: ProposedUrl[] = [];
 
@@ -286,13 +398,18 @@ export async function fromSitemap(
     }
     if (seen.has(cleaned)) continue;
     seen.add(cleaned);
+    const nm = nameFromUrl(cleaned);
+    const topic = matchTopic(cleaned, nm, vocab);
     proposals.push({
       url: cleaned,
-      name: nameFromUrl(cleaned),
+      name: nm,
       type,
       reason: "NEW",
       note: `${type.toLowerCase()} page from the sitemap`,
       already_known: known.has(cleaned),
+      topic_id: topic?.id ?? null,
+      topic_name: topic?.name ?? null,
+      topic_basis: topic?.basis ?? null,
     });
   }
 
@@ -375,18 +492,26 @@ export async function fromTopPins(
     byUrl.set(cleaned, agg);
   }
 
+  const vocab = await loadTopicVocabulary(orgId);
   const proposals: ProposedUrl[] = [...byUrl.entries()]
-    .map(([url, m]) => ({
-      url,
-      name: nameFromUrl(url),
-      type: classifyUrl(url)!,
-      reason: "BEST_PERFORMER" as const,
-      note: `${m.clicks.toLocaleString("en-US")} clicks / ${m.saves.toLocaleString("en-US")} saves ` +
-            `across ${m.n} pin${m.n === 1 ? "" : "s"} in the last ${days} days`,
-      already_known: known.has(url),
-      proven_clicks: m.clicks,
-      proven_saves: m.saves,
-    }))
+    .map(([url, m]) => {
+      const nm = nameFromUrl(url);
+      const topic = matchTopic(url, nm, vocab);
+      return {
+        url,
+        name: nm,
+        type: classifyUrl(url)!,
+        reason: "BEST_PERFORMER" as const,
+        note: `${m.clicks.toLocaleString("en-US")} clicks / ${m.saves.toLocaleString("en-US")} saves ` +
+              `across ${m.n} pin${m.n === 1 ? "" : "s"} in the last ${days} days`,
+        already_known: known.has(url),
+        proven_clicks: m.clicks,
+        proven_saves: m.saves,
+        topic_id: topic?.id ?? null,
+        topic_name: topic?.name ?? null,
+        topic_basis: topic?.basis ?? null,
+      };
+    })
     .sort((a, b) => (b.proven_clicks ?? 0) - (a.proven_clicks ?? 0));
 
   return { proposals, pins_read: pins.length };
@@ -410,23 +535,37 @@ async function knownUrls(orgId: string): Promise<Set<string>> {
  */
 export async function acceptProposals(
   orgId: string,
-  chosen: Array<Pick<ProposedUrl, "url" | "name" | "type" | "reason">>
-): Promise<{ added: number; ids: string[]; errors: Array<{ url: string; message: string }> }> {
+  chosen: Array<Pick<ProposedUrl, "url" | "name" | "type" | "reason"> & { topic_id?: string | null }>
+): Promise<{
+  added: number; ids: string[]; without_topic: number;
+  errors: Array<{ url: string; message: string }>;
+}> {
   const { upsertUrl } = await import("./phase4");
+  // Trust the client with the choice, not with the id: a topic from
+  // another store would sail through the upsert and take the URL out of
+  // every coverage count without anything on screen saying so.
+  const mine = new Set(
+    (await organicPool().query<{ id: string }>(
+      `SELECT id::text FROM organic.topics WHERE org_id = $1`, [orgId])).rows.map((r) => r.id)
+  );
   const ids: string[] = [];
   const errors: Array<{ url: string; message: string }> = [];
+  let withoutTopic = 0;
   for (const c of chosen) {
+    const topicId = c.topic_id && mine.has(c.topic_id) ? c.topic_id : null;
+    if (!topicId) withoutTopic++;
     try {
       ids.push(await upsertUrl(orgId, {
         url: c.url,
         name: c.name,
         type: c.type,
         reason: c.reason,
+        topic_id: topicId,
         reason_note: "Imported from the sitemap or from Pinterest's top pins",
       }));
     } catch (e) {
       errors.push({ url: c.url, message: (e as Error).message });
     }
   }
-  return { added: ids.length, ids, errors };
+  return { added: ids.length, ids, without_topic: withoutTopic, errors };
 }

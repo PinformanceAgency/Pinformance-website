@@ -334,7 +334,12 @@ export interface UrlRow {
   cooldown_clear: boolean;
   next_available_date: string | null;   // effectively = cooldown_until or today
   assigned_boards: number;
+  topic_id: string | null;
+  topic_name: string | null;
   topic_covered: boolean;
+  /** Boards under that topic: created on Pinterest, and still only planned. */
+  topic_boards_active: number;
+  topic_boards_planned: number;
   is_selectable: boolean;
   waterfalls_run: number;
   active_waterfall_status: string | null;
@@ -354,7 +359,10 @@ export async function loadUrls(orgId: string): Promise<UrlRow[]> {
             (CASE WHEN u.cooldown_until IS NULL OR u.cooldown_until <= current_date
                   THEN current_date::text ELSE u.cooldown_until::text END) AS next_available_date,
             (SELECT COUNT(*)::int FROM organic.url_boards ub WHERE ub.url_id = u.id) AS assigned_boards,
+            u.topic_id::text, tc.topic_name,
             COALESCE(tc.is_covered, false) AS topic_covered,
+            COALESCE(tc.active_boards, 0)::int  AS topic_boards_active,
+            COALESCE(tc.planned_boards, 0)::int AS topic_boards_planned,
             (
               (u.cooldown_until IS NULL OR u.cooldown_until <= current_date)
               AND COALESCE(tc.is_covered, false)

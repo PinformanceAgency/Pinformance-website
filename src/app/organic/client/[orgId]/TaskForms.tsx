@@ -206,7 +206,7 @@ function SitemapCountForm({ orgId, viability, onDone }: FormBaseProps) {
  */
 function SitemapUrlList({ orgId }: { orgId: string }) {
   const [state, setState] = useState<{
-    proposals: Array<{ url: string; name: string; type: string; reason: string }>;
+    proposals: Array<{ url: string; name: string; type: string; reason: string; topic_id: string | null }>;
     scanned: number; pinnable: number; folded: number; source: string;
   } | null>(null);
   const [busy, setBusy] = useState<"fetch" | "add" | null>(null);
@@ -227,7 +227,7 @@ function SitemapUrlList({ orgId }: { orgId: string }) {
     setBusy("fetch"); setErr(null); setAdded(null);
     try {
       const j = await call({ action: "import_sitemap" }) as {
-        proposals: Array<{ url: string; name: string; type: string; reason: string }>;
+        proposals: Array<{ url: string; name: string; type: string; reason: string; topic_id: string | null }>;
         scanned: number; pinnable: number; locale_variants_folded: number; source: string;
       };
       setState({
@@ -242,9 +242,13 @@ function SitemapUrlList({ orgId }: { orgId: string }) {
     if (!state) return;
     setBusy("add"); setErr(null);
     try {
+      // topic_id travels with the row. At phase 1 the store usually has no
+      // topics yet, so it is null and the URLs page is where they get one;
+      // dropping it here would throw the match away on the stores that do.
       const j = await call({
         action: "accept_urls",
-        urls: state.proposals.map(({ url, name, type, reason }) => ({ url, name, type, reason })),
+        urls: state.proposals.map(({ url, name, type, reason, topic_id }) =>
+          ({ url, name, type, reason, topic_id })),
       }) as { added: number; errors: Array<{ url: string; message: string }> };
       setAdded(j.added);
       if (j.errors?.length) setErr(`${j.errors.length} URL(s) were refused: ${j.errors[0].message}`);

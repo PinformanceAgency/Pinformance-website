@@ -30,6 +30,9 @@ interface Proposed {
   already_known: boolean;
   proven_clicks?: number;
   proven_saves?: number;
+  topic_id: string | null;
+  topic_name: string | null;
+  topic_basis: string | null;
 }
 
 interface MonthlyProposal {
@@ -111,11 +114,16 @@ function UrlImport({ orgId, poolSize }: { orgId: string; poolSize: number }) {
     try {
       const chosen = (rows ?? [])
         .filter((r) => picked.has(r.url))
-        .map((r) => ({ url: r.url, name: r.name, type: r.type, reason: r.reason }));
+        .map((r) => ({ url: r.url, name: r.name, type: r.type, reason: r.reason, topic_id: r.topic_id }));
       const d = await callP4(orgId, { action: "accept_urls", urls: chosen });
       const errors = (d.errors as Array<{ url: string; message: string }>) ?? [];
+      const noTopic = Number(d.without_topic ?? 0);
       setRows(null); setPicked(new Set());
+      // A URL with no topic can never enter a cycle, so the count is said
+      // here rather than discovered weeks later on a screen reading
+      // "0 URLs eligible".
       setSummary(`${d.added} URL(s) added to the pool` +
+        (noTopic ? ` · ${noTopic} without a topic — set one on the URLs page before they can run` : "") +
         (errors.length ? ` · ${errors.length} refused: ${errors[0].message}` : ""));
       startTransition(() => router.refresh());
     } catch (e) { setErr((e as Error).message); }
@@ -155,6 +163,8 @@ function UrlImport({ orgId, poolSize }: { orgId: string; poolSize: number }) {
           <p className="text-xs text-muted-foreground leading-relaxed">
             The sitemap says what pages exist. The top pins say which of them Pinterest has already
             decided it likes — fewer, and worth more. Neither adds anything until you press Add.
+            Each row is matched to one of this store&#39;s topics using its own board names; coverage is
+            counted per topic, so a URL that matches none has to be given one by hand.
           </p>
 
           {summary && <p className="text-xs text-o-ink-2">{summary}</p>}
@@ -176,7 +186,13 @@ function UrlImport({ orgId, poolSize }: { orgId: string; poolSize: number }) {
                         {r.already_known && <span className="o-eyebrow text-o-ink-3">already in the pool</span>}
                       </span>
                       <span className="block text-xs text-muted-foreground truncate">{r.url}</span>
-                      <span className="block text-xs text-o-ink-2">{r.note}</span>
+                      <span className="block text-xs text-o-ink-2">
+                        {r.note}
+                        {r.topic_name
+                          ? <> · topic <span className="text-foreground">{r.topic_name}</span>
+                              {r.topic_basis && <span className="text-o-ink-3"> (matched on {r.topic_basis})</span>}</>
+                          : <span className="text-o-neg"> · no topic matched — it cannot enter a cycle until one is set</span>}
+                      </span>
                     </span>
                   </label>
                 ))}
