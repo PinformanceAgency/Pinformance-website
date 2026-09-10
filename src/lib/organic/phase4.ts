@@ -2324,6 +2324,24 @@ export async function generateDesignImages(
     kreaFor(orgId),
     import("../supabase/admin"),
   ]);
+
+  // The SOP name is rebuilt from the URL's CURRENT primary keyword.
+  // generateWaterfall stamps it at generation time, and a keyword swap
+  // afterwards leaves it pointing at the old term: Essential High Waist was
+  // carrying `gifts-for-her-d1.jpg` on 10-09-2026 against a primary keyword
+  // of "small bust swimwear". Pinterest reads that name out of the URL, so
+  // the moment the file is actually created is the moment it has to be
+  // right. It is still never overwritten with the storage path — that was the
+  // bug this rule was written for.
+  const primary = await pool.query<{ term: string | null }>(
+    `SELECT k.term
+       FROM organic.url_keywords uk
+       JOIN organic.keywords k ON k.id = uk.keyword_id
+      WHERE uk.url_id = $1 AND uk.is_primary
+      LIMIT 1`,
+    [urlId]
+  );
+  const primaryTerm = primary.rows[0]?.term ?? null;
   const admin = createAdminClient();
 
   const results = await Promise.all(designs.rows.map(async (d) => {
@@ -2358,22 +2376,25 @@ export async function generateDesignImages(
     // Valerie Mason flow test (06-09-2026): clients hand over files called
     // whatever ChatGPT called them, and the dashboard should be the thing
     // that fixes that — starting with its own.
-    const path = `organic/${orgId}/${d.id}/${storageName(d.filename, `design-${d.design_number}`)}`;
+    const sopName = primaryTerm ? fileNameFor(primaryTerm, d.design_number) : d.filename;
+    const path = `organic/${orgId}/${d.id}/${storageName(sopName, `design-${d.design_number}`)}`;
     const { error } = await admin.storage.from("pin-images")
       .upload(path, buf, { contentType: "image/jpeg", upsert: true });
     if (error) throw new Error(`Upload failed for design ${d.design_number}: ${error.message}`);
     const { data: pub } = admin.storage.from("pin-images").getPublicUrl(path);
 
-    // `filename` is deliberately untouched. generateWaterfall already set it
-    // from the primary keyword (fileNameFor), and Pinterest reads file names
-    // with OCR — overwriting it with the storage path, as this used to,
-    // replaced "gold-hoop-earrings-d1.jpg" with "design-1.jpg" and threw the
-    // whole P4.2.6 signal away on every AI-route design.
+    // `filename` is never overwritten with the storage path — that was the
+    // original bug, and it replaced "gold-hoop-earrings-d1.jpg" with
+    // "design-1.jpg", throwing the whole P4.2.6 signal away on every AI-route
+    // design. Writing the freshly derived SOP name is the opposite: it keeps
+    // the row and the object agreeing on a name that carries the keyword.
     await pool.query(
       `UPDATE organic.designs
-          SET asset_path = $2, qc_status = 'PENDING'::organic.qc_status
+          SET asset_path = $2,
+              filename = COALESCE($3, filename),
+              qc_status = 'PENDING'::organic.qc_status
         WHERE id = $1`,
-      [d.id, pub.publicUrl]
+      [d.id, pub.publicUrl, sopName]
     );
     return { design_id: d.id, design_number: d.design_number, intent: d.intent, url: pub.publicUrl };
   }));
@@ -2558,6 +2579,73 @@ export async function saveCopyForDesign(
     [designId, copy.tagline ?? null, copy.title.trim(), copy.description.trim(), primaryKeyword]
   );
   return { ok: true, design_id: designId, primary_keyword: primaryKeyword };
+}
+
+/**
+ * P4.2.4 — put a design image somebody made themselves onto a design.
+ *
+ * Generation through Krea was the ONLY way an image could ever reach a
+ * design, which quietly made the whole method conditional on a funded Krea
+ * balance and on the AI route being the right one. It is not: the build
+ * reference has a DIRECT route for accounts with usable lifestyle material,
+ * the designs are drawn in Canva on plenty of accounts, and `designs.route`
+ * has carried DIRECT since the first migration. There was simply nowhere to
+ * put the file. Every design on Fit Cherries sat at asset_path = null on
+ * 10-09-2026, which stops the chain dead: no image, no crops, no pin.
+ *
+ * The object name is the SOP's, not the upload's. Pinterest reads the file
+ * name out of the URL, so a design uploaded as "Untitled-3.png" still lands
+ * as `padded-push-up-bras-d1.jpg` — and the name is rebuilt from the URL's
+ * CURRENT primary keyword rather than from whatever was primary when the
+ * waterfall was generated (Essential High Waist was carrying
+ * "gifts-for-her-d1.jpg" against a primary keyword of "small bust swimwear").
+ *
+ * QC drops to PENDING: a new image has not been reviewed, whatever the old
+ * row said. Same rule as regenerated copy.
+ */
+export async function saveDesignImage(
+  orgId: string,
+  designId: string,
+  file: { bytes: Buffer; contentType: string }
+): Promise<{ ok: true; asset_path: string; filename: string }> {
+  const pool = organicPool();
+  const meta = await pool.query<{
+    design_number: number; filename: string | null; primary_keyword: string | null;
+  }>(
+    `SELECT d.design_number, d.filename, k.term AS primary_keyword
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+       LEFT JOIN organic.url_keywords uk ON uk.url_id = w.url_id AND uk.is_primary
+       LEFT JOIN organic.keywords k ON k.id = uk.keyword_id
+      WHERE d.id = $1 AND w.org_id = $2`,
+    [designId, orgId]
+  );
+  if (meta.rowCount === 0) throw new Error("Design not found for this org");
+  const { design_number, filename, primary_keyword } = meta.rows[0];
+
+  const wanted = primary_keyword
+    ? fileNameFor(primary_keyword, design_number)
+    : filename ?? `design-${design_number}.jpg`;
+
+  const { createAdminClient } = await import("../supabase/admin");
+  const admin = createAdminClient();
+  const path = `organic/${orgId}/${designId}/${storageName(wanted, `design-${design_number}`)}`;
+  const { error } = await admin.storage.from("pin-images")
+    .upload(path, file.bytes, { contentType: file.contentType, upsert: true });
+  if (error) throw new Error(`Upload failed: ${error.message}`);
+  const { data: pub } = admin.storage.from("pin-images").getPublicUrl(path);
+
+  await pool.query(
+    `UPDATE organic.designs
+        SET asset_path = $2,
+            filename = $3,
+            route = 'DIRECT'::organic.design_route,
+            qc_status = 'PENDING'::organic.qc_status,
+            qc_notes = NULL
+      WHERE id = $1`,
+    [designId, pub.publicUrl, wanted]
+  );
+  return { ok: true, asset_path: pub.publicUrl, filename: wanted };
 }
 
 /** P4.2.10 — copy QC. */

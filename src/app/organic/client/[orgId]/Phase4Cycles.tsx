@@ -709,15 +709,25 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
           className="px-3 py-1 rounded-md bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-50">
           {generating ? "Generating…" : cycle.waterfall ? "Regenerate 16-pin waterfall" : "Generate 16-pin waterfall"}
         </button>
-        {cycle.waterfall && cycle.waterfall.status === "PLANNING" && (
+        {/* Offered while ANY pin is still unqueued, not only while the
+            waterfall is PLANNING. Queueing is partial by design — a pin whose
+            board does not exist on Pinterest yet is held back with a reason,
+            and once that board is created the rest has to be queueable
+            without regenerating the plan. Gating on the waterfall's status
+            would have hidden the button at exactly that moment. */}
+        {cycle.waterfall && (
           <button type="button" onClick={queue} disabled={queueing || generating}
             className="px-3 py-1 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
-            {queueing ? "Queueing…" : "Save & queue these 16 pins"}
+            {queueing
+              ? "Queueing…"
+              : cycle.waterfall.status === "PLANNING"
+                ? "Save & queue these 16 pins"
+                : "Queue whatever is still waiting"}
           </button>
         )}
         {cycle.waterfall && cycle.waterfall.status === "RUNNING" && (
           <span className="text-[11px] text-emerald-700">
-            Queued — the cron publishes each pin on its date.
+            Running — the cron publishes each queued pin on its date.
           </span>
         )}
         {err && <span className="text-red-600 break-words">{err}</span>}

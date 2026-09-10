@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Play, ExternalLink, Check, AlertTriangle, RefreshCw } from "lucide-react";
@@ -26,6 +26,10 @@ import type { CycleView } from "@/lib/organic/phase4";
 export type ActionKind =
   /** Runs here, now. */
   | { kind: "run"; label: string; action: string; describe: string }
+  // Generate the four designs OR upload them. Both routes are the method's:
+  // designs.route has carried DIRECT since the first migration, and the build
+  // reference sends accounts with usable lifestyle material down it.
+  | { kind: "designs"; label: string; action: string; describe: string }
   /** The system already did it; this shows the result. */
   | { kind: "readout"; describe: string; href?: string; hrefLabel?: string }
   /** Done in the cycle panel above, which already has the control. */
@@ -70,8 +74,8 @@ export const PHASE4_ACTIONS: Record<string, ActionKind> = {
     describe: "Direct where the client has usable lifestyle material, AI where they do not. The brief and the image prompt both branch on it." },
   "P4.2.3": { kind: "run", label: "Generate the brief", action: "brief",
     describe: "Builds from the grid, the brand book, the taste graph and what has already won on this account." },
-  "P4.2.4": { kind: "run", label: "Generate the four designs", action: "generate_designs",
-    describe: "One image per design, each from its own prompt built from the visual worlds, the palette and the grid — so the four are genuinely distinct rather than four samples of one prompt. SAVE pins come out 2:3, CLICK pins 9:16. Takes a couple of minutes." },
+  "P4.2.4": { kind: "designs", label: "Generate the four designs", action: "generate_designs",
+    describe: "One image per design, each from its own prompt built from the visual worlds, the palette and the grid — so the four are genuinely distinct rather than four samples of one prompt. SAVE pins come out 2:3, CLICK pins 9:16. Takes a couple of minutes. Designs made elsewhere — Canva, a shoot, the client\u2019s own material — are uploaded per design instead; the file is renamed to the SOP name on the way in, because Pinterest reads it out of the URL." },
   "P4.2.5": { kind: "run", label: "Cut the micro-crops", action: "generate_crops",
     describe: "Copy variant A keeps the original; B, C and D each take 96% of the frame from a different corner and scale back. That makes all four pins off one design read as four images while sharing one copy set — which is why four copy sets per URL is right and sixteen would be waste." },
   "P4.2.6": { kind: "readout",
@@ -121,6 +125,10 @@ export function Phase4Action({
 
         {spec.kind === "run" && (
           <RunButton orgId={orgId} urlId={cycle.url_id} action={spec.action} label={spec.label} />
+        )}
+
+        {spec.kind === "designs" && (
+          <DesignsPanel orgId={orgId} urlId={cycle.url_id} action={spec.action} label={spec.label} />
         )}
 
         {spec.kind === "panel" && (
@@ -217,6 +225,137 @@ function RunButton({
 
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * P4.2.4 — the four designs: generate them, or put your own in.
+ *
+ * Krea was the only way an image could ever reach a design, which made the
+ * whole chain conditional on a funded balance and on the AI route being right
+ * for that account. It is not always: `designs.route` has carried DIRECT
+ * since the first migration and plenty of accounts draw in Canva. The file
+ * gets the SOP name on the way in — Pinterest reads it out of the URL, so an
+ * export called "Untitled-3.png" would throw that signal away.
+ */
+function DesignsPanel({
+  orgId, urlId, action, label,
+}: { orgId: string; urlId: string; action: string; label: string }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [rows, setRows] = useState<CycleAsset[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/organic/phase4/${orgId}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "cycle_assets", url_id: urlId }), redirect: "error",
+      });
+      const data = await res.json() as { assets?: CycleAsset[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setRows(data.assets ?? []);
+    } catch (e) { setErr((e as Error).message); }
+  }, [orgId, urlId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function upload(designId: string, file: File) {
+    setErr(null); setNote(null); setBusy(designId);
+    try {
+      const form = new FormData();
+      form.append("design_id", designId);
+      form.append("file", file);
+      const res = await fetch(`/api/organic/phase4/${orgId}/design-image`, { method: "POST", body: form });
+      const data = await res.json() as { filename?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setNote(`Uploaded as ${data.filename} — design QC is back to PENDING.`);
+      await load();
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  async function generate() {
+    setErr(null); setNote(null); setBusy("all");
+    try {
+      const res = await fetch(`/api/organic/phase4/${orgId}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, url_id: urlId }), redirect: "error",
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      await load();
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  const missing = (rows ?? []).filter((r) => !r.asset_path).length;
+
+  return (
+    <div className="space-y-3">
+      {rows == null ? (
+        <p className="text-sm text-muted-foreground">Loading the designs…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No designs yet — generate the waterfall first (P4.3.1). It creates the four.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((d) => (
+            <div key={d.design_id} className="flex items-center gap-3 rounded-[10px] border border-o-hairline bg-o-surface px-3 py-2">
+              {d.asset_path ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={d.asset_path} alt={`Design ${d.design_number}`}
+                  className="w-12 h-16 object-cover rounded border border-o-hairline" />
+              ) : (
+                <div className="w-12 h-16 rounded border border-dashed border-o-hairline flex items-center justify-center text-[10px] text-muted-foreground">
+                  empty
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">
+                  D{d.design_number} · {d.intent}
+                  <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                    {d.route === "DIRECT" ? "uploaded" : d.asset_path ? "generated" : "no image yet"} · QC {d.design_qc}
+                  </span>
+                </div>
+                <div className="text-[11px] text-muted-foreground truncate">{d.filename ?? "—"}</div>
+              </div>
+              <label className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-o-hairline hover:bg-o-sunk cursor-pointer">
+                {busy === d.design_id ? "Uploading…" : d.asset_path ? "Replace" : "Upload"}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                  disabled={busy !== null}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) void upload(d.design_id, f);
+                  }} />
+              </label>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" onClick={generate} disabled={busy !== null || (rows?.length ?? 0) === 0}
+          className="o-btn o-btn-primary">
+          {busy === "all" ? "Generating…" : label}
+        </button>
+        {rows && rows.length > 0 && (
+          <span className="text-[11px] text-muted-foreground">
+            {missing === 0
+              ? "All four have an image — cut the micro-crops next (P4.2.5)."
+              : `${missing} of ${rows.length} still without an image. Generating replaces every design; uploading touches only that one.`}
+          </span>
+        )}
+      </div>
+      {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
+      {note && <p className="text-xs text-emerald-700">{note}</p>}
+    </div>
+  );
+}
 
 interface CycleAsset {
   design_id: string;
