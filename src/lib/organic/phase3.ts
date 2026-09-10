@@ -990,12 +990,101 @@ export async function saveBoardDescriptions(orgId: string, rows: DescriptionRow[
   return { updated: rows.length, recomputed: await recomputeAfter(orgId) };
 }
 
+/**
+ * A board that already exists on Pinterest is not "planned".
+ *
+ * Boards imported from the main dashboard arrive with `origin = MIGRATED`,
+ * their real `pinterest_board_id`, and status PLANNED — which means "designed,
+ * not created yet". Everything downstream reads that status: topic_coverage
+ * counts only SECRET/PROTECTED/PUBLIC, the creation scheduler queues
+ * PLANNED, and "create boards today" would have made a duplicate of a board
+ * the client already has. Fit Cherries had 28 of them, and nine were due.
+ *
+ * So the status is reconciled against the account itself, not guessed: one
+ * `getBoards()` call, and each row takes the privacy Pinterest reports. A row
+ * whose board is NOT on the account any more has its id cleared — it was
+ * deleted, so it really is planned again, and the schedule can pick it up.
+ *
+ * It changes no coverage on its own: a migrated board carries no topic, and
+ * coverage is counted per topic. What it fixes is the truth of the column.
+ */
+export async function adoptExistingBoards(
+  orgId: string,
+  opts: { skipRemote?: boolean } = {}
+): Promise<{ adopted: number; vanished: number; unreachable: string | null }> {
+  const pool = organicPool();
+  const claimed = await pool.query<{ id: string; pinterest_board_id: string; name: string }>(
+    `SELECT id::text, pinterest_board_id, name
+       FROM organic.boards
+      WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
+        AND pinterest_board_id IS NOT NULL`,
+    [orgId]
+  );
+  if (claimed.rowCount === 0) return { adopted: 0, vanished: 0, unreachable: null };
+  if (opts.skipRemote) return { adopted: 0, vanished: 0, unreachable: "skipped (dry run)" };
+
+  const orgRes = await pool.query<{ token_enc: string | null }>(
+    `SELECT pinterest_access_token_encrypted AS token_enc FROM public.organizations WHERE id = $1`,
+    [orgId]
+  );
+  const enc = orgRes.rows[0]?.token_enc;
+  // No token is not a reason to guess: leaving the rows alone keeps them out
+  // of the creation queue (the queue skips anything with an id) and says so.
+  if (!enc) return { adopted: 0, vanished: 0, unreachable: "no Pinterest token on the organisation" };
+
+  // Privacy AND pin count, both from the account. The pin count is not
+  // decoration: `public_needs_seeding` holds a method-built board back from
+  // PUBLIC until it has ten pins, and a board we are adopting should carry
+  // the number it really has rather than the 0 the import left behind.
+  let live: Map<string, { privacy: "PUBLIC" | "SECRET" | "PROTECTED"; pins: number }>;
+  try {
+    const client = new PinterestClient(decrypt(enc), false);
+    const remote = await client.getBoards();
+    live = new Map(remote.items.map((b) => [b.id, { privacy: b.privacy, pins: b.pin_count ?? 0 }]));
+  } catch (e) {
+    return { adopted: 0, vanished: 0, unreachable: (e as Error).message };
+  }
+
+  let adopted = 0, vanished = 0;
+  for (const b of claimed.rows) {
+    const found = live.get(b.pinterest_board_id);
+    if (found) {
+      // `created_on_pinterest` is deliberately left alone. It means "we made
+      // this board, on this day", and check_board_pace() counts it to hold
+      // the method to three new boards a day (module 4). Stamping today onto
+      // a board that has been on the account since August both lies and trips
+      // that trigger — adopting is not creating.
+      await pool.query(
+        `UPDATE organic.boards
+            SET status = $1::organic.board_status,
+                pin_count = $2
+          WHERE id = $3`,
+        [found.privacy, found.pins, b.id]
+      );
+      adopted++;
+    } else {
+      await pool.query(
+        `UPDATE organic.boards SET pinterest_board_id = NULL WHERE id = $1`, [b.id]);
+      vanished++;
+    }
+  }
+  return { adopted, vanished, unreachable: null };
+}
+
 /** P3.3.4 — schedule planned creation, max 3 per day, starting tomorrow. */
 export async function generateCreationSchedule(orgId: string, timeSpentMin: number) {
   const pool = organicPool();
+  // A board that already carries a pinterest_board_id exists on the account
+  // and must never be queued for creation. Fit Cherries, 10-09-2026: 28
+  // boards imported from the main dashboard (origin MIGRATED) sat at status
+  // PLANNED with their real Pinterest ids on them, so the scheduler queued
+  // them and the next "create boards today" would have made a second
+  // "On-Sale (NL & BE)" on the client's own account.
   const boards = await pool.query<{ id: string; name: string }>(
     `SELECT id::text, name FROM organic.boards
       WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
+        AND pinterest_board_id IS NULL
+        AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
       ORDER BY created_at`,
     [orgId]
   );
@@ -1022,11 +1111,21 @@ export async function generateCreationSchedule(orgId: string, timeSpentMin: numb
 export async function createBoardsToday(orgId: string, timeSpentMin: number, opts: { dryRun?: boolean } = {}) {
   const pool = organicPool();
   const today = new Date().toISOString().slice(0, 10);
+  // Adopt first: anything already on the account gets its real status and
+  // leaves the queue, so it cannot be created a second time.
+  const adopted = await adoptExistingBoards(orgId, { skipRemote: opts.dryRun });
+
   const due = await pool.query<{ id: string; name: string; description: string | null }>(
     `SELECT id::text, name, description
        FROM organic.boards
       WHERE org_id = $1
         AND status = 'PLANNED'::organic.board_status
+        AND pinterest_board_id IS NULL
+        -- Never a board that came from the main dashboard. Those are the
+        -- client's own boards; if one has been deleted on Pinterest since the
+        -- import, that was their decision, and re-creating "On-Sale France"
+        -- under a method that never designed it is not a fix.
+        AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
         AND planned_creation_date <= $2::date
       ORDER BY planned_creation_date, name
       LIMIT 3`,
@@ -1079,8 +1178,10 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
     }
   }
   await completeTaskByDefinition({ orgId, taskId: "P3.3.5", timeSpentMin,
-    notes: `${opts.dryRun ? "DRY-RUN " : ""}Created ${created} boards${failed ? `, ${failed} failed: ${errors.join("; ")}` : ""}.` });
-  return { created, failed, errors, recomputed: await recomputeAfter(orgId) };
+    notes: `${opts.dryRun ? "DRY-RUN " : ""}Created ${created} boards` +
+      `${adopted.adopted ? `, adopted ${adopted.adopted} that already existed` : ""}` +
+      `${failed ? `, ${failed} failed: ${errors.join("; ")}` : ""}.` });
+  return { created, failed, errors, ...adopted, recomputed: await recomputeAfter(orgId) };
 }
 
 // ---------- P3.3.6 seed selection (real) ------------------------------------

@@ -80,8 +80,9 @@ export async function loadStatusContext(orgId: string) {
     pool.query<Precondition>(
       `SELECT task_id, requires_task_id, requires_check FROM organic.task_preconditions`
     ),
-    pool.query<{ is_covered: boolean | null }>(
-      `SELECT is_covered FROM organic.topic_coverage WHERE org_id = $1`,
+    pool.query<{ topic_name: string; active_boards: number; planned_boards: number; is_covered: boolean | null }>(
+      `SELECT topic_name, active_boards, planned_boards, is_covered
+         FROM organic.topic_coverage WHERE org_id = $1`,
       [orgId]
     ),
     pool.query<{ id: string }>(
@@ -96,10 +97,23 @@ export async function loadStatusContext(orgId: string) {
   const topics = topicsRes.rows;
   const urls = urlsRes.rows;
 
-  // "Every topic covered" — vacuously true when there are no topics yet, but
-  // then any task that depends on topic_coverage is by definition unmet
-  // (there's nothing covered). Treat empty as NOT covered.
-  const topicsAllCovered = topics.length > 0 && topics.every((t) => t.is_covered === true);
+  // ONE covered topic is enough to start selecting URLs, not all of them.
+  //
+  // It used to demand every topic, and that is a rule the method does not
+  // have: coverage gates phase 4 *for what sits under that topic*, which the
+  // per-URL gate in organic.urls_selectable already enforces. Store-wide it
+  // means one leftover topic holds up everything — Fit Cherries, 10-09-2026,
+  // had six topics of which "Fashion" (no boards at all) and "Lingerie" (one)
+  // are strays from the keyword work with no URLs under them. Even after
+  // building out the three topics she actually works on, step 4.1 would have
+  // stayed blocked on two topics nobody was ever going to use.
+  const coveredTopics = topics.filter((t) => t.is_covered === true);
+  const hasCoveredTopic = coveredTopics.length > 0;
+  // What is actually missing, so the reason can say it. A topic whose boards
+  // are designed but not created on Pinterest is a different job from a topic
+  // that is short of boards on paper — see checkUrlReadiness(), same split.
+  const boardsPlanned = topics.reduce((n, t) => n + Number(t.planned_boards ?? 0), 0);
+  const boardsLive = topics.reduce((n, t) => n + Number(t.active_boards ?? 0), 0);
   const hasSelectableUrl = urls.length > 0;
 
   // Keyed on cycle AND task, because a phase-4 task exists once per cycle and
@@ -120,9 +134,12 @@ export async function loadStatusContext(orgId: string) {
     tasks,
     statusByKey,
     precondsByTaskId,
-    topicsAllCovered,
+    hasCoveredTopic,
+    coveredTopicsCount: coveredTopics.length,
     hasSelectableUrl,
     topicsCount: topics.length,
+    boardsPlanned,
+    boardsLive,
   };
 }
 
@@ -152,16 +169,24 @@ export function evaluateBlockReasons(
         reasons.push(`Waiting on task ${c.requires_task_id} (${depStatus ?? "not instantiated"})`);
       }
     } else if (c.requires_check === "topic_coverage") {
-      if (!ctx.topicsAllCovered) {
+      if (!ctx.hasCoveredTopic) {
+        // "Not covered" is three different jobs and naming the wrong one
+        // sends somebody to a screen where there is nothing to do. Same
+        // split as checkUrlReadiness().
         reasons.push(
           ctx.topicsCount === 0
-            ? "No topics defined yet"
-            : "Not every topic is covered yet"
+            ? "No topics defined yet — a URL is covered by the topic it sits under"
+            : ctx.boardsLive === 0 && ctx.boardsPlanned > 0
+              ? `${ctx.boardsPlanned} boards are designed and none created on Pinterest yet — create them (P3.3.4). Coverage counts boards that exist on the account, not boards on paper.`
+              : "No topic has five boards live on Pinterest yet — build them out (P3.3.2)"
         );
       }
     } else if (c.requires_check === "urls_selectable") {
       if (!ctx.hasSelectableUrl) {
-        reasons.push("No selectable URLs available yet");
+        reasons.push(
+          "No URL passes the gate yet — a URL needs a topic with five live boards and four boards of its own. " +
+          "A URL that cannot reach that can still be started from the cycle panel with a reason."
+        );
       }
     } else if (c.requires_check) {
       reasons.push(`Unknown precondition: ${c.requires_check}`);
