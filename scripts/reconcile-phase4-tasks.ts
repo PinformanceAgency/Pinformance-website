@@ -24,7 +24,7 @@ import { completeCycleTask } from "../src/lib/organic/phase4";
 const DRY = process.env.DRY_RUN === "1";
 
 interface Row {
-  org_id: string; store: string; cycle: string; url_name: string;
+  org_id: string; store: string; cycle: string; url_name: string; url_id: string;
   designs: number; met_beeld: number; met_titel: number;
   design_qc: number; copy_qc: number; pins: number; pins_met_beeld: number;
 }
@@ -61,14 +61,31 @@ async function main() {
          FROM organic.pins
         WHERE waterfall_id = $1 AND status <> 'CANCELLED'::organic.pin_status`, [w.id]);
     rows.rows.push({
-      org_id: w.org_id, store: w.store, cycle: `URL-${w.url_id.slice(0, 8)}`, url_name: w.url_name,
+      org_id: w.org_id, store: w.store, cycle: `URL-${w.url_id.slice(0, 8)}`,
+      url_name: w.url_name, url_id: w.url_id,
       ...d.rows[0], ...p.rows[0],
     });
   }
 
   let closed = 0;
   for (const r of rows.rows) {
+    // De opzetstappen: boards en keywords hangen aan de URL, niet aan de
+    // waterfall, dus die worden apart geteld.
+    const setup = (await pool.query<{ boards: number; kws: number; overlay: number }>(
+      `SELECT (SELECT COUNT(*)::int FROM organic.url_boards WHERE url_id = $1)                    AS boards,
+              (SELECT COUNT(*)::int FROM organic.url_keywords WHERE url_id = $1)                  AS kws,
+              (SELECT COUNT(*)::int FROM organic.url_keywords WHERE url_id = $1 AND is_overlay)   AS overlay`,
+      [r.url_id]
+    )).rows[0];
+
     const done: Array<[string, boolean, string]> = [
+      // De cycle bestaat, dus de URL is gekozen -- dat is precies wat deze
+      // twee taken vragen.
+      ["P4.1.1", true, "de URL komt uit de pool"],
+      ["P4.1.4", true, "de URL is voor deze cycle gekozen"],
+      ["P4.1.6", setup.kws > 0, `${setup.kws} keywords toegewezen`],
+      ["P4.1.7", setup.boards >= 4, `${setup.boards} boards toegewezen`],
+      ["P4.1.8", setup.overlay > 0, `${setup.overlay} overlay-termen gemarkeerd`],
       ["P4.2.4", r.designs > 0 && r.met_beeld >= r.designs, `${r.met_beeld}/${r.designs} designs met een beeld`],
       ["P4.2.5", r.pins > 0 && r.pins_met_beeld >= r.pins, `${r.pins_met_beeld}/${r.pins} pins met een beeld`],
       ["P4.2.7", r.designs > 0 && r.design_qc >= r.designs, `${r.design_qc}/${r.designs} designs beoordeeld`],

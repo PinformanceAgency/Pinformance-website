@@ -131,6 +131,14 @@ export async function startCycleForUrl(
       [orgId, task_id, cycle]
     );
   }
+  // Starting the cycle IS the selection. P4.1.1 is the URL pool and P4.1.4 is
+  // "this month's URLs" — both live inside a cycle that exists BECAUSE a URL
+  // was picked out of that pool, so they are done the moment it exists.
+  // Leaving them open is what put "Select URLs · BLOCKED" on two cycles whose
+  // URLs had already been selected.
+  await completePhase4Task(orgId, "P4.1.1", cycle, 0, `${g.name} came out of the URL pool.`);
+  await completePhase4Task(orgId, "P4.1.4", cycle, 0, `${g.name} selected for this cycle.`);
+
   await recomputeAfter(orgId);
   return {
     cycle,
@@ -339,6 +347,20 @@ export async function assignBoardsToUrl(urlId: string, boardIds: string[]): Prom
       [urlId, boardIds[i], i]
     );
   }
+  // Picking the boards IS P4.1.7. Four is what the gate asks for; fewer is a
+  // deliberate choice the deviation panel reports, so it is not "done".
+  const orgId = await orgIdForUrl(urlId);
+  if (orgId) {
+    await recordCycleWork(orgId, urlId, "P4.1.7", boardIds.length >= 4,
+      `${boardIds.length} boards assigned.`);
+  }
+}
+
+/** The store a URL belongs to — the setup controls are called with a URL. */
+async function orgIdForUrl(urlId: string): Promise<string | null> {
+  const r = await organicPool().query<{ org_id: string }>(
+    `SELECT org_id::text FROM organic.urls WHERE id = $1`, [urlId]);
+  return r.rows[0]?.org_id ?? null;
 }
 
 /**
@@ -368,6 +390,18 @@ export async function assignKeywordsToUrl(
        VALUES ($1, $2, $3, $4)`,
       [urlId, kid, kid === primaryId, overlay.has(kid)]
     );
+  }
+  // Confirming the keywords IS P4.1.6, and marking the overlay hooks is
+  // P4.1.8 — a separate task because it is a separate decision, and one that
+  // is frequently skipped. It only closes when something was actually marked;
+  // the design brief falls back to the first long-tail terms otherwise, and
+  // "the fallback ran" is not the same as "somebody chose".
+  const orgId = await orgIdForUrl(urlId);
+  if (orgId) {
+    await recordCycleWork(orgId, urlId, "P4.1.6", keywordIds.length > 0,
+      `${keywordIds.length} keywords assigned, one primary.`);
+    await recordCycleWork(orgId, urlId, "P4.1.8", overlay.size > 0,
+      `${overlay.size} overlay term(s) marked.`);
   }
 }
 
