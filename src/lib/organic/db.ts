@@ -81,20 +81,30 @@ export function organicPool(): Pool {
 
   const cs = organicConnectionString();
 
-  // Still modest per process. Transaction mode removes the cliff, it does
-  // not make an idle socket free — and the screens fan out across five or
-  // six aggregates at a time, which four connections serve without
-  // queueing anything worth noticing.
+  // Sized to how the screens actually fan out, which is wider than this once
+  // assumed. The phase-4 page awaits TWELVE aggregates in one Promise.all,
+  // and several of those fan out again — loadAccountBrief alone fires
+  // fourteen queries at once. On four connections that is a queue, and the
+  // queue is what the operator sees: pg rejects a wait longer than
+  // connectionTimeoutMillis with "timeout exceeded when trying to connect",
+  // the server component throws, and the whole screen becomes the error
+  // boundary. Measured 10-09-2026 on Fit Cherries: the page took 8.2s on two
+  // connections while the same loaders cost 14s of pure round-trip serially,
+  // i.e. it was latency-bound and starved, not slow.
+  //
+  // Transaction mode is what makes this safe: a client connection there is
+  // multiplexed onto a server connection per statement, so the cap is in the
+  // hundreds rather than the 15 that session mode allows for the whole
+  // project. See organicConnectionString().
   const isDev = process.env.NODE_ENV !== "production";
 
   const created = new Pool({
     connectionString: cs,
     ssl: { rejectUnauthorized: false },
-    max: isDev ? 2 : 4,
-    // Hand a connection back promptly. Screens that fan out across five
-    // aggregates queue on the pool rather than opening five sockets, and
-    // an idle one should not sit against the pooler's cap. Short in dev so
-    // an abandoned server releases its share quickly.
+    max: isDev ? 8 : 16,
+    // Hand a connection back promptly: an idle socket should not sit against
+    // the pooler's cap. Short in dev so an abandoned server releases its
+    // share quickly.
     idleTimeoutMillis: isDev ? 4_000 : 10_000,
     connectionTimeoutMillis: 10_000,
     statement_timeout: 30_000,
@@ -110,5 +120,63 @@ export function organicPool(): Pool {
   });
 
   holder[POOL_KEY] = created;
-  return created;
+  return withConnectionRetry(created);
+}
+
+/**
+ * Errors that mean the statement never reached Postgres.
+ *
+ * Serverless is the reason this matters. An instance freezes between
+ * invocations and its sockets die quietly on the other side; the next
+ * request picks up a connection that is already gone, or waits out
+ * connectionTimeoutMillis for one that will never come. pg reports that as
+ * "timeout exceeded when trying to connect" or "Connection terminated", the
+ * server component throws, and the whole screen becomes the error boundary —
+ * reported as happening several times a day, with nothing wrong except a cold
+ * socket.
+ *
+ * Only failures from BEFORE the statement ran are listed. A query timeout is
+ * deliberately absent: the statement may well have executed, and retrying an
+ * INSERT that already landed is a worse failure than the one being fixed.
+ */
+function isDeadConnection(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string })?.code;
+  return (
+    /timeout exceeded when trying to connect/i.test(msg) ||
+    /Connection terminated/i.test(msg) ||
+    /Client has encountered a connection error/i.test(msg) ||
+    /server closed the connection unexpectedly/i.test(msg) ||
+    /terminating connection due to administrator command/i.test(msg) ||
+    code === "ECONNRESET" || code === "EPIPE" || code === "ETIMEDOUT" ||
+    code === "57P01" || code === "08006" || code === "08003"
+  );
+}
+
+/**
+ * One retry, for a statement that demonstrably never ran.
+ *
+ * Wrapped on the pool rather than added at four hundred call sites, and only
+ * around the promise form — the callback overload is not used anywhere in the
+ * organic app and silently changing its semantics would be worse than leaving
+ * it alone.
+ */
+function withConnectionRetry(pool: Pool): Pool {
+  const holder = pool as Pool & { __retryWrapped?: boolean };
+  if (holder.__retryWrapped) return pool;
+  const native = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (pool as any).query = async (...args: unknown[]) => {
+    if (typeof args[args.length - 1] === "function") return native(...args);
+    try {
+      return await native(...args);
+    } catch (err) {
+      if (!isDeadConnection(err)) throw err;
+      console.warn("[organic] dead connection, retrying once:", (err as Error).message);
+      return await native(...args);
+    }
+  };
+  holder.__retryWrapped = true;
+  return pool;
 }
