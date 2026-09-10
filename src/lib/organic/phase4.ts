@@ -1096,6 +1096,29 @@ async function recordCycleWork(
   await completeCycleTask(orgId, `URL-${urlId.slice(0, 8)}`, taskId, 0, note);
 }
 
+/**
+ * The waterfall a URL is working on right now.
+ *
+ * Every URL-scoped control has to go through this. Regenerating supersedes
+ * rather than replaces, so a URL accumulates one ABANDONED waterfall per
+ * regeneration, each with its own four designs and sixteen (cancelled) pins.
+ * A query that joins pins or designs to `w.url_id` without a status filter
+ * therefore picks up every plan that URL ever had: Fit Cherries' "Bhs" had
+ * eight waterfalls, and "cut the micro-crops" answered *"128 pin(s) have no
+ * design image yet"* on a cycle whose sixteen pins were fine. The same shape
+ * would have sent 32 designs to Krea instead of four.
+ */
+async function liveWaterfallId(orgId: string, urlId: string): Promise<string | null> {
+  const r = await organicPool().query<{ id: string }>(
+    `SELECT id::text FROM organic.waterfalls
+      WHERE org_id = $1 AND url_id = $2
+        AND status <> 'ABANDONED'::organic.waterfall_status
+      ORDER BY created_at DESC LIMIT 1`,
+    [orgId, urlId]
+  );
+  return r.rows[0]?.id ?? null;
+}
+
 /** The URL a design belongs to — the design-scoped controls only get an id. */
 async function urlIdForDesign(orgId: string, designId: string): Promise<string | null> {
   const r = await organicPool().query<{ url_id: string }>(
@@ -2382,6 +2405,10 @@ export async function generateDesignImages(
   opts: { onlyRejected?: boolean } = {}
 ) {
   const pool = organicPool();
+  const liveId = await liveWaterfallId(orgId, urlId);
+  if (!liveId) {
+    throw new Error("No waterfall for this URL yet — generate it first (P4.3.1)");
+  }
   const designs = await pool.query<{
     id: string; design_number: number; intent: string; route: string;
     qc_status: string; qc_notes: string | null; filename: string | null;
@@ -2389,11 +2416,10 @@ export async function generateDesignImages(
     `SELECT d.id::text, d.design_number, d.intent::text AS intent, d.route::text AS route,
             d.qc_status::text AS qc_status, d.qc_notes, d.filename
        FROM organic.designs d
-       JOIN organic.waterfalls w ON w.id = d.waterfall_id
-      WHERE w.org_id = $1 AND w.url_id = $2
-        AND ($3::boolean IS NOT TRUE OR d.qc_status = 'REJECTED'::organic.qc_status)
+      WHERE d.waterfall_id = $1
+        AND ($2::boolean IS NOT TRUE OR d.qc_status = 'REJECTED'::organic.qc_status)
       ORDER BY d.design_number`,
-    [orgId, urlId, opts.onlyRejected ?? false]
+    [liveId, opts.onlyRejected ?? false]
   );
   if (designs.rowCount === 0) {
     throw new Error(
@@ -2508,6 +2534,11 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
   const { createAdminClient } = await import("../supabase/admin");
   const admin = createAdminClient();
 
+  const liveId = await liveWaterfallId(orgId, urlId);
+  if (!liveId) {
+    throw new Error("No waterfall for this URL yet — generate it first (P4.3.1)");
+  }
+
   const pins = await pool.query<{
     pin_id: string; design_id: string; design_number: number;
     copy_variant: string; asset_path: string | null; filename: string | null;
@@ -2516,10 +2547,10 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
             p.copy_variant, d.asset_path, d.filename
        FROM organic.pins p
        JOIN organic.designs d ON d.id = p.design_id
-       JOIN organic.waterfalls w ON w.id = p.waterfall_id
-      WHERE w.org_id = $1 AND w.url_id = $2
+      WHERE p.waterfall_id = $1
+        AND p.status <> 'CANCELLED'::organic.pin_status
       ORDER BY d.design_number, p.copy_variant`,
-    [orgId, urlId]
+    [liveId]
   );
   if (pins.rowCount === 0) throw new Error("No pins yet — generate the waterfall first (P4.3.1)");
   const missing = pins.rows.filter((p) => !p.asset_path);
@@ -2574,10 +2605,9 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
   }
 
   await pool.query(
-    `UPDATE organic.designs d SET fresh_technique = 'CROP'::organic.fresh_technique
-       FROM organic.waterfalls w
-      WHERE w.id = d.waterfall_id AND w.org_id = $1 AND w.url_id = $2`,
-    [orgId, urlId]
+    `UPDATE organic.designs SET fresh_technique = 'CROP'::organic.fresh_technique
+      WHERE waterfall_id = $1`,
+    [liveId]
   );
   return { ok: true, cropped, originals: (pins.rowCount ?? 0) - cropped };
 }
