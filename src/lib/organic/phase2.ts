@@ -654,16 +654,27 @@ export async function saveVelocity(orgId: string, p: VelocityPayload) {
 }
 
 /** P2.4.2 — 16-pin math: 1 URL yields 16 pin variants.
- *  urls_per_month = ceil((pins_per_day × 30) / 16) */
+ *  urls_per_month = floor((pins_per_day × 30) / 16), at least 1.
+ *
+ *  It rounded UP until 10-09-2026, which planned more pins than the daily
+ *  cap can publish: at 1 pin/day that is ceil(30/16) = 2 URLs = 32 pins into
+ *  30 slots, and the second waterfall of the month then fails on the daily
+ *  volume trigger depending on which day it starts. Rounding down is the
+ *  number the store can actually deliver. Same failure the paid side has
+ *  documented under "planning outruns the cap" — a backlog that looks
+ *  exactly like a broken scheduler from every screen.
+ *
+ *  Floored at one: a store that cannot manage a single URL a month is a
+ *  viability conversation, not a zero on a settings screen. */
 export const PINS_PER_URL = 16;
 
 export function computeUrlsPerMonth(pinsPerDay: number): { urls_per_month: number; explanation: string } {
   const daily = Math.max(0, pinsPerDay);
   const monthly = daily * 30;
-  const urls = Math.ceil(monthly / PINS_PER_URL);
+  const urls = Math.max(1, Math.floor(monthly / PINS_PER_URL));
   return {
     urls_per_month: urls,
-    explanation: `${daily} pins/day × 30 days ÷ ${PINS_PER_URL} pins/URL = ${(monthly / PINS_PER_URL).toFixed(2)} → ceil to ${urls} URLs/month`,
+    explanation: `${daily} pins/day × 30 days ÷ ${PINS_PER_URL} pins/URL = ${(monthly / PINS_PER_URL).toFixed(2)} → ${urls} URLs/month (rounded down to what the daily cap can publish)`,
   };
 }
 

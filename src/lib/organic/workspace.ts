@@ -4,6 +4,7 @@
  * live in phase[1-5].ts.
  */
 import { organicPool } from "./db";
+import { SCALE_UP_STEP_DAYS, SPACING_FOR_CLASS } from "./pacing";
 import { fieldsFor, visibleFields, completionHolds } from "./task-fields";
 import { recomputeStatuses } from "./status";
 
@@ -773,20 +774,46 @@ export async function updateStoreSettings(
   orgId: string, patch: Record<string, unknown>
 ): Promise<StoreSettings | null> {
   const pool = organicPool();
+  const before = await loadStoreSettings(orgId);
 
   const sets: string[] = [];
   const values: unknown[] = [orgId];
+  const put = (col: string, value: unknown, cast = "") => {
+    values.push(value);
+    sets.push(`${col} = $${values.length}${cast}`);
+  };
+
   for (const col of SETTABLE) {
     if (!(col in patch)) continue;
     const raw = patch[col];
     // "" from an empty input means "clear this", not "set empty string" —
     // and for a numeric or date column an empty string is a cast error.
     const value = raw === "" || raw === undefined ? null : raw;
-    values.push(value);
-    const cast = ENUM_COLUMN[col] ? `::${ENUM_COLUMN[col]}` : "";
-    sets.push(`${col} = $${values.length}${cast}`);
+    put(col, value, ENUM_COLUMN[col] ? `::${ENUM_COLUMN[col]}` : "");
   }
-  if (sets.length === 0) return loadStoreSettings(orgId);
+
+  // Choosing the class by hand makes it stick. recompute_account_classes()
+  // runs on every intake save and used to walk the whole table, so a
+  // deliberate choice survived only until the next store was onboarded.
+  const chosenClass = patch.account_class;
+  if (typeof chosenClass === "string" && chosenClass !== "") {
+    put("account_class_manual", true);
+    // The spacing follows the class unless the same save set it explicitly.
+    if (!("spacing_hours" in patch) && SPACING_FOR_CLASS[chosenClass]) {
+      put("spacing_hours", SPACING_FOR_CLASS[chosenClass]);
+    }
+  }
+
+  // Moving the daily target restarts its hold: the next step up is two weeks
+  // away, whichever direction this one went.
+  const newTarget = patch.daily_pin_target;
+  if (newTarget != null && newTarget !== "" && Number(newTarget) !== before?.daily_pin_target) {
+    // An expression, not a bound value: the date has to be the database's
+    // idea of today, not the Node process's timezone-shifted one.
+    sets.push(`scale_up_eligible_date = current_date + interval '${SCALE_UP_STEP_DAYS} days'`);
+  }
+
+  if (sets.length === 0) return before;
 
   await pool.query(
     `UPDATE organic.client_settings

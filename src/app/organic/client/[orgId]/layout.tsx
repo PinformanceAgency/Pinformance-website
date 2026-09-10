@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadClientHeader } from "@/lib/organic/queries";
+import { ORGANIC_DAILY_CAP } from "@/lib/organic/pacing";
 import { Label } from "@/components/organic/primitives";
 
 export const dynamic = "force-dynamic";
@@ -48,11 +49,27 @@ export default async function ClientLayout({
     );
   }
 
+  // The daily target is a step on a ramp, not a setting somebody once chose.
+  // Module 4: a new account starts at 1/day and works up to 5 over weeks —
+  // and nothing in the app ever said when that was allowed, so every store
+  // stayed on the number it was onboarded with.
+  function dailyTargetFact(h: NonNullable<typeof header>): string | null {
+    if (h.daily_pin_target == null) return null;
+    const base = `${h.daily_pin_target}/day`;
+    if (h.daily_pin_target >= ORGANIC_DAILY_CAP) return `${base} · at the ceiling`;
+    const due = h.scale_up_eligible_date;
+    if (!due) return base;
+    const today = new Date().toISOString().slice(0, 10);
+    return due <= today
+      ? `${base} · may go to ${h.daily_pin_target + 1} now`
+      : `${base} · next step ${due}`;
+  }
+
   const facts: Array<[string, string | null]> = [
     ["Niche", header.niche],
     ["Engagement", header.engagement_status],
     ["Account", header.account_class ? `${header.account_class} · every ${header.spacing_hours}h` : null],
-    ["Daily target", header.daily_pin_target != null ? String(header.daily_pin_target) : null],
+    ["Daily target", dailyTargetFact(header)],
     ["Domain", header.domain],
   ];
 

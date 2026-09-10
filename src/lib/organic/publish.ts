@@ -17,7 +17,7 @@
  *
  *   publishDuePins()     is the cron. Every quarter of an hour it takes the
  *                        pins whose date has arrived and posts them, and
- *                        that is where the caps live: the 20/day hard
+ *                        that is where the caps live: the 5/day hard
  *                        ceiling, the store's own daily target, and a
  *                        minimum gap so a day's pins do not all land at
  *                        06:00.
@@ -28,13 +28,17 @@
  * the whole account.
  */
 import { organicPool } from "./db";
+import { ORGANIC_DAILY_CAP } from "./pacing";
 import {
   pinterestClientsForOrgs,
   type PinterestAuthError,
 } from "@/lib/pinterest/for-org";
 
-/** The method's absolute ceiling. No store setting may exceed it. */
-const HARD_DAILY_CAP = 20;
+/** The method's absolute ceiling per store, per day — see pacing.ts, which
+ *  the CHECK and the check_daily_volume() trigger mirror. A ceiling is not a
+ *  target: the store's own daily_pin_target still binds first, and a new
+ *  account starts at 1 and ramps. */
+const HARD_DAILY_CAP = ORGANIC_DAILY_CAP;
 
 /** A publish attempt that should be retried rather than recorded as a failure. */
 function isTransient(message: string): boolean {

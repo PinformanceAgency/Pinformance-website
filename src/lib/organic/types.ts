@@ -110,6 +110,11 @@ export interface ClientHeader {
   account_class: string | null;
   spacing_hours: number | null;
   daily_pin_target: number | null;
+  /** From this date the daily target may take one step up (ceiling 5).
+   *  Module 4: "start with 1 pin/day, scaling to 2-5/day over weeks" — the
+   *  column existed since the first organic migration and was read by
+   *  nothing, so every new store sat at 1/day for ever. */
+  scale_up_eligible_date: string | null;
   onboarded_date: string | null;
   domain: string | null;
   phases: PhaseProgress[];

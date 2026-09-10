@@ -25,7 +25,18 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
   const t = () => Number(body.time_spent_min);
   switch (body.action) {
     case "start_cycle":
-      return P4.startCycleForUrl(orgId, String(body.url_id));
+      // `override_reason` starts a URL that does not pass the gate. The
+      // reason is required in that case and is recorded on the URL — see
+      // startCycleForUrl.
+      return P4.startCycleForUrl(orgId, String(body.url_id), {
+        overrideReason: body.override_reason == null ? null : String(body.override_reason),
+      });
+    case "propose_start":
+      return P4.proposeWaterfallStart(
+        orgId,
+        String(body.url_id),
+        body.from == null || body.from === "" ? undefined : String(body.from)
+      );
     case "candidates":
       return { candidates: await P4.candidateUrls(orgId) };
     case "seasonal":

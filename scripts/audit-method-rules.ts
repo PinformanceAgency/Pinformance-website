@@ -20,6 +20,8 @@ import { readFileSync } from "fs";
 import { Client } from "pg";
 import { productionSplit } from "../src/lib/organic/brief";
 import { validateCopy } from "../src/lib/organic/phase4";
+import { ORGANIC_DAILY_CAP, SPACING_FOR_CLASS } from "../src/lib/organic/pacing";
+import { computeUrlsPerMonth } from "../src/lib/organic/phase2";
 
 const rows: Array<{ rule: string; ok: boolean; found: string }> = [];
 const check = (rule: string, ok: boolean, found: string) => rows.push({ rule, ok, found });
@@ -114,10 +116,72 @@ const check = (rule: string, ok: boolean, found: string) => rows.push({ rule, ok
     wrong.length === 0,
     pacing.rows.map((r) => `${r.account_class} ${r.spacing_hours}h x${r.n}`).join(", ") || "no stores");
 
+  // The ceiling exists in three places — a TypeScript constant, a CHECK and
+  // the insert trigger — and a ceiling that disagrees with itself holds only
+  // until the one call site nobody updated. All three are asserted, not just
+  // the data.
   const overCap = await c.query<{ n: string }>(
-    `SELECT COUNT(*)::text AS n FROM organic.client_settings WHERE daily_pin_target > 20`);
-  check("Absolute ceiling 20 pins/day", Number(overCap.rows[0].n) === 0,
-    `${overCap.rows[0].n} store(s) above 20`);
+    `SELECT COUNT(*)::text AS n FROM organic.client_settings WHERE daily_pin_target > $1`,
+    [ORGANIC_DAILY_CAP]);
+  check(`Absolute ceiling ${ORGANIC_DAILY_CAP} pins/day`, Number(overCap.rows[0].n) === 0,
+    `${overCap.rows[0].n} store(s) above ${ORGANIC_DAILY_CAP}`);
+
+  check(`daily_pin_target CHECK matches the ${ORGANIC_DAILY_CAP}/day ceiling`,
+    hasConstraint("client_settings", new RegExp(`daily_pin_target <= ${ORGANIC_DAILY_CAP}`)),
+    hasConstraint("client_settings", new RegExp(`daily_pin_target <= ${ORGANIC_DAILY_CAP}`))
+      ? "CHECK present" : "CHECK missing or on another number");
+
+  const volFn = await c.query<{ def: string }>(
+    `SELECT pg_get_functiondef(p.oid) AS def FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'organic' AND p.proname = 'check_daily_volume'`);
+  check("check_daily_volume() enforces the same ceiling",
+    new RegExp(`LEAST\\(COALESCE\\(v_target, 1\\), ${ORGANIC_DAILY_CAP}\\)`).test(volFn.rows[0]?.def ?? ""),
+    /LEAST\(COALESCE\(v_target, 1\), (\d+)\)/.exec(volFn.rows[0]?.def ?? "")?.[1] ?? "not found");
+
+  // Rounding UP planned more pins than the cap can publish: at 1/day that is
+  // ceil(30/16) = 2 URLs = 32 pins into 30 slots, and the month's second
+  // waterfall then fails on the volume trigger depending on where it starts.
+  const um = computeUrlsPerMonth(ORGANIC_DAILY_CAP);
+  check("URLs per month never exceeds what the daily cap can publish",
+    um.urls_per_month * 16 <= ORGANIC_DAILY_CAP * 30,
+    `${ORGANIC_DAILY_CAP}/day → ${um.urls_per_month} URLs = ${um.urls_per_month * 16} pins of ${ORGANIC_DAILY_CAP * 30}`);
+
+  const spacingMismatch = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM organic.client_settings
+      WHERE (account_class = 'NEW'         AND spacing_hours <> $1)
+         OR (account_class = 'ESTABLISHED' AND spacing_hours <> $2)`,
+    [SPACING_FOR_CLASS.NEW, SPACING_FOR_CLASS.ESTABLISHED]);
+  check("Spacing always matches the account class",
+    Number(spacingMismatch.rows[0].n) === 0,
+    `${spacingMismatch.rows[0].n} store(s) whose spacing contradicts their class`);
+
+  const classFn = await c.query<{ def: string }>(
+    `SELECT pg_get_functiondef(p.oid) AS def FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'organic' AND p.proname = 'recompute_account_classes'`);
+  check("A hand-picked account class survives the next intake save",
+    /WHERE NOT account_class_manual/.test(classFn.rows[0]?.def ?? ""),
+    /WHERE NOT account_class_manual/.test(classFn.rows[0]?.def ?? "")
+      ? "recompute skips manual rows" : "recompute walks the whole table");
+
+  /* ---- THE CYCLE GATE (module 4: four to five boards per URL) ------ */
+  const gate = await c.query<{ def: string }>(
+    `SELECT pg_get_viewdef('organic.urls_selectable'::regclass, true) AS def`);
+  const gateDef = gate.rows[0]?.def ?? "";
+  check("A URL needs four assigned boards, not five",
+    /board_count, 0::bigint\) >= 4/.test(gateDef),
+    /board_count, 0::bigint\) >= (\d+)/.exec(gateDef)?.[1] ?? "not found");
+  check("The gate can be overridden with a reason",
+    /gate_override_at IS NOT NULL/.test(gateDef),
+    /gate_override_at/.test(gateDef) ? "override honoured" : "no override path");
+  // The cooldown is the one condition an override may not reach: it exists so
+  // a URL's new pins do not compete with the ones still out there, and no
+  // shortage of URLs makes that safe.
+  const cooldownOutsideOverride =
+    /\(u\.cooldown_until IS NULL OR u\.cooldown_until <= CURRENT_DATE\)[\s\S]{0,80}AND \(/.test(gateDef);
+  check("An override never waives the cooldown", cooldownOutsideOverride,
+    cooldownOutsideOverride ? "cooldown sits outside the override" : "cooldown can be overridden");
 
   /* ---- VOLUME CACHE (section 7) ----------------------------------- */
   const cacheCols = await c.query<{ column_name: string }>(

@@ -27,6 +27,7 @@ interface SettingsRow {
   account_class: string;
   spacing_hours: number;
   daily_pin_target: number;
+  scale_up_eligible_date: string | null;
   onboarded_date: string | null;
   domain: string | null;
 }
@@ -137,7 +138,9 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
     pool.query<SettingsRow>(
       `SELECT org_id::text, engagement_status::text AS engagement_status,
               niche, account_class::text AS account_class,
-              spacing_hours, daily_pin_target, onboarded_date, domain
+              spacing_hours, daily_pin_target,
+              scale_up_eligible_date::text AS scale_up_eligible_date,
+              onboarded_date, domain
          FROM organic.client_settings WHERE org_id = $1`,
       [orgId]
     ),
@@ -176,6 +179,7 @@ export async function loadClientHeader(orgId: string): Promise<ClientHeader | nu
     account_class: s?.account_class ?? null,
     spacing_hours: s?.spacing_hours ?? null,
     daily_pin_target: s?.daily_pin_target ?? null,
+    scale_up_eligible_date: s?.scale_up_eligible_date ?? null,
     onboarded_date: s?.onboarded_date ?? null,
     domain: s?.domain ?? null,
     phases,

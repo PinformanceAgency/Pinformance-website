@@ -126,10 +126,15 @@ export function checkBoards(
 ): Deviation[] {
   const out: Deviation[] = [];
 
-  if (chosen.length < 5) {
+  // Module 4 teaches four to five boards per URL. Four is enough to open
+  // the gate (organic.urls_selectable) and enough for the rotation to put
+  // every design in a different context, so a deviation is only raised
+  // below four — a warning that fires on a legal choice is noise, and noise
+  // is what teaches people to dismiss the whole panel.
+  if (chosen.length < 4) {
     out.push({
       kind: "structure",
-      what: `${chosen.length} board${chosen.length === 1 ? "" : "s"} selected, the method asks for at least five`,
+      what: `${chosen.length} board${chosen.length === 1 ? "" : "s"} selected, the method asks for four to five`,
       why: "Fewer boards means the same design lands in fewer contexts, which is the whole point of the sixteen-pin rotation.",
     });
   }

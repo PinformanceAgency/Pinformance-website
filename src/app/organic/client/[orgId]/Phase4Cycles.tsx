@@ -16,7 +16,13 @@ import { Phase4Sourcing } from "./Phase4Sourcing";
 
 interface OrgBoard { id: string; name: string; status: string; topic_name: string | null }
 interface OrgKeyword { id: string; term: string; volume: number | null; type: string }
-interface SelectableUrl { id: string; url: string; name: string; reason: string | null; is_seasonal: boolean; is_selectable: boolean }
+interface SelectableUrl {
+  id: string; url: string; name: string; reason: string | null; is_seasonal: boolean;
+  is_selectable: boolean;
+  /** The three conditions behind is_selectable, so the picker can say what
+   *  is missing instead of hiding the URL. */
+  cooldown_clear: boolean; topic_covered: boolean; assigned_boards: number | string;
+}
 
 const REASONS = ["SEASONAL","NEW","BEST_PERFORMER","CLIENT_REQUEST","STOCK_PUSH","AB_TEST"] as const;
 
@@ -75,20 +81,52 @@ function StartCycle({
   candidates: SelectableUrl[];
   usedUrlIds: Set<string>;
 }) {
-  const available = candidates.filter((c) => c.is_selectable && !usedUrlIds.has(c.id));
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [pick, setPick] = useState<string>("");
+  const [reason, setReason] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
+  // Everything not already in a cycle, eligible or not. Filtering the list on
+  // is_selectable is what made this box report "No URLs are currently
+  // selectable" on a store with 167 URLs, while P4.1.4's proposal on the next
+  // screen offered every one of them and started cycles happily. The gate is
+  // the method's answer, not a lock: a store with one product never reaches
+  // four boards under a covered topic and still has to be able to work.
+  const free = candidates.filter((c) => !usedUrlIds.has(c.id));
+  const eligible = free.filter((c) => c.is_selectable);
+  // A URL inside its cooldown is not offered at all. That is the one
+  // condition with no override: it exists so our own pins do not compete
+  // with each other, and no shortage of URLs makes that safe.
+  const overridable = free.filter((c) => !c.is_selectable && c.cooldown_clear);
+  const offered = [...eligible, ...overridable];
+  const picked = offered.find((c) => c.id === pick) ?? null;
+  const needsReason = picked != null && !picked.is_selectable;
+
+  function shortfall(c: SelectableUrl): string {
+    const bits = [
+      !c.topic_covered ? "topic under five live boards" : null,
+      Number(c.assigned_boards) < 4 ? `${c.assigned_boards} of 4 boards` : null,
+    ].filter(Boolean);
+    return bits.length ? bits.join(", ") : "does not pass the gate";
+  }
+
   async function start() {
     if (!pick) { setErr("Pick a URL first."); return; }
+    if (needsReason && reason.trim() === "") {
+      setErr("This URL does not pass the gate. Say why it starts anyway — one line is enough.");
+      return;
+    }
     setErr(null); setSubmitting(true);
     try {
-      await callP4(orgId, { action: "start_cycle", url_id: pick });
-      setPick("");
+      await callP4(orgId, {
+        action: "start_cycle",
+        url_id: pick,
+        ...(needsReason ? { override_reason: reason.trim() } : {}),
+      });
+      setPick(""); setReason("");
       startTransition(() => router.refresh());
     } catch (e) {
       setErr((e as Error).message);
@@ -100,27 +138,56 @@ function StartCycle({
       <button type="button" onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between text-xs text-neutral-600 hover:text-neutral-900">
         <span className="font-medium">+ Start new cycle</span>
-        <span className="text-neutral-400">{available.length} URL{available.length === 1 ? "" : "s"} eligible {open ? "▲" : "▼"}</span>
+        <span className="text-neutral-400">
+          {eligible.length} eligible
+          {overridable.length > 0 && ` · ${overridable.length} short of the gate`}
+          {" "}{open ? "▲" : "▼"}
+        </span>
       </button>
       {open && (
         <div className="mt-2 space-y-2">
-          {available.length === 0 ? (
+          {offered.length === 0 ? (
             <div className="text-[11px] text-neutral-500">
-              No URLs are currently selectable. Add or update URLs so they pass cooldown (60d), topic coverage (≥5 boards), and are assigned to ≥5 boards.
+              Every URL on this store is inside its 60-day cooldown, or there are none yet.
+              A URL in cooldown comes back on its own — the date is on the URL.
             </div>
           ) : (
             <>
-              <select value={pick} onChange={(e) => setPick(e.target.value)}
+              <select value={pick} onChange={(e) => { setPick(e.target.value); setErr(null); }}
                 className="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs bg-white">
                 <option value="">— Pick a candidate URL —</option>
-                {available.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} — {c.url}</option>
-                ))}
+                {eligible.length > 0 && (
+                  <optgroup label="Passes the gate">
+                    {eligible.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} — {c.url}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {overridable.length > 0 && (
+                  <optgroup label="Short of the gate — needs a reason">
+                    {overridable.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} — {shortfall(c)}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
+              {needsReason && picked && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-amber-700">
+                    {picked.name} is short of the gate ({shortfall(picked)}). It can still run —
+                    a one-product store never reaches four boards — but the reason stays on the cycle.
+                  </div>
+                  <input
+                    type="text" value={reason} onChange={(e) => setReason(e.target.value)}
+                    placeholder="Why start this one anyway?"
+                    className="w-full rounded-md border border-amber-300 px-2 py-1 text-xs bg-white"
+                  />
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <button type="button" onClick={start} disabled={submitting || !pick}
                   className="px-3 py-1 rounded-md bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-50">
-                  {submitting ? "Starting…" : "Start cycle"}
+                  {submitting ? "Starting…" : needsReason ? "Start anyway" : "Start cycle"}
                 </button>
                 {err && <span className="text-xs text-red-600">{err}</span>}
               </div>
@@ -161,6 +228,11 @@ function CycleCard({
             {cycle.topic_name && <span className="text-[10px] text-neutral-500">· {cycle.topic_name}</span>}
           </div>
           <div className="text-[11px] text-neutral-500 truncate mt-0.5">{cycle.url}</div>
+          {cycle.gate_override_reason && (
+            <div className="text-[11px] text-amber-700 mt-0.5">
+              Started without passing the gate: {cycle.gate_override_reason}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-32">
@@ -448,8 +520,31 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
   const [, startTransition] = useTransition();
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [generating, setGenerating] = useState(false);
+  const [proposing, setProposing] = useState(false);
+  const [proposal, setProposal] = useState<{
+    start_date: string; requested: string; shifted_days: number; cap: number;
+    spacing_days: number; blocked_dates: string[]; fits: boolean;
+  } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<{ waterfall_id: string; matrix: string[][]; pin_schedule: Array<{ seq: number; design: number; copy: string; board_index: number; date: string }>; interval_days_between_same_design: number; spacing_hours: number; superseded?: { waterfall_id: string; status: string; pins_cancelled: number; designs_discarded: number; designs_with_image: number; copy_sets_written: number } } | null>(null);
+
+  // Whether sixteen pins fit from a given day is decided by two database
+  // triggers — the daily cap and the same-URL spacing — and at 48h spacing a
+  // running waterfall occupies every other day for a month, so whether the
+  // second cycle of the month fits comes down to the parity of the date
+  // somebody picked. Better computed than discovered halfway through an
+  // insert.
+  async function propose() {
+    setErr(null); setProposing(true);
+    try {
+      const r = await callP4(orgId, {
+        action: "propose_start", url_id: cycle.url_id, from: startDate,
+      }) as unknown as NonNullable<typeof proposal>;
+      setProposal(r);
+      if (r.fits) setStartDate(r.start_date);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setProposing(false); }
+  }
 
   async function generate() {
     // Regenerating replaces the plan that is there — say so before it does.
@@ -491,12 +586,41 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
             className="ml-1 rounded border border-neutral-300 px-2 py-1 text-xs" />
         </label>
+        <button type="button" onClick={propose} disabled={proposing || generating}
+          className="px-3 py-1 rounded-md border border-neutral-300 text-xs font-medium hover:bg-neutral-50 disabled:opacity-50">
+          {proposing ? "Checking…" : "Find a date that fits"}
+        </button>
         <button type="button" onClick={generate} disabled={generating}
           className="px-3 py-1 rounded-md bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-50">
           {generating ? "Generating…" : cycle.waterfall ? "Regenerate 16-pin waterfall" : "Generate 16-pin waterfall"}
         </button>
         {err && <span className="text-red-600 break-words">{err}</span>}
       </div>
+
+      {proposal && (
+        <div className={`text-[11px] ${proposal.fits ? "text-neutral-600" : "text-red-600"}`}>
+          {!proposal.fits ? (
+            <>
+              Nothing in the next four months fits sixteen pins at {proposal.cap}/day with{" "}
+              {proposal.spacing_days}-day spacing. Raise the daily target, or finish a running
+              waterfall first.
+            </>
+          ) : proposal.shifted_days === 0 ? (
+            <>
+              {proposal.requested} fits: sixteen pins, one every {proposal.spacing_days}{" "}
+              day{proposal.spacing_days === 1 ? "" : "s"}, inside {proposal.cap}/day.
+            </>
+          ) : (
+            <>
+              Moved to <span className="font-medium">{proposal.start_date}</span> — {proposal.shifted_days}{" "}
+              day{proposal.shifted_days === 1 ? "" : "s"} later. From {proposal.requested} the run would land on{" "}
+              {proposal.blocked_dates.length} day{proposal.blocked_dates.length === 1 ? "" : "s"} that are already
+              full{proposal.blocked_dates.length > 0 && <> ({proposal.blocked_dates.slice(0, 3).join(", ")}
+              {proposal.blocked_dates.length > 3 ? ", …" : ""})</>}.
+            </>
+          )}
+        </div>
+      )}
 
       {result && (
         <div className="space-y-3">

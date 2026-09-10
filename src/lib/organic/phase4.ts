@@ -62,9 +62,67 @@ type UrlReason = typeof VALID_REASONS[number];
 
 /** Seed a fresh phase-4 cycle for one URL. Cycle key is the url_id short-hash
  *  so client_tasks can carry many URLs' cycles in parallel. */
-export async function startCycleForUrl(orgId: string, urlId: string) {
+/**
+ * Start the twenty-two phase-4 tasks for one URL.
+ *
+ * The gate (organic.urls_selectable) is the method's answer, not a lock. A
+ * store with one product never reaches four boards under a covered topic and
+ * would sit outside phase 4 for ever, so a URL that does not pass may still
+ * be started — with a reason, which is recorded on the URL and shown on the
+ * cycle from then on. The cooldown is the one condition that is never
+ * waived: it exists so our own pins do not compete with each other, and no
+ * shortage of URLs makes that safe.
+ *
+ * Until 10-09-2026 the two ways in disagreed. "Start new cycle" filtered the
+ * list on is_selectable and reported "No URLs are currently selectable";
+ * P4.1.4's proposal offered every URL and nothing checked anything, which is
+ * how Fit Cherries ran two cycles on URLs the other screen called ineligible.
+ */
+export async function startCycleForUrl(
+  orgId: string,
+  urlId: string,
+  opts: { overrideReason?: string | null } = {}
+) {
   const cycle = `URL-${urlId.slice(0, 8)}`;
   const pool = organicPool();
+
+  const gate = await pool.query<{
+    is_selectable: boolean; cooldown_clear: boolean;
+    topic_covered: boolean; assigned_boards: string; name: string;
+  }>(
+    `SELECT is_selectable, cooldown_clear, topic_covered, assigned_boards::text, name
+       FROM organic.urls_selectable WHERE id = $1 AND org_id = $2`,
+    [urlId, orgId]
+  );
+  if (gate.rowCount === 0) throw new Error("URL not found on this store");
+  const g = gate.rows[0];
+  const reason = (opts.overrideReason ?? "").trim();
+
+  if (!g.is_selectable) {
+    if (!g.cooldown_clear) {
+      throw new Error(
+        `${g.name} is still inside its cooldown. That one cannot be overridden — ` +
+        `running it now puts our own pins in competition with the ones still out there.`
+      );
+    }
+    if (!reason) {
+      const missing = [
+        !g.topic_covered ? "its topic has fewer than five boards live on Pinterest" : null,
+        Number(g.assigned_boards) < 4 ? `only ${g.assigned_boards} of four boards assigned` : null,
+      ].filter(Boolean).join(" and ");
+      throw new Error(
+        `${g.name} does not pass the gate (${missing}). It can still be started, ` +
+        `but say why in one line — that reason stays on the cycle.`
+      );
+    }
+    await pool.query(
+      `UPDATE organic.urls
+          SET gate_override_reason = $1, gate_override_at = now()
+        WHERE id = $2 AND org_id = $3`,
+      [reason, urlId, orgId]
+    );
+  }
+
   for (const task_id of PHASE_4_TASK_IDS) {
     await pool.query(
       `INSERT INTO organic.client_tasks (org_id, task_id, cycle, status)
@@ -74,7 +132,11 @@ export async function startCycleForUrl(orgId: string, urlId: string) {
     );
   }
   await recomputeAfter(orgId);
-  return { cycle, seeded: PHASE_4_TASK_IDS.length };
+  return {
+    cycle,
+    seeded: PHASE_4_TASK_IDS.length,
+    overridden: !g.is_selectable ? reason : null,
+  };
 }
 
 // ---------- URL candidate pool + selection ----------------------------------
@@ -596,6 +658,145 @@ export interface WaterfallReport {
   };
 }
 
+export interface WaterfallStartProposal {
+  /** The first date from which all sixteen pins fit. */
+  start_date: string;
+  /** What the caller asked for. */
+  requested: string;
+  /** How many days the proposal had to move. 0 = the request fits. */
+  shifted_days: number;
+  /** Pins per day this store may publish — its own target, capped at 5. */
+  cap: number;
+  spacing_days: number;
+  /** Dates inside the requested run that are already full, newest last. */
+  blocked_dates: string[];
+  /** False when nothing inside the search horizon fits at all. */
+  fits: boolean;
+}
+
+/**
+ * The first start date on which a whole sixteen-pin waterfall fits.
+ *
+ * Two database triggers decide whether a pin may exist: check_daily_volume
+ * (no more than the store's daily target on one date) and check_pin_spacing
+ * (no two pins for the same URL inside spacing_hours). Both are correct and
+ * both raise a Postgres exception in Dutch, mid-transaction, after the
+ * operator has chosen designs and copy — and whether the second waterfall of
+ * a month fits at all comes down to the parity of the date they picked, since
+ * a 48-hour store occupies every other day for thirty-two days.
+ *
+ * So the date is computed rather than guessed. Nothing here enforces
+ * anything: the triggers remain the authority, this only finds an answer they
+ * will accept and says how far it had to move to get there.
+ */
+export async function proposeWaterfallStart(
+  orgId: string,
+  urlId: string,
+  fromISO?: string
+): Promise<WaterfallStartProposal> {
+  const pool = organicPool();
+  const requested = fromISO ?? new Date().toISOString().slice(0, 10);
+
+  const [cs, taken, sameUrl] = await Promise.all([
+    pool.query<{ spacing_hours: number; daily_pin_target: number | null }>(
+      `SELECT spacing_hours, daily_pin_target FROM organic.client_settings WHERE org_id = $1`,
+      [orgId]
+    ),
+    // Every pin already on the books from this date on, per day. CANCELLED
+    // rows are ignored here exactly as the trigger ignores them.
+    pool.query<{ d: string; n: number }>(
+      `SELECT p.scheduled_date::text AS d, COUNT(*)::int AS n
+         FROM organic.pins p
+         JOIN organic.waterfalls w ON w.id = p.waterfall_id
+        WHERE w.org_id = $1 AND p.status <> 'CANCELLED'
+          AND p.scheduled_date >= $2::date
+        GROUP BY 1`,
+      [orgId, requested]
+    ),
+    pool.query<{ d: string }>(
+      `SELECT p.scheduled_date::text AS d
+         FROM organic.pins p
+         JOIN organic.waterfalls w ON w.id = p.waterfall_id
+        WHERE w.org_id = $1 AND w.url_id = $2 AND p.status <> 'CANCELLED'`,
+      [orgId, urlId]
+    ),
+  ]);
+  if (cs.rowCount === 0) throw new Error("client_settings missing");
+
+  const spacingDays = Math.max(1, Math.round(cs.rows[0].spacing_hours / 24));
+  const cap = Math.min(cs.rows[0].daily_pin_target ?? 1, 5);
+  const perDay = new Map(taken.rows.map((r) => [r.d, r.n]));
+  const urlDates = sameUrl.rows.map((r) => r.d);
+
+  const dayNumber = (iso: string) =>
+    Math.round(new Date(iso + "T00:00:00Z").getTime() / 86400000);
+  const urlDayNumbers = urlDates.map(dayNumber);
+
+  const runFor = (startISO: string) =>
+    Array.from({ length: 16 }, (_, i) => addDaysISO(startISO, i * spacingDays));
+
+  const blockedIn = (dates: string[]) =>
+    dates.filter((d) => {
+      if ((perDay.get(d) ?? 0) + 1 > cap) return true;
+      const n = dayNumber(d);
+      return urlDayNumbers.some((u) => Math.abs(u - n) < spacingDays);
+    });
+
+  // A horizon rather than a loop without end: at one pin a day with an
+  // already-full quarter ahead there may be no answer, and saying so beats
+  // proposing a date in the next decade.
+  const HORIZON_DAYS = 120;
+  const blockedAtRequest = blockedIn(runFor(requested));
+  for (let shift = 0; shift <= HORIZON_DAYS; shift++) {
+    const candidate = addDaysISO(requested, shift);
+    if (blockedIn(runFor(candidate)).length === 0) {
+      return {
+        start_date: candidate,
+        requested,
+        shifted_days: shift,
+        cap,
+        spacing_days: spacingDays,
+        blocked_dates: blockedAtRequest,
+        fits: true,
+      };
+    }
+  }
+  return {
+    start_date: requested,
+    requested,
+    shifted_days: 0,
+    cap,
+    spacing_days: spacingDays,
+    blocked_dates: blockedAtRequest,
+    fits: false,
+  };
+}
+
+/** The two scheduling triggers raise Dutch Postgres exceptions from inside a
+ *  transaction. They are the authority and stay exactly as they are; this
+ *  turns what they say into a sentence that names the day and the next step,
+ *  because "Dagplafond bereikt: 1 pins op 2026-09-14" reaches the operator as
+ *  a red line under a form they have just spent twenty minutes on. */
+export function explainSchedulingError(message: string): string | null {
+  const cap = /Dagplafond bereikt: (\d+) pins op (\d{4}-\d{2}-\d{2}).*?effective cap (\d+)/.exec(message);
+  if (cap) {
+    return (
+      `${cap[2]} is already full — this store publishes ${cap[3]} pin${cap[3] === "1" ? "" : "s"} a day ` +
+      `and that day has ${cap[1]}. Ask for a proposed start date; it finds the first one where all ` +
+      `sixteen fit, or raise the daily target if the account is ready for it.`
+    );
+  }
+  const spacing = /Spacing geschonden: deze URL heeft al een pin binnen (\d+) dagen van (\d{4}-\d{2}-\d{2})/.exec(message);
+  if (spacing) {
+    return (
+      `This URL already has a pin within ${spacing[1]} day${spacing[1] === "1" ? "" : "s"} of ${spacing[2]}. ` +
+      `The gap between two pins for the same URL is what keeps Pinterest from reading them as repetition, ` +
+      `so the waterfall has to start later — ask for a proposed start date.`
+    );
+  }
+  return null;
+}
+
 /**
  * Full waterfall: 4 designs, 4 copy sets, 16 pins with rotation.
  *
@@ -808,7 +1009,8 @@ export async function generateWaterfall(
     };
   } catch (e) {
     await client.query("ROLLBACK");
-    throw e;
+    const friendly = explainSchedulingError(e instanceof Error ? e.message : String(e));
+    throw friendly ? new Error(friendly) : e;
   } finally {
     client.release();
   }
@@ -967,6 +1169,10 @@ export interface CycleView {
   url_name: string;
   reason: string;
   reason_note: string | null;
+  /** Set when this URL was started without passing the gate. It stays on the
+   *  cycle: an override that disappears after the click is an override
+   *  nobody can weigh afterwards. */
+  gate_override_reason: string | null;
   is_seasonal: boolean;
   peak_window_start: string | null;
   peak_window_end: string | null;
@@ -1001,8 +1207,9 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
   const urlShortIds = cycleKeys.map((c) => c.replace(/^URL-/, ""));
 
   // Match cycle-key short id (first 8 chars of url_id) → url row.
-  const urlsRes = await pool.query<{ id: string; url: string; name: string; reason: string; reason_note: string | null; is_seasonal: boolean; peak_window_start: string | null; peak_window_end: string | null; topic_id: string | null; topic_name: string | null; funnel_stage: string | null }>(
+  const urlsRes = await pool.query<{ id: string; url: string; name: string; reason: string; reason_note: string | null; gate_override_reason: string | null; is_seasonal: boolean; peak_window_start: string | null; peak_window_end: string | null; topic_id: string | null; topic_name: string | null; funnel_stage: string | null }>(
     `SELECT u.id::text, u.url, u.name, u.reason::text AS reason, u.reason_note,
+            u.gate_override_reason,
             u.is_seasonal, u.peak_window_start::text, u.peak_window_end::text,
             u.topic_id::text, t.name AS topic_name, u.funnel_stage::text
        FROM organic.urls u
@@ -1165,6 +1372,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
       url_name: u.name,
       reason: u.reason,
       reason_note: u.reason_note,
+      gate_override_reason: u.gate_override_reason,
       is_seasonal: u.is_seasonal,
       peak_window_start: u.peak_window_start,
       peak_window_end: u.peak_window_end,
@@ -1927,7 +2135,9 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
       Number(u.topic_boards_active ?? 0) === 0 && Number(u.topic_boards_planned ?? 0) >= 5);
     const noCoverage = free.filter((u) =>
       u.topic_id != null && !u.topic_covered && !boardsUnbuilt.includes(u));
-    const fewBoards = free.filter((u) => Number(u.assigned_boards) < 5);
+    // Four, not five: module 4 teaches four to five boards per URL, and the
+    // gate opens at four (migration 094).
+    const fewBoards = free.filter((u) => Number(u.assigned_boards) < 4);
     const cooling = free.filter((u) => !u.cooldown_clear);
     push(noTopic,
       `have no topic`,
@@ -1942,9 +2152,11 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
       "Build boards for that topic. Coverage gates phase 4 for everything under it (P3.3.2).",
       "boards");
     push(fewBoards,
-      `fewer than five boards assigned`,
-      "Open the URL and assign at least five semantically relevant boards (P4.1.7).",
-      "urls");
+      `fewer than four boards assigned`,
+      "Boards are assigned inside the cycle for that URL (P4.1.7), not on the URLs page — start the " +
+      "cycle and the assign step is the second card. A URL that cannot reach four, because the store " +
+      "has few boards at all, can be started with a reason instead.",
+      "phase/4");
     push(cooling,
       `still inside cooldown`,
       "Nothing to do — they come back on their own. The date is on the URL.",

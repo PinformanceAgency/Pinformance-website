@@ -5,9 +5,14 @@ import { useRouter } from "next/navigation";
 import type { StoreSettings } from "@/lib/organic/workspace";
 import { Panel, Label } from "@/components/organic/primitives";
 import { cn } from "@/lib/utils";
+import { ORGANIC_DAILY_CAP } from "@/lib/organic/pacing";
 
 const ENGAGEMENT = ["PROSPECT", "ONBOARDING", "ACTIVE", "PAUSED", "CHURNED"];
-const ACCOUNT_CLASS = ["NEW", "WARM", "ESTABLISHED"];
+// "Is this account new, yes or no." Older than six months and still active
+// is established; anything else is new. WARM stays in the database enum for
+// old rows but is not offered — a third option nobody could define was a
+// third answer nobody picked.
+const ACCOUNT_CLASS = ["NEW", "ESTABLISHED"];
 const CURRENCIES = ["EUR", "USD", "GBP", "CHF"];
 
 type Field =
@@ -30,9 +35,12 @@ const GROUPS: Array<{ title: string; note?: string; fields: Field[] }> = [
     title: "Publishing",
     note: "Changing the target does not reschedule pins that already exist.",
     fields: [
-      { key: "account_class", label: "Account class", kind: "select", options: ACCOUNT_CLASS },
-      { key: "spacing_hours", label: "Spacing (hours)", kind: "number" },
-      { key: "daily_pin_target", label: "Daily pin target", kind: "number" },
+      { key: "account_class", label: "Account class", kind: "select", options: ACCOUNT_CLASS,
+        hint: "New = under six months old, or dormant for six. Choosing it here makes it stick — the intake no longer overwrites a hand-picked class — and the spacing follows: new 48h, established 24h." },
+      { key: "spacing_hours", label: "Spacing (hours)", kind: "number",
+        hint: "Hours between two pins for the same URL. Set from the class; change it only if you mean to." },
+      { key: "daily_pin_target", label: "Daily pin target", kind: "number",
+        hint: `Pins per day for this store, ceiling ${ORGANIC_DAILY_CAP}. A new account starts at 1 and takes a step up every two weeks; changing this restarts that clock.` },
       { key: "urls_per_month", label: "URLs per month", kind: "number" },
       { key: "url_cooldown_days", label: "URL cooldown (days)", kind: "number" },
     ],
