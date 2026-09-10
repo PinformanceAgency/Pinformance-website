@@ -839,13 +839,17 @@ export interface TaskAnswer {
   file_url: string | null;
   file_title: string | null;
   answered_at: string;
+  /** The cycle this answer was given in, or "" for a task that exists once
+   *  per store. P4.2.1 is the reason: the grid reading is about one URL's
+   *  primary keyword, and two cycles have two different ones. */
+  cycle: string;
 }
 
 export async function loadTaskAnswers(orgId: string): Promise<TaskAnswer[]> {
   const pool = organicPool();
   const r = await pool.query<TaskAnswer>(
     `SELECT task_id, field_key, answer_bool, answer_text,
-            answer_number, evidence, file_url, file_title, answered_at::text
+            answer_number, evidence, file_url, file_title, answered_at::text, cycle
        FROM organic.task_answers
       WHERE org_id = $1`,
     [orgId]
@@ -860,6 +864,8 @@ export async function loadTaskAnswers(orgId: string): Promise<TaskAnswer[]> {
 export interface AnswerInput {
   task_id: string;
   field_key: string;
+  /** "" for a store-level task; the cycle key for a phase-4 one. */
+  cycle?: string | null;
   answer_bool?: boolean | null;
   answer_text?: string | null;
   answer_number?: number | null;
@@ -875,10 +881,10 @@ export async function saveTaskAnswer(orgId: string, a: AnswerInput): Promise<voi
   // versa — the two halves are edited independently in the UI.
   await pool.query(
     `INSERT INTO organic.task_answers
-       (org_id, task_id, field_key, answer_bool, answer_text, answer_number,
+       (org_id, task_id, cycle, field_key, answer_bool, answer_text, answer_number,
         evidence, file_url, file_title, answered_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
-     ON CONFLICT (org_id, task_id, field_key) DO UPDATE SET
+     VALUES ($1, $2, $10, $3, $4, $5, $6, $7, $8, $9, now())
+     ON CONFLICT (org_id, task_id, cycle, field_key) DO UPDATE SET
        answer_bool   = COALESCE(EXCLUDED.answer_bool,   organic.task_answers.answer_bool),
        answer_text   = COALESCE(EXCLUDED.answer_text,   organic.task_answers.answer_text),
        answer_number = COALESCE(EXCLUDED.answer_number, organic.task_answers.answer_number),
@@ -889,7 +895,7 @@ export async function saveTaskAnswer(orgId: string, a: AnswerInput): Promise<voi
     [orgId, a.task_id, a.field_key,
      a.answer_bool ?? null, a.answer_text ?? null,
      a.answer_number ?? null, a.evidence ?? null,
-     a.file_url ?? null, a.file_title ?? null]
+     a.file_url ?? null, a.file_title ?? null, a.cycle ?? ""]
   );
 }
 
@@ -897,7 +903,8 @@ export async function saveTaskAnswer(orgId: string, a: AnswerInput): Promise<voi
  *  omitted value keeps the old one. */
 export async function clearTaskAnswerField(
   orgId: string, taskId: string, fieldKey: string,
-  part: "answer" | "evidence" | "file" | "all"
+  part: "answer" | "evidence" | "file" | "all",
+  cycle: string = ""
 ): Promise<void> {
   const pool = organicPool();
   const sets =
@@ -907,8 +914,8 @@ export async function clearTaskAnswerField(
     : "answer_bool = NULL, answer_text = NULL, answer_number = NULL, evidence = NULL, file_url = NULL, file_title = NULL";
   await pool.query(
     `UPDATE organic.task_answers SET ${sets}, answered_at = now()
-      WHERE org_id = $1 AND task_id = $2 AND field_key = $3`,
-    [orgId, taskId, fieldKey]
+      WHERE org_id = $1 AND task_id = $2 AND field_key = $3 AND cycle = $4`,
+    [orgId, taskId, fieldKey, cycle]
   );
 }
 
@@ -1021,9 +1028,9 @@ export function pctChange(now: number | null, before: number | null): number | n
  * the missing "why".
  */
 export async function syncTaskStatusFromAnswers(
-  orgId: string, taskId: string
+  orgId: string, taskId: string, cycle: string = ""
 ): Promise<"DONE" | "IN_PROGRESS" | null> {
-  const d = await deriveTaskStatusFromAnswers(orgId, taskId);
+  const d = await deriveTaskStatusFromAnswers(orgId, taskId, cycle);
   if (!d) return null;
   if (d.next === d.current) return d.next;
 
@@ -1031,8 +1038,9 @@ export async function syncTaskStatusFromAnswers(
     `UPDATE organic.client_tasks
         SET status = $3::organic.task_status,
             completed_at = CASE WHEN $3 = 'DONE' THEN now() ELSE NULL END
-      WHERE org_id = $1 AND task_id = $2 AND cycle IS NULL`,
-    [orgId, taskId, d.next]
+      WHERE org_id = $1 AND task_id = $2
+        AND COALESCE(cycle, '') = $4`,
+    [orgId, taskId, d.next, cycle]
   );
 
   // Finishing a task is exactly what unblocks the tasks waiting on it, and
@@ -1060,7 +1068,7 @@ export async function syncTaskStatusFromAnswers(
  * task, BLOCKED or SKIPPED.
  */
 export async function deriveTaskStatusFromAnswers(
-  orgId: string, taskId: string
+  orgId: string, taskId: string, cycle: string = ""
 ): Promise<{ current: string; next: "DONE" | "IN_PROGRESS" } | null> {
   const set = fieldsFor(taskId);
   if (!set) return null;
@@ -1068,8 +1076,8 @@ export async function deriveTaskStatusFromAnswers(
   const pool = organicPool();
   const cur = await pool.query<{ status: string }>(
     `SELECT status::text FROM organic.client_tasks
-      WHERE org_id = $1 AND task_id = $2 AND cycle IS NULL`,
-    [orgId, taskId]
+      WHERE org_id = $1 AND task_id = $2 AND COALESCE(cycle, '') = $3`,
+    [orgId, taskId, cycle]
   );
   const status = cur.rows[0]?.status;
   if (!status || status === "BLOCKED" || status === "SKIPPED") return null;
@@ -1079,8 +1087,9 @@ export async function deriveTaskStatusFromAnswers(
     answer_text: string | null; answer_number: string | null; evidence: string | null;
   }>(
     `SELECT field_key, answer_bool, answer_text, answer_number, evidence
-       FROM organic.task_answers WHERE org_id = $1 AND task_id = $2`,
-    [orgId, taskId]
+       FROM organic.task_answers
+      WHERE org_id = $1 AND task_id = $2 AND cycle = $3`,
+    [orgId, taskId, cycle]
   );
   const byKey = new Map(ans.rows.map((a) => [a.field_key, a]));
 

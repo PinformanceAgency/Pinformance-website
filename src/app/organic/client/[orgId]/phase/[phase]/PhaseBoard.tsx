@@ -273,6 +273,7 @@ export function TaskCard({
           set={fields}
           answers={answers}
           readOnly={task.status === "BLOCKED"}
+          cycle={cycle?.cycle ?? ""}
         />
       )}
 

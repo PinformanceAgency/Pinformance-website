@@ -81,18 +81,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ orgId: 
     if (!body?.task_id || !body?.field_key) {
       return NextResponse.json({ error: "task_id and field_key are required" }, { status: 400 });
     }
+    // Which cycle the answer belongs to. Empty for a task that exists once
+    // per store, which is everything outside phase 4 — see migration 096.
+    const cycle: string = typeof body.cycle === "string" ? body.cycle : "";
 
     // An explicit clear, since the upsert COALESCEs and cannot blank a value.
     if (body.clear) {
-      await clearTaskAnswerField(orgId, body.task_id, body.field_key, body.clear);
+      await clearTaskAnswerField(orgId, body.task_id, body.field_key, body.clear, cycle);
       // Clearing an answer can un-finish the task, same as answering can
       // finish it. Deriving in one direction only would leave a task
       // sitting at DONE with an empty question on it.
-      const status = await syncTaskStatusFromAnswers(orgId, body.task_id);
+      const status = await syncTaskStatusFromAnswers(orgId, body.task_id, cycle);
       return NextResponse.json({ ok: true, cleared: body.clear, status });
     }
 
-    await saveTaskAnswer(orgId, body);
+    await saveTaskAnswer(orgId, { ...body, cycle });
     await mirrorToViability(orgId, body.field_key, body);
 
     // A link is a document wherever it was typed — in the reasoning, or in
@@ -106,7 +109,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ orgId: 
 
     // The task closes itself once every visible question is answered. See
     // syncTaskStatusFromAnswers.
-    const status = await syncTaskStatusFromAnswers(orgId, body.task_id);
+    const status = await syncTaskStatusFromAnswers(orgId, body.task_id, cycle);
 
     return NextResponse.json({ ok: true, assets_captured: captured.length, status });
   } catch (e) {

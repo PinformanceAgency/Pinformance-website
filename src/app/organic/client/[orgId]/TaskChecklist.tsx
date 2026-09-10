@@ -25,15 +25,23 @@ import type { TaskAnswer } from "@/lib/organic/workspace";
 
 export function TaskChecklist({
   orgId, taskId, set, answers,
-  readOnly,
+  readOnly, cycle = "",
 }: {
   orgId: string;
   taskId: string;
   set: TaskFieldSet;
   answers: TaskAnswer[];
   readOnly?: boolean;
+  /** The cycle this card belongs to, "" outside phase 4. A phase-4 task
+   *  exists once per cycle and so do its answers: the grid reading is about
+   *  one URL's primary keyword, and two cycles have two different ones. */
+  cycle?: string;
 }) {
-  const byKey = new Map(answers.filter((a) => a.task_id === taskId).map((a) => [a.field_key, a]));
+  const byKey = new Map(
+    answers
+      .filter((a) => a.task_id === taskId && (a.cycle ?? "") === cycle)
+      .map((a) => [a.field_key, a])
+  );
   // Conditional fields count only once they are on screen — see visibleFields.
   const fields = visibleFields(set, (k) => byKey.get(k)?.answer_bool);
   const concerns = raisedConcerns(
@@ -91,6 +99,7 @@ export function TaskChecklist({
             conditional={!!f.onlyWhen}
             orgId={orgId}
             taskId={taskId}
+            cycle={cycle}
             field={f}
             answer={byKey.get(f.key) ?? null}
             planAnswer={byKey.get(planKeyFor(f.key)) ?? null}
@@ -368,11 +377,14 @@ function ConcernDialog({
 }
 
 function FieldRow({
-  index, orgId, taskId, field, answer, readOnly, conditional, planAnswer,
+  index, orgId, taskId, cycle, field, answer, readOnly, conditional, planAnswer,
 }: {
   index: number;
   orgId: string;
   taskId: string;
+  /** Passed down so a saved answer lands in the right cycle — see the note
+   *  on TaskChecklist. */
+  cycle: string;
   field: TaskField;
   answer: TaskAnswer | null;
   readOnly?: boolean;
@@ -421,7 +433,7 @@ function FieldRow({
       const res = await fetch(`/api/organic/answers/${orgId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ task_id: taskId, field_key: fieldKey, ...patch }),
+        body: JSON.stringify({ task_id: taskId, cycle, field_key: fieldKey, ...patch }),
         redirect: "error",
       });
       const raw = await res.text();
