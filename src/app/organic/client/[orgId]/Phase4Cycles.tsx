@@ -614,6 +614,11 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
     spacing_days: number; blocked_dates: string[]; fits: boolean;
   } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [queueing, setQueueing] = useState(false);
+  const [queued, setQueued] = useState<{
+    scheduled: number; blocked: Array<{ sequence: number; reason: string }>;
+    warnings: string[]; first_date: string | null; last_date: string | null;
+  } | null>(null);
   const [result, setResult] = useState<{ waterfall_id: string; matrix: string[][]; pin_schedule: Array<{ seq: number; design: number; copy: string; board_index: number; date: string }>; interval_days_between_same_design: number; spacing_hours: number; superseded?: { waterfall_id: string; status: string; pins_cancelled: number; designs_discarded: number; designs_with_image: number; copy_sets_written: number } } | null>(null);
 
   // Whether sixteen pins fit from a given day is decided by two database
@@ -632,6 +637,28 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
       if (r.fits) setStartDate(r.start_date);
     } catch (e) { setErr((e as Error).message); }
     finally { setProposing(false); }
+  }
+
+  // The step that locks the plan in. Without it the panel could only ever
+  // regenerate: sixteen pins sat at PLANNED, the cron ignores those, and the
+  // next visit offered the same button again. Queueing moves them to
+  // SCHEDULED, puts the waterfall on RUNNING and closes P4.3.2 — after which
+  // /api/cron/organic-post-pins publishes each pin on its own date.
+  async function queue() {
+    if (!cycle.waterfall) return;
+    if (!window.confirm(
+      `This queues the sixteen pins for publishing.\n\n` +
+      `Each one goes out on its own date — the first on ${cycle.waterfall.start_date} — ` +
+      `and the plan stops being editable. Regenerating after this cancels real scheduled pins.\n\nQueue them?`
+    )) return;
+    setErr(null); setQueueing(true); setQueued(null);
+    try {
+      const r = await callP4(orgId, { action: "push", waterfall_id: cycle.waterfall.id }) as
+        NonNullable<typeof queued>;
+      setQueued(r);
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setQueueing(false); }
   }
 
   async function generate() {
@@ -678,12 +705,40 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
           className="px-3 py-1 rounded-md border border-neutral-300 text-xs font-medium hover:bg-neutral-50 disabled:opacity-50">
           {proposing ? "Checking…" : "Find a date that fits"}
         </button>
-        <button type="button" onClick={generate} disabled={generating}
+        <button type="button" onClick={generate} disabled={generating || queueing}
           className="px-3 py-1 rounded-md bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-50">
           {generating ? "Generating…" : cycle.waterfall ? "Regenerate 16-pin waterfall" : "Generate 16-pin waterfall"}
         </button>
+        {cycle.waterfall && cycle.waterfall.status === "PLANNING" && (
+          <button type="button" onClick={queue} disabled={queueing || generating}
+            className="px-3 py-1 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
+            {queueing ? "Queueing…" : "Save & queue these 16 pins"}
+          </button>
+        )}
+        {cycle.waterfall && cycle.waterfall.status === "RUNNING" && (
+          <span className="text-[11px] text-emerald-700">
+            Queued — the cron publishes each pin on its date.
+          </span>
+        )}
         {err && <span className="text-red-600 break-words">{err}</span>}
       </div>
+
+      {queued && (
+        <div className={`text-[11px] rounded border px-2 py-1.5 ${queued.blocked.length > 0
+          ? "border-amber-300 bg-amber-50 text-amber-800"
+          : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}>
+          {queued.scheduled} pin{queued.scheduled === 1 ? "" : "s"} queued
+          {queued.first_date && <> · {queued.first_date} → {queued.last_date}</>}
+          {queued.blocked.length > 0 && (
+            <div className="mt-1">
+              Not queued: {queued.blocked.map((b) => `#${b.sequence} ${b.reason}`).join(" · ")}
+            </div>
+          )}
+          {queued.warnings.length > 0 && (
+            <div className="mt-1 opacity-80">{queued.warnings.join(" · ")}</div>
+          )}
+        </div>
+      )}
 
       {proposal && (
         <div className={`text-[11px] ${proposal.fits ? "text-neutral-600" : "text-red-600"}`}>

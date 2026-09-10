@@ -9,7 +9,7 @@
  * hit count back — the number that justifies the whole mechanism.
  */
 import { organicPool } from "./db";
-import { completeTaskByDefinition, recomputeAfter } from "./complete";
+import { completeTaskByDefinition, recordTaskProgress, recomputeAfter } from "./complete";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
 import { generateWithValidator, persistDraft, approveDraft, latestDraft } from "./ai";
@@ -1165,23 +1165,40 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
         errors.push(`${b.name}: ${(e as Error).message}`);
       }
     }
-  } else {
-    // dryRun — just flip locally.
-    for (const b of due.rows) {
-      await pool.query(
-        `UPDATE organic.boards
-            SET status = 'PROTECTED'::organic.board_status, created_on_pinterest = $1::date
-          WHERE id = $2`,
-        [today, b.id]
-      );
-      created++;
-    }
   }
-  await completeTaskByDefinition({ orgId, taskId: "P3.3.5", timeSpentMin,
-    notes: `${opts.dryRun ? "DRY-RUN " : ""}Created ${created} boards` +
+  // A dry run writes NOTHING. It used to "just flip locally" — set the rows
+  // to PROTECTED with today's creation date without ever calling Pinterest —
+  // which is not a dry run but a lie recorded in the database: the board
+  // shows as live, coverage counts it, and no such board exists on the
+  // account. Harmless enough behind a button somebody presses once; not
+  // behind a cron with ?dry_run=1 on it.
+  const wouldCreate = opts.dryRun ? due.rows.map((b) => b.name) : [];
+  // What is still waiting, using the same filters the due query uses. The
+  // task closes when the queue is empty, not on the first run: creation is
+  // paced at three a day, so a store with 23 boards is a week of runs and
+  // marking P3.3.5 DONE on day one says the architecture is live when none
+  // of it is.
+  const left = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM organic.boards
+      WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
+        AND pinterest_board_id IS NULL
+        AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin`,
+    [orgId]
+  );
+  const remaining = Number(left.rows[0].n);
+  if (opts.dryRun) {
+    return { created: 0, failed: 0, errors: [], remaining, would_create: wouldCreate,
+             ...adopted, recomputed: 0 };
+  }
+  await recordTaskProgress({
+    orgId, taskId: "P3.3.5", addMinutes: timeSpentMin, done: remaining === 0,
+    notes: `${opts.dryRun ? "DRY-RUN " : ""}Created ${created} board(s)` +
       `${adopted.adopted ? `, adopted ${adopted.adopted} that already existed` : ""}` +
-      `${failed ? `, ${failed} failed: ${errors.join("; ")}` : ""}.` });
-  return { created, failed, errors, ...adopted, recomputed: await recomputeAfter(orgId) };
+      `${failed ? `, ${failed} failed: ${errors.join("; ")}` : ""}` +
+      `${remaining > 0 ? `, ${remaining} still to create` : ", the architecture is live"}.`,
+  });
+  return { created, failed, errors, remaining, would_create: wouldCreate,
+           ...adopted, recomputed: await recomputeAfter(orgId) };
 }
 
 // ---------- P3.3.6 seed selection (real) ------------------------------------
