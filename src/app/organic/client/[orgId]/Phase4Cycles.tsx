@@ -683,7 +683,7 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
     scheduled: number; blocked: Array<{ sequence: number; reason: string }>;
     warnings: string[]; first_date: string | null; last_date: string | null;
   } | null>(null);
-  const [result, setResult] = useState<{ waterfall_id: string; matrix: string[][]; pin_schedule: Array<{ seq: number; design: number; copy: string; board_index: number; date: string }>; interval_days_between_same_design: number; spacing_hours: number; superseded?: { waterfall_id: string; status: string; pins_cancelled: number; designs_discarded: number; designs_with_image: number; copy_sets_written: number } } | null>(null);
+  const [result, setResult] = useState<{ waterfall_id: string; matrix: string[][]; pin_schedule: Array<{ seq: number; design: number; copy: string; board_index: number; date: string }>; interval_days_between_same_design: number; spacing_hours: number; carried?: { images: number; copy_sets: number }; superseded?: { waterfall_id: string; status: string; pins_cancelled: number; designs_discarded: number; designs_with_image: number; copy_sets_written: number } } | null>(null);
 
   // Whether sixteen pins fit from a given day is decided by two database
   // triggers — the daily cap and the same-URL spacing — and at 48h spacing a
@@ -732,8 +732,10 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
     // made images.
     if (cycle.waterfall && !window.confirm(
       `This replaces the existing waterfall (${cycle.waterfall.id.slice(0, 8)}, ${cycle.waterfall.status}).\n\n` +
-      `Its sixteen pins are cancelled and its designs and copy leave the cycle. ` +
-      `Nothing is deleted — the old waterfall stays readable as ABANDONED.\n\nRegenerate?`
+      `New dates, new board rotation, sixteen new pins. Your uploaded design images and your written ` +
+      `copy come across — you do not have to upload or write them again — but the micro-crops are cut ` +
+      `from the new pins, so run P4.2.5 once more afterwards.\n\n` +
+      `Nothing is deleted: the old waterfall stays readable as ABANDONED.\n\nRegenerate?`
     )) return;
     setErr(null); setGenerating(true); setResult(null);
     try {
@@ -851,10 +853,16 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
               ({result.superseded.status} → ABANDONED): {result.superseded.pins_cancelled} pin
               {result.superseded.pins_cancelled === 1 ? "" : "s"} cancelled,{" "}
               {result.superseded.designs_discarded} design
-              {result.superseded.designs_discarded === 1 ? "" : "s"} left the cycle
-              {result.superseded.designs_with_image > 0 && `, ${result.superseded.designs_with_image} of them with an image already generated`}
-              {result.superseded.copy_sets_written > 0 && `, ${result.superseded.copy_sets_written} copy set${result.superseded.copy_sets_written === 1 ? "" : "s"} written`}.
-              Nothing was deleted.
+              {result.superseded.designs_discarded === 1 ? "" : "s"} left the cycle. Nothing was deleted.
+              {result.carried && (result.carried.images > 0 || result.carried.copy_sets > 0) && (
+                <div className="mt-1 text-emerald-800">
+                  Carried across:{" "}
+                  {result.carried.images > 0 && `${result.carried.images} design image${result.carried.images === 1 ? "" : "s"}`}
+                  {result.carried.images > 0 && result.carried.copy_sets > 0 && " and "}
+                  {result.carried.copy_sets > 0 && `${result.carried.copy_sets} copy set${result.carried.copy_sets === 1 ? "" : "s"}`}
+                  {" "}— nothing to upload or write again. The micro-crops are cut from the new pins, so run P4.2.5 once more.
+                </div>
+              )}
             </div>
           )}
 

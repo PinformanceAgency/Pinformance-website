@@ -654,6 +654,9 @@ export interface WaterfallReport {
   interval_days_between_same_design: number;
   spacing_hours: number;
   /** The waterfall this run replaced, if it replaced one. */
+  /** What came across from the plan this one replaced — the operator's own
+   *  work, which a regeneration must not cost them. */
+  carried?: { images: number; copy_sets: number };
   superseded?: {
     waterfall_id: string;
     status: string;
@@ -928,6 +931,36 @@ export async function generateWaterfall(
       };
     }
 
+    // What the operator made comes across.
+    //
+    // Regenerating is almost never about the images: it is about the dates,
+    // or a board that did not exist yet. But the new waterfall got four empty
+    // designs, so four uploaded files and four written copy sets were gone —
+    // Clarissa uploaded the same four designs twice in one morning, at 04:50
+    // and again at 11:31, for a regenerate she did in between. Carried across
+    // by design NUMBER, which is stable: D1-D3 are SAVE, D4 is CLICK, in both
+    // plans. A design she wants gone is one Replace away, and the abandoned
+    // waterfall still holds its own copy of everything.
+    const carried = superseded
+      ? await client.query<{
+          design_number: number; asset_path: string | null; filename: string | null;
+          route: string; text_overlay_keyword: string | null;
+          qc_status: string; qc_notes: string | null;
+          title: string | null; description: string | null; tagline: string | null;
+        }>(
+          `SELECT d.design_number, d.asset_path, d.filename, d.route::text AS route,
+                  d.text_overlay_keyword, d.qc_status::text AS qc_status, d.qc_notes,
+                  cs.title, cs.description, cs.tagline
+             FROM organic.designs d
+             LEFT JOIN organic.copy_sets cs ON cs.design_id = d.id
+            WHERE d.waterfall_id = $1`,
+          [superseded.waterfall_id]
+        )
+      : null;
+    const carriedByNumber = new Map(
+      (carried?.rows ?? []).map((r) => [r.design_number, r])
+    );
+
     // 1. Waterfall row
     const wf = await client.query<{ id: string }>(
       `INSERT INTO organic.waterfalls (id, org_id, url_id, status, start_date, spacing_hours)
@@ -939,35 +972,66 @@ export async function generateWaterfall(
 
     // 2. 4 designs — 80/20 save/click split → D1/D2/D3 = SAVE, D4 = CLICK.
     const designIds: string[] = [];
+    let imagesCarried = 0;
     for (let d = 0; d < 4; d++) {
       const intent = d < 3 ? "SAVE" : "CLICK";
-      const route = "DIRECT"; // operator picks in real flow
-      const filename = fileNameFor(primaryKeyword, d + 1);
+      const prev = carriedByNumber.get(d + 1);
+      const route = prev?.asset_path ? prev.route : "DIRECT";
+      // The SOP name is rebuilt from today's primary keyword; a carried image
+      // keeps the name it was stored under, because that name is in its URL.
+      const filename = prev?.asset_path ? prev.filename : fileNameFor(primaryKeyword, d + 1);
+      if (prev?.asset_path) imagesCarried += 1;
       const dr = await client.query<{ id: string }>(
         `INSERT INTO organic.designs (
            id, waterfall_id, design_number, intent, route, filename, text_overlay_keyword,
-           fresh_technique, qc_status, created_at
+           asset_path, fresh_technique, qc_status, qc_notes, created_at
          ) VALUES (
            gen_random_uuid(), $1, $2, $3::organic.pin_intent, $4::organic.design_route, $5, $6,
-           NULL, 'PENDING'::organic.qc_status, now()
+           $7, NULL, $8::organic.qc_status, $9, now()
          ) RETURNING id::text`,
-        [waterfallId, d + 1, intent, route, filename, d === 3 ? primaryKeyword : null]
+        [waterfallId, d + 1, intent, route, filename,
+         d === 3 ? primaryKeyword : (prev?.text_overlay_keyword ?? null),
+         prev?.asset_path ?? null,
+         prev?.asset_path ? (prev.qc_status ?? "PENDING") : "PENDING",
+         prev?.asset_path ? prev.qc_notes : null]
       );
       designIds.push(dr.rows[0].id);
     }
 
     // 3. 4 copy_sets, one per design. All 4 crops of a design share this text.
     const copySetIds: string[] = [];
+    let copyCarried = 0;
     for (let d = 0; d < 4; d++) {
+      const prev = carriedByNumber.get(d + 1);
+      const hasText = !!prev?.title?.trim();
+      // Carried text is re-validated against TODAY's primary keyword rather
+      // than inheriting the old verdict: the keyword may have been swapped in
+      // between, and a title that no longer opens with it is not a PASS.
+      // Human QC always drops to PENDING — the boards and the dates changed,
+      // and "does this copy suit this pin" is part of what that review is.
+      const verdict = hasText
+        ? validateCopy({
+            primary_keyword: primaryKeyword,
+            title: prev!.title!,
+            description: prev!.description ?? "",
+            tagline: prev!.tagline ?? undefined,
+          })
+        : null;
+      if (hasText) copyCarried += 1;
       const cs = await client.query<{ id: string }>(
         `INSERT INTO organic.copy_sets (
            id, design_id, primary_keyword, secondary_keywords,
+           tagline, title, description,
            validator_status, validator_errors, human_qc_status, generated_at
          ) VALUES (
            gen_random_uuid(), $1, $2, ARRAY[]::text[],
-           'PENDING'::organic.validator_status, '{}'::jsonb, 'PENDING'::organic.qc_status, now()
+           $3, $4, $5,
+           $6::organic.validator_status, $7::jsonb, 'PENDING'::organic.qc_status, now()
          ) RETURNING id::text`,
-        [designIds[d], primaryKeyword]
+        [designIds[d], primaryKeyword,
+         prev?.tagline ?? null, prev?.title ?? null, prev?.description ?? null,
+         verdict ? (verdict.ok ? "PASS" : "FAIL") : "PENDING",
+         JSON.stringify(verdict && !verdict.ok ? verdict.errors : {})]
       );
       copySetIds.push(cs.rows[0].id);
     }
@@ -1021,6 +1085,7 @@ export async function generateWaterfall(
       interval_days_between_same_design: 4 * spacingDays,
       spacing_hours: spacingHours,
       superseded,
+      carried: superseded ? { images: imagesCarried, copy_sets: copyCarried } : undefined,
     };
   } catch (e) {
     await client.query("ROLLBACK");
