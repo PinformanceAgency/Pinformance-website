@@ -466,7 +466,7 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
   const brand = brief.brand.value;
   const taste = brief.taste.value;
 
-  return {
+  const out: DesignBrief = {
     url: urlRow.rows[0].url,
     url_name: urlRow.rows[0].name,
     primary_keyword: primary,
@@ -511,6 +511,12 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
       ...(brand?.never_include ?? []).map((n) => `Brand rule — never include: ${n}`),
     ],
   };
+
+  // Assembling the brief is what P4.2.3 asks for; everything else about that
+  // task is read-only, so nothing else could ever close it.
+  await recordCycleWork(orgId, urlId, "P4.2.3", true,
+    `Design brief assembled${out.gaps.length ? ` (${out.gaps.length} gap(s) named)` : ""}.`);
+  return out;
 }
 
 // ---------- copy validators (P4.2.9) ----------------------------------------
@@ -1062,6 +1068,83 @@ export async function pushWaterfallToPinterest(
     ?? (ref.urlId ? await currentWaterfallForUrl(orgId, ref.urlId) : null);
   if (!id) throw new Error("push needs a waterfall_id or a url_id");
   return scheduleWaterfall(orgId, id);
+}
+
+/**
+ * A phase-4 control that has done its task records it.
+ *
+ * The whole of phase 4 used to leave its tasks where it found them: sixteen
+ * pins under a BLOCKED P4.3.1, four uploaded designs under a BLOCKED P4.2.4.
+ * The person doing the work then sees a red pill saying the opposite of what
+ * they just did, and the tasks that depend on it never open.
+ *
+ * `completePhase4Task` is used rather than `recordTaskProgress` on purpose:
+ * that one refuses to move a BLOCKED row, and BLOCKED is precisely the state
+ * these get stuck in. A precondition describes the SOP's ORDER; a finished
+ * piece of work is a fact about reality, and reality wins. Nothing is forced
+ * the other way — a task is only closed when the thing it produces is
+ * actually there, which is what `done` is for.
+ */
+async function recordCycleWork(
+  orgId: string,
+  urlId: string,
+  taskId: string,
+  done: boolean,
+  note: string
+): Promise<void> {
+  if (!done) return;
+  await completeCycleTask(orgId, `URL-${urlId.slice(0, 8)}`, taskId, 0, note);
+}
+
+/** The URL a design belongs to — the design-scoped controls only get an id. */
+async function urlIdForDesign(orgId: string, designId: string): Promise<string | null> {
+  const r = await organicPool().query<{ url_id: string }>(
+    `SELECT w.url_id::text
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+      WHERE d.id = $1 AND w.org_id = $2`,
+    [designId, orgId]
+  );
+  return r.rows[0]?.url_id ?? null;
+}
+
+/** How far the live waterfall for this URL has got: images, copy, QC. Used to
+ *  decide whether the task that produces each of those is finished. */
+async function cycleWorkState(orgId: string, urlId: string) {
+  const r = await organicPool().query<{
+    designs: string; met_beeld: string; met_titel: string;
+    design_qc: string; copy_qc: string; pins: string; pins_met_beeld: string;
+  }>(
+    `WITH live AS (
+       SELECT id FROM organic.waterfalls
+        WHERE org_id = $1 AND url_id = $2 AND status <> 'ABANDONED'::organic.waterfall_status
+        ORDER BY created_at DESC LIMIT 1
+     )
+     SELECT COUNT(d.id)::text AS designs,
+            COUNT(*) FILTER (WHERE d.asset_path IS NOT NULL)::text AS met_beeld,
+            COUNT(*) FILTER (WHERE cs.title IS NOT NULL AND btrim(cs.title) <> '')::text AS met_titel,
+            COUNT(*) FILTER (WHERE d.qc_status <> 'PENDING'::organic.qc_status)::text AS design_qc,
+            COUNT(*) FILTER (WHERE cs.human_qc_status <> 'PENDING'::organic.qc_status)::text AS copy_qc,
+            (SELECT COUNT(*)::text FROM organic.pins p JOIN live ON live.id = p.waterfall_id
+              WHERE p.status <> 'CANCELLED'::organic.pin_status) AS pins,
+            (SELECT COUNT(*)::text FROM organic.pins p JOIN live ON live.id = p.waterfall_id
+              WHERE p.status <> 'CANCELLED'::organic.pin_status AND p.image_path IS NOT NULL) AS pins_met_beeld
+       FROM organic.designs d
+       JOIN live ON live.id = d.waterfall_id
+       LEFT JOIN organic.copy_sets cs ON cs.design_id = d.id`,
+    [orgId, urlId]
+  );
+  const n = (v: string | undefined) => Number(v ?? 0);
+  const row = r.rows[0];
+  return {
+    designs: n(row?.designs),
+    withImage: n(row?.met_beeld),
+    withTitle: n(row?.met_titel),
+    designQcDone: n(row?.design_qc),
+    copyQcDone: n(row?.copy_qc),
+    pins: n(row?.pins),
+    pinsWithImage: n(row?.pins_met_beeld),
+  };
 }
 
 // ---------- helpers ---------------------------------------------------------
@@ -2399,6 +2482,11 @@ export async function generateDesignImages(
     return { design_id: d.id, design_number: d.design_number, intent: d.intent, url: pub.publicUrl };
   }));
 
+  const st = await cycleWorkState(orgId, urlId);
+  await recordCycleWork(orgId, urlId, "P4.2.4",
+    st.designs > 0 && st.withImage >= st.designs,
+    `${st.withImage} of ${st.designs} designs have an image (generated).`);
+
   return { ok: true, designs: results };
 }
 
@@ -2511,6 +2599,13 @@ export async function setDesignQc(
     [orgId, designId, status, notes ?? null]
   );
   if (r.rowCount === 0) throw new Error("Design not found for this org");
+  const urlId = await urlIdForDesign(orgId, designId);
+  if (urlId) {
+    const st = await cycleWorkState(orgId, urlId);
+    await recordCycleWork(orgId, urlId, "P4.2.7",
+      st.designs > 0 && st.designQcDone >= st.designs,
+      `${st.designQcDone} of ${st.designs} designs reviewed.`);
+  }
   return { ok: true, design_id: designId, qc_status: status };
 }
 
@@ -2578,6 +2673,19 @@ export async function saveCopyForDesign(
        human_qc_status = 'PENDING'::organic.qc_status`,
     [designId, copy.tagline ?? null, copy.title.trim(), copy.description.trim(), primaryKeyword]
   );
+
+  const urlId = await urlIdForDesign(orgId, designId);
+  if (urlId) {
+    const st = await cycleWorkState(orgId, urlId);
+    const alle = st.designs > 0 && st.withTitle >= st.designs;
+    await recordCycleWork(orgId, urlId, "P4.2.8", alle,
+      `${st.withTitle} of ${st.designs} copy sets written.`);
+    // P4.2.9 is the validator check, and the validator is what just let this
+    // through — it runs on every save, server-side. There is nothing left for
+    // somebody to go and do once all four have passed it.
+    await recordCycleWork(orgId, urlId, "P4.2.9", alle,
+      "Every copy set passed the validator on save.");
+  }
   return { ok: true, design_id: designId, primary_keyword: primaryKeyword };
 }
 
@@ -2645,6 +2753,16 @@ export async function saveDesignImage(
       WHERE id = $1`,
     [designId, pub.publicUrl, wanted]
   );
+
+  // Putting the image in IS P4.2.4, whichever way it got here. The task stays
+  // open while designs are still missing, and closes on the last one.
+  const urlId = await urlIdForDesign(orgId, designId);
+  if (urlId) {
+    const st = await cycleWorkState(orgId, urlId);
+    await recordCycleWork(orgId, urlId, "P4.2.4",
+      st.designs > 0 && st.withImage >= st.designs,
+      `${st.withImage} of ${st.designs} designs have an image (uploaded).`);
+  }
   return { ok: true, asset_path: pub.publicUrl, filename: wanted };
 }
 
@@ -2664,6 +2782,19 @@ export async function setCopyQc(
     [orgId, copySetId, status, reason ?? null]
   );
   if (r.rowCount === 0) throw new Error("Copy set not found for this org");
+  const owner = await organicPool().query<{ url_id: string }>(
+    `SELECT w.url_id::text
+       FROM organic.copy_sets cs
+       JOIN organic.designs d ON d.id = cs.design_id
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+      WHERE cs.id = $1 AND w.org_id = $2`, [copySetId, orgId]);
+  const urlId = owner.rows[0]?.url_id;
+  if (urlId) {
+    const st = await cycleWorkState(orgId, urlId);
+    await recordCycleWork(orgId, urlId, "P4.2.10",
+      st.designs > 0 && st.copyQcDone >= st.designs,
+      `${st.copyQcDone} of ${st.designs} copy sets reviewed.`);
+  }
   return { ok: true, copy_set_id: copySetId, human_qc_status: status };
 }
 

@@ -75,7 +75,7 @@ export const PHASE4_ACTIONS: Record<string, ActionKind> = {
   "P4.2.3": { kind: "run", label: "Generate the brief", action: "brief",
     describe: "Builds from the grid, the brand book, the taste graph and what has already won on this account." },
   "P4.2.4": { kind: "designs", label: "Generate the four designs", action: "generate_designs",
-    describe: "One image per design, each from its own prompt built from the visual worlds, the palette and the grid — so the four are genuinely distinct rather than four samples of one prompt. SAVE pins come out 2:3, CLICK pins 9:16. Takes a couple of minutes. Designs made elsewhere — Canva, a shoot, the client\u2019s own material — are uploaded per design instead; the file is renamed to the SOP name on the way in, because Pinterest reads it out of the URL." },
+    describe: "Four visually distinct designs: three SAVE at 2:3 and one CLICK at 9:16. Upload them per design — Canva, a shoot, the client\u2019s own material — and the file is renamed to the SOP name on the way in, because Pinterest reads it out of the URL. Generating is the fallback for an account with no usable material: one image per design, each from its own prompt built from the visual worlds, the palette and the grid, and it takes a couple of minutes." },
   "P4.2.5": { kind: "run", label: "Cut the micro-crops", action: "generate_crops",
     describe: "Copy variant A keeps the original; B, C and D each take 96% of the frame from a different corner and scale back. That makes all four pins off one design read as four images while sharing one copy set — which is why four copy sets per URL is right and sixteen would be waste." },
   "P4.2.6": { kind: "readout",
@@ -323,8 +323,18 @@ function DesignsPanel({
                 </div>
                 <div className="text-[11px] text-muted-foreground truncate">{d.filename ?? "—"}</div>
               </div>
-              <label className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-o-hairline hover:bg-o-sunk cursor-pointer">
-                {busy === d.design_id ? "Uploading…" : d.asset_path ? "Replace" : "Upload"}
+              {/* Uploading is the normal route, not the fallback: the
+                  designs are drawn in Canva and generating is not good
+                  enough for this account (decided 10-09-2026). So this is
+                  the prominent control and Generate is the quiet one. */}
+              <label className={cn(
+                "shrink-0 text-[11px] px-2.5 py-1.5 rounded-md cursor-pointer font-semibold",
+                d.asset_path
+                  ? "border border-o-hairline hover:bg-o-sunk"
+                  : "bg-foreground text-background hover:opacity-90",
+                busy !== null && "opacity-50 cursor-not-allowed",
+              )}>
+                {busy === d.design_id ? "Uploading…" : d.asset_path ? "Replace" : "Upload design"}
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                   disabled={busy !== null}
                   onChange={(e) => {
@@ -339,18 +349,24 @@ function DesignsPanel({
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
-        <button type="button" onClick={generate} disabled={busy !== null || (rows?.length ?? 0) === 0}
-          className="o-btn o-btn-primary">
-          {busy === "all" ? "Generating…" : label}
-        </button>
         {rows && rows.length > 0 && (
           <span className="text-[11px] text-muted-foreground">
             {missing === 0
               ? "All four have an image — cut the micro-crops next (P4.2.5)."
-              : `${missing} of ${rows.length} still without an image. Generating replaces every design; uploading touches only that one.`}
+              : `${missing} of ${rows.length} still without an image.`}
           </span>
         )}
+        <span className="flex-1" />
+        <button type="button" onClick={generate} disabled={busy !== null || (rows?.length ?? 0) === 0}
+          className="text-[11px] px-2 py-1 rounded-md border border-o-hairline text-muted-foreground hover:text-foreground hover:bg-o-sunk disabled:opacity-50">
+          {busy === "all" ? "Generating…" : `${label} instead`}
+        </button>
       </div>
+      <p className="text-[11px] text-muted-foreground">
+        Generating replaces all four at once and overwrites what is there; uploading touches only that
+        one design. On an AI-generated image, apply the 1% transparent frame in Canva before export —
+        it strips the C2PA metadata Pinterest reads to auto-flag AI content.
+      </p>
       {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
       {note && <p className="text-xs text-emerald-700">{note}</p>}
     </div>
