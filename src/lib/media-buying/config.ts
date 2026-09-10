@@ -245,11 +245,19 @@ export interface ClassifyInput {
    *   "week"  (default) — a 7-day bucket, judged on the weekly floor.
    *   "month"           — a calendar-month bucket, judged on the monthly
    *                       floor scaled by `monthProgress`.
+   *   "range"           — an arbitrary period of `rangeDays` days, judged on
+   *                       the weekly floor pro-rated over those days.
    * Passing a month bucket with the default "week" is exactly the bug this
    * parameter was added to fix: a whole month of revenue would clear a floor
    * meant for a single week, painting sub-scale stores green.
    */
-  scaleBasis?: "week" | "month";
+  scaleBasis?: "week" | "month" | "range";
+  /**
+   * Inclusive length of the bucket in days. Only read when
+   * `scaleBasis === "range"`. See scaleFloorFor() for why the weekly floor is
+   * the one that gets pro-rated.
+   */
+  rangeDays?: number;
   /**
    * How much of the month the bucket actually covers, as a fraction (0-1].
    * Only read when `scaleBasis === "month"`.
@@ -305,8 +313,10 @@ export function scaleFloorFor(opts: {
   invoicingModel?: InvoicingModel | null;
   minMonthlySpend?: number | null;
   overrides?: Partial<ZoneThresholds> | null;
-  scaleBasis?: "week" | "month";
+  scaleBasis?: "week" | "month" | "range";
   monthProgress?: number;
+  /** Inclusive length of the bucket in days. Only read for scaleBasis "range". */
+  rangeDays?: number;
   /** Units of the store's currency per EUR. 1 = store already bills in EUR. */
   fxPerEur?: number;
 }): ScaleFloor {
@@ -322,6 +332,21 @@ export function scaleFloorFor(opts: {
     scaleBasis === "month"
       ? Math.min(1, Math.max(0, opts.monthProgress ?? 1))
       : 1;
+  // An arbitrary period is measured against the WEEKLY floor pro-rated over
+  // its own length, never against the monthly one. Two reasons, and both are
+  // decisions rather than convenience:
+  //   - a range of exactly 7 days then reproduces the weekly buckets on this
+  //     same page to the cent, so the custom tab can never contradict the one
+  //     next to it for the same days;
+  //   - the two floors are deliberately not derived from each other (see
+  //     DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR), and the weekly one is the
+  //     stricter day-rate — €714/day against €657/day. A custom range is a
+  //     look, not an invoice, so erring strict costs a false green rather
+  //     than a missed one.
+  // Floored at one day: a zero-length range would drop the gate to nothing
+  // and wave every store through.
+  const rangeWeeks =
+    scaleBasis === "range" ? Math.max(1, opts.rangeDays ?? 7) / 7 : 1;
 
   if (invoicingModel === "spend_fee") {
     const monthly =
@@ -332,7 +357,9 @@ export function scaleFloorFor(opts: {
     // have data for. Week bucket: unchanged, the monthly floor spread over an
     // average month's worth of weeks.
     const eur =
-      scaleBasis === "month" ? monthly * monthShare : monthly / WEEKS_PER_MONTH;
+      scaleBasis === "month"
+        ? monthly * monthShare
+        : (monthly / WEEKS_PER_MONTH) * rangeWeeks;
     return { metric: "spend", floor: eur * fx, floor_eur: eur };
   }
   // revenue_fee (default).
@@ -340,7 +367,8 @@ export function scaleFloorFor(opts: {
     scaleBasis === "month"
       ? (overrides?.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR) *
         monthShare
-      : (overrides?.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR);
+      : (overrides?.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR) *
+        rangeWeeks;
   return { metric: "revenue", floor: eur * fx, floor_eur: eur };
 }
 
@@ -395,6 +423,7 @@ export function classifyZone(input: ClassifyInput): Zone | null {
       overrides: th,
       scaleBasis,
       monthProgress,
+      rangeDays: input.rangeDays,
       fxPerEur: input.fxPerEur,
     });
     const actual = gate.metric === "spend" ? spend : (windowRevenue ?? 0);

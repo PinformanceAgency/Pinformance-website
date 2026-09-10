@@ -13,7 +13,7 @@ import {
 import { CalendarDays, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HubResponse } from "@/lib/media-buying/hub-types";
-import type { StoreZoneRow } from "@/lib/media-buying/zones";
+import type { RangeZoneRow, StoreZoneRow } from "@/lib/media-buying/zones";
 import type { DailyPoint, HubSeries } from "@/lib/media-buying/hub-series";
 import { classifyZone, DEPARTMENT_LABELS, type Zone } from "@/lib/media-buying/config";
 import type { HubFilters } from "./hub-panels";
@@ -525,6 +525,40 @@ function WeekBars({ weeks, ber }: { weeks: WeekBucket[]; ber: number | null }) {
  *  counts per zone over the last 4 weeks, then a three-column list of the
  *  stores currently in each zone. Rewired to focus on "how many stores are
  *  in each zone" rather than showing ROAS numbers. */
+interface StoreGroup {
+  key: string;
+  label: string;
+  stores: StoreZoneRow[];
+}
+
+/** The company / department / buyer split every zone view is rendered in.
+ *  Shared by the bucketed view and the custom-range one so the two can never
+ *  group the same book differently. */
+function groupStores(stores: StoreZoneRow[]): {
+  departments: StoreGroup[];
+  buyers: StoreGroup[];
+} {
+  const byDept = new Map<string, StoreZoneRow[]>();
+  const byBuyer = new Map<string, StoreZoneRow[]>();
+  for (const s of stores) {
+    const d = s.department ?? "(no department)";
+    (byDept.get(d) ?? byDept.set(d, []).get(d)!).push(s);
+    const b = s.media_buyer ?? "(unassigned)";
+    (byBuyer.get(b) ?? byBuyer.set(b, []).get(b)!).push(s);
+  }
+  const departments = Array.from(byDept.entries())
+    .map(([k, list]) => ({
+      key: `dept:${k}`,
+      label: DEPARTMENT_LABELS[k as keyof typeof DEPARTMENT_LABELS] ?? capitalize(k),
+      stores: list,
+    }))
+    .sort((a, b) => b.stores.length - a.stores.length);
+  const buyers = Array.from(byBuyer.entries())
+    .map(([k, list]) => ({ key: `buyer:${k}`, label: k, stores: list }))
+    .sort((a, b) => b.stores.length - a.stores.length);
+  return { departments, buyers };
+}
+
 export function ZoneBlocksSection({
   hub,
   filters,
@@ -537,27 +571,7 @@ export function ZoneBlocksSection({
   mode?: ZoneBlockMode;
 }) {
   const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
-  const groups = useMemo(() => {
-    const byDept = new Map<string, StoreZoneRow[]>();
-    const byBuyer = new Map<string, StoreZoneRow[]>();
-    for (const s of filteredStores) {
-      const d = s.department ?? "(no department)";
-      (byDept.get(d) ?? byDept.set(d, []).get(d)!).push(s);
-      const b = s.media_buyer ?? "(unassigned)";
-      (byBuyer.get(b) ?? byBuyer.set(b, []).get(b)!).push(s);
-    }
-    const departments = Array.from(byDept.entries())
-      .map(([k, list]) => ({
-        key: `dept:${k}`,
-        label: DEPARTMENT_LABELS[k as keyof typeof DEPARTMENT_LABELS] ?? capitalize(k),
-        stores: list,
-      }))
-      .sort((a, b) => b.stores.length - a.stores.length);
-    const buyers = Array.from(byBuyer.entries())
-      .map(([k, list]) => ({ key: `buyer:${k}`, label: k, stores: list }))
-      .sort((a, b) => b.stores.length - a.stores.length);
-    return { departments, buyers };
-  }, [filteredStores]);
+  const groups = useMemo(() => groupStores(filteredStores), [filteredStores]);
 
   // Month buckets are labelled with the calendar months they actually are.
   // The zone window ends YESTERDAY, so on the 1st and 2nd of a month the
@@ -800,6 +814,7 @@ function ZoneColumn({
   stores,
   onStoreClick,
   showLastMonth = false,
+  detail,
 }: {
   kind: "red" | "orange" | "green";
   stores: StoreZoneRow[];
@@ -807,6 +822,10 @@ function ZoneColumn({
   /** On the invoiced-month view, put that month's figures on the card — the
    *  colour alone is not what anyone is here for. */
   showLastMonth?: boolean;
+  /** Extra line under the store name. Same reasoning as showLastMonth, for
+   *  views whose figures don't live on StoreZoneRow — the custom range gets
+   *  its numbers from a separate call. */
+  detail?: (s: StoreZoneRow) => React.ReactNode;
 }) {
   const styles = {
     red: {
@@ -856,6 +875,11 @@ function ZoneColumn({
                 {s.media_buyer && (
                   <div className="text-[11px] text-muted-foreground truncate">{s.media_buyer}</div>
                 )}
+                {detail && (
+                  <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
+                    {detail(s)}
+                  </div>
+                )}
                 {showLastMonth && (
                   <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
                     {s.last_month.days_with_data > 0 ? (
@@ -875,6 +899,177 @@ function ZoneColumn({
         </ul>
       )}
     </div>
+  );
+}
+
+// ─── Custom range ──────────────────────────────────────────────────────────
+export interface RangeMeta {
+  from: string;
+  to: string;
+  days: number;
+  includes_today: boolean;
+}
+
+/**
+ * The same company / department / buyer blocks as ZoneBlocksSection, for one
+ * period the user picked instead of four weeks or three months.
+ *
+ * No bar chart here on purpose: one period is one bar, and a chart of a single
+ * bucket says nothing the tally above it doesn't. What a custom range is
+ * actually read for is the numbers, so every store card carries its own spend,
+ * revenue, ROAS and the scale floor it was measured against.
+ */
+export function ZoneRangeSection({
+  hub,
+  filters,
+  rows,
+  meta,
+  onStoreClick,
+}: {
+  hub: HubResponse;
+  filters: HubFilters;
+  rows: RangeZoneRow[];
+  meta: RangeMeta;
+  onStoreClick?: (orgId: string) => void;
+}) {
+  const filteredStores = useMemo(() => filterStores(hub.stores, filters), [hub.stores, filters]);
+  const groups = useMemo(() => groupStores(filteredStores), [filteredStores]);
+  const byOrg = useMemo(
+    () => new Map(rows.map((r) => [r.org_id, r])),
+    [rows]
+  );
+  const blockProps = { byOrg, meta, onStoreClick };
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle
+        label="Company"
+        description={`Zone composition for the whole filtered book over ${fmtRangeLabel(meta)} (${meta.days} ${meta.days === 1 ? "day" : "days"}).`}
+      />
+      <ZoneRangeBlock title="Company" stores={filteredStores} {...blockProps} />
+      <SectionTitle label="By department" description="Same period per department." />
+      <div className="space-y-4">
+        {groups.departments.map((g) => (
+          <ZoneRangeBlock key={g.key} title={g.label} stores={g.stores} {...blockProps} />
+        ))}
+      </div>
+      <SectionTitle label="By media buyer" description="Same period per buyer." />
+      <div className="space-y-4">
+        {groups.buyers.map((g) => (
+          <ZoneRangeBlock key={g.key} title={g.label} stores={g.stores} {...blockProps} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** "Sep 7 – Sep 10, 2026", or a single date when the range is one day. */
+export function fmtRangeLabel(meta: { from: string; to: string }): string {
+  const year = meta.to.slice(0, 4);
+  if (meta.from === meta.to) return `${fmtMonthDay(meta.from)}, ${year}`;
+  return `${fmtMonthDay(meta.from)} – ${fmtMonthDay(meta.to)}, ${year}`;
+}
+
+function ZoneRangeBlock({
+  title,
+  stores,
+  byOrg,
+  meta,
+  onStoreClick,
+}: {
+  title: string;
+  stores: StoreZoneRow[];
+  byOrg: Map<string, RangeZoneRow>;
+  meta: RangeMeta;
+  onStoreClick?: (orgId: string) => void;
+}) {
+  const zoneOf = (s: StoreZoneRow): Zone | null => byOrg.get(s.org_id)?.zone ?? null;
+  const red = stores.filter((s) => zoneOf(s) === "red");
+  const orange = stores.filter((s) => zoneOf(s) === "orange");
+  const green = stores.filter((s) => zoneOf(s) === "green");
+  const unclassified = stores.filter((s) => zoneOf(s) == null);
+
+  // Group totals only when every store with data in the group bills in the
+  // same currency. Amounts are never converted anywhere in this app, so a sum
+  // over a EUR store and a USD one is a number with no unit — and it renders
+  // exactly like a real one.
+  const totals = useMemo(() => {
+    const withData = stores
+      .map((s) => byOrg.get(s.org_id))
+      .filter((r): r is RangeZoneRow => !!r && (r.spend > 0 || r.revenue > 0));
+    if (withData.length === 0) return null;
+    const currencies = new Set(withData.map((r) => r.currency ?? "EUR"));
+    if (currencies.size > 1) return { mixed: true as const };
+    const spend = withData.reduce((a, r) => a + r.spend, 0);
+    const revenue = withData.reduce((a, r) => a + r.revenue, 0);
+    return {
+      mixed: false as const,
+      currency: withData[0].currency ?? "EUR",
+      spend,
+      revenue,
+      roas: spend > 0 ? revenue / spend : null,
+    };
+  }, [stores, byOrg]);
+
+  const detail = (s: StoreZoneRow) => {
+    const r = byOrg.get(s.org_id);
+    if (!r) return null;
+    const cur = r.currency ?? "EUR";
+    return (
+      <>
+        {fmtCurrency(r.revenue, cur)} rev · {fmtCurrency(r.spend, cur)} spend ·{" "}
+        {fmtRoas(r.roas)}
+        <span className="block opacity-70">
+          {r.scale_metric === "spend" ? "spend" : "rev"} floor{" "}
+          {fmtCurrency(r.scale_target, cur)} · {r.days_with_data}/{meta.days} days with data
+        </span>
+      </>
+    );
+  };
+
+  return (
+    <section className="bg-card border border-border rounded-2xl p-6">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-5">
+        <div>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <div className="text-xs text-muted-foreground">
+            {stores.length} {stores.length === 1 ? "store" : "stores"}
+            {totals && (
+              <>
+                {" · "}
+                {totals.mixed ? (
+                  <span className="italic">mixed currencies — see per store</span>
+                ) : (
+                  <span className="tabular-nums">
+                    {fmtCurrency(totals.revenue, totals.currency)} rev ·{" "}
+                    {fmtCurrency(totals.spend, totals.currency)} spend ·{" "}
+                    {fmtRoas(totals.roas)}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* No delta: one period has nothing to be compared against. */}
+          <ZoneTally label="Red" count={red.length} delta={0} kind="red" />
+          <ZoneTally label="Orange" count={orange.length} delta={0} kind="orange" />
+          <ZoneTally label="Green" count={green.length} delta={0} kind="green" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-border pt-4">
+        <ZoneColumn kind="red" stores={red} onStoreClick={onStoreClick} detail={detail} />
+        <ZoneColumn kind="orange" stores={orange} onStoreClick={onStoreClick} detail={detail} />
+        <ZoneColumn kind="green" stores={green} onStoreClick={onStoreClick} detail={detail} />
+      </div>
+      {unclassified.length > 0 && (
+        <div className="mt-2 text-[11px] text-muted-foreground italic">
+          {unclassified.length} store{unclassified.length === 1 ? "" : "s"} not classified
+          over this period (no spend).
+        </div>
+      )}
+    </section>
   );
 }
 

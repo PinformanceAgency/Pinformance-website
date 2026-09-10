@@ -695,6 +695,205 @@ export async function computeStoreZones(
   return rows;
 }
 
+/** One store's totals + zone over an arbitrary, caller-chosen period. */
+export interface RangeZoneRow {
+  org_id: string;
+  store_name: string;
+  currency: string | null;
+  spend: number;
+  revenue: number;
+  conversions: number;
+  impressions: number;
+  clicks: number;
+  roas: number | null;
+  zone: Zone | null;
+  /** roas / ber — same meaning as on StoreZoneRow, handy for sorting. */
+  ratio: number | null;
+  /** Which metric the scale gate looked at and the number it had to reach,
+   *  in the store's own currency, straight from scaleFloorFor() — so the
+   *  figure on screen cannot drift from the one the zone was decided on. */
+  scale_metric: "revenue" | "spend";
+  scale_target: number;
+  scale_target_eur: number;
+  fx_per_eur: number;
+  /** Distinct snapshot dates we hold for this store inside the period, and
+   *  the first/last of them. A day Pinterest reported no activity for is
+   *  simply absent (see "Data conventions"), so this is the period the store
+   *  actually ran — never read a shortfall here as missing data. */
+  days_with_data: number;
+  measured_from: string | null;
+  measured_through: string | null;
+}
+
+/**
+ * Per-store zones over an arbitrary [from, to] period — what the Zones page's
+ * custom-range tab renders.
+ *
+ * Deliberately its own function rather than a parameter on computeStoreZones:
+ * that one exists to fill four weekly buckets, three month buckets and twelve
+ * weeks of history in a single pass, and none of that means anything for a
+ * period somebody typed in. This reads the days asked for, sums them per org
+ * and classifies once.
+ *
+ * Two things it does differently from computeStoreZones, both on purpose:
+ *
+ *  - It sums EVERY account-level row for the org, not the first ad account it
+ *    finds. The live 7-day figure on StoreZoneRow takes one entity per org
+ *    (`totals` keyed on org::entity, first match wins) while the weekly
+ *    buckets right beside it sum all of them; for an org with two ad accounts
+ *    those two disagree. Summing is the answer that matches the buckets this
+ *    page is actually read against.
+ *  - The scale floor is the weekly one pro-rated over the period's length —
+ *    see scaleFloorFor(). A 7-day range therefore lands on exactly the same
+ *    zone as the weekly bucket covering the same days.
+ */
+export async function computeStoreZonesForRange(
+  supabase: SupabaseClient,
+  from: string,
+  to: string
+): Promise<RangeZoneRow[]> {
+  const days = daysBetween(from, to);
+
+  const { data: orgs, error: orgsErr } = await supabase
+    .from("organizations")
+    .select("id, name, pinterest_user_id");
+  if (orgsErr) throw new Error(orgsErr.message);
+
+  const fxRates = await loadFxRates(supabase);
+
+  const { data: settings, error: setErr } = await supabase
+    .from("store_settings")
+    .select("*");
+  if (setErr) throw new Error(setErr.message);
+  const settingsByOrg = new Map<string, StoreSettings>(
+    (settings ?? []).map((s) => [s.org_id, s as StoreSettings])
+  );
+
+  const orgIds = (orgs ?? [])
+    .filter((o) => o.pinterest_user_id)
+    .map((o) => o.id as string);
+  if (orgIds.length === 0) return [];
+
+  // Same paginated read as computeStoreZones, tiebreaker included: ordering by
+  // snapshot_date alone is not a total order, and a row landing on two pages
+  // (or none) silently moves a total that gets SUMMED here.
+  const PAGE_SIZE = 1000;
+  const rowsRaw: MetricRow[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("pinterest_metrics_snapshots")
+      .select(
+        "org_id, entity_id, entity_name, ad_account_id, currency, spend, revenue, conversions, impressions, clicks, snapshot_date"
+      )
+      .eq("entity_type", "account")
+      .gte("snapshot_date", from)
+      .lte("snapshot_date", to)
+      .in("org_id", orgIds)
+      .order("snapshot_date", { ascending: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as MetricRow[];
+    rowsRaw.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+
+  interface OrgTotals {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    impressions: number;
+    clicks: number;
+    currency: string | null;
+    dates: Set<string>;
+  }
+  const byOrg = new Map<string, OrgTotals>();
+  for (const r of rowsRaw) {
+    const cur =
+      byOrg.get(r.org_id) ??
+      ({
+        spend: 0,
+        revenue: 0,
+        conversions: 0,
+        impressions: 0,
+        clicks: 0,
+        currency: null,
+        dates: new Set<string>(),
+      } as OrgTotals);
+    cur.spend += n(r.spend);
+    cur.revenue += n(r.revenue);
+    cur.conversions += n(r.conversions);
+    cur.impressions += n(r.impressions);
+    cur.clicks += n(r.clicks);
+    if (r.currency) cur.currency = r.currency;
+    cur.dates.add(r.snapshot_date);
+    byOrg.set(r.org_id, cur);
+  }
+
+  return (orgs ?? [])
+    .filter((o) => o.pinterest_user_id)
+    .map((o) => {
+      const orgId = o.id as string;
+      const s = settingsByOrg.get(orgId) ?? null;
+      const configured = !!(s && s.department != null && s.breakeven_roas != null);
+      const t = byOrg.get(orgId);
+      const spend = t?.spend ?? 0;
+      const revenue = t?.revenue ?? 0;
+      const roas = spend > 0 ? revenue / spend : null;
+      const invoicingModel: InvoicingModel =
+        (s?.invoicing_model as InvoicingModel | undefined) ?? "revenue_fee";
+      const minMonthlySpend = s?.min_monthly_spend ?? null;
+      const currency =
+        t?.currency ?? (s as { currency?: string } | null)?.currency ?? null;
+      const fxPerEur = ratePerEur(fxRates, currency);
+      const gate = scaleFloorFor({
+        invoicingModel,
+        minMonthlySpend,
+        overrides: s?.zone_thresholds,
+        scaleBasis: "range",
+        rangeDays: days,
+        fxPerEur,
+      });
+      const zone = configured
+        ? classifyZone({
+            liveRoas: roas,
+            breakevenRoas: s?.breakeven_roas ?? null,
+            invoiceRoas: s?.invoice_roas ?? null,
+            spend,
+            windowRevenue: revenue,
+            overrides: s?.zone_thresholds,
+            invoicingModel,
+            minMonthlySpend,
+            fxPerEur,
+            scaleBasis: "range",
+            rangeDays: days,
+          })
+        : null;
+      const ber = s?.breakeven_roas ?? null;
+      const sorted = t ? Array.from(t.dates).sort() : [];
+      return {
+        org_id: orgId,
+        store_name: (o.name as string) || "(unnamed)",
+        currency,
+        spend,
+        revenue,
+        conversions: t?.conversions ?? 0,
+        impressions: t?.impressions ?? 0,
+        clicks: t?.clicks ?? 0,
+        roas,
+        zone,
+        ratio: ber && ber > 0 && roas != null ? roas / ber : null,
+        scale_metric: gate.metric,
+        scale_target: gate.floor,
+        scale_target_eur: gate.floor_eur,
+        fx_per_eur: fxPerEur,
+        days_with_data: sorted.length,
+        measured_from: sorted.length ? sorted[0] : null,
+        measured_through: sorted.length ? sorted[sorted.length - 1] : null,
+      };
+    });
+}
+
 /**
  * Compute per-campaign zones for a set of orgs (or all orgs, if omitted).
  * Joins live campaign snapshots against the naming-parse columns for filter
