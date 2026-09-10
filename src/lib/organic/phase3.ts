@@ -1277,12 +1277,27 @@ export interface SeedingResult {
   errors: string[];
 }
 
-/** Execute seeding by pushing to Pinterest through PinterestClient. Respects
- *  the SOP spacing rules by pacing itself at seedsPerMinute and stops as soon
- *  as it hits the DB's check_daily_volume ceiling for the org.
+/**
+ * Execute seeding by pushing to Pinterest through PinterestClient.
  *
- *  Boards must already exist on Pinterest (i.e. status SECRET/PUBLIC and
- *  pinterest_board_id set) or the seed attempt is skipped for that board. */
+ * Boards must already exist on Pinterest (pinterest_board_id set) or the
+ * board is skipped — that part is real and is checked below.
+ *
+ * WHAT THIS DOES NOT DO, despite what this comment said until 10-09-2026:
+ * it does not pace itself, and it does not stop at the daily ceiling. There
+ * is no delay between calls and no `seedsPerMinute`; `check_daily_volume()`
+ * is a trigger on INSERTs into organic.pins and seeding writes none — it
+ * calls Pinterest directly and increments boards.seeded_count. So a run over
+ * 23 boards at the default 15 per board is up to 345 createPin calls, as fast
+ * as the API allows, on an account that may be weeks old. That is exactly the
+ * activity spike module 4 warns about.
+ *
+ * Deliberately left as it is rather than given an invented pace: what a
+ * seeding burst may safely be is a decision from the method, and a number
+ * chosen here would be indistinguishable from a real rule three months from
+ * now. `seedsPerBoardMax` (default 15) is the only ceiling that exists;
+ * pass it down, and seed in batches of boards, until that decision is made.
+ */
 export async function runSeeding(
   orgId: string,
   timeSpentMin: number,
