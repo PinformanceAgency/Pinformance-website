@@ -1080,12 +1080,25 @@ export async function generateCreationSchedule(orgId: string, timeSpentMin: numb
   // PLANNED with their real Pinterest ids on them, so the scheduler queued
   // them and the next "create boards today" would have made a second
   // "On-Sale (NL & BE)" on the client's own account.
+  // Order: whatever a running cycle is waiting on first, then the rest by
+  // age. The pace does not change -- three a day, module 4 -- but which three
+  // does, and that is the difference between a waterfall that can be queued
+  // tomorrow and one that waits a week for the last of its five boards.
+  // Measured on Fit Cherries 10-09-2026: "Bikinis for Petite Women" carried
+  // seven scheduled pins and sat at position 20 in the queue, on the 17th.
   const boards = await pool.query<{ id: string; name: string }>(
-    `SELECT id::text, name FROM organic.boards
-      WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
-        AND pinterest_board_id IS NULL
-        AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
-      ORDER BY created_at`,
+    `SELECT b.id::text, b.name
+       FROM organic.boards b
+      WHERE b.org_id = $1 AND b.status = 'PLANNED'::organic.board_status
+        AND b.pinterest_board_id IS NULL
+        AND b.origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
+      ORDER BY
+        (SELECT COUNT(*) FROM organic.pins p
+           JOIN organic.waterfalls w ON w.id = p.waterfall_id
+          WHERE p.board_id = b.id
+            AND w.status <> 'ABANDONED'::organic.waterfall_status
+            AND p.status <> 'CANCELLED'::organic.pin_status) DESC,
+        b.created_at`,
     [orgId]
   );
   const PER_DAY = 3;
