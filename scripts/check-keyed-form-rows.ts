@@ -13,6 +13,7 @@
  *   DOTENV_CONFIG_PATH=.env.local npx tsx scripts/check-keyed-form-rows.ts
  */
 import { withMissingKeys } from "../src/app/organic/client/[orgId]/useKeyedRows";
+import { mergeDraftRows } from "../src/app/organic/client/[orgId]/useFormDraft";
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -60,6 +61,43 @@ const make = (k: string) => ({ bucket: "", note: `seeded:${k}` });
   const state = { a: { bucket: "ALL", note: "kept" }, b: make("b") };
   const merged = withMissingKeys(state, ["b"], make);
   check("a removed key is not dropped", merged.a?.bucket === "ALL");
+}
+
+// 6. A restored draft may never blank a row the record already holds.
+//    The Longevity store, 10-09-2026: three hex codes saved with the
+//    per-keyword Save button, which wrote to the database and left the draft
+//    alone. The draft still had that row empty, restored over it on the next
+//    visit, and the screen showed nothing where the record had three colours
+//    — with the Save button answering "Nothing was saved" on top of it.
+{
+  const record = {
+    "daily supplements": ["#faeede", "#fcefeb", "#f8e3e2"],
+    "energy boost": ["", "", ""],
+  };
+  const draft = {
+    "daily supplements": ["", "", ""],
+    "energy boost": ["#fefdfe", "", ""],
+  };
+  const merged = mergeDraftRows(record, draft);
+  check("a blank draft row never overwrites a saved one",
+    merged["daily supplements"][0] === "#faeede",
+    merged["daily supplements"].join("/") || "(blanked)");
+  check("unsaved typing still wins over an empty record row",
+    merged["energy boost"][0] === "#fefdfe");
+}
+
+// 7. Same rule for a row that is an object, and for one that is a bare
+//    string — the three keyed forms use all three shapes.
+{
+  const merged = mergeDraftRows(
+    { a: { type: "SEASONAL", start: "2026-11-01", end: "" }, b: { type: "", start: "", end: "" } },
+    { a: { type: "", start: "", end: "" },                   b: { type: "EVERGREEN", start: "", end: "" } },
+  );
+  check("an object row is protected too", merged.a.type === "SEASONAL");
+  check("an object row with content still applies", merged.b.type === "EVERGREEN");
+
+  const strings = mergeDraftRows({ a: "kept", b: "" }, { a: "", b: "typed" });
+  check("a string row is protected too", strings.a === "kept" && strings.b === "typed");
 }
 
 console.log(failures === 0 ? "\nAll keyed-row invariants hold." : `\n${failures} failure(s).`);

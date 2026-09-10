@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useKeyedRows } from "./useKeyedRows";
-import { useFormDraft, type FormDraft } from "./useFormDraft";
+import { mergeDraftRows, useFormDraft, type FormDraft } from "./useFormDraft";
 import { DraftHint, DraftBanner } from "./DraftBanner";
 import type { TaskRow } from "@/lib/organic/types";
 import { cn } from "@/lib/utils";
@@ -177,7 +177,7 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [rowErr, setRowErr] = useState<Record<string, string>>({});
   const draft = useFormDraft(orgId, "P2.1.3", { rows, time }, (d) => {
-    if (d.rows) setRows((cur) => ({ ...cur, ...(d.rows as Record<string, GridRowState>) }));
+    if (d.rows) setRows((cur) => mergeDraftRows(cur, d.rows as Record<string, GridRowState>));
     if (typeof d.time === "string") setTime(d.time);
   });
 
@@ -199,6 +199,11 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
     try {
       await post(orgId, { action: "grid_records", records: [recordFor(k)], time_spent_min: 0 });
       setStored((v) => ({ ...v, [k]: true }));
+      // The record holds this row now, so the stored draft is out of date —
+      // and a draft that outlives the save it describes comes back on the
+      // next visit and blanks the row it just wrote. Whatever else is on
+      // screen stays on screen and is mirrored again from the next keystroke.
+      await draft.clear();
     } catch (e) {
       setRowErr((v) => ({ ...v, [k]: (e as Error).message }));
     } finally { setBusy(null); }
@@ -300,7 +305,7 @@ function HexForm({ orgId, snapshot, onDone }: Props) {
     Object.fromEntries(snapshot.grid_analyses.filter((g) => g.hex_1).map((g) => [g.target_keyword, true])));
   const [busy, setBusy] = useState<string | null>(null);
   const draft = useFormDraft(orgId, "P2.1.4", { rows, time }, (d) => {
-    if (d.rows) setRows((cur) => ({ ...cur, ...(d.rows as Record<string, [string, string, string]>) }));
+    if (d.rows) setRows((cur) => mergeDraftRows(cur, d.rows as Record<string, [string, string, string]>));
     if (typeof d.time === "string") setTime(d.time);
   });
   if (keywords.length === 0) return <Notice>Save seed keywords first (P2.1.1).</Notice>;
@@ -317,6 +322,9 @@ function HexForm({ orgId, snapshot, onDone }: Props) {
     try {
       await post(orgId, { action: "hexes", records: [recordFor(k)], time_spent_min: 0 });
       setStored((v) => ({ ...v, [k]: true }));
+      // See the note on the grid form's saveOne: the draft has to retire with
+      // the save, or it restores over what was just written.
+      await draft.clear();
     } finally { setBusy(null); }
   }
 
@@ -367,21 +375,30 @@ function HexForm({ orgId, snapshot, onDone }: Props) {
       time={time} setTime={setTime}
       submitLabel={filledCount < keywords.length ? `Save ${filledCount} filled-in keyword(s)` : "Save hex codes"}
       onSubmit={async () => {
-        // A half-typed row is an error and is named; an untouched one is
-        // simply not done yet. Neither may cost the rows that are finished.
+        // A half-typed row is named, an untouched one is simply not done yet,
+        // and NEITHER may cost the rows that are finished. Until 10-09-2026
+        // the half-typed check threw before anything was written, so one row
+        // with a single hex in it refused the whole save and answered
+        // "Nothing was saved" — which is exactly what it did to the rows that
+        // were complete. Somebody filling in ten keywords one at a time could
+        // not save at all.
         const halfTyped = keywords.filter((k) => started(k) && !complete(k));
-        if (halfTyped.length > 0) {
-          throw new Error(`Three valid 6-digit hex codes needed for: ${halfTyped.join(", ")}. Nothing was saved — correct or clear those and save again.`);
-        }
         const records = keywords.filter(complete).map(recordFor);
-        if (records.length === 0) throw new Error("Nothing to save yet — fill in the three hex codes for at least one keyword.");
+        if (records.length === 0) {
+          throw new Error(halfTyped.length > 0
+            ? `Three valid 6-digit hex codes are needed per keyword, and ${halfTyped.join(", ")} ${halfTyped.length === 1 ? "has" : "have"} fewer. Finish one row and it saves on its own.`
+            : "Nothing to save yet — fill in the three hex codes for at least one keyword.");
+        }
         const r = await post(orgId, { action: "hexes", records, time_spent_min: n(time) }) as
           { count: number; remaining: string[]; done: boolean };
         setStored(Object.fromEntries(records.map((x) => [x.target_keyword, true])));
         onDone();
+        const half = halfTyped.length > 0
+          ? ` Half-filled, so not saved: ${halfTyped.join(", ")} — three hex codes or none.`
+          : "";
         return r.done
-          ? `Saved ${r.count} keyword(s) — all seed keywords have their colours.`
-          : `Saved ${r.count} keyword(s). Still open: ${r.remaining.join(", ")}. The task stays in progress.`;
+          ? `Saved ${r.count} keyword(s) — all seed keywords have their colours.${half}`
+          : `Saved ${r.count} keyword(s). Still open: ${r.remaining.join(", ")}. The task stays in progress.${half}`;
       }}
     />
   );
@@ -931,7 +948,7 @@ function VelocityForm({ orgId, snapshot, onDone }: Props) {
   );
   const [time, setTime] = useState("");
   const draft = useFormDraft(orgId, "P2.4.1", { rows, time }, (d) => {
-    if (d.rows) setRows((cur) => ({ ...cur, ...(d.rows as Record<string, string>) }));
+    if (d.rows) setRows((cur) => mergeDraftRows(cur, d.rows as Record<string, string>));
     if (typeof d.time === "string") setTime(d.time);
   });
   if (snapshot.competitors.length === 0) return <Notice>Add competitors first (P2.1.5).</Notice>;

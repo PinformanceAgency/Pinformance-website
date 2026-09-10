@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useKeyedRows } from "./useKeyedRows";
-import { useFormDraft, type FormDraft } from "./useFormDraft";
+import { mergeDraftRows, useFormDraft, type FormDraft } from "./useFormDraft";
 import { DraftHint, DraftBanner } from "./DraftBanner";
 import type { TaskRow } from "@/lib/organic/types";
 
@@ -307,7 +307,7 @@ function PinClicksForm({ orgId, snapshot, onDone }: Props) {
   const [extra, setExtra] = useState("");
   const [time, setTime] = useState("");
   const draft = useFormDraft(orgId, "P3.1.8", { values, extra, time }, (d) => {
-    if (d.values) setValues((cur) => ({ ...cur, ...(d.values as Record<string, { volume: string; not_found: boolean }>) }));
+    if (d.values) setValues((cur) => mergeDraftRows(cur, d.values as Record<string, { volume: string; not_found: boolean }>));
     if (typeof d.extra === "string") setExtra(d.extra);
     if (typeof d.time === "string") setTime(d.time);
   });
@@ -485,7 +485,7 @@ function SeasonalForm({ orgId, snapshot, onDone }: Props) {
   const set = (t: string, patch: Partial<{ type: string; start: string; end: string }>) => setPick({ ...pick, [t]: { ...pick[t], ...patch } });
   const classified = Object.values(pick).filter((v) => v.type).length;
   const draft = useFormDraft(orgId, "P3.1.12", { pick, time }, (d) => {
-    if (d.pick) setPick((cur) => ({ ...cur, ...(d.pick as Record<string, { type: string; start: string; end: string }>) }));
+    if (d.pick) setPick((cur) => mergeDraftRows(cur, d.pick as Record<string, { type: string; start: string; end: string }>));
     if (typeof d.time === "string") setTime(d.time);
   });
 
@@ -740,7 +740,7 @@ function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
   );
   const [time, setTime] = useState("");
   const draft = useFormDraft(orgId, "P3.3.3", { rows, time }, (d) => {
-    if (d.rows) setRows((cur) => ({ ...cur, ...(d.rows as Record<string, Row>) }));
+    if (d.rows) setRows((cur) => mergeDraftRows(cur, d.rows as Record<string, Row>));
     if (typeof d.time === "string") setTime(d.time);
   });
   const set = (id: string, patch: Partial<Row>) =>

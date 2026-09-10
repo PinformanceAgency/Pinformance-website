@@ -196,3 +196,44 @@ export function useFormDraft<T extends object>(
 
   return { restoredAt, savedAt, status, discard, clear: forget };
 }
+
+/**
+ * Merge a restored draft over what the form already holds, per row, without
+ * ever replacing a filled row with an empty one.
+ *
+ * A draft is never the record — and the case that proves it: The Longevity
+ * store, 10-09-2026. Three hex codes for "daily supplements" were saved with
+ * the per-keyword Save button, which writes straight to the database and
+ * never touched the draft. The draft still held that row empty, so the next
+ * visit restored it over the saved values: the row went blank on screen, the
+ * one keyword typed since then was half-finished, and the Save button
+ * answered "Three valid hex codes needed for: energy boost. Nothing was
+ * saved." Saved work looked lost and nothing could be saved on top of it.
+ *
+ * The rule is one-directional on purpose. A draft that HAS something still
+ * wins — that is the unsaved typing this whole mechanism exists to protect.
+ * It only loses where it has nothing to say and the record does.
+ */
+export function mergeDraftRows<T>(
+  current: Record<string, T>,
+  draft: Record<string, T>,
+): Record<string, T> {
+  const out: Record<string, T> = { ...current };
+  for (const [key, value] of Object.entries(draft)) {
+    out[key] = isBlank(value) && !isBlank(current[key]) ? current[key] : (value as T);
+  }
+  return out;
+}
+
+/** Nothing typed anywhere in this row: "", null, undefined, or a structure of
+ *  those. `false` counts as blank too — an unticked box is not an answer, and
+ *  every row shape here defaults its booleans to false. */
+function isBlank(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (typeof value === "boolean") return value === false;
+  if (typeof value === "number") return false;
+  if (Array.isArray(value)) return value.every(isBlank);
+  if (typeof value === "object") return Object.values(value).every(isBlank);
+  return false;
+}
