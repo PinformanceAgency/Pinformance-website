@@ -163,6 +163,16 @@ export function evaluateBlockReasons(
     (cycle ? ctx.statusByKey.get(`${cycle}::${dep}`) : undefined) ??
     ctx.statusByKey.get(`::${dep}`);
   for (const c of conds) {
+    // A `requires_check` asks whether this STORE is ready to start phase 4:
+    // is any topic covered, is any URL selectable. Inside a cycle those
+    // questions are already answered by the cycle existing — P4.1.4 is
+    // "select this month's URLs", and it lives in a cycle that was created
+    // BECAUSE a URL was selected. Evaluating them there gates work that
+    // logically precedes the task's own existence, which is how Fit Cherries
+    // ended up with "Select URLs · BLOCKED" on two cycles it had already
+    // selected the URLs for. The dependency-on-another-task conditions still
+    // apply in full: those are about this cycle's own order of work.
+    if (cycle && c.requires_check) continue;
     if (c.requires_task_id) {
       const depStatus = statusOf(c.requires_task_id);
       if (depStatus !== "DONE") {

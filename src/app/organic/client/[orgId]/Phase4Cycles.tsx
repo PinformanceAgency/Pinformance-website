@@ -6,6 +6,7 @@ import { AlertTriangle, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskCard } from "./phase/[phase]/PhaseBoard";
 import { phaseMeta } from "@/lib/organic/phase-meta";
+import { useFormDraft } from "./useFormDraft";
 import type { CycleView } from "@/lib/organic/phase4";
 import type { TaskRow, ViabilityRow } from "@/lib/organic/types";
 import type { AssetRow, TaskAnswer } from "@/lib/organic/workspace";
@@ -424,22 +425,13 @@ interface CycleAsset {
 }
 
 function CopySection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
   const primaryKw = cycle.assigned_keywords.find((k) => k.is_primary)?.term ?? "";
   const [designs, setDesigns] = useState<CycleAsset[] | null>(null);
   const [designId, setDesignId] = useState<string>("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveErr, setSaveErr] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [brief, setBrief] = useState<{ primary_keyword?: string; long_tail_keywords?: string[]; dominant_colors?: string[] } | null>(null);
   const [briefErr, setBriefErr] = useState<string | null>(null);
-
-  const validation = useMemo(() => validateCopy(title, description, primaryKw), [title, description, primaryKw]);
-  const current = designs?.find((d) => d.design_id === designId) ?? null;
 
   // The copy belongs to a design — four designs, four copy sets, one per
   // design shared across its crops. Which one the boxes were writing to was
@@ -449,31 +441,10 @@ function CopySection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
       const r = await callP4(orgId, { action: "cycle_assets", url_id: cycle.url_id }) as { assets: CycleAsset[] };
       setDesigns(r.assets);
       setDesignId((cur) => cur || r.assets[0]?.design_id || "");
-    } catch (e) { setSaveErr((e as Error).message); }
+    } catch (e) { setLoadErr((e as Error).message); }
   }, [orgId, cycle.url_id]);
 
   useEffect(() => { void loadDesigns(); }, [loadDesigns]);
-
-  // Switching design shows what is stored for it, so the boxes are never
-  // somebody else's text.
-  useEffect(() => {
-    const d = designs?.find((x) => x.design_id === designId);
-    setTitle(d?.title ?? "");
-    setDescription(d?.description ?? "");
-    setSaved(null); setSaveErr(null);
-  }, [designId, designs]);
-
-  async function save() {
-    if (!designId) { setSaveErr("Pick a design first."); return; }
-    setSaving(true); setSaveErr(null); setSaved(null);
-    try {
-      await callP4(orgId, { action: "save_copy", design_id: designId, title, description });
-      await loadDesigns();
-      setSaved(`Saved to design ${current?.design_number ?? ""} — copy QC is back to PENDING, which is where it belongs after a change.`);
-      startTransition(() => router.refresh());
-    } catch (e) { setSaveErr((e as Error).message); }
-    finally { setSaving(false); }
-  }
 
   async function loadBrief() {
     setBriefLoading(true); setBriefErr(null);
@@ -483,6 +454,8 @@ function CopySection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
     } catch (e) { setBriefErr((e as Error).message); }
     finally { setBriefLoading(false); }
   }
+
+  const current = designs?.find((d) => d.design_id === designId) ?? null;
 
   return (
     <div className="p-4 space-y-3">
@@ -512,6 +485,8 @@ function CopySection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
         </div>
       )}
 
+      {loadErr && <div className="text-xs text-red-600">{loadErr}</div>}
+
       {designs && designs.length === 0 ? (
         <div className="text-[11px] text-neutral-500">
           No designs yet — generate the waterfall below first (P4.3.1), then the four copy sets exist to write into.
@@ -535,50 +510,139 @@ function CopySection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
             )}
           </div>
 
-          <div className="text-[11px] text-neutral-500">
-            Primary keyword for validator: <span className="font-mono">{primaryKw || "— assign keyword first —"}</span>
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-[11px]">
-              <span className="text-neutral-500">Title (max 100, must start with primary keyword)</span>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120}
-                className={`mt-0.5 w-full rounded-md border px-2 py-1 text-xs ${validation.title.ok ? "border-neutral-300" : "border-red-400 bg-red-50"}`} />
-            </label>
-            <div className={`text-[10px] tabular-nums ${validation.title.ok ? "text-neutral-500" : "text-red-600"}`}>
-              {title.length}/100 · {validation.title.ok ? "OK" : validation.title.errors.join(" · ")}
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-[11px]">
-              <span className="text-neutral-500">Description (250–300, no ! # em/en dash)</span>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
-                className={`mt-0.5 w-full rounded-md border px-2 py-1 text-xs ${validation.desc.ok ? "border-neutral-300" : "border-red-400 bg-red-50"}`} />
-            </label>
-            <div className={`text-[10px] tabular-nums ${validation.desc.ok ? "text-neutral-500" : "text-red-600"}`}>
-              {description.length}/300 · {validation.desc.ok ? "OK" : validation.desc.errors.join(" · ")}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <button type="button" onClick={save} disabled={saving || !validation.overall.ok || !designId}
-              className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
-              {saving ? "Saving…" : `Save copy${current ? ` for D${current.design_number}` : ""}`}
-            </button>
-            <span className={`text-[11px] rounded px-2 py-1 ${validation.overall.ok
-              ? "bg-muted text-foreground border border-border"
-              : "bg-red-50 text-red-700 border border-red-200"}`}>
-              {validation.overall.ok ? "✓ All validators pass" : "Validators block this copy"}
-            </span>
-            {saveErr && <span className="text-xs text-red-600 break-words">{saveErr}</span>}
-            {saved && <span className="text-xs text-emerald-700">{saved}</span>}
-          </div>
+          {/* Keyed on the design: switching design remounts the editor, so its
+              state AND its draft start from that design's own row. Without the
+              key the draft hook keeps the first design's baseline and starts
+              reporting one design's text as "restored" under another. */}
+          {current && (
+            <CopyEditor
+              key={current.design_id}
+              orgId={orgId}
+              design={current}
+              primaryKw={primaryKw}
+              onSaved={loadDesigns}
+            />
+          )}
         </>
       )}
     </div>
   );
 }
+
+/**
+ * The two boxes, for one design.
+ *
+ * Copy cannot be half-saved: the database refuses a description outside
+ * 250-300 characters, so unlike the phase-2 forms there is no "save what is
+ * filled in" here. That makes the draft the only thing between a long
+ * description and a closed tab, and it makes the Save button's job to EXPLAIN
+ * rather than to sit there greyed out — which is how it was reported: "the
+ * save button does not work". It was disabled, on empty boxes, saying nothing.
+ */
+function CopyEditor({
+  orgId, design, primaryKw, onSaved,
+}: {
+  orgId: string;
+  design: CycleAsset;
+  primaryKw: string;
+  onSaved: () => Promise<void>;
+}) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [title, setTitle] = useState(design.title ?? "");
+  const [description, setDescription] = useState(design.description ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+
+  const validation = useMemo(() => validateCopy(title, description, primaryKw), [title, description, primaryKw]);
+
+  const draft = useFormDraft(
+    orgId,
+    `P4.2.8:${design.design_id}`,
+    { title, description },
+    (d: Partial<{ title: string; description: string }>) => {
+      if (typeof d.title === "string") setTitle(d.title);
+      if (typeof d.description === "string") setDescription(d.description);
+    },
+  );
+
+  async function save() {
+    // The button is never disabled on validation. A greyed-out Save with
+    // nothing saying why is the same dead end phases 2 and 3 already had, and
+    // it reads as a broken button rather than as unfinished copy.
+    if (!validation.overall.ok) {
+      const bits = [
+        ...validation.title.errors.map((e) => `title: ${e}`),
+        ...validation.desc.errors.map((e) => `description: ${e}`),
+      ];
+      setSaved(null);
+      setSaveErr(
+        `Not saved — ${bits.join(" · ")}. The description has to land between 250 and 300 characters and ` +
+        `the title has to open with "${primaryKw}". The database enforces both, so there is no half-finished ` +
+        `version to keep — what is typed stays here as a draft in the meantime.`
+      );
+      return;
+    }
+    setSaving(true); setSaveErr(null); setSaved(null);
+    try {
+      await callP4(orgId, { action: "save_copy", design_id: design.design_id, title, description });
+      await draft.clear();
+      await onSaved();
+      setSaved(`Saved to D${design.design_number} — copy QC is back to PENDING, which is where it belongs after a change.`);
+      startTransition(() => router.refresh());
+    } catch (e) { setSaveErr((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <>
+      <div className="text-[11px] text-neutral-500">
+        Primary keyword for validator: <span className="font-mono">{primaryKw || "— assign keyword first —"}</span>
+      </div>
+
+      <div className="space-y-1">
+        <label className="block text-[11px]">
+          <span className="text-neutral-500">Title (max 100, must start with primary keyword)</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120}
+            className={`mt-0.5 w-full rounded-md border px-2 py-1 text-xs ${validation.title.ok ? "border-neutral-300" : "border-red-400 bg-red-50"}`} />
+        </label>
+        <div className={`text-[10px] tabular-nums ${validation.title.ok ? "text-neutral-500" : "text-red-600"}`}>
+          {title.length}/100 · {validation.title.ok ? "OK" : validation.title.errors.join(" · ")}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <label className="block text-[11px]">
+          <span className="text-neutral-500">Description (250–300, no ! # em/en dash)</span>
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
+            className={`mt-0.5 w-full rounded-md border px-2 py-1 text-xs ${validation.desc.ok ? "border-neutral-300" : "border-red-400 bg-red-50"}`} />
+        </label>
+        <div className={`text-[10px] tabular-nums ${validation.desc.ok ? "text-neutral-500" : "text-red-600"}`}>
+          {description.length}/300 · {validation.desc.ok ? "OK" : validation.desc.errors.join(" · ")}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" onClick={save} disabled={saving}
+          className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+          {saving ? "Saving…" : `Save copy for D${design.design_number}`}
+        </button>
+        <span className={`text-[11px] rounded px-2 py-1 ${validation.overall.ok
+          ? "bg-muted text-foreground border border-border"
+          : "bg-red-50 text-red-700 border border-red-200"}`}>
+          {validation.overall.ok ? "✓ All validators pass" : "Validators block this copy"}
+        </span>
+        {draft.restoredAt && (
+          <span className="text-[11px] text-amber-700">Restored what was typed here earlier — not saved yet.</span>
+        )}
+        {saveErr && <span className="text-xs text-red-600 break-words">{saveErr}</span>}
+        {saved && <span className="text-xs text-emerald-700">{saved}</span>}
+      </div>
+    </>
+  );
+}
+
 
 function validateCopy(title: string, description: string, primaryKw: string) {
   const t = title.trim(); const d = description.trim(); const kw = primaryKw.trim().toLowerCase();
