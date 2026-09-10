@@ -94,8 +94,13 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       return { deviations: await P4.loadCycleDeviations(orgId, String(body.url_id)) };
     // Both draft only. Nothing here publishes or approves — a human still
     // signs off, which is what AI_DRAFT means in the SOP.
+    // Per design when the copy panel asks for one, per URL when the task
+    // card's button does — that button only has a url_id, which is why this
+    // used to answer "Design not found for this org" on every press.
     case "generate_copy":
-      return await P4.generateCopyForDesign(orgId, String(body.design_id));
+      return body.design_id
+        ? await P4.generateCopyForDesign(orgId, String(body.design_id))
+        : await P4.generateCopyForUrl(orgId, String(body.url_id));
     case "generate_image_prompt":
       return await P4.generateImagePromptForDesign(orgId, String(body.design_id));
     // P4.2.4 / P4.2.5 — the images themselves. Long-running: Krea is a

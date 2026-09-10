@@ -2126,6 +2126,19 @@ export async function generateCopyForDesign(orgId: string, designId: string) {
   if (written.rowCount === 0) throw new Error("copy set was not written");
   await persistDraft(orgId, "PIN_COPY", designId, text);
 
+  // Same bookkeeping as the hand-written path: drafting the copy IS P4.2.8,
+  // and the validator that just passed it is P4.2.9. Both close on the last
+  // of the four, not on the first.
+  const urlId = await urlIdForDesign(orgId, designId);
+  if (urlId) {
+    const st = await cycleWorkState(orgId, urlId);
+    const alle = st.designs > 0 && st.withTitle >= st.designs;
+    await recordCycleWork(orgId, urlId, "P4.2.8", alle,
+      `${st.withTitle} of ${st.designs} copy sets drafted.`);
+    await recordCycleWork(orgId, urlId, "P4.2.9", alle,
+      "Every copy set passed the validator as it was written.");
+  }
+
   return { copy, attempts, failed_attempts };
 }
 
@@ -2736,6 +2749,49 @@ export async function setDesignQc(
       `${st.designQcDone} of ${st.designs} designs reviewed.`);
   }
   return { ok: true, design_id: designId, qc_status: status };
+}
+
+/**
+ * P4.2.8 — draft all four copy sets for a URL, one per design.
+ *
+ * The task is "four sets per URL, one per design", and the button on the task
+ * card is a URL-level control: `RunButton` posts `url_id`, which is all it
+ * has. `generate_copy` read `design_id` and got undefined, so "Draft the
+ * copy" answered *"Design not found for this org"* every time it was
+ * pressed — it had never worked from that button.
+ *
+ * Sequential rather than parallel on purpose: four model calls at once on a
+ * route that already carries image generation is how you find the rate limit
+ * with somebody watching, and twelve seconds each is not worth the risk.
+ * A design that fails is reported and the rest still land — one bad draft
+ * must not cost the three that worked.
+ */
+export async function generateCopyForUrl(orgId: string, urlId: string) {
+  const liveId = await liveWaterfallId(orgId, urlId);
+  if (!liveId) {
+    throw new Error("No waterfall for this URL yet — generate it first (P4.3.1)");
+  }
+  const designs = await organicPool().query<{ id: string; design_number: number }>(
+    `SELECT id::text, design_number FROM organic.designs
+      WHERE waterfall_id = $1 ORDER BY design_number`,
+    [liveId]
+  );
+  const written: Array<{ design_number: number; title: string }> = [];
+  const failed: Array<{ design_number: number; reason: string }> = [];
+  for (const d of designs.rows) {
+    try {
+      const r = await generateCopyForDesign(orgId, d.id);
+      written.push({ design_number: d.design_number, title: r.copy.title });
+    } catch (e) {
+      failed.push({ design_number: d.design_number, reason: (e as Error).message });
+    }
+  }
+  if (written.length === 0) {
+    throw new Error(
+      `No copy could be drafted: ${failed.map((f) => `D${f.design_number} ${f.reason}`).join(" · ")}`
+    );
+  }
+  return { ok: true, written, failed };
 }
 
 /**
