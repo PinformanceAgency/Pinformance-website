@@ -28,6 +28,7 @@
  * the whole account.
  */
 import { organicPool } from "./db";
+import { completeCycleTask } from "./phase4";
 import { ORGANIC_DAILY_CAP } from "./pacing";
 import {
   pinterestClientsForOrgs,
@@ -193,6 +194,22 @@ export async function scheduleWaterfall(
         WHERE id = $1`,
       [waterfallId]
     );
+  }
+
+  // Queueing the waterfall is what P4.3.2 asks for — the approval that hands
+  // the sixteen pins to the cron. Only when something actually moved: a run
+  // that scheduled nothing because every pin was blocked has not approved
+  // anything.
+  if (ready.length > 0) {
+    const url = await pool.query<{ url_id: string }>(
+      `SELECT url_id::text FROM organic.waterfalls WHERE id = $1`, [waterfallId]);
+    const urlId = url.rows[0]?.url_id;
+    if (urlId) {
+      await completeCycleTask(
+        orgId, `URL-${urlId.slice(0, 8)}`, "P4.3.2", 0,
+        `${ready.length} pin(s) queued from ${waterfallId.slice(0, 8)}; the cron publishes each on its date.`
+      );
+    }
   }
 
   const dates = rows.rows.map((r) => r.scheduled_date).sort();

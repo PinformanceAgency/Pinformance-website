@@ -205,6 +205,7 @@ interface RawJoinedTaskRow {
   external_url: string | null;
   expected_output: string | null;
   is_recurring: boolean;
+  cycle: string | null;
 }
 
 export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
@@ -216,7 +217,7 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
       // Phase4Cycles panel, grouped by URL. Only cycle IS NULL (flat) and
       // any legacy non-URL cycle keys stay on the main board.
       `SELECT ct.id::text, ct.task_id, ct.status::text AS status, ct.time_spent_min,
-              ct.skip_reason, ct.skip_note, ct.notes,
+              ct.skip_reason, ct.skip_note, ct.notes, ct.cycle,
               td.phase, td.step, td.name, td.description,
               td.task_type::text AS task_type, td.sort_order,
               td.guidance, td.external_tool, td.external_url, td.is_recurring,
@@ -251,6 +252,6 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
     skip_reason: r.skip_reason,
     skip_note: r.skip_note,
     notes: r.notes,
-    block_reasons: r.status === "BLOCKED" ? evaluateBlockReasons(r.task_id, ctx) : [],
+    block_reasons: r.status === "BLOCKED" ? evaluateBlockReasons(r.task_id, ctx, r.cycle ?? null) : [],
   }));
 }

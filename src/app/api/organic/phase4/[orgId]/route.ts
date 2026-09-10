@@ -113,6 +113,14 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
     case "design_qc":
       return await P4.setDesignQc(orgId, String(body.design_id),
         body.status as "APPROVED" | "REJECTED", body.notes as string | null);
+    // P4.2.8 / P4.2.9 — copy typed by hand. The panel validated it on screen
+    // and then had nowhere to put it; see saveCopyForDesign.
+    case "save_copy":
+      return P4.saveCopyForDesign(orgId, String(body.design_id), {
+        title: String(body.title ?? ""),
+        description: String(body.description ?? ""),
+        tagline: body.tagline == null ? null : String(body.tagline),
+      });
     case "copy_qc":
       return await P4.setCopyQc(orgId, String(body.copy_set_id),
         body.status as "APPROVED" | "REJECTED", body.reason as string | null);

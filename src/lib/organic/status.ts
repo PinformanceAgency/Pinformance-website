@@ -30,6 +30,10 @@ interface TaskRow {
   id: string;
   task_id: string;
   status: string;
+  /** Phase-4 tasks exist once per cycle ("URL-42125807"); everything else
+   *  carries null. A precondition has to be read inside its own cycle — see
+   *  statusOf(). */
+  cycle: string | null;
 }
 
 /** Recompute + persist auto-statuses for one org. Returns how many rows were updated. */
@@ -40,7 +44,7 @@ export async function recomputeStatuses(orgId: string): Promise<{ updated: numbe
   const updates: { id: string; status: "TODO" | "BLOCKED" }[] = [];
   for (const t of ctx.tasks) {
     if (MANUAL_STATUSES.has(t.status)) continue;
-    const reasons = evaluateBlockReasons(t.task_id, ctx);
+    const reasons = evaluateBlockReasons(t.task_id, ctx, t.cycle);
     const next = reasons.length === 0 ? "TODO" : "BLOCKED";
     if (next !== t.status) updates.push({ id: t.id, status: next });
   }
@@ -70,7 +74,7 @@ export async function loadStatusContext(orgId: string) {
 
   const [tasksRes, precondsRes, topicsRes, urlsRes] = await Promise.all([
     pool.query<TaskRow>(
-      `SELECT id::text, task_id, status::text FROM organic.client_tasks WHERE org_id = $1`,
+      `SELECT id::text, task_id, status::text, cycle FROM organic.client_tasks WHERE org_id = $1`,
       [orgId]
     ),
     pool.query<Precondition>(
@@ -98,7 +102,13 @@ export async function loadStatusContext(orgId: string) {
   const topicsAllCovered = topics.length > 0 && topics.every((t) => t.is_covered === true);
   const hasSelectableUrl = urls.length > 0;
 
-  const statusByTaskId = new Map(tasks.map((t) => [t.task_id, t.status]));
+  // Keyed on cycle AND task, because a phase-4 task exists once per cycle and
+  // a flat Map keyed on task_id alone keeps whichever row happened to come
+  // last. With two cycles open on one store — Fit Cherries has exactly that —
+  // that means one cycle's progress decides whether the OTHER cycle's tasks
+  // unblock. Nothing on any screen shows it: the task simply is, or is not,
+  // waiting on something.
+  const statusByKey = new Map(tasks.map((t) => [`${t.cycle ?? ""}::${t.task_id}`, t.status]));
   const precondsByTaskId = new Map<string, Precondition[]>();
   for (const p of preconditions) {
     const arr = precondsByTaskId.get(p.task_id) ?? [];
@@ -108,7 +118,7 @@ export async function loadStatusContext(orgId: string) {
 
   return {
     tasks,
-    statusByTaskId,
+    statusByKey,
     precondsByTaskId,
     topicsAllCovered,
     hasSelectableUrl,
@@ -122,12 +132,22 @@ export type StatusContext = Awaited<ReturnType<typeof loadStatusContext>>;
  * Human-readable reasons why a task is currently blocked.
  * Empty array = all preconditions satisfied.
  */
-export function evaluateBlockReasons(taskId: string, ctx: StatusContext): string[] {
+export function evaluateBlockReasons(
+  taskId: string,
+  ctx: StatusContext,
+  cycle: string | null = null,
+): string[] {
   const conds = ctx.precondsByTaskId.get(taskId) ?? [];
   const reasons: string[] = [];
+  /** The dependency as it stands in THIS cycle, falling back to the
+   *  cycle-less row — a phase-4 task may depend on a phase-3 one, and those
+   *  exist once for the store. */
+  const statusOf = (dep: string) =>
+    (cycle ? ctx.statusByKey.get(`${cycle}::${dep}`) : undefined) ??
+    ctx.statusByKey.get(`::${dep}`);
   for (const c of conds) {
     if (c.requires_task_id) {
-      const depStatus = ctx.statusByTaskId.get(c.requires_task_id);
+      const depStatus = statusOf(c.requires_task_id);
       if (depStatus !== "DONE") {
         reasons.push(`Waiting on task ${c.requires_task_id} (${depStatus ?? "not instantiated"})`);
       }

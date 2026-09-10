@@ -996,6 +996,15 @@ export async function generateWaterfall(
 
     await client.query("COMMIT");
 
+    // Generating the waterfall IS P4.3.1. Nothing marked it, so the task sat
+    // at BLOCKED with sixteen pins under it and P4.3.2 waiting on a task that
+    // had already been done — measured on Fit Cherries 10-09-2026, where the
+    // whole cycle had zero tasks DONE and a live sixteen-pin plan.
+    await completeCycleTask(
+      orgId, `URL-${urlId.slice(0, 8)}`, "P4.3.1", 0,
+      `Waterfall ${waterfallId.slice(0, 8)} generated: 16 pins from ${startDateISO}, spacing ${spacingHours}h.`
+    );
+
     return {
       waterfall_id: waterfallId,
       design_ids: designIds,
@@ -1104,7 +1113,9 @@ export async function completePhase4Task(
         SET status='DONE'::organic.task_status,
             completed_at=now(),
             started_at=COALESCE(started_at, now()),
-            time_spent_min=$1,
+            -- 0 means "not recorded" everywhere else since 06-09-2026, so it
+            -- must not erase a figure somebody did record.
+            time_spent_min=COALESCE(NULLIF($1, 0), time_spent_min),
             notes=COALESCE($2, notes)
       WHERE org_id=$3 AND task_id=$4 AND cycle=$5`,
     [timeSpentMin, notes ?? null, orgId, taskId, cycle]
@@ -2482,6 +2493,73 @@ export async function setDesignQc(
   return { ok: true, design_id: designId, qc_status: status };
 }
 
+/**
+ * P4.2.8 / P4.2.9 — write copy somebody typed by hand onto one design.
+ *
+ * The copy panel on the cycle card had a title box, a description box, live
+ * validators and a line reading "All validators pass — copy would be
+ * committed". There was no save. Nothing it said was untrue — it would have
+ * been committed, by something that did not exist — and everything typed into
+ * it went away with the page. Measured on Fit Cherries 10-09-2026: four copy
+ * sets on the live waterfall, every title empty and every description zero
+ * characters, while the screen showed a finished, validated title and a
+ * 257-character description.
+ *
+ * Same UPSERT as the generated path, and for the same reason: the waterfall
+ * generator makes one copy set per design, but a design can arrive from an
+ * import or a re-run without one, and an UPDATE matching nothing returns
+ * ok:true while the copy goes nowhere. QC drops back to PENDING because text
+ * that has just changed has not been reviewed, whatever the old row said.
+ */
+export async function saveCopyForDesign(
+  orgId: string,
+  designId: string,
+  copy: { title: string; description: string; tagline?: string | null }
+) {
+  const pool = organicPool();
+  const design = await pool.query<{ primary_keyword: string | null }>(
+    `SELECT cs.primary_keyword
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+       LEFT JOIN organic.copy_sets cs ON cs.design_id = d.id
+      WHERE d.id = $1 AND w.org_id = $2`,
+    [designId, orgId]
+  );
+  if (design.rowCount === 0) throw new Error("Design not found for this org");
+  const primaryKeyword = design.rows[0].primary_keyword ?? "";
+
+  // The same validator the generated path runs. The panel checks as you type,
+  // but a browser check is a courtesy: the rule has to hold for every caller.
+  const verdict = validateCopy({
+    primary_keyword: primaryKeyword,
+    title: copy.title,
+    description: copy.description,
+    tagline: copy.tagline ?? undefined,
+  });
+  if (!verdict.ok) {
+    throw new Error(`Copy does not pass the validators: ${verdict.errors.join(" · ")}`);
+  }
+
+  await pool.query(
+    `INSERT INTO organic.copy_sets
+       (id, design_id, tagline, title, description, primary_keyword,
+        secondary_keywords, validator_status, validator_errors,
+        human_qc_status, prompt_version, model_version, generated_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, ARRAY[]::text[],
+             'PASS'::organic.validator_status, '{}'::jsonb,
+             'PENDING'::organic.qc_status, 'hand-written', NULL, now())
+     ON CONFLICT (design_id) DO UPDATE SET
+       tagline = EXCLUDED.tagline,
+       title = EXCLUDED.title,
+       description = EXCLUDED.description,
+       validator_status = EXCLUDED.validator_status,
+       validator_errors = EXCLUDED.validator_errors,
+       human_qc_status = 'PENDING'::organic.qc_status`,
+    [designId, copy.tagline ?? null, copy.title.trim(), copy.description.trim(), primaryKeyword]
+  );
+  return { ok: true, design_id: designId, primary_keyword: primaryKeyword };
+}
+
 /** P4.2.10 — copy QC. */
 export async function setCopyQc(
   orgId: string, copySetId: string, status: "APPROVED" | "REJECTED", reason?: string | null
@@ -2501,19 +2579,34 @@ export async function setCopyQc(
   return { ok: true, copy_set_id: copySetId, human_qc_status: status };
 }
 
-/** The designs and copy sets of a cycle, for the QC controls. */
+/**
+ * The designs and copy sets of the cycle's CURRENT waterfall, for the QC and
+ * copy controls.
+ *
+ * Abandoned plans are excluded. Regenerating supersedes rather than adds
+ * (see generateWaterfall), so a URL accumulates one abandoned waterfall per
+ * regeneration — and this query had no status filter, so it handed the QC
+ * panel every design that had ever been planned for that URL. Fit Cherries,
+ * 10-09-2026: 28 designs back, 24 of them belonging to plans that were
+ * cancelled. Nothing is deleted and the old designs stay readable on their
+ * own waterfall; they are simply not what this cycle is working on.
+ */
 export async function loadCycleAssets(orgId: string, urlId: string) {
   const r = await organicPool().query(
-    `SELECT d.id::text AS design_id, d.design_number, d.intent::text AS intent,
+    `WITH live AS (
+       SELECT id FROM organic.waterfalls
+        WHERE org_id = $1 AND url_id = $2 AND status <> 'ABANDONED'::organic.waterfall_status
+        ORDER BY created_at DESC LIMIT 1
+     )
+     SELECT d.id::text AS design_id, d.design_number, d.intent::text AS intent,
             d.route::text AS route, d.asset_path, d.filename,
             d.qc_status::text AS design_qc, d.qc_notes,
             cs.id::text AS copy_set_id, cs.tagline, cs.title, cs.description,
             cs.validator_status::text AS validator_status,
             cs.human_qc_status::text AS copy_qc, cs.human_qc_reason
        FROM organic.designs d
-       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+       JOIN live ON live.id = d.waterfall_id
        LEFT JOIN organic.copy_sets cs ON cs.design_id = d.id
-      WHERE w.org_id = $1 AND w.url_id = $2
       ORDER BY d.design_number`,
     [orgId, urlId]
   );

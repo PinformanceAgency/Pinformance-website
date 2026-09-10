@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -412,15 +412,68 @@ function SetupSection({
 
 // ---------- section 2: copy editor with live validators --------------------
 
+interface CycleAsset {
+  design_id: string;
+  design_number: number;
+  intent: string | null;
+  copy_set_id: string | null;
+  title: string | null;
+  description: string | null;
+  validator_status: string | null;
+  copy_qc: string | null;
+}
+
 function CopySection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const primaryKw = cycle.assigned_keywords.find((k) => k.is_primary)?.term ?? "";
+  const [designs, setDesigns] = useState<CycleAsset[] | null>(null);
+  const [designId, setDesignId] = useState<string>("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [brief, setBrief] = useState<{ primary_keyword?: string; long_tail_keywords?: string[]; dominant_colors?: string[] } | null>(null);
   const [briefErr, setBriefErr] = useState<string | null>(null);
 
   const validation = useMemo(() => validateCopy(title, description, primaryKw), [title, description, primaryKw]);
+  const current = designs?.find((d) => d.design_id === designId) ?? null;
+
+  // The copy belongs to a design — four designs, four copy sets, one per
+  // design shared across its crops. Which one the boxes were writing to was
+  // the question this panel never asked, because it wrote to nothing at all.
+  const loadDesigns = useCallback(async () => {
+    try {
+      const r = await callP4(orgId, { action: "cycle_assets", url_id: cycle.url_id }) as { assets: CycleAsset[] };
+      setDesigns(r.assets);
+      setDesignId((cur) => cur || r.assets[0]?.design_id || "");
+    } catch (e) { setSaveErr((e as Error).message); }
+  }, [orgId, cycle.url_id]);
+
+  useEffect(() => { void loadDesigns(); }, [loadDesigns]);
+
+  // Switching design shows what is stored for it, so the boxes are never
+  // somebody else's text.
+  useEffect(() => {
+    const d = designs?.find((x) => x.design_id === designId);
+    setTitle(d?.title ?? "");
+    setDescription(d?.description ?? "");
+    setSaved(null); setSaveErr(null);
+  }, [designId, designs]);
+
+  async function save() {
+    if (!designId) { setSaveErr("Pick a design first."); return; }
+    setSaving(true); setSaveErr(null); setSaved(null);
+    try {
+      await callP4(orgId, { action: "save_copy", design_id: designId, title, description });
+      await loadDesigns();
+      setSaved(`Saved to design ${current?.design_number ?? ""} — copy QC is back to PENDING, which is where it belongs after a change.`);
+      startTransition(() => router.refresh());
+    } catch (e) { setSaveErr((e as Error).message); }
+    finally { setSaving(false); }
+  }
 
   async function loadBrief() {
     setBriefLoading(true); setBriefErr(null);
@@ -459,35 +512,70 @@ function CopySection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
         </div>
       )}
 
-      <div className="text-[11px] text-neutral-500">
-        Copy shared across 4 crops per design. Primary keyword for validator: <span className="font-mono">{primaryKw || "— assign keyword first —"}</span>
-      </div>
-
-      <div className="space-y-1">
-        <label className="block text-[11px]">
-          <span className="text-neutral-500">Title (max 100, must start with primary keyword)</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120}
-            className={`mt-0.5 w-full rounded-md border px-2 py-1 text-xs ${validation.title.ok ? "border-neutral-300" : "border-red-400 bg-red-50"}`} />
-        </label>
-        <div className={`text-[10px] tabular-nums ${validation.title.ok ? "text-neutral-500" : "text-red-600"}`}>
-          {title.length}/100 · {validation.title.ok ? "OK" : validation.title.errors.join(" · ")}
+      {designs && designs.length === 0 ? (
+        <div className="text-[11px] text-neutral-500">
+          No designs yet — generate the waterfall below first (P4.3.1), then the four copy sets exist to write into.
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 text-[11px] flex-wrap">
+            <span className="text-neutral-500">Copy for design:</span>
+            <select value={designId} onChange={(e) => setDesignId(e.target.value)}
+              className="rounded border border-neutral-300 px-2 py-1 text-xs bg-white">
+              {(designs ?? []).map((d) => (
+                <option key={d.design_id} value={d.design_id}>
+                  D{d.design_number}{d.intent ? ` · ${d.intent}` : ""}{d.title ? " · written" : " · empty"}
+                </option>
+              ))}
+            </select>
+            {current && (
+              <span className="text-neutral-500">
+                shared across its 4 crops · validator {current.validator_status ?? "—"} · QC {current.copy_qc ?? "—"}
+              </span>
+            )}
+          </div>
 
-      <div className="space-y-1">
-        <label className="block text-[11px]">
-          <span className="text-neutral-500">Description (250–300, no ! # em/en dash)</span>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
-            className={`mt-0.5 w-full rounded-md border px-2 py-1 text-xs ${validation.desc.ok ? "border-neutral-300" : "border-red-400 bg-red-50"}`} />
-        </label>
-        <div className={`text-[10px] tabular-nums ${validation.desc.ok ? "text-neutral-500" : "text-red-600"}`}>
-          {description.length}/300 · {validation.desc.ok ? "OK" : validation.desc.errors.join(" · ")}
-        </div>
-      </div>
+          <div className="text-[11px] text-neutral-500">
+            Primary keyword for validator: <span className="font-mono">{primaryKw || "— assign keyword first —"}</span>
+          </div>
 
-      <div className={`text-[11px] rounded px-2 py-1 ${validation.overall.ok ? "bg-muted text-foreground border border-border" : "bg-red-50 text-red-700 border border-red-200"}`}>
-        {validation.overall.ok ? "✓ All validators pass — copy would be committed." : "Copy would be blocked by validators."}
-      </div>
+          <div className="space-y-1">
+            <label className="block text-[11px]">
+              <span className="text-neutral-500">Title (max 100, must start with primary keyword)</span>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120}
+                className={`mt-0.5 w-full rounded-md border px-2 py-1 text-xs ${validation.title.ok ? "border-neutral-300" : "border-red-400 bg-red-50"}`} />
+            </label>
+            <div className={`text-[10px] tabular-nums ${validation.title.ok ? "text-neutral-500" : "text-red-600"}`}>
+              {title.length}/100 · {validation.title.ok ? "OK" : validation.title.errors.join(" · ")}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[11px]">
+              <span className="text-neutral-500">Description (250–300, no ! # em/en dash)</span>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
+                className={`mt-0.5 w-full rounded-md border px-2 py-1 text-xs ${validation.desc.ok ? "border-neutral-300" : "border-red-400 bg-red-50"}`} />
+            </label>
+            <div className={`text-[10px] tabular-nums ${validation.desc.ok ? "text-neutral-500" : "text-red-600"}`}>
+              {description.length}/300 · {validation.desc.ok ? "OK" : validation.desc.errors.join(" · ")}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" onClick={save} disabled={saving || !validation.overall.ok || !designId}
+              className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+              {saving ? "Saving…" : `Save copy${current ? ` for D${current.design_number}` : ""}`}
+            </button>
+            <span className={`text-[11px] rounded px-2 py-1 ${validation.overall.ok
+              ? "bg-muted text-foreground border border-border"
+              : "bg-red-50 text-red-700 border border-red-200"}`}>
+              {validation.overall.ok ? "✓ All validators pass" : "Validators block this copy"}
+            </span>
+            {saveErr && <span className="text-xs text-red-600 break-words">{saveErr}</span>}
+            {saved && <span className="text-xs text-emerald-700">{saved}</span>}
+          </div>
+        </>
+      )}
     </div>
   );
 }
