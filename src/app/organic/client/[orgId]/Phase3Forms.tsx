@@ -989,7 +989,11 @@ function SeedingStatusPanel({ orgId }: Props) {
   const boards = state?.boards ?? [];
   const live = boards.filter((b) => b.on_pinterest);
   const warm = live.filter((b) => b.status === "PUBLIC" || b.pin_count >= (state?.public_at ?? 10));
-  const widget = live.filter((b) => b.status !== "PUBLIC" && b.pin_count + b.approved < (state?.public_at ?? 10));
+  // Proposed pins count towards what a board can reach: before anybody approves,
+  // every hidden board read "needs the website widget" while fifteen of the
+  // account's own pins were waiting for it in P3.3.6.
+  const widget = live.filter((b) => b.status !== "PUBLIC" && b.pin_count + b.approved + b.proposed < (state?.public_at ?? 10));
+  const unreviewed = boards.reduce((a, b) => a + b.proposed, 0);
   const waiting = boards.reduce((a, b) => a + b.approved, 0);
   return (
     <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-3">
@@ -1006,8 +1010,10 @@ function SeedingStatusPanel({ orgId }: Props) {
             Today {state.saved_today}/{state.per_day} saved · {waiting} approved pins waiting · {warm.length} of {live.length} live
             boards warm{boards.length > live.length ? ` · ${boards.length - live.length} boards not created yet` : ""}
           </div>
-          {waiting === 0 && widget.length === 0 && warm.length < live.length && (
-            <div className="text-[11px] text-amber-800">Nothing is approved yet — choose the pins in P3.3.6 first.</div>
+          {waiting === 0 && unreviewed > 0 && (
+            <div className="text-[11px] text-amber-800">
+              Nothing is approved yet — {unreviewed} proposed pins are waiting in P3.3.6. Approve them there and this starts within the hour.
+            </div>
           )}
           {widget.length > 0 && (
             <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
