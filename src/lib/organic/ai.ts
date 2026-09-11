@@ -29,7 +29,7 @@ export type DraftKind =
   /** P5.3.3 — the forward-looking paragraph in the monthly report. */
   | "TREND_FORECAST";
 
-function anthropicClient(): Anthropic {
+export function anthropicClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPHIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY not set");
   return new Anthropic({ apiKey: key });

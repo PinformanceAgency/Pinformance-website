@@ -7,7 +7,7 @@ import {
   Users, LayoutDashboard, ChevronRight, ChevronDown,
   FileText, Sun, LayoutGrid, Search, Link2, FolderOpen,
   BarChart3, Settings, LineChart, Gauge, Scale, AlertTriangle, Radar,
-  Share2, BookOpen,
+  Share2, BookOpen, Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ClientSwitcher } from "./ClientSwitcher";
@@ -247,6 +247,8 @@ export function OrganicSidebar({
     { href: `${base}/keywords`, label: "Keywords", icon: Search },
     { href: `${base}/urls`,     label: "URLs",     icon: Link2 },
     { href: `${base}/assets`,   label: "Assets",   icon: FolderOpen },
+    // Johanne's Creative Machine (module 3) — a test, 11-09-2026.
+    { href: `${base}/creative`, label: "Creative machine", icon: Sparkles },
   ] : [];
 
   const analysis: Item[] = base ? [
