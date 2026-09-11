@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useKeyedRows } from "./useKeyedRows";
 import { mergeDraftRows, useFormDraft, type FormDraft } from "./useFormDraft";
 import { DraftHint, DraftBanner } from "./DraftBanner";
@@ -47,9 +47,9 @@ export function Phase3FormFor(p: Props): React.ReactNode {
     case "P3.3.3": return <DescriptionsForm {...p} />;
     case "P3.3.4": return <ActionForm {...p} action="schedule" title="Generate creation schedule" desc="Max 3 boards per day, starting tomorrow." />;
     case "P3.3.5": return <CreateBoardsForm {...p} />;
-    case "P3.3.6": return <ActionForm {...p} action="select_seeds" title="Mark seed pins selected" desc="10–15 existing pins per board (never competitor content)." />;
-    case "P3.3.7": return <ActionForm {...p} action="run_seeding" title="Run seeding" desc="Queues seeding through the existing pin scheduler." />;
-    case "P3.3.8": return <ActionForm {...p} action="flip_public" title="Flip boards to public @ ≥10 pins" desc="Idempotent — safe to run repeatedly." />;
+    case "P3.3.6": return <SeedPlanPanel {...p} />;
+    case "P3.3.7": return <SeedingStatusPanel {...p} />;
+    case "P3.3.8": return <ActionForm {...p} action="flip_public" title="Make boards public at 10 pins" desc="Every board the method built that holds ten pins on Pinterest goes public — on Pinterest, not only here. Pins added by hand with the website widget count too. Safe to run repeatedly; the seeding cron does the same per board as it goes." />;
     default: return null;
   }
 }
@@ -843,5 +843,194 @@ function CreateBoardsForm({ orgId, task, onDone }: Props) {
       time={time} setTime={setTime} submitLabel="Create today's slot"
       onSubmit={async () => { await post(orgId, { action: "create_boards", dry_run: dryRun, time_spent_min: n(time) }); onDone(); }}
     />
+  );
+}
+
+// --- P3.3.6 / P3.3.7 — board warming ------------------------------------------
+//
+// Module 2 (Johanne): a new board stays private and is warmed with 10–15 of
+// the client's own pins before it goes public — first pins already on the
+// account, otherwise pinned from the website with the Pinterest widget. P3.3.6
+// is the choosing, P3.3.7 the saving, which a cron does at ten a day.
+
+interface SeedPin {
+  id: string; pinterest_pin_id: string; pin_title: string | null; pin_image_url: string | null;
+  rank: number; reason: string | null; status: string; error: string | null; saved_at: string | null;
+}
+interface SeedBoard {
+  id: string; name: string; status: string; pin_count: number; on_pinterest: boolean;
+  planned_creation_date: string | null; first_waterfall_pin: string | null;
+  proposed: number; approved: number; saved: number; pins: SeedPin[];
+}
+interface SeedState { per_day: number; public_at: number; target: number; saved_today: number; boards: SeedBoard[] }
+
+function useSeedState(orgId: string) {
+  const [state, setState] = useState<SeedState | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try { setState(await post(orgId, { action: "seed_state" }) as unknown as SeedState); setErr(null); }
+    catch (e) { setErr((e as Error).message); }
+  }, [orgId]);
+  useEffect(() => { void load(); }, [load]);
+  return { state, err, load };
+}
+
+function boardStage(b: SeedBoard, publicAt: number): { label: string; tone: string } {
+  if (b.status === "PUBLIC") return { label: "public", tone: "bg-emerald-100 text-emerald-800" };
+  if (!b.on_pinterest) return { label: b.planned_creation_date ? `created ${b.planned_creation_date}` : "not created yet", tone: "bg-neutral-100 text-neutral-600" };
+  return { label: `hidden · ${b.pin_count}/${publicAt}`, tone: "bg-amber-100 text-amber-800" };
+}
+
+function SeedPlanPanel({ orgId, onDone }: Props) {
+  const { state, err, load } = useSeedState(orgId);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function act(key: string, body: Record<string, unknown>, done?: (r: Record<string, unknown>) => string) {
+    setBusy(key); setMsg(null);
+    try {
+      const r = await post(orgId, body);
+      if (done) setMsg({ ok: true, text: done(r) });
+      await load(); onDone();
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+    finally { setBusy(null); }
+  }
+
+  const boards = (state?.boards ?? []).filter((b) => b.status !== "PUBLIC" || b.pins.length > 0);
+  const proposed = boards.reduce((a, b) => a + b.proposed, 0);
+
+  return (
+    <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-3">
+      <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">P3.3.6 — Choose the seed pins</div>
+      <div className="text-xs text-neutral-600">
+        Up to {state?.target ?? 15} of the store&#39;s <strong>own</strong> pins per new board — only pins that link to the store&#39;s
+        own website, never anybody else&#39;s. The system proposes the ones that genuinely fit each board; you approve or take
+        pins out. Nothing goes to Pinterest until you approve it, and then at most {state?.per_day ?? 10} a day (P3.3.7).
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" disabled={!!busy}
+          onClick={() => act("propose", { action: "select_seeds", time_spent_min: 0 },
+            (r) => `${r.proposed} pins proposed across ${r.boards} boards, from ${r.candidates} of the store's own pins.` +
+              ((r.short as string[] | undefined)?.length ? ` Short of ten: ${(r.short as string[]).join(", ")}.` : ""))}
+          className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-50">
+          {busy === "propose" ? "Reading the account… (a minute or two)" : proposed > 0 ? "Propose again" : "Propose seed pins"}
+        </button>
+        {proposed > 0 && (
+          <button type="button" disabled={!!busy}
+            onClick={() => act("approve_all", { action: "approve_seeds" }, () => `${proposed} pins approved.`)}
+            className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
+            {busy === "approve_all" ? "Approving…" : `Approve all ${proposed}`}
+          </button>
+        )}
+      </div>
+      {(err || msg) && (
+        <div className={`rounded border px-2 py-1.5 text-[11px] ${err || (msg && !msg.ok)
+          ? "border-red-300 bg-red-50 text-red-700" : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}>
+          {err ?? msg?.text}
+        </div>
+      )}
+      {!state && !err && <div className="text-[11px] text-neutral-500">Loading…</div>}
+      {boards.map((b) => {
+        const stage = boardStage(b, state!.public_at);
+        const reach = b.pin_count + b.approved + b.proposed;
+        return (
+          <div key={b.id} className="rounded border border-neutral-200 bg-white p-2 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="font-medium text-neutral-800">{b.name}</span>
+              <span className={`rounded px-1.5 py-0.5 text-[10px] ${stage.tone}`}>{stage.label}</span>
+              {b.first_waterfall_pin && <span className="text-[10px] text-neutral-500">first waterfall pin {b.first_waterfall_pin}</span>}
+              <span className="flex-1" />
+              <span className="text-[10px] text-neutral-500">{b.saved} on board · {b.approved} approved · {b.proposed} proposed</span>
+              {b.proposed > 0 && (
+                <button type="button" disabled={!!busy}
+                  onClick={() => act(`approve_${b.id}`, { action: "approve_seeds", board_id: b.id })}
+                  className="px-2 py-0.5 rounded border border-emerald-300 text-emerald-700 text-[10px] font-semibold hover:bg-emerald-50 disabled:opacity-50">
+                  Approve this board
+                </button>
+              )}
+            </div>
+            {b.status !== "PUBLIC" && reach < state!.public_at && (
+              <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                Only {reach} of the {state!.public_at} this board needs can come from pins already on the account. Pin the rest
+                from the store&#39;s website with the Pinterest widget (needs the account login) — module 2, month 1.
+              </div>
+            )}
+            {b.pins.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                {b.pins.map((p) => (
+                  <div key={p.id} className={`relative rounded border p-1 text-[10px] ${p.status === "SAVED"
+                    ? "border-emerald-200 bg-emerald-50" : p.status === "FAILED" ? "border-red-200 bg-red-50" : "border-neutral-200"}`}>
+                    {p.pin_image_url
+                      ? <img src={p.pin_image_url} alt="" className="w-full h-24 object-cover rounded" />
+                      : <div className="w-full h-24 rounded bg-neutral-100" />}
+                    <div className="mt-1 line-clamp-2 text-neutral-800">{p.pin_title ?? p.pinterest_pin_id}</div>
+                    <div className="line-clamp-2 text-neutral-500">{p.status === "FAILED" ? p.error : p.reason}</div>
+                    <div className="mt-0.5 text-neutral-400">{p.status.toLowerCase()}</div>
+                    {(p.status === "PROPOSED" || p.status === "APPROVED") && (
+                      <button type="button" disabled={!!busy} title="Take this pin out"
+                        onClick={() => act(`rm_${p.id}`, { action: "remove_seed", plan_id: p.id })}
+                        className="absolute top-1 right-1 h-5 w-5 rounded-full bg-white/90 border border-neutral-300 text-neutral-600 hover:text-red-600 disabled:opacity-50">
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SeedingStatusPanel({ orgId }: Props) {
+  const { state, err } = useSeedState(orgId);
+  const boards = state?.boards ?? [];
+  const live = boards.filter((b) => b.on_pinterest);
+  const warm = live.filter((b) => b.status === "PUBLIC" || b.pin_count >= (state?.public_at ?? 10));
+  const widget = live.filter((b) => b.status !== "PUBLIC" && b.pin_count + b.approved < (state?.public_at ?? 10));
+  const waiting = boards.reduce((a, b) => a + b.approved, 0);
+  return (
+    <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-3">
+      <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">P3.3.7 — Board warming</div>
+      <div className="text-xs text-neutral-600">
+        Runs by itself: one approved pin an hour from 08:20 to 19:20 (Amsterdam), at most {state?.per_day ?? 10} a day,
+        the boards a waterfall is about to publish onto first. A board goes public on Pinterest the moment it holds{" "}
+        {state?.public_at ?? 10} pins. There is no button on purpose — a button is how ten a day becomes forty in an afternoon.
+      </div>
+      {err && <div className="rounded border border-red-300 bg-red-50 px-2 py-1.5 text-[11px] text-red-700">{err}</div>}
+      {state && (
+        <>
+          <div className="text-xs text-neutral-700">
+            Today {state.saved_today}/{state.per_day} saved · {waiting} approved pins waiting · {warm.length} of {live.length} live
+            boards warm{boards.length > live.length ? ` · ${boards.length - live.length} boards not created yet` : ""}
+          </div>
+          {waiting === 0 && widget.length === 0 && warm.length < live.length && (
+            <div className="text-[11px] text-amber-800">Nothing is approved yet — choose the pins in P3.3.6 first.</div>
+          )}
+          {widget.length > 0 && (
+            <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              Needs the website widget (not enough of the store&#39;s own pins fit):{" "}
+              {widget.map((b) => `${b.name} (${b.pin_count + b.approved}/${state.public_at})`).join(", ")}.
+              Pin the rest by hand from the store&#39;s website; this counts them from Pinterest.
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+            {live.map((b) => {
+              const stage = boardStage(b, state.public_at);
+              return (
+                <div key={b.id} className="flex items-center gap-2 text-[11px] rounded border border-neutral-200 bg-white px-2 py-1">
+                  <span className="truncate text-neutral-800">{b.name}</span>
+                  <span className="flex-1" />
+                  {b.approved > 0 && <span className="text-neutral-500">{b.approved} to come</span>}
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${stage.tone}`}>{stage.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
   );
 }

@@ -1020,7 +1020,19 @@ export async function adoptExistingBoards(
         AND pinterest_board_id IS NOT NULL`,
     [orgId]
   );
-  if (claimed.rowCount === 0) return { adopted: 0, vanished: 0, unreachable: null };
+  // Imported boards whose id was cleared while getBoards() still read only
+  // its first page: three real boards on Fit Cherries were written off as
+  // deleted that way. They are matched back on their exact name — nothing
+  // with origin MIGRATED is ever created by us, so a board by that name on
+  // the account is that board.
+  const orphaned = await pool.query<{ id: string; name: string }>(
+    `SELECT id::text, name FROM organic.boards
+      WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
+        AND pinterest_board_id IS NULL
+        AND origin = 'MIGRATED'::organic.board_origin`,
+    [orgId]
+  );
+  if (claimed.rowCount === 0 && orphaned.rowCount === 0) return { adopted: 0, vanished: 0, unreachable: null };
   if (opts.skipRemote) return { adopted: 0, vanished: 0, unreachable: "skipped (dry run)" };
 
   const orgRes = await pool.query<{ token_enc: string | null }>(
@@ -1037,16 +1049,26 @@ export async function adoptExistingBoards(
   // PUBLIC until it has ten pins, and a board we are adopting should carry
   // the number it really has rather than the 0 the import left behind.
   let live: Map<string, { privacy: "PUBLIC" | "SECRET" | "PROTECTED"; pins: number }>;
+  let byName: Map<string, string>;
   try {
     const client = new PinterestClient(decrypt(enc), false);
     const remote = await client.getBoards();
     live = new Map(remote.items.map((b) => [b.id, { privacy: b.privacy, pins: b.pin_count ?? 0 }]));
+    byName = new Map(remote.items.map((b) => [b.name.trim().toLowerCase(), b.id]));
   } catch (e) {
     return { adopted: 0, vanished: 0, unreachable: (e as Error).message };
   }
 
+  const rows = [...claimed.rows];
+  for (const o of orphaned.rows) {
+    const id = byName.get(o.name.trim().toLowerCase());
+    if (!id) continue;
+    await pool.query(`UPDATE organic.boards SET pinterest_board_id = $2 WHERE id = $1`, [o.id, id]);
+    rows.push({ id: o.id, pinterest_board_id: id, name: o.name });
+  }
+
   let adopted = 0, vanished = 0;
-  for (const b of claimed.rows) {
+  for (const b of rows) {
     const found = live.get(b.pinterest_board_id);
     if (found) {
       // `created_on_pinterest` is deliberately left alone. It means "we made
@@ -1214,193 +1236,430 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
            ...adopted, recomputed: await recomputeAfter(orgId) };
 }
 
-// ---------- P3.3.6 seed selection (real) ------------------------------------
+// ---------- P3.3.6 – P3.3.8 board warming -------------------------------------
+//
+// The method (module 2, 06-08-2026, 1:05–1:14, Johanne):
+//   1. create the board and keep it secret, with its name and description;
+//   2. warm it with the client's OWN content — first the pins already on the
+//      account ("transfer the pins that you have that are the most related"),
+//      and where that is not enough, pin from the client's website with the
+//      Pinterest widget (needs the login, so it is a person's job);
+//   3. at least 10 to 15 pins, "the minimum to have enough context";
+//   4. then go public. Never a competitor's pin: it leaks conversion traffic.
+// Module 4 (1:21) adds: on a private board too, every pin has to fit the board.
+//
+// What stood here before 11-09-2026 did none of that. P3.3.6 computed a
+// proposal and threw it away; P3.3.7 was handed nothing and crashed with
+// "r is not iterable" — and had it run, it would have *created* up to fifteen
+// duplicate pins per board in one burst. P3.3.8 changed the database and never
+// told Pinterest, so a board "flipped to PUBLIC" stayed hidden on the account.
 
-export interface SeedSelection {
-  board_id: string;
-  board_name: string;
-  primary_keyword: string | null;
-  proposed_pins: Array<{ pin_id: string; title: string | null; image_url: string | null; source: "own_pins" }>;
-  short: boolean; // true when we couldn't find 10 relevant candidates
-}
+/** Tristan, 11-09-2026: ten saves per store per day, spread over the day. */
+export const SEEDS_PER_DAY = 10;
+/** Module 2: "at least 10 to 15 pins per board" before it goes public. */
+export const SEED_TARGET = 15;
+export const PUBLIC_AT = 10;
 
-/** P3.3.6 — for each PLANNED/SECRET/PUBLIC board, propose 10–15 own pins
- *  as seed candidates. "Own" = the client's own dashboard pins from
- *  public.pins (never competitor_pins). Ranking is keyword-first:
- *  matches board.primary_keyword > matches board.keywords > any recent. */
-export async function proposeSeedPins(orgId: string, timeSpentMin: number): Promise<{ selections: SeedSelection[]; recomputed: number }> {
-  const pool = organicPool();
-  const boards = await pool.query<{ id: string; name: string; primary_keyword: string | null; keywords: string[] | null }>(
-    `SELECT id::text, name, primary_keyword, keywords
-       FROM organic.boards
-      WHERE org_id = $1 AND status IN ('SECRET','PROTECTED','PUBLIC','PLANNED'::organic.board_status)
-      ORDER BY name`,
-    [orgId]
-  );
-  // Own pins from the dashboard side. Cap the pool at 500 to keep the ranker cheap.
-  const own = await pool.query<{ id: string; title: string | null; description: string | null; image_url: string | null }>(
-    `SELECT id::text, title, description, image_url
-       FROM pins
-      WHERE org_id = $1 AND image_url IS NOT NULL
-      ORDER BY created_at DESC LIMIT 500`,
-    [orgId]
-  );
+const METHOD_BOARD = `b.origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin`;
 
-  const selections: SeedSelection[] = [];
-  const seenPerBoard = new Set<string>();
-  for (const b of boards.rows) {
-    const pk = (b.primary_keyword ?? "").toLowerCase();
-    const kws = (b.keywords ?? []).map((k) => k.toLowerCase());
-    const scored = own.rows.map((p) => {
-      const hay = ((p.title ?? "") + " " + (p.description ?? "")).toLowerCase();
-      let score = 0;
-      if (pk && hay.includes(pk)) score += 3;
-      for (const k of kws) if (hay.includes(k)) score += 1;
-      return { p, score };
-    }).sort((a, b) => b.score - a.score).slice(0, 15);
-
-    const proposed = scored.filter((s) => s.score > 0 || scored.length <= 10).map((s) => ({
-      pin_id: s.p.id, title: s.p.title, image_url: s.p.image_url,
-      source: "own_pins" as const,
-    })).slice(0, 15);
-    for (const p of proposed) seenPerBoard.add(`${b.id}:${p.pin_id}`);
-    selections.push({
-      board_id: b.id,
-      board_name: b.name,
-      primary_keyword: b.primary_keyword,
-      proposed_pins: proposed,
-      short: proposed.length < 10,
-    });
-  }
-  await completeTaskByDefinition({
-    orgId, taskId: "P3.3.6", timeSpentMin,
-    notes: `Proposed seeds for ${selections.length} boards (${selections.filter((s) => s.short).length} short of 10 relevant own-pins).`,
-  });
-  return { selections, recomputed: await recomputeAfter(orgId) };
-}
-
-// ---------- P3.3.7 seeding execution (real Pinterest API) -------------------
-
-export interface SeedingResult {
-  board_id: string;
-  board_name: string;
-  attempted: number;
-  posted: number;
-  failed: number;
-  errors: string[];
+function hostOf(u: string | null | undefined): string | null {
+  if (!u) return null;
+  try { return new URL(/^https?:\/\//i.test(u) ? u : `https://${u}`).hostname.replace(/^www\./, "").toLowerCase(); }
+  catch { return null; }
 }
 
 /**
- * Execute seeding by pushing to Pinterest through PinterestClient.
+ * P3.3.6 — propose which of the store's own pins go on which new board.
  *
- * Boards must already exist on Pinterest (pinterest_board_id set) or the
- * board is skipped — that part is real and is checked below.
+ * "Own" is checked, not assumed: only pins whose link points at the store's
+ * own domain (`client_settings.domain`) are considered, which is the SOP's
+ * reason for the website widget — "you're sure that you're not gonna have any
+ * link of any other brands". Which pins fit which board is judged by
+ * `pickSeedPins()`; the proposal is written to `organic.seed_plan` as
+ * PROPOSED and nothing goes to Pinterest until a person approves it.
  *
- * WHAT THIS DOES NOT DO, despite what this comment said until 10-09-2026:
- * it does not pace itself, and it does not stop at the daily ceiling. There
- * is no delay between calls and no `seedsPerMinute`; `check_daily_volume()`
- * is a trigger on INSERTs into organic.pins and seeding writes none — it
- * calls Pinterest directly and increments boards.seeded_count. So a run over
- * 23 boards at the default 15 per board is up to 345 createPin calls, as fast
- * as the API allows, on an account that may be weeks old. That is exactly the
- * activity spike module 4 warns about.
- *
- * Deliberately left as it is rather than given an invented pace: what a
- * seeding burst may safely be is a decision from the method, and a number
- * chosen here would be indistinguishable from a real rule three months from
- * now. `seedsPerBoardMax` (default 15) is the only ceiling that exists;
- * pass it down, and seed in batches of boards, until that decision is made.
+ * Re-running replaces what is still only a proposal and leaves every decision
+ * alone: APPROVED, REMOVED (a person took it out — it will not be offered
+ * again) and SAVED rows stay as they are.
  */
-export async function runSeeding(
-  orgId: string,
-  timeSpentMin: number,
-  selections: SeedSelection[],
-  opts: { seedsPerBoardMax?: number; dryRun?: boolean } = {}
-): Promise<{ results: SeedingResult[]; recomputed: number }> {
-  const maxPerBoard = opts.seedsPerBoardMax ?? 15;
+export async function proposeSeedPins(orgId: string, timeSpentMin: number) {
   const pool = organicPool();
-
-  let client: PinterestClient | null = null;
-  if (!opts.dryRun) {
-    const orgRow = await pool.query<{ enc: string | null }>(
-      `SELECT pinterest_access_token_encrypted AS enc FROM public.organizations WHERE id = $1`, [orgId]
-    );
-    const enc = orgRow.rows[0]?.enc;
-    if (!enc) throw new Error("No Pinterest token on organisation");
-    client = new PinterestClient(decrypt(enc), false);
+  const settings = await pool.query<{ domain: string | null }>(
+    `SELECT domain FROM organic.client_settings WHERE org_id = $1`, [orgId]);
+  const host = hostOf(settings.rows[0]?.domain);
+  if (!host) {
+    throw new Error("Set the store's domain first (store settings). Without it there is no way to tell the store's own pins from anybody else's.");
   }
 
-  const results: SeedingResult[] = [];
-  for (const sel of selections) {
-    const b = await pool.query<{ pinterest_board_id: string | null }>(
-      `SELECT pinterest_board_id FROM organic.boards WHERE id = $1`, [sel.board_id]
-    );
-    const pbid = b.rows[0]?.pinterest_board_id;
-    const result: SeedingResult = {
-      board_id: sel.board_id, board_name: sel.board_name,
-      attempted: 0, posted: 0, failed: 0, errors: [],
-    };
-    if (!pbid) {
-      result.errors.push("board not yet created on Pinterest — skip");
-      results.push(result);
-      continue;
-    }
-
-    const toSeed = sel.proposed_pins.slice(0, maxPerBoard);
-    for (const p of toSeed) {
-      result.attempted++;
-      if (opts.dryRun) {
-        result.posted++;
-        await pool.query(`UPDATE organic.boards SET seeded_count = seeded_count + 1 WHERE id = $1`, [sel.board_id]);
-        continue;
-      }
-      try {
-        // Look up the dashboard pin's fields for the createPin call.
-        const src = await pool.query<{ image_url: string | null; title: string | null; description: string | null; link: string | null }>(
-          `SELECT image_url, title, description, target_url AS link FROM pins WHERE id = $1`, [p.pin_id]
-        );
-        const row = src.rows[0];
-        if (!row?.image_url) { result.failed++; result.errors.push(`${p.pin_id}: no image_url`); continue; }
-        await client!.createPin({
-          board_id: pbid,
-          media_source: { source_type: "image_url", url: row.image_url },
-          title: row.title ?? "Untitled",
-          ...(row.description ? { description: row.description } : {}),
-          ...(row.link ? { link: row.link } : {}),
-        });
-        result.posted++;
-        await pool.query(`UPDATE organic.boards SET seeded_count = seeded_count + 1 WHERE id = $1`, [sel.board_id]);
-      } catch (e) {
-        result.failed++;
-        result.errors.push(`${p.pin_id}: ${(e as Error).message.slice(0, 120)}`);
-      }
-    }
-    results.push(result);
-  }
-
-  const totalPosted = results.reduce((s, r) => s + r.posted, 0);
-  const totalFailed = results.reduce((s, r) => s + r.failed, 0);
-  await completeTaskByDefinition({
-    orgId, taskId: "P3.3.7", timeSpentMin,
-    notes: `${opts.dryRun ? "DRY-RUN " : ""}Seeded ${totalPosted} pins across ${results.length} boards (${totalFailed} failed).`,
-  });
-  return { results, recomputed: await recomputeAfter(orgId) };
-}
-
-/** P3.3.8 — flip any SECRET board with ≥10 pins to PUBLIC. Idempotent. */
-export async function flipBoardsPublicAtTen(orgId: string, timeSpentMin: number) {
-  const pool = organicPool();
-  const r = await pool.query(
-    `UPDATE organic.boards
-        SET status = 'PUBLIC'::organic.board_status
-      WHERE org_id = $1
-        AND status IN ('SECRET'::organic.board_status, 'PROTECTED'::organic.board_status)
-        AND pin_count >= 10`,
+  const boards = await pool.query<{ id: string; name: string; primary_keyword: string | null; description: string | null; pinterest_board_id: string | null; decided: string }>(
+    `SELECT b.id::text, b.name, b.primary_keyword, b.description, b.pinterest_board_id,
+            (SELECT COUNT(*) FROM organic.seed_plan sp
+              WHERE sp.board_id = b.id AND sp.status IN ('APPROVED','SAVED'))::text AS decided
+       FROM organic.boards b
+      WHERE b.org_id = $1 AND ${METHOD_BOARD}
+        AND b.status IN ('PLANNED'::organic.board_status, 'SECRET'::organic.board_status, 'PROTECTED'::organic.board_status)
+      ORDER BY b.name`,
     [orgId]
   );
+  // A board a person has already filled to the target needs no proposal.
+  const targets = boards.rows.filter((b) => Number(b.decided) < SEED_TARGET);
+  if (targets.length === 0) {
+    return { boards: 0, proposed: 0, short: [] as string[], candidates: 0, recomputed: 0 };
+  }
+
+  const { pinterestClientForOrg } = await import("@/lib/pinterest/for-org");
+  const { client } = await pinterestClientForOrg(orgId);
+  const all: Array<{ id: string; title?: string | null; description?: string | null; alt_text?: string | null; board_id?: string | null; link?: string | null; media?: { images?: Record<string, { url: string }> } | null }> = [];
+  let bookmark: string | undefined;
+  do {
+    const page = await client.getAccountPins(bookmark);
+    all.push(...page.items);
+    bookmark = page.bookmark ?? undefined;
+  } while (bookmark && all.length < 2000);
+
+  const own = all.filter((p) => {
+    const h = hostOf(p.link);
+    return h !== null && (h === host || h.endsWith(`.${host}`)) && (p.title || p.description);
+  });
+  if (own.length === 0) {
+    throw new Error(`None of the account's ${all.length} pins link to ${host}. Warm the boards from the website with the Pinterest widget instead (SOP, month 1).`);
+  }
+  const byId = new Map(own.map((p) => [p.id, p]));
+  const image = (p: (typeof own)[number]) => {
+    const imgs = p.media?.images ?? {};
+    return (imgs["236x"] ?? imgs["400x300"] ?? imgs["600x"] ?? Object.values(imgs)[0])?.url ?? null;
+  };
+
+  const { pickSeedPins } = await import("./ai");
+  const picks = await pickSeedPins(
+    targets.map((b) => ({ id: b.id, name: b.name, primary_keyword: b.primary_keyword, description: b.description })),
+    own.map((p) => ({ id: p.id, title: p.title ?? "", description: `${p.description ?? ""} ${p.alt_text ?? ""}` })),
+    SEED_TARGET
+  );
+
+  const ids = targets.map((b) => b.id);
+  const rows: Array<[string, string, string | null, string | null, string | null, number, string]> = [];
+  for (const b of targets) {
+    let rank = 0;
+    for (const pick of picks.get(b.id) ?? []) {
+      const p = byId.get(pick.pin_id);
+      // Already on this board: saving it again adds nothing.
+      if (!p || (b.pinterest_board_id && p.board_id === b.pinterest_board_id)) continue;
+      rows.push([b.id, p.id, p.title ?? null, image(p), p.link ?? null, ++rank, pick.reason]);
+    }
+  }
+
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    await db.query(
+      `DELETE FROM organic.seed_plan WHERE board_id = ANY($1::uuid[]) AND status = 'PROPOSED'`, [ids]);
+    if (rows.length > 0) {
+      await db.query(
+        `INSERT INTO organic.seed_plan (org_id, board_id, pinterest_pin_id, pin_title, pin_image_url, pin_link, rank, reason)
+         SELECT $1::uuid, t.board_id, t.pin_id, t.title, t.image, t.link, t.rank, t.reason
+           FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::text[])
+                AS t(board_id, pin_id, title, image, link, rank, reason)
+         ON CONFLICT (board_id, pinterest_pin_id) DO NOTHING`,
+        [orgId, rows.map((r) => r[0]), rows.map((r) => r[1]), rows.map((r) => r[2]), rows.map((r) => r[3]),
+         rows.map((r) => r[4]), rows.map((r) => r[5]), rows.map((r) => r[6])]
+      );
+    }
+    await db.query("COMMIT");
+  } catch (e) {
+    await db.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    db.release();
+  }
+
+  const counts = new Map<string, number>();
+  for (const r of rows) counts.set(r[0], (counts.get(r[0]) ?? 0) + 1);
+  const short = targets
+    .filter((b) => Number(b.decided) + (counts.get(b.id) ?? 0) < PUBLIC_AT)
+    .map((b) => b.name);
+
+  // A proposal is not the task: P3.3.6 is a person choosing. It closes when
+  // everything proposed has been approved or removed (reviewSeedPlan) — and a
+  // fresh proposal reopens it, since recordTaskProgress never moves a DONE
+  // task back. Fit Cherries' P3.3.6 was DONE on a proposal nobody ever saw.
+  if (rows.length > 0) {
+    await pool.query(
+      `UPDATE organic.client_tasks
+          SET status = 'IN_PROGRESS'::organic.task_status, completed_at = NULL
+        WHERE org_id = $1 AND task_id = 'P3.3.6' AND status = 'DONE'::organic.task_status`, [orgId]);
+  }
+  await recordTaskProgress({
+    orgId, taskId: "P3.3.6", addMinutes: timeSpentMin, done: false,
+    notes: `Proposed ${rows.length} of the store's own pins across ${targets.length} boards, from ${own.length} pins linking to ${host}. ` +
+      (short.length ? `${short.length} board(s) short of ${PUBLIC_AT} — warm those from the website with the Pinterest widget.` : "Every board can reach ten."),
+  });
+  return { boards: targets.length, proposed: rows.length, short, candidates: own.length, recomputed: await recomputeAfter(orgId) };
+}
+
+/** P3.3.6 — the person's half: approve a board's proposal (or all of them),
+ *  or take a single pin out. Closes P3.3.6 once nothing is left unreviewed. */
+export async function reviewSeedPlan(
+  orgId: string,
+  op: { kind: "approve"; boardId?: string | null } | { kind: "remove"; planId: string }
+) {
+  const pool = organicPool();
+  if (op.kind === "remove") {
+    const r = await pool.query(
+      `UPDATE organic.seed_plan SET status = 'REMOVED'
+        WHERE id = $1 AND org_id = $2 AND status IN ('PROPOSED','APPROVED')`, [op.planId, orgId]);
+    if (r.rowCount === 0) throw new Error("That pin is already on the board, or not in this store's plan.");
+  } else {
+    await pool.query(
+      `UPDATE organic.seed_plan SET status = 'APPROVED'
+        WHERE org_id = $1 AND status = 'PROPOSED' AND ($2::uuid IS NULL OR board_id = $2::uuid)`,
+      [orgId, op.boardId ?? null]);
+  }
+  const left = await pool.query<{ proposed: string; chosen: string }>(
+    `SELECT COUNT(*) FILTER (WHERE status = 'PROPOSED')::text AS proposed,
+            COUNT(*) FILTER (WHERE status IN ('APPROVED','SAVED'))::text AS chosen
+       FROM organic.seed_plan WHERE org_id = $1`, [orgId]);
+  const done = Number(left.rows[0].proposed) === 0 && Number(left.rows[0].chosen) > 0;
+  await recordTaskProgress({
+    orgId, taskId: "P3.3.6", done,
+    notes: done ? `${left.rows[0].chosen} seed pins chosen; the seeding cron saves them at ${SEEDS_PER_DAY} a day.` : null,
+  });
+  return { ok: true, recomputed: done ? await recomputeAfter(orgId) : 0 };
+}
+
+/**
+ * Bring one board in line with the account, and make it public if it is warm.
+ *
+ * Decided on what Pinterest says, never on our status column: that column was
+ * flipped to PUBLIC by a trigger at ten pins without Pinterest ever being told
+ * (dropped in migration 097), so "PUBLIC" here has not meant public there.
+ * Only boards the method built are ever made public — an imported board keeps
+ * the privacy the client gave it; its row just records what it is.
+ */
+async function goPublicIfWarm(
+  client: PinterestClient,
+  board: { id: string; pinterest_board_id: string; migrated: boolean },
+  remote: { privacy: "PUBLIC" | "SECRET" | "PROTECTED"; pin_count: number }
+): Promise<boolean> {
+  const pool = organicPool();
+  let privacy = remote.privacy;
+  let flipped = false;
+  if (!board.migrated && privacy !== "PUBLIC" && remote.pin_count >= PUBLIC_AT) {
+    await client.updateBoard(board.pinterest_board_id, { privacy: "PUBLIC" });
+    privacy = "PUBLIC";
+    flipped = true;
+  }
+  await pool.query(
+    `UPDATE organic.boards SET pin_count = $2, status = $3::organic.board_status WHERE id = $1`,
+    [board.id, remote.pin_count, privacy]);
+  return flipped;
+}
+
+/**
+ * Every board of one store that exists on Pinterest, reconciled against the
+ * account in one read: pin counts and privacy as Pinterest reports them, and
+ * every warm board the method built made public. Pins somebody added by hand
+ * with the website widget count, because the count comes from the account.
+ */
+export async function syncBoardsWithPinterest(orgId: string) {
+  const pool = organicPool();
+  const { pinterestClientForOrg } = await import("@/lib/pinterest/for-org");
+  const { client } = await pinterestClientForOrg(orgId);
+  const remote = new Map((await client.getBoards()).items.map((b) => [b.id, b]));
+  const boards = await pool.query<{ id: string; pinterest_board_id: string; migrated: boolean; status: string }>(
+    `SELECT b.id::text, b.pinterest_board_id, b.status::text,
+            b.origin IS NOT DISTINCT FROM 'MIGRATED'::organic.board_origin AS migrated
+       FROM organic.boards b
+      WHERE b.org_id = $1 AND b.pinterest_board_id IS NOT NULL
+        AND b.status <> 'ARCHIVED'::organic.board_status`,
+    [orgId]
+  );
+  let flipped = 0, corrected = 0;
+  const refused: string[] = [];
+  for (const b of boards.rows) {
+    const r = remote.get(b.pinterest_board_id);
+    if (!r) continue;
+    try {
+      if (await goPublicIfWarm(client, b, { privacy: r.privacy, pin_count: r.pin_count ?? 0 })) flipped++;
+      else if (r.privacy !== b.status) corrected++;
+    } catch (e) {
+      // public_needs_seeding: a board the method built was made public by
+      // hand before it had ten pins. The row keeps its old status rather
+      // than the run stopping; the reason is reported.
+      refused.push(`${r.name}: ${(e as Error).message.slice(0, 120)}`);
+    }
+  }
+  return { flipped, corrected, refused };
+}
+
+/**
+ * P3.3.7 — save the next approved seed pin for one store, if today still has
+ * room. Called by /api/cron/organic-seed-boards every hour of the working
+ * day, so ten a day arrive one at a time rather than in a burst.
+ *
+ * Which pin: the first ten of every board before anybody's eleventh (ten is
+ * what lets a board go public), boards a running waterfall is about to
+ * publish onto first — module 2: a fresh pin on a board that is still cold
+ * gets little reach — then by creation date and the proposal's own rank.
+ *
+ * A pin Pinterest refuses (gone, not saveable) is marked FAILED and the next
+ * one is tried, up to three per call; a rate limit or a 5xx stops the store
+ * for this hour and leaves the pin APPROVED; a dead token is thrown, because
+ * that needs a person.
+ */
+export async function seedNextPin(orgId: string) {
+  const pool = organicPool();
+  const today = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM organic.seed_plan
+      WHERE org_id = $1 AND status = 'SAVED' AND saved_at >= date_trunc('day', now())`, [orgId]);
+  const savedToday = Number(today.rows[0].n);
+  if (savedToday >= SEEDS_PER_DAY) return { saved: 0, saved_today: savedToday, reason: "daily limit reached" as const };
+
+  const next = await pool.query<{ plan_id: string; pinterest_pin_id: string; board_id: string; pinterest_board_id: string; board_name: string; pin_count: number }>(
+    `SELECT sp.id::text AS plan_id, sp.pinterest_pin_id, b.id::text AS board_id,
+            b.pinterest_board_id, b.name AS board_name, COALESCE(b.pin_count, 0) AS pin_count
+       FROM organic.seed_plan sp
+       JOIN organic.boards b ON b.id = sp.board_id
+      WHERE sp.org_id = $1 AND sp.status = 'APPROVED'
+        AND b.pinterest_board_id IS NOT NULL AND ${METHOD_BOARD}
+      ORDER BY (SELECT COUNT(*) FROM organic.seed_plan s2
+                 WHERE s2.board_id = sp.board_id AND s2.status = 'SAVED') >= ${PUBLIC_AT},
+               (SELECT MIN(p.scheduled_date) FROM organic.pins p
+                  JOIN organic.waterfalls w ON w.id = p.waterfall_id
+                 WHERE p.board_id = b.id
+                   AND w.status <> 'ABANDONED'::organic.waterfall_status
+                   AND p.status IN ('PLANNED'::organic.pin_status, 'SCHEDULED'::organic.pin_status)) NULLS LAST,
+               b.created_on_pinterest NULLS LAST, b.name, sp.rank
+      LIMIT 3`,
+    [orgId]
+  );
+  if (next.rowCount === 0) return { saved: 0, saved_today: savedToday, reason: "nothing approved is waiting" as const };
+
+  const { pinterestClientForOrg } = await import("@/lib/pinterest/for-org");
+  const { client } = await pinterestClientForOrg(orgId);
+  const failed: string[] = [];
+  for (const row of next.rows) {
+    try {
+      const saved = await client.savePin(row.pinterest_pin_id, row.pinterest_board_id);
+      await pool.query(
+        `UPDATE organic.seed_plan SET status = 'SAVED', saved_pin_id = $2, saved_at = now(), error = NULL WHERE id = $1`,
+        [row.plan_id, saved?.id ?? null]);
+      await pool.query(
+        `UPDATE organic.boards
+            SET seeded_count = seeded_count + 1, seeded_at = now(),
+                seed_source = 'EXISTING_PINS'::organic.seed_source
+          WHERE id = $1`, [row.board_id]);
+      // Pinterest's pin_count lags a save by a moment (measured 11-09-2026:
+      // 0 straight after the first save, 1 a second later), so what we know
+      // we just added is the floor. Without it the tenth save would not flip
+      // the board until the next one.
+      const remote = await client.getBoard(row.pinterest_board_id);
+      const pins = Math.max(remote.pin_count ?? 0, row.pin_count + 1);
+      const wentPublic = await goPublicIfWarm(client, {
+        id: row.board_id, pinterest_board_id: row.pinterest_board_id, migrated: false,
+      }, { privacy: remote.privacy, pin_count: pins });
+      await recordSeedingProgress(orgId);
+      return { saved: 1, saved_today: savedToday + 1, board: row.board_name, board_pins: pins, went_public: wentPublic, failed };
+    } catch (e) {
+      const msg = (e as Error).message;
+      const status = Number(msg.match(/Pinterest API error (\d{3})/)?.[1] ?? 0);
+      if (status === 401) throw e;
+      // Not the pin's fault: try again next hour, and stop this store now.
+      if (status === 429 || status >= 500 || status === 0) {
+        return { saved: 0, saved_today: savedToday, reason: "pinterest unavailable" as const, error: msg.slice(0, 200), failed };
+      }
+      await pool.query(`UPDATE organic.seed_plan SET status = 'FAILED', error = $2 WHERE id = $1`, [row.plan_id, msg.slice(0, 300)]);
+      failed.push(`${row.board_name}: ${msg.slice(0, 120)}`);
+    }
+  }
+  await recordSeedingProgress(orgId);
+  return { saved: 0, saved_today: savedToday, reason: "every candidate failed" as const, failed };
+}
+
+/**
+ * P3.3.7 is done when every board the method built that exists on Pinterest
+ * has reached PUBLIC_AT. Until then it says which boards are still short and
+ * whether the plan can still get them there — a board the account's own pins
+ * cannot fill needs the website widget, which is a person with the login.
+ */
+async function recordSeedingProgress(orgId: string) {
+  const s = await loadSeedingState(orgId);
+  const live = s.boards.filter((b) => b.on_pinterest);
+  const cold = live.filter((b) => b.pin_count < PUBLIC_AT);
+  const stuck = cold.filter((b) => b.pin_count + b.approved < PUBLIC_AT);
+  await recordTaskProgress({
+    orgId, taskId: "P3.3.7",
+    done: live.length > 0 && cold.length === 0 && s.boards.every((b) => b.on_pinterest),
+    notes: cold.length === 0
+      ? `${live.length} board(s) warm.`
+      : `${live.length - cold.length} of ${live.length} live board(s) warm. ` +
+        (stuck.length ? `Need the website widget (not enough own pins): ${stuck.map((b) => `${b.name} ${b.pin_count}/${PUBLIC_AT}`).join(", ")}.` : ""),
+  });
+}
+
+/** What the P3.3.6 / P3.3.7 panels show: every board the method built, with
+ *  its plan and where it stands on Pinterest. */
+export async function loadSeedingState(orgId: string) {
+  const pool = organicPool();
+  const boards = await pool.query<{
+    id: string; name: string; status: string; pin_count: number; on_pinterest: boolean;
+    planned_creation_date: string | null; first_waterfall_pin: string | null;
+  }>(
+    `SELECT b.id::text, b.name, b.status::text, COALESCE(b.pin_count, 0) AS pin_count,
+            b.pinterest_board_id IS NOT NULL AS on_pinterest,
+            b.planned_creation_date::text,
+            (SELECT MIN(p.scheduled_date)::text FROM organic.pins p
+               JOIN organic.waterfalls w ON w.id = p.waterfall_id
+              WHERE p.board_id = b.id AND w.status <> 'ABANDONED'::organic.waterfall_status
+                AND p.status IN ('PLANNED'::organic.pin_status, 'SCHEDULED'::organic.pin_status)) AS first_waterfall_pin
+       FROM organic.boards b
+      WHERE b.org_id = $1 AND ${METHOD_BOARD}
+        AND b.status <> 'ARCHIVED'::organic.board_status
+      ORDER BY b.name`,
+    [orgId]
+  );
+  const plan = await pool.query<{
+    id: string; board_id: string; pinterest_pin_id: string; pin_title: string | null;
+    pin_image_url: string | null; rank: number; reason: string | null; status: string; error: string | null; saved_at: string | null;
+  }>(
+    `SELECT id::text, board_id::text, pinterest_pin_id, pin_title, pin_image_url, rank, reason, status, error, saved_at::text
+       FROM organic.seed_plan WHERE org_id = $1 AND status <> 'REMOVED'
+      ORDER BY board_id, rank`,
+    [orgId]
+  );
+  const today = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM organic.seed_plan
+      WHERE org_id = $1 AND status = 'SAVED' AND saved_at >= date_trunc('day', now())`, [orgId]);
+  const byBoard = new Map<string, typeof plan.rows>();
+  for (const r of plan.rows) byBoard.set(r.board_id, [...(byBoard.get(r.board_id) ?? []), r]);
+  return {
+    per_day: SEEDS_PER_DAY, public_at: PUBLIC_AT, target: SEED_TARGET,
+    saved_today: Number(today.rows[0].n),
+    boards: boards.rows.map((b) => {
+      const pins = byBoard.get(b.id) ?? [];
+      return {
+        ...b,
+        proposed: pins.filter((p) => p.status === "PROPOSED").length,
+        approved: pins.filter((p) => p.status === "APPROVED").length,
+        saved: pins.filter((p) => p.status === "SAVED").length,
+        pins,
+      };
+    }),
+  };
+}
+
+/**
+ * P3.3.8 — every board the method built that holds PUBLIC_AT pins goes
+ * public, on Pinterest first. The seeding cron does the same as it goes; this
+ * is the manual sweep. Idempotent.
+ */
+export async function flipBoardsPublicAtTen(orgId: string, timeSpentMin: number) {
+  const { flipped, corrected, refused } = await syncBoardsWithPinterest(orgId);
   await completeTaskByDefinition({ orgId, taskId: "P3.3.8", timeSpentMin,
-    notes: `Flipped ${r.rowCount ?? 0} boards SECRET → PUBLIC (≥10 pins).` });
-  return { flipped: r.rowCount ?? 0, recomputed: await recomputeAfter(orgId) };
+    notes: `${flipped} board(s) made public on Pinterest (≥${PUBLIC_AT} pins)` +
+      (corrected ? `; ${corrected} board status(es) corrected to what Pinterest shows` : "") +
+      (refused.length ? `; not recorded: ${refused.join("; ")}` : "") + "." });
+  return { flipped, corrected, refused, recomputed: await recomputeAfter(orgId) };
 }
 
 // ---------- read helpers ----------------------------------------------------

@@ -205,8 +205,58 @@ export class PinterestClient {
     });
   }
 
+  /**
+   * Every board on the account, all pages.
+   *
+   * This used to be a single `GET /boards`, which answers with the first page
+   * only (25 by default). `adoptExistingBoards` read "not in the answer" as
+   * "deleted from the account" and cleared the board's Pinterest id — Fit
+   * Cherries has 29 boards, page one held 24, and three real boards lost
+   * their id that way (found 11-09-2026).
+   */
   async getBoards(): Promise<{ items: PinterestBoard[] }> {
-    return this.request("/boards");
+    const items: PinterestBoard[] = [];
+    let bookmark: string | undefined;
+    do {
+      const params = new URLSearchParams({ page_size: "250" });
+      if (bookmark) params.set("bookmark", bookmark);
+      const page = await this.request<{ items: PinterestBoard[]; bookmark?: string | null }>(`/boards?${params}`);
+      items.push(...(page.items ?? []));
+      bookmark = page.bookmark ?? undefined;
+    } while (bookmark && items.length < MAX_PINTEREST_FETCH);
+    return { items };
+  }
+
+  async getBoard(boardId: string): Promise<PinterestBoard> {
+    return this.request(`/boards/${boardId}`);
+  }
+
+  /** PATCH /boards/{id}. Privacy takes PUBLIC or SECRET here (the update
+   *  endpoint's own enum); a PROTECTED board goes public this way. */
+  async updateBoard(
+    boardId: string,
+    fields: { name?: string; description?: string; privacy?: "PUBLIC" | "SECRET" }
+  ): Promise<PinterestBoard> {
+    return this.request(`/boards/${boardId}`, {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    });
+  }
+
+  /**
+   * POST /pins/{id}/save — put an existing pin on another board.
+   *
+   * This is what board warming means in the method (module 2): "use the pins
+   * that you already have in different boards … just transfer the pins that
+   * are the most related". It adds the pin to the board and leaves the
+   * original where it is, rather than creating a copy with the same image —
+   * which is what the old seeding code did.
+   */
+  async savePin(pinId: string, boardId: string): Promise<PinterestPin> {
+    return this.request(`/pins/${pinId}/save`, {
+      method: "POST",
+      body: JSON.stringify({ board_id: boardId }),
+    });
   }
 
   async createPin(data: {
@@ -345,7 +395,7 @@ export class PinterestClient {
   }> {
     // v5 endpoint is /pins for listing the authenticated user's owned pins.
     // The old /user_account/pins path 404s.
-    const params = new URLSearchParams({ page_size: "100" });
+    const params = new URLSearchParams({ page_size: "250" });
     if (bookmark) params.set("bookmark", bookmark);
     return this.request(`/pins?${params}`);
   }

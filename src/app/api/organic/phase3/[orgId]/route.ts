@@ -11,16 +11,19 @@ import {
   saveDisplayName, saveBio,
   finaliseBoardList, checkCoverage, saveBoardDescriptions,
   generateCreationSchedule, createBoardsToday,
-  proposeSeedPins, runSeeding, flipBoardsPublicAtTen,
+  proposeSeedPins, reviewSeedPlan, loadSeedingState, flipBoardsPublicAtTen,
   searchInterests, loadBoardListContext,
   draftDisplayName, draftBio, draftBoardDescription,
   approveAndSaveDisplayName, approveAndSaveBio, approveAndSaveBoardDescription,
-  type BoardInput, type SeasonalClassification, type DescriptionRow, type SeedSelection,
+  type BoardInput, type SeasonalClassification, type DescriptionRow,
 } from "@/lib/organic/phase3";
 import { completeTaskByDefinition, recomputeAfter } from "@/lib/organic/complete";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 300, not 60: P3.3.6 reads the whole account and has a model judge every pin
+// against every new board, which on a store with twenty boards is a couple of
+// minutes. Every other action here finishes in seconds either way.
+export const maxDuration = 300;
 
 export async function POST(
   req: Request,
@@ -96,8 +99,16 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       return createBoardsToday(orgId, t(), { dryRun: !!body.dry_run });
     case "select_seeds":
       return proposeSeedPins(orgId, t());
-    case "run_seeding":
-      return runSeeding(orgId, t(), body.selections as SeedSelection[], { dryRun: !!body.dry_run });
+    // P3.3.6 — the person's half of the proposal.
+    case "approve_seeds":
+      return reviewSeedPlan(orgId, { kind: "approve", boardId: (body.board_id as string | null) ?? null });
+    case "remove_seed":
+      return reviewSeedPlan(orgId, { kind: "remove", planId: String(body.plan_id) });
+    // P3.3.6 / P3.3.7 panels. Saving happens in /api/cron/organic-seed-boards
+    // at SEEDS_PER_DAY a day; there is deliberately no "seed now" button,
+    // because a button is how ten a day becomes forty in one afternoon.
+    case "seed_state":
+      return loadSeedingState(orgId);
     case "draft_display_name":
       return draftDisplayName(orgId, String(body.brand_name));
     case "approve_display_name":

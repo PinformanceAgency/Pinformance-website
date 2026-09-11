@@ -101,3 +101,92 @@ export async function latestDraft(orgId: string, kind: DraftKind, targetId: stri
   );
   return r.rows[0] ?? null;
 }
+
+// ---------- P3.3.6 — which of the store's own pins belong on which board ----
+
+/**
+ * The relevance judgement behind board warming.
+ *
+ * Module 4 (1:21): even on a board that is still private, "you really need to
+ * prioritise the best match between the boards and the content" — a triangle
+ * bikini does not warm a strapless-bra board. Word matching could not make
+ * that call: strict, it found nothing for "Bras for Small Breasts" because
+ * the copy says "small bust"; loose, it put a lingerie pin at the top of
+ * "Bikinis for Petite Women". So a model reads the pins and the boards and
+ * proposes; a person approves (P3.3.6, "Human: chooses 10–15 own pins").
+ *
+ * Opus 5 rather than the drafting model above: this is judgement over the
+ * whole catalogue, and a wrong pick lands on the client's own board. Run once
+ * per store, not per pin, so the cost is a few calls. The pin list goes in
+ * the system prompt with a cache breakpoint, so every chunk of boards after
+ * the first reads it from cache.
+ */
+const SEED_MODEL_ID = "claude-opus-5";
+
+export interface SeedPinCandidate { id: string; title: string; description: string }
+export interface SeedBoardTarget { id: string; name: string; primary_keyword: string | null; description: string | null }
+
+export async function pickSeedPins(
+  boards: SeedBoardTarget[],
+  pins: SeedPinCandidate[],
+  maxPerBoard = 15
+): Promise<Map<string, Array<{ pin_id: string; reason: string }>>> {
+  const { z } = await import("zod");
+  const { zodOutputFormat } = await import("@anthropic-ai/sdk/helpers/zod");
+  const Schema = z.object({
+    boards: z.array(z.object({
+      board_id: z.string(),
+      picks: z.array(z.object({ pin_id: z.string(), reason: z.string() })),
+    })),
+  });
+
+  const clean = (s: string, n: number) => s.replace(/\s+/g, " ").trim().slice(0, n);
+  const catalogue = pins.map((p) => `${p.id} | ${clean(p.title, 100)} | ${clean(p.description, 160)}`).join("\n");
+  const system =
+    `You pick which of a brand's own existing Pinterest pins belong on each of its new boards. ` +
+    `The pins will be saved onto the board to give Pinterest context before the board goes public.\n\n` +
+    `A pin qualifies only if what it shows and links to genuinely belongs on that board, judged by the board's name ` +
+    `and keyword. The product type has to match: a bikini does not belong on a bra board, an ordinary push-up bra ` +
+    `does not belong on a strapless-bra board, a lingerie set does not belong on a swimwear board. Synonyms count ` +
+    `("small bust", "small chest" and "small breasts" are the same audience). Broad boards can take anything that ` +
+    `sits under them.\n\n` +
+    `Up to ${maxPerBoard} pins per board, best match first. When fewer genuinely fit, return fewer — never pad a ` +
+    `board with weak matches, and an empty list is a valid answer. The same pin may go to several boards. ` +
+    `The reason is one short phrase naming why it fits.\n\n` +
+    `The pins, one per line as "id | title | description":\n${catalogue}`;
+
+  const client = anthropicClient();
+  const out = new Map<string, Array<{ pin_id: string; reason: string }>>();
+  const known = new Set(pins.map((p) => p.id));
+  const CHUNK = 8;
+  const chunks: SeedBoardTarget[][] = [];
+  for (let i = 0; i < boards.length; i += CHUNK) chunks.push(boards.slice(i, i + CHUNK));
+
+  // The first chunk writes the cache; the rest run together and read it.
+  const runChunk = async (chunk: SeedBoardTarget[]) => {
+    const list = chunk.map((b) =>
+      `${b.id} | ${b.name} | keyword: ${b.primary_keyword ?? "—"} | ${clean(b.description ?? "", 200)}`).join("\n");
+    const resp = await client.messages.parse({
+      model: SEED_MODEL_ID,
+      max_tokens: 16000,
+      output_config: { effort: "medium", format: zodOutputFormat(Schema) },
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: `The boards, one per line as "id | name | keyword | description":\n${list}` }],
+    });
+    if (resp.stop_reason === "refusal") throw new Error("The model declined to pick seed pins for these boards.");
+    if (resp.stop_reason === "max_tokens") throw new Error("The seed-pin proposal was cut off; try again.");
+    const parsed = resp.parsed_output;
+    if (!parsed) throw new Error("The seed-pin proposal came back unreadable; try again.");
+    for (const b of parsed.boards) {
+      if (!chunk.some((c) => c.id === b.board_id)) continue;
+      const seen = new Set<string>();
+      out.set(b.board_id, b.picks
+        .filter((p) => known.has(p.pin_id) && !seen.has(p.pin_id) && seen.add(p.pin_id))
+        .slice(0, maxPerBoard)
+        .map((p) => ({ pin_id: p.pin_id, reason: clean(p.reason, 140) })));
+    }
+  };
+  if (chunks.length > 0) await runChunk(chunks[0]);
+  await Promise.all(chunks.slice(1).map(runChunk));
+  return out;
+}
