@@ -82,6 +82,7 @@ async function main() {
       const pins = (await p.query<{
         n: string; geen_beeld: string; geen_board: string; geen_titel: string;
         qc_copy_af: string; qc_design_af: string; gepland: string; ingepland: string; gepubliceerd: string;
+        design_zonder_beeld: string;
       }>(
         `SELECT COUNT(*)::text AS n,
                 COUNT(*) FILTER (WHERE p.image_path IS NULL)::text AS geen_beeld,
@@ -91,7 +92,8 @@ async function main() {
                 COUNT(*) FILTER (WHERE d.qc_status = 'APPROVED'::organic.qc_status)::text AS qc_design_af,
                 COUNT(*) FILTER (WHERE p.status = 'PLANNED'::organic.pin_status)::text AS gepland,
                 COUNT(*) FILTER (WHERE p.status = 'SCHEDULED'::organic.pin_status)::text AS ingepland,
-                COUNT(*) FILTER (WHERE p.status = 'PUBLISHED'::organic.pin_status)::text AS gepubliceerd
+                COUNT(*) FILTER (WHERE p.status = 'PUBLISHED'::organic.pin_status)::text AS gepubliceerd,
+                (SELECT COUNT(*) FROM organic.designs WHERE waterfall_id = $1 AND asset_path IS NULL)::text AS design_zonder_beeld
            FROM organic.pins p
            JOIN organic.boards b ON b.id = p.board_id
            LEFT JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
@@ -101,7 +103,12 @@ async function main() {
       console.log(`      waterfall ${w.id.slice(0,8)} ${w.status} · ${pins.n} pins ` +
         `(${pins.gepland} nog niet ingepland, ${pins.ingepland} ingepland, ${pins.gepubliceerd} gepubliceerd)`);
 
-      if (Number(pins.geen_beeld) > 0) stop(`${pins.geen_beeld} pins zonder beeld — upload of genereer de designs (P4.2.4) en snijd de crops (P4.2.5)`);
+      // Na een regenerate komen de designs mee maar de crops niet: dan is
+      // alleen P4.2.5 nog nodig, en "upload de designs" stuurt iemand naar
+      // werk dat al gedaan is.
+      if (Number(pins.geen_beeld) > 0) stop(Number(pins.design_zonder_beeld) > 0
+        ? `${pins.geen_beeld} pins zonder beeld — upload of genereer de designs (P4.2.4) en snijd de crops (P4.2.5)`
+        : `${pins.geen_beeld} pins zonder beeld — de designs hebben er wel een, alleen de crops ontbreken (P4.2.5)`);
       else ok("elke pin heeft een beeld");
 
       if (Number(pins.geen_titel) > 0) stop(`${pins.geen_titel} pins zonder titel — schrijf de copy (P4.2.8, sectie 2)`);
@@ -113,7 +120,8 @@ async function main() {
       if (Number(pins.qc_design_af) < Number(pins.n)) let_op(`design-QC nog niet af (${pins.qc_design_af}/${pins.n}) — houdt niets tegen, maar wordt wel gemeld bij het inplannen`);
       if (Number(pins.qc_copy_af) < Number(pins.n)) let_op(`copy-QC nog niet af (${pins.qc_copy_af}/${pins.n})`);
       if (Number(pins.gepland) > 0 && Number(pins.geen_beeld) === 0 && Number(pins.geen_titel) === 0 && Number(pins.geen_board) === 0)
-        let_op(`${pins.gepland} pins kunnen nu ingepland worden — druk op "Save & queue" in sectie 3`);
+        let_op(`${pins.gepland} pins kunnen nu ingepland worden — druk op ${w.status === "PLANNING"
+          ? `"Save & queue"` : `"Queue whatever is still waiting"`} in sectie 3`);
     }
   }
 

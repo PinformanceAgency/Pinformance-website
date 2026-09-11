@@ -2721,6 +2721,13 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
       WHERE waterfall_id = $1`,
     [liveId]
   );
+  // P4.2.5 is "every pin carries its image". This was computed in
+  // cycleWorkState and never read, so the task stayed open after every crop
+  // run and only scripts/reconcile-phase4-tasks.ts ever closed it.
+  const st = await cycleWorkState(orgId, urlId);
+  await recordCycleWork(orgId, urlId, "P4.2.5",
+    st.pins > 0 && st.pinsWithImage >= st.pins,
+    `${st.pinsWithImage} of ${st.pins} pins carry an image.`);
   return { ok: true, cropped, originals: (pins.rowCount ?? 0) - cropped };
 }
 
