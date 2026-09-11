@@ -310,7 +310,9 @@ export async function addImage(orgId: string, kind: ImageKind, campaignId: strin
     : (await pool.query<{ n: number }>(
         `SELECT COALESCE(array_length(${kind === "inspiration" ? "inspiration_images" : "product_images"}, 1), 0) AS n
            FROM organic.creative_campaigns WHERE id = $1 AND org_id = $2`, [campaignId, orgId])).rows[0]?.n ?? 0;
-  if (current >= LIMITS[kind]) throw new Error(`At most ${LIMITS[kind]} ${kind} images.`);
+  if (current >= LIMITS[kind]) {
+    throw new Error(`There are already ${current} ${kind} images saved (the maximum is ${LIMITS[kind]}). Remove one first to add another.`);
+  }
 
   const { createAdminClient } = await import("../supabase/admin");
   const admin = createAdminClient();

@@ -84,17 +84,24 @@ function Uploader({ images, max, label, busy, onAdd, onRemove }: {
   onAdd: (files: File[]) => void; onRemove: (url: string) => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+  // Send only what fits. Dropping five files on a box that takes three used to
+  // save the first three, fail on the fourth, and leave the screen at 0/3.
+  const add = (files: File[]) => {
+    const room = max - images.length;
+    const pics = files.filter((f) => f.type.startsWith("image/"));
+    if (room > 0 && pics.length > 0) onAdd(pics.slice(0, room));
+  };
   return (
     <div className="space-y-2">
       <div className="text-[11px] font-medium text-neutral-600">{label}</div>
       <div
         onClick={() => !busy && images.length < max && ref.current?.click()}
         onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); if (!busy) onAdd(Array.from(e.dataTransfer.files)); }}
+        onDrop={(e) => { e.preventDefault(); if (!busy) add(Array.from(e.dataTransfer.files)); }}
         className="rounded-lg border-2 border-dashed border-neutral-300 p-4 text-center text-[11px] text-neutral-500 cursor-pointer hover:border-neutral-400">
         {busy ? "Uploading…" : images.length >= max ? `Maximum of ${max} reached` : `Drag & drop or click to add (${images.length}/${max})`}
         <input ref={ref} type="file" accept="image/*" multiple hidden
-          onChange={(e) => { onAdd(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+          onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       </div>
       {images.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -176,21 +183,25 @@ export function CreativeMachine({ orgId }: { orgId: string }) {
   const [openCampaign, setOpenCampaign] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
 
+  const loaded = useRef(false);
   const load = useCallback(async () => {
     try {
       const s = await call(orgId, { action: "load" }) as unknown as State;
       setState(s);
-      setBrief(s.brief ?? {});
-      if (s.style_lock) setBrandStep(2);
+      if (!loaded.current) {
+        loaded.current = true;
+        setBrief(s.brief ?? {});
+        if (s.style_lock) setBrandStep(2);
+      }
     } catch (e) { setErr((e as Error).message); }
   }, [orgId]);
   useEffect(() => { void load(); }, [load]);
 
   async function run(key: string, fn: () => Promise<unknown>) {
     setBusy(key); setErr(null);
-    try { await fn(); await load(); }
+    try { await fn(); }
     catch (e) { setErr((e as Error).message); }
-    finally { setBusy(null); }
+    finally { await load(); setBusy(null); }
   }
 
   const upload = (kind: "brand" | "inspiration" | "product", campaignId: string | null) => (files: File[]) =>
