@@ -1191,8 +1191,33 @@ async function recordCycleWork(
   done: boolean,
   note: string
 ): Promise<void> {
-  if (!done) return;
-  await completeCycleTask(orgId, `URL-${urlId.slice(0, 8)}`, taskId, 0, note);
+  const cycle = `URL-${urlId.slice(0, 8)}`;
+  if (done) {
+    await completeCycleTask(orgId, cycle, taskId, 0, note);
+    return;
+  }
+
+  // ...and back again. `if (!done) return` made this a one-way latch, which
+  // is wrong for exactly the same reason the close is right: the task states
+  // a fact about the artefact, and the artefact can stop being there. Copy QC
+  // legitimately drops to PENDING on a regenerate, a re-save or a new image,
+  // and none of those paths reopened the task -- so Fit Cherries' "Bhs" sat
+  // at P4.2.10 DONE / "4 of 4 copy sets reviewed" with all four PENDING, and
+  // a pin went out carrying copy nobody had approved.
+  //
+  // Only DONE is reversed, and only to IN_PROGRESS. BLOCKED is computed from
+  // preconditions and is not ours to clear; TODO means nobody has started,
+  // and re-deriving that from an empty artefact would erase the fact that
+  // somebody did.
+  await organicPool().query(
+    `UPDATE organic.client_tasks
+        SET status = 'IN_PROGRESS'::organic.task_status,
+            completed_at = NULL,
+            notes = $1
+      WHERE org_id = $2 AND task_id = $3 AND cycle = $4
+        AND status = 'DONE'::organic.task_status`,
+    [note, orgId, taskId, cycle]
+  );
 }
 
 /**
@@ -1236,6 +1261,7 @@ async function cycleWorkState(orgId: string, urlId: string) {
   const r = await organicPool().query<{
     designs: string; met_beeld: string; met_titel: string;
     design_qc: string; copy_qc: string; pins: string; pins_met_beeld: string;
+    design_ok: string; copy_ok: string; design_nee: string; copy_nee: string;
   }>(
     `WITH live AS (
        SELECT id FROM organic.waterfalls
@@ -1247,6 +1273,13 @@ async function cycleWorkState(orgId: string, urlId: string) {
             COUNT(*) FILTER (WHERE cs.title IS NOT NULL AND btrim(cs.title) <> '')::text AS met_titel,
             COUNT(*) FILTER (WHERE d.qc_status <> 'PENDING'::organic.qc_status)::text AS design_qc,
             COUNT(*) FILTER (WHERE cs.human_qc_status <> 'PENDING'::organic.qc_status)::text AS copy_qc,
+            -- Judged and approved are not the same thing. "<> PENDING"
+            -- includes REJECTED, so counting reviews closed P4.2.7 on four
+            -- designs somebody had just turned down.
+            COUNT(*) FILTER (WHERE d.qc_status = 'APPROVED'::organic.qc_status)::text AS design_ok,
+            COUNT(*) FILTER (WHERE cs.human_qc_status = 'APPROVED'::organic.qc_status)::text AS copy_ok,
+            COUNT(*) FILTER (WHERE d.qc_status = 'REJECTED'::organic.qc_status)::text AS design_nee,
+            COUNT(*) FILTER (WHERE cs.human_qc_status = 'REJECTED'::organic.qc_status)::text AS copy_nee,
             (SELECT COUNT(*)::text FROM organic.pins p JOIN live ON live.id = p.waterfall_id
               WHERE p.status <> 'CANCELLED'::organic.pin_status) AS pins,
             (SELECT COUNT(*)::text FROM organic.pins p JOIN live ON live.id = p.waterfall_id
@@ -1264,9 +1297,71 @@ async function cycleWorkState(orgId: string, urlId: string) {
     withTitle: n(row?.met_titel),
     designQcDone: n(row?.design_qc),
     copyQcDone: n(row?.copy_qc),
+    designApproved: n(row?.design_ok),
+    copyApproved: n(row?.copy_ok),
+    designRejected: n(row?.design_nee),
+    copyRejected: n(row?.copy_nee),
     pins: n(row?.pins),
     pinsWithImage: n(row?.pins_met_beeld),
   };
+}
+
+/* ---------- launch readiness ---------------------------------------------- */
+
+export interface ReadinessCheck {
+  /** What is being checked, in the manager's words. */
+  label: string;
+  ok: boolean;
+  /** The count behind it — "0 of 4", "5 assigned". */
+  detail: string;
+  /** The task to open when it is short. */
+  task: string | null;
+}
+
+export interface LaunchReadiness {
+  passed: number;
+  total: number;
+  checks: ReadinessCheck[];
+}
+
+/**
+ * "Launch readiness: 7 of 9 checks passed — missing: copy QC 0 of 4."
+ *
+ * Clarissa's own suggestion (12-09-2026) and the right shape for this app: it
+ * states what is short, and blocks nothing. Queueing already refuses a
+ * rejected design or copy; PENDING only warns, deliberately, because the
+ * manager may decide their own review was enough. What was missing was never
+ * a lock — it was a sentence saying which of the nine is not there, so that
+ * "P4.2.10 DONE" and "0 of 4 approved" could not sit on one screen without
+ * anybody noticing.
+ *
+ * Computed on read, like the deviations, so it cannot go stale.
+ */
+function launchReadiness(
+  st: Awaited<ReturnType<typeof cycleWorkState>>,
+  boards: number,
+  keywords: number,
+  overlayTerms: number,
+  waterfallStatus: string | null
+): LaunchReadiness {
+  const of = (n: number, total: number) => `${n} of ${total}`;
+  const checks: ReadinessCheck[] = [
+    { label: "Boards assigned", ok: boards >= 4, detail: `${boards} assigned`, task: "P4.1.7" },
+    { label: "Keywords assigned", ok: keywords > 0, detail: `${keywords} assigned`, task: "P4.1.6" },
+    { label: "Overlay terms chosen", ok: overlayTerms > 0, detail: `${overlayTerms} marked`, task: "P4.1.8" },
+    { label: "Designs have an image", ok: st.designs > 0 && st.withImage >= st.designs, detail: of(st.withImage, st.designs), task: "P4.2.4" },
+    { label: "Pins have an image", ok: st.pins > 0 && st.pinsWithImage >= st.pins, detail: of(st.pinsWithImage, st.pins), task: "P4.2.5" },
+    { label: "Design QC approved", ok: st.designs > 0 && st.designApproved >= st.designs, detail: of(st.designApproved, st.designs), task: "P4.2.7" },
+    { label: "Copy drafted", ok: st.designs > 0 && st.withTitle >= st.designs, detail: of(st.withTitle, st.designs), task: "P4.2.8" },
+    { label: "Copy QC approved", ok: st.designs > 0 && st.copyApproved >= st.designs, detail: of(st.copyApproved, st.designs), task: "P4.2.10" },
+    {
+      label: "Waterfall queued",
+      ok: waterfallStatus === "RUNNING" || waterfallStatus === "COMPLETED",
+      detail: waterfallStatus === null ? "not generated" : waterfallStatus.toLowerCase(),
+      task: waterfallStatus === null ? "P4.3.1" : "P4.3.2",
+    },
+  ];
+  return { passed: checks.filter((c) => c.ok).length, total: checks.length, checks };
 }
 
 // ---------- helpers ---------------------------------------------------------
@@ -1405,6 +1500,10 @@ export interface CycleView {
    *  overrule — but an unmarked deviation is indistinguishable from a
    *  mistake by the time anyone reads it back. */
   deviations: Deviation[];
+  /** Which of the nine things a launch needs are actually there. Blocks
+   *  nothing; it exists so a DONE task and an empty record cannot sit on one
+   *  screen unnoticed. */
+  readiness: LaunchReadiness;
 }
 
 /** Returns every URL-scoped Phase 4 cycle for this org, hydrated with the
@@ -1442,8 +1541,8 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
       ORDER BY ub.position`,
     [orgId]
   );
-  const kwRes = await pool.query<{ url_id: string; keyword_id: string; term: string; is_primary: boolean; volume: number | null }>(
-    `SELECT uk.url_id::text, uk.keyword_id::text, k.term, uk.is_primary, c.volume
+  const kwRes = await pool.query<{ url_id: string; keyword_id: string; term: string; is_primary: boolean; is_overlay: boolean; volume: number | null }>(
+    `SELECT uk.url_id::text, uk.keyword_id::text, k.term, uk.is_primary, uk.is_overlay, c.volume
        FROM organic.url_keywords uk
        JOIN organic.keywords k ON k.id = uk.keyword_id
        LEFT JOIN organic.keyword_volume_cache c ON c.term = k.term
@@ -1492,10 +1591,12 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
     boardsByUrl.set(b.url_id, arr);
   }
   const kwsByUrl = new Map<string, Array<{ keyword_id: string; term: string; is_primary: boolean; volume: number | null }>>();
+  const overlayByUrl = new Map<string, number>();
   for (const k of kwRes.rows) {
     const arr = kwsByUrl.get(k.url_id) ?? [];
     arr.push({ keyword_id: k.keyword_id, term: k.term, is_primary: k.is_primary, volume: k.volume });
     kwsByUrl.set(k.url_id, arr);
+    if (k.is_overlay) overlayByUrl.set(k.url_id, (overlayByUrl.get(k.url_id) ?? 0) + 1);
   }
 
   // One brief for the whole org, then checked per cycle. Loading it per
@@ -1606,6 +1707,13 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
         pct: tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0,
       },
       deviations,
+      readiness: launchReadiness(
+        await cycleWorkState(orgId, u.id),
+        cycleBoards.length,
+        cycleKws.length,
+        overlayByUrl.get(u.id) ?? 0,
+        wfLatestByUrl.get(u.id)?.status ?? null
+      ),
     });
   }
   return out;
@@ -2752,8 +2860,9 @@ export async function setDesignQc(
   if (urlId) {
     const st = await cycleWorkState(orgId, urlId);
     await recordCycleWork(orgId, urlId, "P4.2.7",
-      st.designs > 0 && st.designQcDone >= st.designs,
-      `${st.designQcDone} of ${st.designs} designs reviewed.`);
+      st.designs > 0 && st.designApproved >= st.designs,
+      `${st.designApproved} of ${st.designs} designs approved` +
+      (st.designRejected > 0 ? `, ${st.designRejected} rejected — regenerate those and review again.` : "."));
   }
   return { ok: true, design_id: designId, qc_status: status };
 }
@@ -2984,8 +3093,9 @@ export async function setCopyQc(
   if (urlId) {
     const st = await cycleWorkState(orgId, urlId);
     await recordCycleWork(orgId, urlId, "P4.2.10",
-      st.designs > 0 && st.copyQcDone >= st.designs,
-      `${st.copyQcDone} of ${st.designs} copy sets reviewed.`);
+      st.designs > 0 && st.copyApproved >= st.designs,
+      `${st.copyApproved} of ${st.designs} copy sets approved` +
+      (st.copyRejected > 0 ? `, ${st.copyRejected} rejected — rewrite those and review again.` : "."));
   }
   return { ok: true, copy_set_id: copySetId, human_qc_status: status };
 }

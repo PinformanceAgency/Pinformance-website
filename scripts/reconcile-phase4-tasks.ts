@@ -11,8 +11,16 @@
  * dit haalt in wat daarvoor is gedaan.
  *
  * Er wordt uitsluitend afgevinkt wat aantoonbaar bestaat -- een beeld op elk
- * design, een titel op elke copy set, een oordeel op elke QC. Een taak die
- * al DONE of SKIPPED is blijft met rust. Opnieuw draaien is een no-op.
+ * design, een titel op elke copy set, een GOEDGEKEURDE QC. Opnieuw draaien
+ * is een no-op.
+ *
+ * Sinds 12-09-2026 loopt het ook de andere kant op. Een afgevinkte taak was
+ * een klep die maar één kant op ging, en QC valt terecht terug naar PENDING
+ * bij een regenerate, een re-save of een nieuw beeld -- dus stond Fit
+ * Cherries' "Bhs" op P4.2.10 DONE met alle vier de copy sets op PENDING, en
+ * ging er een pin uit met copy die niemand had goedgekeurd. Een DONE waar
+ * het werk niet (meer) achter staat gaat terug naar IN_PROGRESS. SKIPPED
+ * blijft met rust: dat is een beslissing, geen waarneming.
  *
  *     DRY_RUN=1 DOTENV_CONFIG_PATH=.env.local npx tsx scripts/reconcile-phase4-tasks.ts
  *     DOTENV_CONFIG_PATH=.env.local npx tsx scripts/reconcile-phase4-tasks.ts
@@ -50,8 +58,8 @@ async function main() {
       `SELECT COUNT(d.id)::int AS designs,
               COUNT(*) FILTER (WHERE d.asset_path IS NOT NULL)::int AS met_beeld,
               COUNT(*) FILTER (WHERE cs.title IS NOT NULL AND btrim(cs.title) <> '')::int AS met_titel,
-              COUNT(*) FILTER (WHERE d.qc_status <> 'PENDING'::organic.qc_status)::int AS design_qc,
-              COUNT(*) FILTER (WHERE cs.human_qc_status <> 'PENDING'::organic.qc_status)::int AS copy_qc
+              COUNT(*) FILTER (WHERE d.qc_status = 'APPROVED'::organic.qc_status)::int AS design_qc,
+              COUNT(*) FILTER (WHERE cs.human_qc_status = 'APPROVED'::organic.qc_status)::int AS copy_qc
          FROM organic.designs d
          LEFT JOIN organic.copy_sets cs ON cs.design_id = d.id
         WHERE d.waterfall_id = $1`, [w.id]);
@@ -68,6 +76,7 @@ async function main() {
   }
 
   let closed = 0;
+  let reopened = 0;
   for (const r of rows.rows) {
     // De opzetstappen: boards en keywords hangen aan de URL, niet aan de
     // waterfall, dus die worden apart geteld.
@@ -88,31 +97,51 @@ async function main() {
       ["P4.1.8", setup.overlay > 0, `${setup.overlay} overlay-termen gemarkeerd`],
       ["P4.2.4", r.designs > 0 && r.met_beeld >= r.designs, `${r.met_beeld}/${r.designs} designs met een beeld`],
       ["P4.2.5", r.pins > 0 && r.pins_met_beeld >= r.pins, `${r.pins_met_beeld}/${r.pins} pins met een beeld`],
-      ["P4.2.7", r.designs > 0 && r.design_qc >= r.designs, `${r.design_qc}/${r.designs} designs beoordeeld`],
+      ["P4.2.7", r.designs > 0 && r.design_qc >= r.designs, `${r.design_qc}/${r.designs} designs goedgekeurd`],
       ["P4.2.8", r.designs > 0 && r.met_titel >= r.designs, `${r.met_titel}/${r.designs} copy sets geschreven`],
       ["P4.2.9", r.designs > 0 && r.met_titel >= r.designs, "elke copy set kwam door de validator"],
-      ["P4.2.10", r.designs > 0 && r.copy_qc >= r.designs, `${r.copy_qc}/${r.designs} copy sets beoordeeld`],
+      ["P4.2.10", r.designs > 0 && r.copy_qc >= r.designs, `${r.copy_qc}/${r.designs} copy sets goedgekeurd`],
       ["P4.3.1", r.pins > 0, `waterfall met ${r.pins} pins`],
     ];
     for (const [taskId, klaar, waarom] of done) {
-      if (!klaar) continue;
       const st = await pool.query<{ status: string }>(
         `SELECT status::text FROM organic.client_tasks
           WHERE org_id = $1 AND cycle = $2 AND task_id = $3`, [r.org_id, r.cycle, taskId]);
       const huidig = st.rows[0]?.status;
-      if (!huidig || huidig === "DONE" || huidig === "SKIPPED") continue;
-      console.log(`  ${r.store} · ${r.url_name} · ${taskId} ${huidig} → DONE (${waarom})`);
-      closed++;
-      if (!DRY) {
-        await completeCycleTask(r.org_id, r.cycle, taskId, 0,
-          `Ingehaald: ${waarom}. Het werk stond er al voordat de besturing zijn eigen taak wegschreef.`);
+      if (!huidig || huidig === "SKIPPED") continue;
+
+      if (klaar && huidig !== "DONE") {
+        console.log(`  ${r.store} · ${r.url_name} · ${taskId} ${huidig} → DONE (${waarom})`);
+        closed++;
+        if (!DRY) {
+          await completeCycleTask(r.org_id, r.cycle, taskId, 0,
+            `Ingehaald: ${waarom}. Het werk stond er al voordat de besturing zijn eigen taak wegschreef.`);
+        }
+      } else if (!klaar && huidig === "DONE") {
+        // Alleen DONE gaat terug. BLOCKED wordt uit preconditions berekend en
+        // is niet aan ons; TODO zou wegpoetsen dat er wél aan begonnen is.
+        console.log(`  ${r.store} · ${r.url_name} · ${taskId} DONE → IN_PROGRESS (${waarom})`);
+        reopened++;
+        if (!DRY) {
+          await pool.query(
+            `UPDATE organic.client_tasks
+                SET status = 'IN_PROGRESS'::organic.task_status,
+                    completed_at = NULL,
+                    notes = $1
+              WHERE org_id = $2 AND cycle = $3 AND task_id = $4
+                AND status = 'DONE'::organic.task_status`,
+            [`Heropend: ${waarom}. De taak stond op DONE terwijl het werk er niet (meer) achter staat.`,
+             r.org_id, r.cycle, taskId]
+          );
+        }
       }
     }
   }
 
-  console.log(closed === 0
-    ? "\nNiets in te halen -- elke afgeronde stap heeft zijn taak afgevinkt."
-    : `\n${closed} taak/taken${DRY ? " zouden worden" : ""} afgevinkt.${DRY ? " (DRY_RUN=1, niets geschreven)" : ""}`);
+  const staart = DRY ? " (DRY_RUN=1, niets geschreven)" : "";
+  console.log(closed === 0 && reopened === 0
+    ? "\nNiets te doen -- elke taak staat gelijk aan het werk dat eronder ligt."
+    : `\n${closed} afgevinkt, ${reopened} heropend.${staart}`);
 }
 
 main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });

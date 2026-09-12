@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, BookOpen } from "lucide-react";
+import { AlertTriangle, BookOpen, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskCard } from "./phase/[phase]/PhaseBoard";
 import { phaseMeta } from "@/lib/organic/phase-meta";
@@ -332,6 +332,8 @@ function SetupSection({
 
   return (
     <div className="p-4 space-y-3">
+      <ReadinessPanel readiness={cycle.readiness} />
+
       {/* P4.1.5 was retired — the reason is set when the URL enters the pool
           rather than as a step of its own. The dropdown stays here because
           urls.reason still drives the candidate ranking. */}
@@ -1040,6 +1042,60 @@ async function callP4(orgId: string, body: Record<string, unknown>): Promise<unk
  * contradicts what this account's own research found, and the manager is
  * often the one who knows why that research is out of date.
  */
+/**
+ * Launch readiness — which of the nine things a live cycle needs are there.
+ *
+ * Clarissa's suggestion, 12-09-2026, after finding "P4.2.10 · DONE" sitting
+ * above four copy sets that were all still PENDING. The task status was a
+ * one-way latch (fixed in phase4.ts); this is the other half, and the half
+ * that would have made it obvious without anyone having to open the QC
+ * panel and count.
+ *
+ * It blocks nothing. Queueing already refuses a rejected design or copy;
+ * PENDING only warns, because the manager may decide their own review was
+ * enough. What was missing was the sentence, not a lock.
+ */
+function ReadinessPanel({ readiness }: { readiness: CycleView["readiness"] }) {
+  const short = readiness.checks.filter((c) => !c.ok);
+  const allGood = short.length === 0;
+  return (
+    <div className={cn(
+      "rounded-lg ring-1 ring-inset px-3.5 py-3",
+      allGood ? "ring-emerald-600/25 bg-emerald-600/[0.05]" : "ring-amber-600/30 bg-amber-500/[0.06]"
+    )}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {allGood
+          ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+          : <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />}
+        <span className={cn("o-eyebrow", allGood ? "text-emerald-700" : "text-amber-700")}>
+          Launch readiness: {readiness.passed}/{readiness.total} checks passed
+        </span>
+        {!allGood && (
+          <span className="text-[11px] text-muted-foreground">
+            — missing: {short.map((c) => `${c.label} ${c.detail}`).join(", ")}
+          </span>
+        )}
+      </div>
+      <ul className="mt-2.5 grid gap-x-5 gap-y-1 sm:grid-cols-2">
+        {readiness.checks.map((c) => (
+          <li key={c.label} className="flex items-baseline gap-2 text-xs">
+            <span className={cn("shrink-0 font-semibold", c.ok ? "text-emerald-700" : "text-amber-700")}>
+              {c.ok ? "✓" : "•"}
+            </span>
+            <span className={cn("flex-1", c.ok ? "text-muted-foreground" : "text-foreground font-medium")}>
+              {c.label}
+            </span>
+            <span className="tabular-nums text-muted-foreground">{c.detail}</span>
+            {!c.ok && c.task && (
+              <span className="font-mono text-[10px] text-muted-foreground">{c.task}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function DeviationPanel({ deviations }: { deviations: Deviation[] }) {
   if (deviations.length === 0) return null;
   return (
