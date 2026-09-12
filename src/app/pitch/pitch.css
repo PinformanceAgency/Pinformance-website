@@ -119,34 +119,19 @@
     0 0 0 1px rgba(227, 6, 19, 0.15),
     0 44px 100px -30px var(--rglow);
 }
-.root-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 3.2px;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.82);
-}
 .root-logo {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+  width: 62px;
+  height: 62px;
+  border-radius: 16px;
+  box-shadow: 0 14px 34px -12px rgba(0, 0, 0, 0.75);
 }
 .root h1 {
   margin: 0;
-  font-size: 54px;
-  line-height: 0.94;
+  font-size: 50px;
+  line-height: 1;
   font-weight: 800;
-  letter-spacing: -1.6px;
+  letter-spacing: -1.8px;
   color: #fff;
-}
-.root h1 sup {
-  font-size: 18px;
-  vertical-align: super;
-  letter-spacing: 0;
 }
 .root p {
   margin: 0;

@@ -30,8 +30,7 @@ export const HERO = {
   y: -360,
   w: 660,
   h: 262,
-  eyebrow: "PINFORMANCE",
-  title: ["Growth", "Engine™"],
+  title: "Pinformance",
   sub: ["Jouw roadmap voor de komende 4 maanden", "van START naar schaalbaar — in 3 fases"],
 };
 

@@ -327,17 +327,9 @@ export default function PitchCanvas() {
             className="n root"
             style={{ left: HERO.x, top: HERO.y, width: HERO.w, minHeight: HERO.h }}
           >
-            <span className="root-brand">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.png" alt="" className="root-logo" />
-              {HERO.eyebrow}
-            </span>
-            <h1>
-              {HERO.title[0]}
-              <br />
-              {HERO.title[1].replace("™", "")}
-              <sup>™</sup>
-            </h1>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="Pinformance" className="root-logo" />
+            <h1>{HERO.title}</h1>
             <p>
               Jouw roadmap voor de komende <b>4 maanden</b>
               <br />

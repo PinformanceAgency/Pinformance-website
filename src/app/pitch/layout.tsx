@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Growth Engine™ — Pinformance",
+  title: "Pinformance — Roadmap",
   description: "Jouw roadmap van START naar schaalbaar — in 3 fases.",
 };
 
