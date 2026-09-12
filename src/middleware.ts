@@ -50,9 +50,7 @@ function basicAuthChallenge(
   if (!user || !pass) return null; // not configured → no gate
 
   const header = request.headers.get("authorization") || "";
-  let sawHeader = false;
   if (header.startsWith("Basic ")) {
-    sawHeader = true;
     try {
       const decoded = atob(header.slice(6)); // Edge-safe base64 decode
       const sep = decoded.indexOf(":");
@@ -64,19 +62,10 @@ function basicAuthChallenge(
     }
   }
 
-  const res = new NextResponse("Authentication required.", {
+  return new NextResponse("Authentication required.", {
     status: 401,
     headers: { "WWW-Authenticate": `Basic realm="${realm}"` },
   });
-  // TEMP diagnostics: lengths only, never the values. Lets us tell a missing
-  // env var apart from a whitespace-padded one apart from a plain typo.
-  res.headers.set(
-    "x-auth-debug",
-    `u=${user.length} p=${pass.length} trimmed=${
-      rawUser?.length !== user.length || rawPass?.length !== pass.length
-    } sentHeader=${sawHeader}`
-  );
-  return res;
 }
 
 export async function middleware(request: NextRequest) {
