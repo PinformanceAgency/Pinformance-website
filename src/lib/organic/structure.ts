@@ -82,6 +82,13 @@ export function adviseBoards(
   }
   const noise = noiseWords(boards.map((b) => b.name));
 
+  // A URL with no topic cannot be scored on relevance at all. Saying so is
+  // the whole point: without it the ranking looks like a considered one and
+  // is in fact steal-list and pin-count only.
+  const topicGaps = urlTopicId == null
+    ? ["This URL has no topic, so board relevance counted for nothing in this ranking — only the Steal List, Board Gaps, what has already won and pin count. Set the topic on the URL to get the relevance signal back."]
+    : [];
+
   const scored = boards.map((b) => {
     const name = b.name.toLowerCase();
     const onTopic = urlTopicId != null && b.topic_id === urlTopicId;
@@ -115,7 +122,7 @@ export function adviseBoards(
   return {
     suggested: scored.map((s) => s.b),
     reasons: scored.map((s) => s.reason),
-    gaps: brief.market.known ? [] : [brief.market.why],
+    gaps: [...topicGaps, ...(brief.market.known ? [] : [brief.market.why])],
   };
 }
 
@@ -139,13 +146,37 @@ export function checkBoards(
     });
   }
 
-  const offTopic = chosen.filter((b) => urlTopicId != null && b.topic_id !== urlTopicId);
-  if (offTopic.length > 0 && urlTopicId != null) {
+  // Both halves of the relevance check need a topic on each side. Where one
+  // is missing the check cannot run — and for a year it went QUIET instead
+  // of saying so, which reads on screen exactly like "every board is on
+  // topic". Fit Cherries ran two cycles that way: both URLs had no topic, so
+  // "Bikinis for Petite Women" sat on a padded-push-up-bra collection with
+  // nothing anywhere saying a thing. An unrunnable check must announce
+  // itself, or it is worse than no check at all.
+  if (urlTopicId == null) {
     out.push({
       kind: "structure",
-      what: `${offTopic.length} board${offTopic.length === 1 ? " is" : "s are"} outside this URL's topic: ${offTopic.map((b) => b.name).join(", ")}`,
-      why: "Semantic relevance is what the board contributes. Swimwear does not belong on a strapless bra board, even where both are lingerie (P4.1.7).",
+      what: "This URL has no topic, so no board could be checked for relevance",
+      why: "Board relevance is judged against the URL's topic (P4.1.7). Without one the check cannot run at all — every board here is unverified, not approved. Set the topic on the URL, then read this panel again.",
     });
+  } else {
+    const offTopic = chosen.filter((b) => b.topic_id != null && b.topic_id !== urlTopicId);
+    if (offTopic.length > 0) {
+      out.push({
+        kind: "structure",
+        what: `${offTopic.length} board${offTopic.length === 1 ? " is" : "s are"} outside this URL's topic: ${offTopic.map((b) => b.name).join(", ")}`,
+        why: "Semantic relevance is what the board contributes. Swimwear does not belong on a strapless bra board, even where both are lingerie (P4.1.7).",
+      });
+    }
+
+    const noTopic = chosen.filter((b) => b.topic_id == null);
+    if (noTopic.length > 0) {
+      out.push({
+        kind: "structure",
+        what: `${noTopic.length} board${noTopic.length === 1 ? " carries" : "s carry"} no topic, so ${noTopic.length === 1 ? "it was" : "they were"} not checked: ${noTopic.map((b) => b.name).join(", ")}`,
+        why: "A board without a topic counts towards no coverage figure and can be matched against no URL. Usually a board imported from the main dashboard that never got filed (P3.3.2).",
+      });
+    }
   }
 
   const thin = chosen.filter((b) => (b.pin_count ?? 0) < 10);
