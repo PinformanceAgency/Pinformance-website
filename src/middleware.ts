@@ -13,6 +13,13 @@ const ONBOARDING_HOSTNAMES = new Set([
   "onboarding.pinformance-agency.com",
 ]);
 
+const PITCH_HOSTNAMES = new Set([
+  "pitch.pinformance-agency.com",
+  // Local development: `pitch.localhost:3000` resolves to 127.0.0.1, so the
+  // pitch canvas is reachable locally on the same rewrite path production uses.
+  "pitch.localhost",
+]);
+
 const ORGANIC_HOSTNAMES = new Set([
   "organic.pinformance-agency.com",
   // Local development: `organic.localhost:3000` resolves to 127.0.0.1 in
@@ -59,6 +66,7 @@ export async function middleware(request: NextRequest) {
   const isTyPageHost = TY_PAGE_HOSTNAMES.has(host);
   const isOnboardingHost = ONBOARDING_HOSTNAMES.has(host);
   const isOrganicHost = ORGANIC_HOSTNAMES.has(host);
+  const isPitchHost = PITCH_HOSTNAMES.has(host);
 
   // Rewrite typage.pinformance-agency.com root → /ty-page (public, no auth).
   if (isTyPageHost && !request.nextUrl.pathname.startsWith("/ty-page")) {
@@ -90,6 +98,13 @@ export async function middleware(request: NextRequest) {
     const headers = new Headers(request.headers);
     headers.set("x-organic-path", request.nextUrl.pathname);
     return NextResponse.rewrite(url, { request: { headers } });
+  }
+
+  // Rewrite pitch.pinformance-agency.com root → /pitch (public, no auth).
+  if (isPitchHost && !request.nextUrl.pathname.startsWith("/pitch")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/pitch" + (request.nextUrl.pathname === "/" ? "" : request.nextUrl.pathname);
+    return NextResponse.rewrite(url);
   }
 
   // Gate the calculator (both the dedicated host and the /calculator path).
