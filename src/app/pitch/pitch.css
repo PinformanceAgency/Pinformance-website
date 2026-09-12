@@ -441,17 +441,17 @@
   color: var(--text);
 }
 
-/* --- Results ------------------------------------------------------------- */
+/* --- Wide block cards (cases, team) -------------------------------------- */
 
-.testicard,
+.blockcard,
 .supportcard {
-  padding: 34px 0 0;
+  padding: 30px 0 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   pointer-events: none;
 }
-.testicard:hover,
+.blockcard:hover,
 .supportcard:hover {
   border-color: var(--line);
   box-shadow: rgba(0, 0, 0, 0.9) 0 16px 40px -22px;
@@ -464,6 +464,11 @@
   text-transform: uppercase;
   color: var(--text);
 }
+.card-sub {
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--muted);
+}
 .card-rule {
   width: 40px;
   height: 2px;
@@ -472,94 +477,65 @@
   margin-top: 10px;
 }
 
-.testi {
+/* --- Case card ----------------------------------------------------------- */
+
+.casecard {
   border-radius: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
   background: linear-gradient(160deg, #241a1d, #161013);
-  padding: 0;
 }
-.testi-badge {
-  position: absolute;
-  top: -11px;
-  left: 12px;
-  background: var(--red);
-  color: #fff;
+.case-head {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.case-brand {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+.case-niche {
   font-family: var(--mono);
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.6px;
-  padding: 4px 9px;
-  border-radius: 6px;
-  white-space: nowrap;
-  box-shadow: 0 6px 18px -6px var(--rglow);
-}
-.testi-face {
-  flex: 1;
-  background: radial-gradient(90% 90% at 50% 20%, #2e2226, #15101300);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.testi-initials {
-  font-size: 34px;
-  font-weight: 800;
-  color: rgba(255, 255, 255, 0.14);
-  letter-spacing: -1px;
-}
-.testi-name {
-  background: var(--red);
-  color: #fff;
-  text-align: center;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  padding: 6px 4px 5px;
-}
-.testi-role {
-  font-family: var(--mono);
-  font-size: 7.5px;
-  font-weight: 500;
-  letter-spacing: 1px;
-  opacity: 0.75;
-  display: block;
-  margin-top: 1px;
-  text-transform: uppercase;
-}
-.testi.more {
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: linear-gradient(160deg, #2b1a1e, #1a1013);
-  border-color: rgba(255, 92, 99, 0.35);
-  text-align: center;
-  padding: 0 18px;
-}
-.testi.more .plus {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--red);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  font-weight: 700;
-}
-.testi.more .t {
-  font-size: 12px;
-  font-weight: 700;
-}
-.testi.more .h {
-  font-family: var(--mono);
-  font-size: 8px;
-  letter-spacing: 1.2px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--red-2);
+}
+.case-rows {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 22px 16px;
+}
+.case-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(200, 155, 160, 0.07);
+}
+.case-row:last-child {
+  border-bottom: 0;
+}
+.case-row .k {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.case-row .v {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 /* --- Support ------------------------------------------------------------- */
@@ -944,10 +920,15 @@
 .pitch-demo {
   margin-top: 22px;
   display: grid;
-  grid-template-columns: 1.5fr 1fr;
+  /* One column by default; the accent panel on the right is optional, and a
+     node without one must not leave an empty half. */
+  grid-template-columns: 1fr;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--line);
+}
+.pitch-demo:has(.pitch-demo-right) {
+  grid-template-columns: 1.5fr 1fr;
 }
 .pitch-demo-left {
   padding: 26px 28px;
@@ -955,17 +936,11 @@
 }
 .pitch-demo-brand {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 3px;
+  letter-spacing: 2.6px;
   text-transform: uppercase;
-  color: var(--text);
-}
-.pitch-demo-left h3 {
-  margin: 12px 0 0;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.6px;
+  color: var(--faint);
 }
 .pitch-demo-left p {
   margin: 10px 0 0;
@@ -974,7 +949,7 @@
   color: var(--muted);
 }
 .pitch-demo-list {
-  margin: 16px 0 0;
+  margin: 14px 0 0;
   padding: 0;
   list-style: none;
   display: flex;
@@ -990,6 +965,53 @@
 .pitch-demo-list .chk {
   color: var(--red-2);
 }
+/* Key/value table inside the modal (garanties, prijs, KPI's, rolverdeling). */
+.pitch-rows {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+}
+.pitch-row {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 16px;
+  align-items: baseline;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(200, 155, 160, 0.09);
+}
+.pitch-row:last-child {
+  border-bottom: 0;
+}
+.pitch-row .k {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text);
+}
+.pitch-row .v {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Two lists side by side (setup fee vs base fee). */
+.pitch-cols {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 26px;
+}
+.pitch-col .ct {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: var(--red-2);
+}
+.pitch-col .pitch-demo-list {
+  margin-top: 10px;
+}
+
 .pitch-demo-right {
   padding: 26px;
   background: linear-gradient(160deg, #c4222e, var(--maroon));
@@ -1064,8 +1086,15 @@
 }
 
 @media (max-width: 720px) {
-  .pitch-demo {
+  .pitch-demo,
+  .pitch-demo:has(.pitch-demo-right),
+  .pitch-cols {
     grid-template-columns: 1fr;
+  }
+  .pitch-row,
+  .case-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
   }
   .pitch-hint {
     display: none;

@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  CASE,
+  CASES,
+  CASE_GAP,
+  CASE_LEFT,
   CAT,
   CTA,
   HERO,
@@ -11,7 +15,7 @@ import {
   NODE_SIZE,
   PHASE_HUBS,
   RESULTS_CARD,
-  RESULTS_MORE,
+  RESULTS_SUB,
   RESULTS_TITLE,
   ROADMAP_NODES,
   SECTIONS,
@@ -19,11 +23,10 @@ import {
   START_NODE,
   SUPPORT_CARD,
   SUPPORT_SHOTS,
+  SUPPORT_SUB,
   SUPPORT_TITLE,
   SYS,
   SYS_LABEL,
-  TESTI,
-  TESTIMONIALS,
   TOOLBAR_HINT,
   type RoadmapNode,
 } from "./data";
@@ -88,21 +91,6 @@ const center = (n: { x: number; y: number }) => ({
 // ---------------------------------------------------------------------------
 // Layout helpers derived from the world coordinates
 // ---------------------------------------------------------------------------
-const TESTI_GAP = 24;
-const TESTI_STRIDE = TESTI.w + TESTI_GAP;
-const TESTI_ROW_Y = [2432, 2661, 2890];
-const TESTI_LEFT = -798;
-
-function testiPos(i: number) {
-  // Rows of five, the remainder centred on the last row.
-  const row = i < 5 ? 0 : i < 10 ? 1 : 2;
-  const col = i - row * 5;
-  const inRow = row === 2 ? TESTIMONIALS.length + 1 - 10 : 5;
-  const rowW = inRow * TESTI.w + (inRow - 1) * TESTI_GAP;
-  const left = row === 2 ? TESTI_LEFT + (1596 - rowW) / 2 : TESTI_LEFT;
-  return { x: left + col * TESTI_STRIDE, y: TESTI_ROW_Y[row] };
-}
-
 const initials = (name: string) =>
   name
     .replace(/&/g, "")
@@ -266,7 +254,7 @@ export default function PitchCanvas() {
       return `M ${cx} ${LANE.h} L ${cx} ${SYS_LABEL.y - 40}`;
     });
     const spine = `M ${LANES[0].x + LANE.w / 2} ${SYS_LABEL.y - 40} L ${
-      LANES[2].x + LANE.w / 2
+      LANES[LANES.length - 1].x + LANE.w / 2
     } ${SYS_LABEL.y - 40}`;
     return { chain, feeders, spine };
   }, []);
@@ -331,9 +319,9 @@ export default function PitchCanvas() {
             <img src="/logo.png" alt="Pinformance" className="root-logo" />
             <h1>{HERO.title}</h1>
             <p>
-              Jouw roadmap voor de komende <b>4 maanden</b>
+              <b>{HERO.line1}</b>
               <br />
-              van START naar schaalbaar — in <b>3 fases</b>
+              {HERO.line2}
             </p>
           </div>
 
@@ -377,16 +365,18 @@ export default function PitchCanvas() {
               key={n.id}
               type="button"
               className="n rmnode"
-              style={{ left: n.x, top: n.y, width: NODE_SIZE.w, height: NODE_SIZE.h }}
+              // minHeight, not height: a two-line section name must push the
+              // card taller instead of clipping the "klik om te openen" line.
+              style={{ left: n.x, top: n.y, width: NODE_SIZE.w, minHeight: NODE_SIZE.h }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => setDetail(n)}
             >
               <span className="rmn-lbl">
                 <i className="rmn-dot" />
-                Systeem
+                Sectie
               </span>
               <span className="rmn-name">{n.name}</span>
-              <span className="rmn-cta">Klik om te bekijken →</span>
+              <span className="rmn-cta">Klik om te openen →</span>
             </button>
           ))}
 
@@ -423,15 +413,15 @@ export default function PitchCanvas() {
               <span className="fhub-desc">{h.desc}</span>
               <span className="fhub-stats">
                 <span className="fhub-stat">
-                  <span className="k">Wat je krijgt</span>
+                  <span className="k">Wat erop staat</span>
                   <span className="v">{h.count}</span>
                 </span>
                 <span className="fhub-stat">
-                  <span className="k">Categorieën</span>
+                  <span className="k">Onderdelen</span>
                   <span className="v">{h.cats.length}</span>
                 </span>
                 <span className="fhub-open">
-                  {openPhase === h.key ? "▾ Sluit" : "▸ Klik voor alle systemen"}
+                  {openPhase === h.key ? "▾ Sluiten" : "▸ Klik voor alle punten"}
                 </span>
               </span>
             </button>
@@ -473,7 +463,7 @@ export default function PitchCanvas() {
 
           {/* Results ----------------------------------------------------- */}
           <div
-            className="n testicard"
+            className="n blockcard"
             style={{
               left: RESULTS_CARD.x,
               top: RESULTS_CARD.y,
@@ -482,42 +472,34 @@ export default function PitchCanvas() {
             }}
           >
             <span className="card-title">{RESULTS_TITLE}</span>
+            <span className="card-sub">{RESULTS_SUB}</span>
             <span className="card-rule" />
           </div>
-          {TESTIMONIALS.map((t, i) => {
-            const p = testiPos(i);
-            return (
-              <div
-                key={t.name}
-                className="n testi"
-                style={{ left: p.x, top: p.y, width: TESTI.w, height: TESTI.h }}
-              >
-                <span className="testi-badge">
-                  {t.from} → {t.to} p/m
-                </span>
-                <span className="testi-face">
-                  <span className="testi-initials">{initials(t.name)}</span>
-                </span>
-                <span className="testi-name">
-                  {t.name}
-                  {t.role && <span className="testi-role">{t.role}</span>}
-                </span>
-              </div>
-            );
-          })}
-          {(() => {
-            const p = testiPos(TESTIMONIALS.length);
-            return (
-              <div
-                className="n testi more"
-                style={{ left: p.x, top: p.y, width: TESTI.w, height: TESTI.h }}
-              >
-                <span className="plus">+</span>
-                <span className="t">{RESULTS_MORE.title}</span>
-                <span className="h">{RESULTS_MORE.hint}</span>
-              </div>
-            );
-          })()}
+          {CASES.map((c, i) => (
+            <div
+              key={c.brand}
+              className="n casecard"
+              style={{
+                left: CASE_LEFT + i * (CASE.w + CASE_GAP),
+                top: CASE.y,
+                width: CASE.w,
+                height: CASE.h,
+              }}
+            >
+              <span className="case-head">
+                <span className="case-brand">{c.brand}</span>
+                <span className="case-niche">{c.niche}</span>
+              </span>
+              <span className="case-rows">
+                {c.rows.map((r) => (
+                  <span className="case-row" key={r.k}>
+                    <span className="k">{r.k}</span>
+                    <span className="v">{r.v}</span>
+                  </span>
+                ))}
+              </span>
+            </div>
+          ))}
 
           {/* Support ----------------------------------------------------- */}
           <div
@@ -530,6 +512,7 @@ export default function PitchCanvas() {
             }}
           >
             <span className="card-title">{SUPPORT_TITLE}</span>
+            <span className="card-sub">{SUPPORT_SUB}</span>
             <span className="card-rule" />
           </div>
           {SUPPORT_SHOTS.map((s, i) => (
@@ -537,7 +520,7 @@ export default function PitchCanvas() {
               key={s.title}
               className="n shotcard"
               style={{
-                left: -798 + i * (SHOT.w + 30),
+                left: CASE_LEFT + i * (SHOT.w + CASE_GAP),
                 top: SHOT.y,
                 width: SHOT.w,
                 height: SHOT.h,
@@ -703,42 +686,61 @@ export default function PitchCanvas() {
 
             <div className="pitch-demo">
               <div className="pitch-demo-left">
-                <div className="pitch-demo-brand">Pinformance</div>
-                <h3>Growth Partnership™</h3>
-                <p>
-                  Van waar je nu staat naar een agency/consulting-business die zónder
-                  jou draait — in 120 dagen, done-with-you.
-                </p>
-                <ul className="pitch-demo-list">
-                  <li>
-                    <span className="chk">✓</span>15+ systemen geïnstalleerd &
-                    geïntegreerd
-                  </li>
-                  <li>
-                    <span className="chk">✓</span>Wekelijkse 1-op-1 met je vaste coach
-                  </li>
-                  <li>
-                    <span className="chk">✓</span>Private Slack — reactie binnen 4 uur
-                  </li>
-                  <li>
-                    <span className="chk">✓</span>Alle SOP&apos;s, templates, funnels &
-                    scripts
-                  </li>
-                </ul>
+                <div className="pitch-demo-brand">Wat er staat</div>
+
+                {detail.bullets.length > 0 && (
+                  <ul className="pitch-demo-list">
+                    {detail.bullets.map((b) => (
+                      <li key={b}>
+                        <span className="chk">✓</span>
+                        {b}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {detail.rows && (
+                  <div className="pitch-rows">
+                    {detail.rows.map((r) => (
+                      <div className="pitch-row" key={r.k}>
+                        <span className="k">{r.k}</span>
+                        <span className="v">{r.v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {detail.columns && (
+                  <div className="pitch-cols">
+                    {detail.columns.map((c) => (
+                      <div className="pitch-col" key={c.title}>
+                        <span className="ct">{c.title}</span>
+                        <ul className="pitch-demo-list">
+                          {c.items.map((i) => (
+                            <li key={i}>
+                              <span className="chk">✓</span>
+                              {i}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="pitch-demo-right">
-                <span className="k">Investering</span>
-                <span className="v">€12.500</span>
-                <span className="s">of 3× €4.500</span>
-                <button type="button" className="b">
-                  Voorstel accepteren →
-                </button>
-                <span className="f">
-                  Startdatum · deze week
-                  <br />
-                  Doorlooptijd · 120 dagen
-                </span>
-              </div>
+
+              {detail.highlight && (
+                <div className="pitch-demo-right">
+                  <span className="k">{detail.highlight.k}</span>
+                  <span className="v">{detail.highlight.v}</span>
+                  {detail.highlight.s && (
+                    <span className="s">{detail.highlight.s}</span>
+                  )}
+                  {detail.highlight.f && (
+                    <span className="f">{detail.highlight.f}</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="pitch-result">
