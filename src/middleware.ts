@@ -29,15 +29,19 @@ const ORGANIC_HOSTNAMES = new Set([
 ]);
 
 /**
- * HTTP Basic Auth gate for the calculator. Credentials come from env vars
- * CALCULATOR_AUTH_USER / CALCULATOR_AUTH_PASSWORD. If either is unset the gate
- * is OFF (fail-open) so deploying this never accidentally locks the live
- * calculator before the credentials are configured in Vercel.
- * Returns a 401 response when auth is required and missing/wrong, else null.
+ * HTTP Basic Auth gate. Credentials are passed in per surface so the
+ * calculator and the pitch canvas can be shared with different people.
+ *
+ * If either credential is unset the gate is OFF (fail-open), so deploying a
+ * new gated surface never locks it before the env vars are configured in
+ * Vercel. Returns a 401 when auth is required and missing/wrong, else null.
  */
-function calculatorAuthChallenge(request: NextRequest): NextResponse | null {
-  const user = process.env.CALCULATOR_AUTH_USER;
-  const pass = process.env.CALCULATOR_AUTH_PASSWORD;
+function basicAuthChallenge(
+  request: NextRequest,
+  user: string | undefined,
+  pass: string | undefined,
+  realm: string
+): NextResponse | null {
   if (!user || !pass) return null; // not configured → no gate
 
   const header = request.headers.get("authorization") || "";
@@ -55,7 +59,7 @@ function calculatorAuthChallenge(request: NextRequest): NextResponse | null {
 
   return new NextResponse("Authentication required.", {
     status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Pinformance Calculator"' },
+    headers: { "WWW-Authenticate": `Basic realm="${realm}"` },
   });
 }
 
@@ -67,6 +71,7 @@ export async function middleware(request: NextRequest) {
   const isOnboardingHost = ONBOARDING_HOSTNAMES.has(host);
   const isOrganicHost = ORGANIC_HOSTNAMES.has(host);
   const isPitchHost = PITCH_HOSTNAMES.has(host);
+  const isPitchPath = request.nextUrl.pathname.startsWith("/pitch");
 
   // Rewrite typage.pinformance-agency.com root → /ty-page (public, no auth).
   if (isTyPageHost && !request.nextUrl.pathname.startsWith("/ty-page")) {
@@ -100,8 +105,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.rewrite(url, { request: { headers } });
   }
 
-  // Rewrite pitch.pinformance-agency.com root → /pitch (public, no auth).
-  if (isPitchHost && !request.nextUrl.pathname.startsWith("/pitch")) {
+  // Gate the pitch canvas (both the dedicated host and the /pitch path).
+  // This has to run before the rewrite below, or the page renders first.
+  if (isPitchHost || isPitchPath) {
+    const challenge = basicAuthChallenge(
+      request,
+      process.env.PITCH_AUTH_USER,
+      process.env.PITCH_AUTH_PASSWORD,
+      "Pinformance Pitch"
+    );
+    if (challenge) return challenge;
+  }
+
+  // Rewrite pitch.pinformance-agency.com root → /pitch.
+  if (isPitchHost && !isPitchPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/pitch" + (request.nextUrl.pathname === "/" ? "" : request.nextUrl.pathname);
     return NextResponse.rewrite(url);
@@ -109,7 +126,12 @@ export async function middleware(request: NextRequest) {
 
   // Gate the calculator (both the dedicated host and the /calculator path).
   if (isCalculatorHost || isCalculatorPath) {
-    const challenge = calculatorAuthChallenge(request);
+    const challenge = basicAuthChallenge(
+      request,
+      process.env.CALCULATOR_AUTH_USER,
+      process.env.CALCULATOR_AUTH_PASSWORD,
+      "Pinformance Calculator"
+    );
     if (challenge) return challenge;
   }
 
