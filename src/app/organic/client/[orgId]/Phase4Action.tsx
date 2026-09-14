@@ -583,6 +583,12 @@ interface PublishHealthView {
   last_published: string | null;
   failures: Array<{ sequence: number; board: string; scheduled_date: string; reason: string; retrying: boolean }>;
   blocker: { kind: string; message: string } | null;
+  published: Array<{
+    sequence: number; cycle: string; design_number: number; intent: string;
+    copy_variant: string; board: string; published_on: string;
+    image_url: string | null; pin_url: string | null; title: string | null;
+  }>;
+  duplicate_designs: Array<{ designs: string[] }>;
 }
 
 /**
@@ -672,6 +678,66 @@ function PublishPanel({ orgId }: { orgId: string }) {
           : <>Nothing has gone live yet. </>}
         {h.next_scheduled ? <>Next is due {h.next_scheduled}.</> : <>Nothing is scheduled ahead.</>}
       </p>
+
+      {/* A count is not an answer to "which four went out, and why do two of
+          them look the same". Fit Cherries had four live pins carrying two
+          pictures, and the only way to find that out was a script. */}
+      {h.duplicate_designs.length > 0 && (
+        <div className="rounded-lg bg-o-accent/10 ring-1 ring-inset ring-o-accent/30 px-3.5 py-3">
+          <p className="text-sm font-medium text-foreground flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-o-accent shrink-0" />
+            The same picture is doing duty as more than one design
+          </p>
+          <ul className="mt-1 text-sm text-o-ink-2 space-y-0.5">
+            {h.duplicate_designs.map((g, i) => (
+              <li key={i}>{g.designs.join("  =  ")}</li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-xs text-o-ink-3">
+            Byte-for-byte the same file. A design is renamed after its own URL&apos;s keyword when it is
+            uploaded, so one picture stored twice reads as two designs everywhere — and on Pinterest it
+            reads as one pin posted twice. Replace the image on one of them (P4.2.4).
+          </p>
+        </div>
+      )}
+
+      {h.published.length > 0 && (
+        <div className="rounded-lg bg-o-surface ring-1 ring-inset ring-o-hairline overflow-hidden">
+          <p className="px-3.5 py-2 border-b border-o-hairline text-sm font-medium text-foreground">
+            What went live ({h.published.length})
+          </p>
+          <ul className="divide-y divide-o-hairline">
+            {h.published.map((p) => (
+              <li key={p.sequence + p.cycle} className="flex items-center gap-3 px-3.5 py-2">
+                {p.image_url
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={p.image_url} alt="" className="w-10 h-14 object-cover rounded shrink-0 bg-o-sunk" />
+                  : <div className="w-10 h-14 rounded shrink-0 bg-o-sunk" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-foreground truncate">
+                    {p.cycle} · <b>D{p.design_number}{p.copy_variant}</b>{" "}
+                    <span className="text-o-ink-3">{p.intent === "CLICK" ? "click" : "save"}</span>
+                  </p>
+                  <p className="text-xs text-o-ink-2 truncate">
+                    {p.published_on} → {p.board}
+                  </p>
+                  {p.title && <p className="text-xs text-o-ink-3 truncate">{p.title}</p>}
+                </div>
+                {p.pin_url && (
+                  <a href={p.pin_url} target="_blank" rel="noreferrer"
+                     className="o-btn text-xs shrink-0">
+                    Open <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="px-3.5 py-2 border-t border-o-hairline text-xs text-o-ink-3">
+            D1-D3 are the save pins (2:3, no text overlay), D4 is the click pin (9:16, with overlay).
+            The letter is the copy variant: A is the design as approved, B/C/D are the micro-crops.
+          </p>
+        </div>
+      )}
 
       {h.stuck.length > 0 && (
         <div className="rounded-lg bg-o-surface ring-1 ring-inset ring-o-hairline overflow-hidden">

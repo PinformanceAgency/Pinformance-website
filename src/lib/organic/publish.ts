@@ -463,6 +463,63 @@ export interface PublishHealth {
   }>;
   /** Present when the store cannot publish at all until somebody acts. */
   blocker: { kind: "token"; message: string } | null;
+  /** What actually went out: which design, onto which board, on which day,
+   *  with a link to the pin on Pinterest. Newest first. */
+  published: PublishedPin[];
+  /** Designs across this store's live cycles that carry byte-identical
+   *  artwork. See identicalDesignGroups. */
+  duplicate_designs: Array<{ designs: string[] }>;
+}
+
+export interface PublishedPin {
+  sequence: number;
+  /** "Bhs · D2 · B" — the creative's address in the waterfall. */
+  cycle: string;
+  design_number: number;
+  intent: string;
+  copy_variant: string;
+  board: string;
+  published_on: string;
+  image_url: string | null;
+  pin_url: string | null;
+  title: string | null;
+}
+
+/**
+ * Designs whose image is the same file, byte for byte.
+ *
+ * A design is renamed after its own URL's primary keyword on upload, so the
+ * same picture uploaded into two cycles is stored twice under two names and
+ * reads as two designs in every query we have. Fit Cherries ran exactly that
+ * (14-09-2026): four pins live, four Pinterest ids, and **two** pictures —
+ * so the report was "I can only find two of the four", and it was right.
+ *
+ * Compared on the Supabase Storage ETag, which is the object's md5. A HEAD
+ * that fails contributes nothing rather than a guess: claiming two designs
+ * are identical when the check could not run is worse than saying nothing,
+ * and this is a claim somebody acts on by re-doing artwork.
+ */
+async function identicalDesignGroups(
+  rows: Array<{ label: string; asset_path: string | null }>
+): Promise<Array<{ designs: string[] }>> {
+  const withImage = rows.filter((r) => r.asset_path);
+  if (withImage.length < 2) return [];
+  const tags = await Promise.all(withImage.map(async (r) => {
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 4000);
+      const res = await fetch(r.asset_path!, { method: "HEAD", signal: ac.signal });
+      clearTimeout(t);
+      const etag = res.headers.get("etag");
+      return etag ? { label: r.label, etag: etag.replace(/"/g, "") } : null;
+    } catch { return null; }
+  }));
+  const byTag = new Map<string, string[]>();
+  for (const t of tags) {
+    if (!t) continue;
+    byTag.set(t.etag, [...(byTag.get(t.etag) ?? []), t.label]);
+  }
+  return [...byTag.values()].filter((g) => g.length > 1).map((designs) => ({ designs }));
 }
 
 /**
@@ -557,9 +614,57 @@ export async function loadPublishHealth(orgId: string): Promise<PublishHealth> {
     }
   }
 
+  // What went live, with the creative's address in the waterfall. The panel
+  // could only ever say "4 live", which is not enough to answer "which four,
+  // and why do two of them look the same".
+  const pub = await pool.query<{
+    sequence_number: number; url_name: string; design_number: number; intent: string;
+    copy_variant: string; board_name: string; published_at: string;
+    image_path: string | null; pinterest_pin_id: string | null; title: string | null;
+  }>(
+    `SELECT p.sequence_number, u.name AS url_name, d.design_number,
+            d.intent::text AS intent, p.copy_variant, b.name AS board_name,
+            p.published_at::text AS published_at, p.image_path, p.pinterest_pin_id,
+            cs.title
+       FROM organic.pins p
+       JOIN organic.waterfalls w ON w.id = p.waterfall_id
+       JOIN organic.urls u       ON u.id = w.url_id
+       JOIN organic.designs d    ON d.id = p.design_id
+       JOIN organic.boards b     ON b.id = p.board_id
+       LEFT JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
+      WHERE w.org_id = $1 AND p.status = 'PUBLISHED'::organic.pin_status
+      ORDER BY p.published_at DESC
+      LIMIT 40`,
+    [orgId]
+  );
+
+  const designRows = await pool.query<{ label: string; asset_path: string | null }>(
+    `SELECT u.name || ' · D' || d.design_number AS label, d.asset_path
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+       JOIN organic.urls u       ON u.id = w.url_id
+      WHERE w.org_id = $1
+        AND w.status <> 'ABANDONED'::organic.waterfall_status
+      ORDER BY u.name, d.design_number`,
+    [orgId]
+  );
+
   return {
     counts: c,
     overdue: Number(timing.rows[0].overdue),
+    published: pub.rows.map((r) => ({
+      sequence: r.sequence_number,
+      cycle: r.url_name,
+      design_number: r.design_number,
+      intent: r.intent,
+      copy_variant: r.copy_variant,
+      board: r.board_name,
+      published_on: (r.published_at ?? "").slice(0, 10),
+      image_url: r.image_path,
+      pin_url: r.pinterest_pin_id ? `https://www.pinterest.com/pin/${r.pinterest_pin_id}/` : null,
+      title: r.title,
+    })),
+    duplicate_designs: await identicalDesignGroups(designRows.rows),
     stuck: stuck.rows.map((s) => ({
       sequence: s.sequence_number,
       scheduled_date: s.scheduled_date,
