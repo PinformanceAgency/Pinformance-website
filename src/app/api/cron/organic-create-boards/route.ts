@@ -57,14 +57,25 @@ async function run(request: NextRequest) {
     // Scoped to organic.client_settings, never to organic.boards: that table
     // holds rows for ~50 orgs whose boards were imported by the main
     // dashboard and that never entered the organic workflow.
-    const orgs = await pool.query<{ org_id: string; name: string; due: string }>(
+    const orgs = await pool.query<{ org_id: string; name: string; due: string; unscheduled: string }>(
       `SELECT cs.org_id::text, o.name,
               (SELECT COUNT(*) FROM organic.boards b
                 WHERE b.org_id = cs.org_id
                   AND b.status = 'PLANNED'::organic.board_status
                   AND b.pinterest_board_id IS NULL
                   AND b.origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
-                  AND b.planned_creation_date <= current_date)::text AS due
+                  AND b.planned_creation_date <= current_date)::text AS due,
+              -- A board with no planned date is not due today and never will
+              -- be, so counting only the due ones skipped such a store
+              -- The Longevity store, 29 designed boards, never once in this
+              -- run. createBoardsToday puts them in the queue itself now, but
+              -- it has to be reached first.
+              (SELECT COUNT(*) FROM organic.boards b
+                WHERE b.org_id = cs.org_id
+                  AND b.status = 'PLANNED'::organic.board_status
+                  AND b.pinterest_board_id IS NULL
+                  AND b.origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
+                  AND b.planned_creation_date IS NULL)::text AS unscheduled
          FROM organic.client_settings cs
          JOIN public.organizations o ON o.id = cs.org_id
         WHERE ($1::uuid IS NULL OR cs.org_id = $1::uuid)
@@ -72,7 +83,7 @@ async function run(request: NextRequest) {
       [onlyOrg ?? null]
     );
 
-    const todo = orgs.rows.filter((o) => Number(o.due) > 0);
+    const todo = orgs.rows.filter((o) => Number(o.due) > 0 || Number(o.unscheduled) > 0);
     let created = 0, adopted = 0, failed = 0;
     const perStore: Array<Record<string, unknown>> = [];
     const noToken: string[] = [];
@@ -90,6 +101,7 @@ async function run(request: NextRequest) {
         perStore.push({
           store: o.name, due: Number(o.due), created: r.created,
           adopted: r.adopted, failed: r.failed, remaining: r.remaining,
+          scheduled: r.scheduled || undefined,
           errors: r.errors.length ? r.errors : undefined,
           unreachable: r.unreachable ?? undefined,
         });

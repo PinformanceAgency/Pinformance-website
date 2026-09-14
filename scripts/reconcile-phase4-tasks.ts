@@ -35,6 +35,7 @@ interface Row {
   org_id: string; store: string; cycle: string; url_name: string; url_id: string;
   designs: number; met_beeld: number; met_titel: number;
   design_qc: number; copy_qc: number; pins: number; pins_met_beeld: number;
+  wf_status: string;
 }
 
 async function main() {
@@ -42,9 +43,9 @@ async function main() {
   // Eerst de levende waterfalls (klein), daarna per stuk tellen. In één
   // query met LEFT JOINs over designs en copy_sets liep hij tegen de
   // statement timeout aan.
-  const live = await pool.query<{ id: string; org_id: string; store: string; url_id: string; url_name: string }>(
+  const live = await pool.query<{ id: string; org_id: string; store: string; url_id: string; url_name: string; wf_status: string }>(
     `SELECT DISTINCT ON (w.url_id) w.id::text, w.org_id::text, o.name AS store,
-            u.id::text AS url_id, u.name AS url_name
+            u.id::text AS url_id, u.name AS url_name, w.status::text AS wf_status
        FROM organic.waterfalls w
        JOIN organic.urls u ON u.id = w.url_id
        JOIN organizations o ON o.id = w.org_id
@@ -70,7 +71,7 @@ async function main() {
         WHERE waterfall_id = $1 AND status <> 'CANCELLED'::organic.pin_status`, [w.id]);
     rows.rows.push({
       org_id: w.org_id, store: w.store, cycle: `URL-${w.url_id.slice(0, 8)}`,
-      url_name: w.url_name, url_id: w.url_id,
+      url_name: w.url_name, url_id: w.url_id, wf_status: w.wf_status,
       ...d.rows[0], ...p.rows[0],
     });
   }
@@ -102,6 +103,12 @@ async function main() {
       ["P4.2.9", r.designs > 0 && r.met_titel >= r.designs, "elke copy set kwam door de validator"],
       ["P4.2.10", r.designs > 0 && r.copy_qc >= r.designs, `${r.copy_qc}/${r.designs} copy sets goedgekeurd`],
       ["P4.3.1", r.pins > 0, `waterfall met ${r.pins} pins`],
+      // Een geregenereerde waterfall staat weer op PLANNING, en niets las
+      // dat terug -- The Longevity store stond op P4.3.2 DONE boven zestien
+      // pins die nooit in de wachtrij hebben gestaan, en dat waren precies
+      // de zestien NOT QUEUED op de uitlezing van P4.4.2.
+      ["P4.3.2", r.wf_status === "RUNNING" || r.wf_status === "COMPLETED",
+        `de waterfall staat op ${r.wf_status.toLowerCase()}`],
     ];
     for (const [taskId, klaar, waarom] of done) {
       const st = await pool.query<{ status: string }>(

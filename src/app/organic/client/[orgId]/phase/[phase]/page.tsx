@@ -3,7 +3,7 @@ import { loadClientHeader, loadClientTasks } from "@/lib/organic/queries";
 import { loadViability } from "@/lib/organic/viability";
 import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { loadPhase3Snapshot } from "@/lib/organic/phase3";
-import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume, loadCycleReadiness } from "@/lib/organic/phase4";
+import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume, loadCycleReadiness, loadTopicOptions } from "@/lib/organic/phase4";
 import { loadAssets, loadCycleOps, loadTaskAnswers } from "@/lib/organic/workspace";
 import { phaseMeta } from "@/lib/organic/phase-meta";
 import { TASK_STATUS_SERIES } from "@/lib/organic/types";
@@ -26,13 +26,14 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
   // Phase 4 is cycle-based, so it renders the cycles panel instead of a
   // flat task list.
   if (phase === 4) {
-    const [header, p4, cycles, orgBoards, orgKeywords, assets, ops, readiness,
+    const [header, p4, cycles, orgBoards, orgKeywords, orgTopics, assets, ops, readiness,
            answers, viability, p2, p3] = await Promise.all([
       loadClientHeader(orgId),
       loadPhase4Snapshot(orgId),
       loadCyclesForOrg(orgId),
       loadOrgBoards(orgId),
       loadOrgKeywordsWithVolume(orgId),
+      loadTopicOptions(orgId),
       loadAssets(orgId),
       loadCycleOps(orgId),
       loadCycleReadiness(orgId),
@@ -61,6 +62,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
           selectableUrls={p4.selectable_urls as Parameters<typeof Phase4Cycles>[0]["selectableUrls"]}
           orgBoards={orgBoards}
           orgKeywords={orgKeywords}
+          orgTopics={orgTopics}
           assets={assets}
           answers={answers}
           viability={viability}

@@ -16,6 +16,7 @@ import type { Deviation } from "@/lib/organic/structure";
 import { Phase4Sourcing } from "./Phase4Sourcing";
 
 interface OrgBoard { id: string; name: string; status: string; topic_name: string | null }
+interface OrgTopic { id: string; name: string }
 interface OrgKeyword { id: string; term: string; volume: number | null; type: string }
 interface SelectableUrl {
   id: string; url: string; name: string; reason: string | null; is_seasonal: boolean;
@@ -28,7 +29,7 @@ interface SelectableUrl {
 const REASONS = ["SEASONAL","NEW","BEST_PERFORMER","CLIENT_REQUEST","STOCK_PUSH","AB_TEST"] as const;
 
 export function Phase4Cycles({
-  orgId, cycles, selectableUrls, orgBoards, orgKeywords,
+  orgId, cycles, selectableUrls, orgBoards, orgKeywords, orgTopics,
   assets, answers, viability, phase2, phase3,
 }: {
   orgId: string;
@@ -36,6 +37,7 @@ export function Phase4Cycles({
   selectableUrls: SelectableUrl[];
   orgBoards: OrgBoard[];
   orgKeywords: OrgKeyword[];
+  orgTopics: OrgTopic[];
   assets: AssetRow[];
   answers: TaskAnswer[];
   viability: ViabilityRow | null;
@@ -66,6 +68,7 @@ export function Phase4Cycles({
       <div className="space-y-2">
         {cycles.map((c) => (
           <CycleCard key={c.cycle} orgId={orgId} cycle={c} orgBoards={orgBoards} orgKeywords={orgKeywords}
+                     orgTopics={orgTopics}
                      assets={assets} answers={answers} viability={viability} phase2={phase2} phase3={phase3} />
         ))}
       </div>
@@ -203,12 +206,13 @@ function StartCycle({
 // ---------- Cycle card ------------------------------------------------------
 
 function CycleCard({
-  orgId, cycle, orgBoards, orgKeywords, assets, answers, viability, phase2, phase3,
+  orgId, cycle, orgBoards, orgKeywords, orgTopics, assets, answers, viability, phase2, phase3,
 }: {
   orgId: string;
   cycle: CycleView;
   orgBoards: OrgBoard[];
   orgKeywords: OrgKeyword[];
+  orgTopics: OrgTopic[];
   assets: AssetRow[];
   answers: TaskAnswer[];
   viability: ViabilityRow | null;
@@ -252,7 +256,8 @@ function CycleCard({
 
       {expanded && (
         <div className="border-t border-neutral-100 divide-y divide-neutral-100">
-          <SetupSection orgId={orgId} cycle={cycle} orgBoards={orgBoards} orgKeywords={orgKeywords} />
+          <SetupSection orgId={orgId} cycle={cycle} orgBoards={orgBoards} orgKeywords={orgKeywords}
+                        orgTopics={orgTopics} />
           <CopySection orgId={orgId} cycle={cycle} />
           <WaterfallSection orgId={orgId} cycle={cycle} />
           <TaskListSection cycle={cycle} orgId={orgId} assets={assets} answers={answers}
@@ -277,17 +282,20 @@ function ReasonPill({ reason }: { reason: string }) {
 // ---------- section 1: setup (reason + boards + keywords) --------------------
 
 function SetupSection({
-  orgId, cycle, orgBoards, orgKeywords,
+  orgId, cycle, orgBoards, orgKeywords, orgTopics,
 }: {
   orgId: string;
   cycle: CycleView;
   orgBoards: OrgBoard[];
   orgKeywords: OrgKeyword[];
+  orgTopics: OrgTopic[];
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [reason, setReason] = useState(cycle.reason);
   const [reasonNote, setReasonNote] = useState(cycle.reason_note ?? "");
+  const [topicId, setTopicId] = useState(cycle.topic_id ?? "");
+  const [topicBusy, setTopicBusy] = useState(false);
   const [boardIds, setBoardIds] = useState<Set<string>>(new Set(cycle.assigned_boards.map((b) => b.board_id)));
   const [keywordIds, setKeywordIds] = useState<Set<string>>(new Set(cycle.assigned_keywords.map((k) => k.keyword_id)));
   const [primary, setPrimary] = useState(cycle.assigned_keywords.find((k) => k.is_primary)?.keyword_id ?? "");
@@ -302,7 +310,7 @@ function SetupSection({
         action: "upsert_url",
         url: cycle.url, name: cycle.url_name, type: "COLLECTION",
         reason, reason_note: reasonNote,
-        topic_id: cycle.topic_id, funnel_stage: cycle.funnel_stage,
+        topic_id: topicId || null, funnel_stage: cycle.funnel_stage,
         is_seasonal: cycle.is_seasonal,
         peak_window_start: cycle.peak_window_start, peak_window_end: cycle.peak_window_end,
       });
@@ -319,6 +327,25 @@ function SetupSection({
       startTransition(() => router.refresh());
     } catch (e) { setErr((e as Error).message); }
     finally { setSaving(false); }
+  }
+
+  // Saved on change rather than on "Save setup".
+  //
+  // This is the one field on the card that other things are computed from
+  // while you are still looking at them: the deviations, the readiness list
+  // and the board-relevance check all read it, and all three say something
+  // different once it is set. Making it wait for a button at the bottom of
+  // the form means reading a panel that is answering the old question.
+  async function changeTopic(next: string) {
+    const previous = topicId;
+    setTopicId(next); setErr(null); setTopicBusy(true);
+    try {
+      await callP4(orgId, { action: "set_url_topic", url_id: cycle.url_id, topic_id: next || null });
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setTopicId(previous);
+      setErr((e as Error).message);
+    } finally { setTopicBusy(false); }
   }
 
   const toggleBoard = (id: string) => {
@@ -351,8 +378,29 @@ function SetupSection({
         Look something up in the research
       </a>
 
-      {/* Reason */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* Topic, reason, note.
+
+          The topic picker sits here because this is where its absence is
+          reported. It existed only in the Topic column on the URLs library
+          page, and the panel above said "set the topic on the URL" without
+          saying where — so the specialist working The Longevity store went
+          looking in P3.3.2, found a read-only form, and could not get past
+          it (14-09-2026). Coverage, board relevance and the whole gate hang
+          off this one value; it does not belong two screens away from the
+          three warnings about it. */}
+      <div className="grid grid-cols-4 gap-2">
+        <label className="block text-[11px] col-span-1">
+          <span className="text-neutral-500 block mb-0.5">
+            Topic {topicBusy && <span className="text-neutral-400">· saving…</span>}
+          </span>
+          <select value={topicId} onChange={(e) => changeTopic(e.target.value)} disabled={topicBusy}
+            className={`w-full rounded-md border px-2 py-1 text-xs bg-white disabled:opacity-50 ${
+              topicId ? "border-neutral-300" : "border-red-400 text-red-600"
+            }`}>
+            <option value="">— no topic —</option>
+            {orgTopics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </label>
         <label className="block text-[11px] col-span-1">
           <span className="text-neutral-500 block mb-0.5">Why this URL matters (mandatory)</span>
           <select value={reason} onChange={(e) => setReason(e.target.value)}
@@ -366,6 +414,12 @@ function SetupSection({
             className="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs" />
         </label>
       </div>
+      {orgTopics.length === 0 && (
+        <p className="text-[11px] text-red-600">
+          This store has no topics yet — phase 3 designs them (P3.3.1). Until one exists there is
+          nothing to file this URL under.
+        </p>
+      )}
 
       {/* Boards */}
       <div>

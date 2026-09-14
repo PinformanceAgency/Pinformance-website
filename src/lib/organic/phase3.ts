@@ -1093,6 +1093,78 @@ export async function adoptExistingBoards(
   return { adopted, vanished, unreachable: null };
 }
 
+/**
+ * Give a planned creation date to every creatable board that has none.
+ *
+ * A board with a null `planned_creation_date` is never due — not today, not
+ * ever — and both the cron and the button filter on `<= current_date`, so
+ * such a store creates nothing, silently, for as long as it exists. The
+ * Longevity store had 29 designed boards and not one date (14-09-2026): its
+ * live cycle had all five of its boards still on paper, so sixteen pins were
+ * planned onto boards that do not exist on Pinterest, and the cron reported
+ * "0 due" — which reads as "nothing to do today", not "this store is not in
+ * the queue at all". Fit Cherries, where somebody had pressed P3.3.4, had a
+ * date on all 52.
+ *
+ * The pace is untouched and is the only thing that protects the account:
+ * three a day, module 4, with `check_board_pace()` refusing a fourth. Days
+ * that already carry scheduled boards are filled up to three before the next
+ * day is used, so calling this after adding boards to a store that already
+ * has a schedule appends to it rather than rebuilding it.
+ *
+ * Ordering is `generateCreationSchedule`'s: whatever a running cycle is
+ * waiting on first, then by age.
+ */
+async function fillCreationSchedule(orgId: string, opts: { from: "today" | "tomorrow" }) {
+  const pool = organicPool();
+  const undated = await pool.query<{ id: string }>(
+    `SELECT b.id::text
+       FROM organic.boards b
+      WHERE b.org_id = $1 AND b.status = 'PLANNED'::organic.board_status
+        AND b.pinterest_board_id IS NULL
+        AND b.origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
+        AND b.planned_creation_date IS NULL
+      ORDER BY
+        (SELECT COUNT(*) FROM organic.pins p
+           JOIN organic.waterfalls w ON w.id = p.waterfall_id
+          WHERE p.board_id = b.id
+            AND w.status <> 'ABANDONED'::organic.waterfall_status
+            AND p.status <> 'CANCELLED'::organic.pin_status) DESC,
+        b.created_at`,
+    [orgId]
+  );
+  if (undated.rowCount === 0) return 0;
+
+  // How full each upcoming day already is. A date in the past is spent: the
+  // cron has either used it or missed it, and either way it cannot take more.
+  const taken = await pool.query<{ d: string; n: string }>(
+    `SELECT planned_creation_date::text AS d, COUNT(*)::text AS n
+       FROM organic.boards
+      WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
+        AND pinterest_board_id IS NULL
+        AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
+        AND planned_creation_date >= current_date
+      GROUP BY 1`,
+    [orgId]
+  );
+  const perDay = new Map(taken.rows.map((r) => [r.d, Number(r.n)]));
+
+  const PER_DAY = 3;
+  const cursor = new Date();
+  if (opts.from === "tomorrow") cursor.setUTCDate(cursor.getUTCDate() + 1);
+  let iso = cursor.toISOString().slice(0, 10);
+  for (const b of undated.rows) {
+    while ((perDay.get(iso) ?? 0) >= PER_DAY) {
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      iso = cursor.toISOString().slice(0, 10);
+    }
+    await pool.query(
+      `UPDATE organic.boards SET planned_creation_date = $1::date WHERE id = $2`, [iso, b.id]);
+    perDay.set(iso, (perDay.get(iso) ?? 0) + 1);
+  }
+  return undated.rowCount ?? 0;
+}
+
 /** P3.3.4 — schedule planned creation, max 3 per day, starting tomorrow. */
 export async function generateCreationSchedule(orgId: string, timeSpentMin: number) {
   const pool = organicPool();
@@ -1108,36 +1180,21 @@ export async function generateCreationSchedule(orgId: string, timeSpentMin: numb
   // tomorrow and one that waits a week for the last of its five boards.
   // Measured on Fit Cherries 10-09-2026: "Bikinis for Petite Women" carried
   // seven scheduled pins and sat at position 20 in the queue, on the 17th.
-  const boards = await pool.query<{ id: string; name: string }>(
-    `SELECT b.id::text, b.name
-       FROM organic.boards b
-      WHERE b.org_id = $1 AND b.status = 'PLANNED'::organic.board_status
-        AND b.pinterest_board_id IS NULL
-        AND b.origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
-      ORDER BY
-        (SELECT COUNT(*) FROM organic.pins p
-           JOIN organic.waterfalls w ON w.id = p.waterfall_id
-          WHERE p.board_id = b.id
-            AND w.status <> 'ABANDONED'::organic.waterfall_status
-            AND p.status <> 'CANCELLED'::organic.pin_status) DESC,
-        b.created_at`,
+  // Pressing P3.3.4 is a full reschedule, so the existing dates are cleared
+  // and the whole queue is laid out again from tomorrow. fillCreationSchedule
+  // then does the ordering and the three-a-day pacing, so the button and the
+  // cron cannot drift into producing different schedules.
+  await pool.query(
+    `UPDATE organic.boards SET planned_creation_date = NULL
+      WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
+        AND pinterest_board_id IS NULL
+        AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin`,
     [orgId]
   );
-  const PER_DAY = 3;
-  let dayOffset = 1;
-  for (let i = 0; i < boards.rows.length; i++) {
-    const slot = Math.floor(i / PER_DAY);
-    const planned = new Date();
-    planned.setUTCDate(planned.getUTCDate() + dayOffset + slot);
-    const iso = planned.toISOString().slice(0, 10);
-    await pool.query(
-      `UPDATE organic.boards SET planned_creation_date = $1::date WHERE id = $2`,
-      [iso, boards.rows[i].id]
-    );
-  }
+  const scheduled = await fillCreationSchedule(orgId, { from: "tomorrow" });
   await completeTaskByDefinition({ orgId, taskId: "P3.3.4", timeSpentMin,
-    notes: `Scheduled ${boards.rows.length} boards across ${Math.ceil(boards.rows.length / PER_DAY)} day(s), max 3/day.` });
-  return { scheduled: boards.rows.length, recomputed: await recomputeAfter(orgId) };
+    notes: `Scheduled ${scheduled} boards across ${Math.ceil(scheduled / 3)} day(s), max 3/day.` });
+  return { scheduled, recomputed: await recomputeAfter(orgId) };
 }
 
 /** P3.3.5 — create boards on Pinterest as SECRET, respecting today's slots.
@@ -1149,6 +1206,14 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
   // Adopt first: anything already on the account gets its real status and
   // leaves the queue, so it cannot be created a second time.
   const adopted = await adoptExistingBoards(orgId, { skipRemote: opts.dryRun });
+
+  // Then give a date to anything that has none. A designed board with no
+  // planned date is not "scheduled for later", it is outside the queue for
+  // good — see fillCreationSchedule. Starting today rather than tomorrow
+  // because this is the catch-up path: the boards should have been in the
+  // queue already, and the three-a-day trigger is what limits the burst, not
+  // the date. A dry run schedules nothing; it must write nothing at all.
+  const scheduled = opts.dryRun ? 0 : await fillCreationSchedule(orgId, { from: "today" });
 
   const due = await pool.query<{ id: string; name: string; description: string | null }>(
     `SELECT id::text, name, description
@@ -1223,17 +1288,18 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
   const remaining = Number(left.rows[0].n);
   if (opts.dryRun) {
     return { created: 0, failed: 0, errors: [], remaining, would_create: wouldCreate,
-             ...adopted, recomputed: 0 };
+             scheduled, ...adopted, recomputed: 0 };
   }
   await recordTaskProgress({
     orgId, taskId: "P3.3.5", addMinutes: timeSpentMin, done: remaining === 0,
     notes: `${opts.dryRun ? "DRY-RUN " : ""}Created ${created} board(s)` +
       `${adopted.adopted ? `, adopted ${adopted.adopted} that already existed` : ""}` +
       `${failed ? `, ${failed} failed: ${errors.join("; ")}` : ""}` +
+      `${scheduled ? `, put ${scheduled} board(s) into the creation queue that had no planned date` : ""}` +
       `${remaining > 0 ? `, ${remaining} still to create` : ", the architecture is live"}.`,
   });
   return { created, failed, errors, remaining, would_create: wouldCreate,
-           ...adopted, recomputed: await recomputeAfter(orgId) };
+           scheduled, ...adopted, recomputed: await recomputeAfter(orgId) };
 }
 
 // ---------- P3.3.6 – P3.3.8 board warming -------------------------------------

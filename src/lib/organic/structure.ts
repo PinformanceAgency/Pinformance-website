@@ -157,7 +157,7 @@ export function checkBoards(
     out.push({
       kind: "structure",
       what: "This URL has no topic, so no board could be checked for relevance",
-      why: "Board relevance is judged against the URL's topic (P4.1.7). Without one the check cannot run at all — every board here is unverified, not approved. Set the topic on the URL, then read this panel again.",
+      why: "Board relevance is judged against the URL's topic (P4.1.7). Without one the check cannot run at all — every board here is unverified, not approved. Set it with the Topic picker in Setup just below, then read this panel again.",
     });
   } else {
     const offTopic = chosen.filter((b) => b.topic_id != null && b.topic_id !== urlTopicId);
@@ -500,7 +500,7 @@ export function checkUrlReadiness(r: UrlReadiness | null, urlName: string): Devi
     out.push({
       kind: "structure",
       what: `"${urlName}" has no topic yet`,
-      why: "Coverage is counted per topic (P3.3.2), so a URL without one can never clear the gate — not because it is short of boards, but because there is nothing to count. Set the topic on the URL.",
+      why: "Coverage is counted per topic (P3.3.2), so a URL without one can never clear the gate — not because it is short of boards, but because there is nothing to count. Set it with the Topic picker in the cycle's Setup section, or in the Topic column on the URLs page.",
     });
   } else if (!r.topic_covered && r.topic_boards_active === 0 && r.topic_boards_planned >= 5) {
     out.push({

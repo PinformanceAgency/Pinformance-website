@@ -1109,6 +1109,15 @@ export async function generateWaterfall(
       `Waterfall ${waterfallId.slice(0, 8)} generated: 16 pins from ${startDateISO}, spacing ${spacingHours}h.`
     );
 
+    // ...and everything a regeneration just invalidated goes back with it.
+    // Closing P4.3.1 alone was right for a first plan and wrong for every
+    // one after it: the sixteen new pins have no image (the crops hang off
+    // the pins that were cancelled, which is why the confirm dialog says
+    // P4.2.5 has to run again) and the new waterfall is PLANNING, so it is
+    // not queued. Both tasks kept the answer they had been given about the
+    // plan that no longer exists. See syncCycleTasks.
+    await syncCycleTasks(orgId, urlId);
+
     return {
       waterfall_id: waterfallId,
       design_ids: designIds,
@@ -1196,6 +1205,21 @@ async function recordCycleWork(
     await completeCycleTask(orgId, cycle, taskId, 0, note);
     return;
   }
+  await reopenCycleTask(orgId, cycle, taskId, note);
+}
+
+/**
+ * A DONE task whose artefact is no longer there goes back to IN_PROGRESS.
+ *
+ * Split out of recordCycleWork so syncCycleTasks can reuse it without paying
+ * for a status recompute per task.
+ */
+async function reopenCycleTask(
+  orgId: string,
+  cycle: string,
+  taskId: string,
+  note: string
+): Promise<void> {
 
   // ...and back again. `if (!done) return` made this a one-way latch, which
   // is wrong for exactly the same reason the close is right: the task states
@@ -1304,6 +1328,101 @@ async function cycleWorkState(orgId: string, urlId: string) {
     pins: n(row?.pins),
     pinsWithImage: n(row?.pins_met_beeld),
   };
+}
+
+/**
+ * Re-derive every phase-4 task in a cycle whose answer is an artefact.
+ *
+ * `recordCycleWork` states one task at the moment its own control runs.
+ * That is enough while work only ever accumulates, and wrong the moment
+ * something invalidates work that was already there — which is exactly what
+ * REGENERATING a waterfall does. The new plan carries the designs and the
+ * copy across by design number, but not the micro-crops: they hang off the
+ * old pins, and the sixteen new ones are created with `image_path` null. The
+ * new waterfall is PLANNING, so it is not queued either.
+ *
+ * Nothing re-read any of that, so the tasks kept the answers they had been
+ * given about a plan that no longer existed. Measured on The Longevity store
+ * (14-09-2026), which regenerated at 19:28 twenty minutes after its first
+ * plan: P4.2.5 sat at DONE / "16 of 16 pins carry an image" above sixteen
+ * pins with no image at all, and P4.3.2 sat at DONE above a waterfall that
+ * had never been queued — which is what the sixteen NOT QUEUED on P4.4.2's
+ * readout were. Every screen agreed the cycle was finished; nothing was.
+ *
+ * So the whole cycle is re-derived, not the one task the control touched.
+ * The rules are the ones the individual calls already use — a task is closed
+ * only when the artefact is there, reopened only from DONE, and only to
+ * IN_PROGRESS. SKIPPED is left alone: that is a decision somebody made, not
+ * an observation, and re-deriving it would overrule them. The recompute runs
+ * once at the end rather than per task; ten of them cost ten passes over the
+ * store's preconditions for one answer.
+ */
+export async function syncCycleTasks(orgId: string, urlId: string): Promise<void> {
+  const pool = organicPool();
+  const cycle = `URL-${urlId.slice(0, 8)}`;
+
+  const [st, setupRes, wfRes] = await Promise.all([
+    cycleWorkState(orgId, urlId),
+    pool.query<{ boards: number; kws: number; overlay: number }>(
+      `SELECT (SELECT COUNT(*)::int FROM organic.url_boards   WHERE url_id = $1)                  AS boards,
+              (SELECT COUNT(*)::int FROM organic.url_keywords WHERE url_id = $1)                  AS kws,
+              (SELECT COUNT(*)::int FROM organic.url_keywords WHERE url_id = $1 AND is_overlay)   AS overlay`,
+      [urlId]
+    ),
+    pool.query<{ status: string }>(
+      `SELECT status::text FROM organic.waterfalls
+        WHERE org_id = $1 AND url_id = $2
+          AND status <> 'ABANDONED'::organic.waterfall_status
+        ORDER BY created_at DESC LIMIT 1`,
+      [orgId, urlId]
+    ),
+  ]);
+  const setup = setupRes.rows[0] ?? { boards: 0, kws: 0, overlay: 0 };
+  const wfStatus = wfRes.rows[0]?.status ?? null;
+  const of = (n: number, total: number) => `${n} of ${total}`;
+
+  // The same list the readiness panel reads, minus the checks that are not
+  // tasks. Keeping one derivation is the point: a task and the panel above
+  // it disagreeing is the failure this exists to stop.
+  const derived: Array<[string, boolean, string]> = [
+    ["P4.1.6", setup.kws > 0, `${setup.kws} keywords assigned.`],
+    ["P4.1.7", setup.boards >= 4, `${setup.boards} boards assigned.`],
+    ["P4.1.8", setup.overlay > 0, `${setup.overlay} overlay terms marked.`],
+    ["P4.2.4", st.designs > 0 && st.withImage >= st.designs,
+      `${of(st.withImage, st.designs)} designs have an image.`],
+    ["P4.2.5", st.pins > 0 && st.pinsWithImage >= st.pins,
+      `${of(st.pinsWithImage, st.pins)} pins carry an image.`],
+    ["P4.2.7", st.designs > 0 && st.designApproved >= st.designs,
+      `${of(st.designApproved, st.designs)} designs approved.`],
+    ["P4.2.8", st.designs > 0 && st.withTitle >= st.designs,
+      `${of(st.withTitle, st.designs)} copy sets written.`],
+    ["P4.2.9", st.designs > 0 && st.withTitle >= st.designs,
+      `${of(st.withTitle, st.designs)} copy sets past the validator.`],
+    ["P4.2.10", st.designs > 0 && st.copyApproved >= st.designs,
+      `${of(st.copyApproved, st.designs)} copy sets approved.`],
+    ["P4.3.2", wfStatus === "RUNNING" || wfStatus === "COMPLETED",
+      wfStatus === null ? "No waterfall for this URL." : `The waterfall is ${wfStatus.toLowerCase()}.`],
+  ];
+
+  const current = await pool.query<{ task_id: string; status: string }>(
+    `SELECT task_id, status::text FROM organic.client_tasks
+      WHERE org_id = $1 AND cycle = $2`,
+    [orgId, cycle]
+  );
+  const statusOf = new Map(current.rows.map((r) => [r.task_id, r.status]));
+
+  for (const [taskId, done, note] of derived) {
+    const now = statusOf.get(taskId);
+    if (!now || now === "SKIPPED") continue;
+    if (done && now !== "DONE") {
+      await completePhase4Task(orgId, taskId, cycle, 0, note);
+    } else if (!done && now === "DONE") {
+      await reopenCycleTask(orgId, cycle, taskId,
+        `Reopened: ${note} The task stood at DONE while the work behind it no longer does.`);
+    }
+  }
+
+  await recomputeAfter(orgId);
 }
 
 /* ---------- launch readiness ---------------------------------------------- */
