@@ -55,14 +55,41 @@ export async function PATCH(
   }
 
   const pool = organicPool();
-  const cur = await pool.query<{ org_id: string; started_at: string | null }>(
-    `SELECT org_id::text, started_at FROM organic.client_tasks WHERE id = $1`,
+  const cur = await pool.query<{ org_id: string; started_at: string | null; cycle: string | null; def_id: string }>(
+    `SELECT org_id::text, started_at, cycle, task_id AS def_id
+       FROM organic.client_tasks WHERE id = $1`,
     [taskId]
   );
   if (cur.rowCount === 0) {
     return NextResponse.json({ error: "task not found" }, { status: 404 });
   }
-  const { org_id, started_at } = cur.rows[0];
+  const { org_id, started_at, cycle, def_id } = cur.rows[0];
+
+  // A phase-4 task whose answer is an artefact cannot be finished by saying
+  // so. There is no hand route to any of them — a pin gets an image from
+  // P4.2.5, copy from the editor, a queue from "Save & queue" — so a manual
+  // DONE here is simply a false statement about the database, and it is the
+  // one thing this app has spent its whole history trying not to record.
+  // The Longevity store, 14-09-2026: "Queue for publishing · DONE" and
+  // "Approve the waterfall · DONE" over sixteen pins still at PLANNED, on a
+  // waterfall regenerated an hour earlier. Clarissa reported the cycle as
+  // finished, and every task pill agreed with her.
+  //
+  // SKIPPED is deliberately still allowed: that is a decision somebody
+  // makes and owns, not a claim about what is in the tables. Phases 1-3 are
+  // untouched — closing P1.2.x by hand is a legitimate call there, because
+  // the remaining item is usually somebody else's developer.
+  if (body.status === "DONE" && cycle && def_id.startsWith("P4.")) {
+    const { cycleTaskFact } = await import("@/lib/organic/phase4");
+    const fact = await cycleTaskFact(org_id, cycle, def_id);
+    if (fact && !fact.done) {
+      return NextResponse.json({
+        error: `${def_id} cannot be closed by hand: ${fact.note} ` +
+          `Run the control on the cycle card — the task closes itself when the work is there. ` +
+          `If it does not apply to this cycle, skip it with a reason instead.`,
+      }, { status: 409 });
+    }
+  }
 
   const nowIso = new Date().toISOString();
   if (body.status === "DONE") {

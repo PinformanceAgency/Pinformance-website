@@ -1357,10 +1357,25 @@ async function cycleWorkState(orgId: string, urlId: string) {
  * once at the end rather than per task; ten of them cost ten passes over the
  * store's preconditions for one answer.
  */
-export async function syncCycleTasks(orgId: string, urlId: string): Promise<void> {
-  const pool = organicPool();
-  const cycle = `URL-${urlId.slice(0, 8)}`;
+export interface CycleTaskFact {
+  task_id: string;
+  /** Is the artefact this task produces actually there? */
+  done: boolean;
+  /** The count behind it, in the manager's words. */
+  note: string;
+}
 
+/**
+ * What the cycle's artefacts say about each phase-4 task, right now.
+ *
+ * One derivation, three readers: syncCycleTasks writes it after a generate,
+ * the manual status route refuses a DONE that contradicts it, and the
+ * reconcile script catches up what predates both. Splitting it would let the
+ * task pill and the readiness panel above it disagree, which is the whole
+ * failure this exists to stop.
+ */
+export async function deriveCycleTaskFacts(orgId: string, urlId: string): Promise<CycleTaskFact[]> {
+  const pool = organicPool();
   const [st, setupRes, wfRes] = await Promise.all([
     cycleWorkState(orgId, urlId),
     pool.query<{ boards: number; kws: number; overlay: number }>(
@@ -1379,6 +1394,10 @@ export async function syncCycleTasks(orgId: string, urlId: string): Promise<void
   ]);
   const setup = setupRes.rows[0] ?? { boards: 0, kws: 0, overlay: 0 };
   const wfStatus = wfRes.rows[0]?.status ?? null;
+  const queued = wfStatus === "RUNNING" || wfStatus === "COMPLETED";
+  const queuedNote = wfStatus === null
+    ? "No waterfall for this URL."
+    : `The waterfall is ${wfStatus.toLowerCase()}, so nothing is in the publishing queue.`;
   const of = (n: number, total: number) => `${n} of ${total}`;
 
   // The same list the readiness panel reads, minus the checks that are not
@@ -1400,9 +1419,34 @@ export async function syncCycleTasks(orgId: string, urlId: string): Promise<void
       `${of(st.withTitle, st.designs)} copy sets past the validator.`],
     ["P4.2.10", st.designs > 0 && st.copyApproved >= st.designs,
       `${of(st.copyApproved, st.designs)} copy sets approved.`],
-    ["P4.3.2", wfStatus === "RUNNING" || wfStatus === "COMPLETED",
-      wfStatus === null ? "No waterfall for this URL." : `The waterfall is ${wfStatus.toLowerCase()}.`],
+    ["P4.3.2", queued, queuedNote],
+    // P4.4.1 reads the same artefact as P4.3.2 and was missing from this
+    // list, which is how The Longevity store ended up with "Queue for
+    // publishing · DONE" over sixteen pins still at PLANNED.
+    ["P4.4.1", queued, queuedNote],
   ];
+  return derived.map(([task_id, done, note]) => ({ task_id, done, note }));
+}
+
+/** The fact behind one task, or null when that task is not artefact-backed. */
+export async function cycleTaskFact(
+  orgId: string, cycle: string, taskId: string
+): Promise<CycleTaskFact | null> {
+  const m = /^URL-([0-9a-f]{8})$/.exec(cycle);
+  if (!m) return null;
+  const r = await organicPool().query<{ id: string }>(
+    `SELECT id::text FROM organic.urls WHERE org_id = $1 AND id::text LIKE $2`,
+    [orgId, `${m[1]}%`]
+  );
+  const urlId = r.rows[0]?.id;
+  if (!urlId) return null;
+  return (await deriveCycleTaskFacts(orgId, urlId)).find((f) => f.task_id === taskId) ?? null;
+}
+
+export async function syncCycleTasks(orgId: string, urlId: string): Promise<void> {
+  const pool = organicPool();
+  const cycle = `URL-${urlId.slice(0, 8)}`;
+  const derived = await deriveCycleTaskFacts(orgId, urlId);
 
   const current = await pool.query<{ task_id: string; status: string }>(
     `SELECT task_id, status::text FROM organic.client_tasks
@@ -1411,13 +1455,13 @@ export async function syncCycleTasks(orgId: string, urlId: string): Promise<void
   );
   const statusOf = new Map(current.rows.map((r) => [r.task_id, r.status]));
 
-  for (const [taskId, done, note] of derived) {
-    const now = statusOf.get(taskId);
+  for (const { task_id, done, note } of derived) {
+    const now = statusOf.get(task_id);
     if (!now || now === "SKIPPED") continue;
     if (done && now !== "DONE") {
-      await completePhase4Task(orgId, taskId, cycle, 0, note);
+      await completePhase4Task(orgId, task_id, cycle, 0, note);
     } else if (!done && now === "DONE") {
-      await reopenCycleTask(orgId, cycle, taskId,
+      await reopenCycleTask(orgId, cycle, task_id,
         `Reopened: ${note} The task stood at DONE while the work behind it no longer does.`);
     }
   }

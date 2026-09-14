@@ -109,6 +109,11 @@ async function main() {
       // de zestien NOT QUEUED op de uitlezing van P4.4.2.
       ["P4.3.2", r.wf_status === "RUNNING" || r.wf_status === "COMPLETED",
         `de waterfall staat op ${r.wf_status.toLowerCase()}`],
+      // P4.4.1 leest hetzelfde artefact. Stond hij niet in deze lijst, dan
+      // bleef "Queue for publishing · DONE" staan boven zestien pins op
+      // PLANNED -- precies wat er op 14-09-2026 met de hand op DONE was gezet.
+      ["P4.4.1", r.wf_status === "RUNNING" || r.wf_status === "COMPLETED",
+        `de waterfall staat op ${r.wf_status.toLowerCase()}`],
     ];
     for (const [taskId, klaar, waarom] of done) {
       const st = await pool.query<{ status: string }>(
