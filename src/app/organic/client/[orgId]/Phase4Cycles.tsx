@@ -305,6 +305,8 @@ function SetupSection({
   // reinserts url_keywords, so it wiped whatever the prefill had proposed.
   const [overlayIds, setOverlayIds] = useState<Set<string>>(
     new Set(cycle.assigned_keywords.filter((k) => k.is_overlay).map((k) => k.keyword_id)));
+  const [kwQuery, setKwQuery] = useState("");
+  const [longTailOnly, setLongTailOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -373,6 +375,29 @@ function SetupSection({
     setPrimary(id);
     if (overlayIds.has(id)) { const o = new Set(overlayIds); o.delete(id); setOverlayIds(o); }
   };
+  // The keyword list used to be orgKeywords.slice(0, 50) with no search.
+  //
+  // On The Longevity store that is 50 of 139 usable terms — and because the
+  // order is volume-descending, the half that survives is the head terms.
+  // 32 of the 42 three-word-plus terms in the bank could not be reached at
+  // all, which is precisely what P4.1.8 asks for ("three to five long-tail
+  // ones"). The task pointed at a list that mostly did not contain its own
+  // answer, and nothing said the list was cut: it simply ended.
+  const KW_LIMIT = 60;
+  const words = (t: string) => t.trim().split(/\s+/).length;
+  const keywordView = useMemo(() => {
+    const q = kwQuery.trim().toLowerCase();
+    // Picked terms always render, whatever the filter says. A counter
+    // reading "4 picked" above two visible ticks is how somebody concludes
+    // their selection was lost — and it is the only way to untick one.
+    const picked = orgKeywords.filter((k) => keywordIds.has(k.id));
+    const rest = orgKeywords.filter((k) =>
+      !keywordIds.has(k.id) &&
+      (q === "" || k.term.toLowerCase().includes(q)) &&
+      (!longTailOnly || words(k.term) >= 3));
+    return { picked, rest: rest.slice(0, KW_LIMIT), hidden: Math.max(0, rest.length - KW_LIMIT) };
+  }, [orgKeywords, keywordIds, kwQuery, longTailOnly]);
+
   const toggleOverlay = (id: string) => {
     const o = new Set(overlayIds); o.has(id) ? o.delete(id) : o.add(id); setOverlayIds(o);
   };
@@ -470,8 +495,17 @@ function SetupSection({
           the design brief falls back to the first long-tail terms, and &quot;the fallback ran&quot; is not
           &quot;somebody chose&quot;.
         </p>
+        <div className="flex items-center gap-2 mb-1">
+          <input value={kwQuery} onChange={(e) => setKwQuery(e.target.value)}
+            placeholder={`Search all ${orgKeywords.length} keywords…`}
+            className="flex-1 rounded-md border border-neutral-300 px-2 py-1 text-xs" />
+          <label className="flex items-center gap-1 text-[11px] text-neutral-500 whitespace-nowrap">
+            <input type="checkbox" checked={longTailOnly} onChange={() => setLongTailOnly(!longTailOnly)} />
+            3+ words
+          </label>
+        </div>
         <div className="max-h-40 overflow-y-auto rounded border border-neutral-200 bg-neutral-50 p-2 grid grid-cols-2 gap-1">
-          {orgKeywords.slice(0, 50).map((k) => (
+          {[...keywordView.picked, ...keywordView.rest].map((k) => (
             <label key={k.id} className="flex items-center gap-1.5 text-[11px]">
               <input type="checkbox" checked={keywordIds.has(k.id)} onChange={() => toggleKeyword(k.id)} disabled={!keywordIds.has(k.id) && keywordIds.size >= 5} />
               <span className="truncate">{k.term}</span>
@@ -488,7 +522,20 @@ function SetupSection({
               )}
             </label>
           ))}
+          {keywordView.picked.length + keywordView.rest.length === 0 && (
+            <span className="text-[11px] text-neutral-500 col-span-2">
+              Nothing matches{longTailOnly ? " with three words or more" : ""}. The bank holds{" "}
+              {orgKeywords.length} terms with a validated volume.
+            </span>
+          )}
         </div>
+        {/* Never let the list just end. Truncating in silence is what made
+            the long-tail half of the bank look as though it did not exist. */}
+        {keywordView.hidden > 0 && (
+          <p className="text-[11px] text-neutral-400 mt-1">
+            {keywordView.hidden} more match — narrow the search to see them.
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
