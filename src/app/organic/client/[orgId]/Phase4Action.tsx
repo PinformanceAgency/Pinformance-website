@@ -245,6 +245,7 @@ function DesignsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [clash, setClash] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -261,15 +262,18 @@ function DesignsPanel({
   useEffect(() => { void load(); }, [load]);
 
   async function upload(designId: string, file: File) {
-    setErr(null); setNote(null); setBusy(designId);
+    setErr(null); setNote(null); setClash([]); setBusy(designId);
     try {
       const form = new FormData();
       form.append("design_id", designId);
       form.append("file", file);
       const res = await fetch(`/api/organic/phase4/${orgId}/design-image`, { method: "POST", body: form });
-      const data = await res.json() as { filename?: string; error?: string };
+      const data = await res.json() as { filename?: string; error?: string; warnings?: string[] };
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       setNote(`Uploaded as ${data.filename} — design QC is back to PENDING.`);
+      // Reuse is fine and the method depends on it; these are the two shapes
+      // that are not. Said here because here it costs one re-upload.
+      setClash(data.warnings ?? []);
       await load();
       startTransition(() => router.refresh());
     } catch (e) { setErr((e as Error).message); }
@@ -369,6 +373,22 @@ function DesignsPanel({
       </p>
       {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
       {note && <p className="text-xs text-emerald-700">{note}</p>}
+      {clash.length > 0 && (
+        <div className="rounded-lg bg-o-accent/10 ring-1 ring-inset ring-o-accent/30 px-3 py-2.5">
+          <p className="text-sm font-medium text-foreground flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-o-accent shrink-0" />
+            This picture is already in use where it should not be
+          </p>
+          <ul className="mt-1 space-y-1 text-sm text-o-ink-2">
+            {clash.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+          <p className="mt-1.5 text-xs text-o-ink-3">
+            Reusing artwork is fine in itself — the same picture on another URL, another board and
+            another file name is a legitimate freshness combination, and B/C/D of a design are crops
+            of one picture on purpose. Only these two shapes are reported.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

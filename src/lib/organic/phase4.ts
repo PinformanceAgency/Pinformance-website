@@ -699,6 +699,10 @@ export interface WaterfallReport {
     designs_with_image: number;
     copy_sets_written: number;
   };
+  /** Present when the designs already had images and the crops were cut as
+   *  part of generating. Absent on a first cycle, where the images arrive
+   *  after the plan does. */
+  cropped?: { pins: number; ok: boolean; error?: string };
 }
 
 export interface WaterfallStartProposal {
@@ -1109,6 +1113,39 @@ export async function generateWaterfall(
       `Waterfall ${waterfallId.slice(0, 8)} generated: 16 pins from ${startDateISO}, spacing ${spacingHours}h.`
     );
 
+    // Cut the crops here, rather than leaving a button that has to be
+    // pressed afterwards.
+    //
+    // Cropping takes no decision: B, C and D are 96% of the frame from three
+    // corners, always. It was a separate step only because it was built as
+    // one, and forgetting it is expensive in a way that is invisible — the
+    // sixteen pins keep their dates and their boards and simply have no
+    // artwork, which the publishing cron answers by never picking them up.
+    // The Longevity store lost three attempts to exactly this in two days:
+    // regenerate, forget, "why is nothing live".
+    //
+    // Only when every design already has an image. On a first cycle they do
+    // not — the designs are uploaded after the plan exists — so this quietly
+    // does nothing and P4.2.5 stays open, which is correct. And it never
+    // fails the generation: a waterfall that exists with no crops is a
+    // button press away from being fine, a generation that rolled back
+    // because sharp choked on one file is not.
+    let cropped: WaterfallReport["cropped"];
+    const ready = await pool.query<{ n: string; met: string }>(
+      `SELECT COUNT(*)::text AS n,
+              COUNT(*) FILTER (WHERE asset_path IS NOT NULL)::text AS met
+         FROM organic.designs WHERE waterfall_id = $1`,
+      [waterfallId]
+    );
+    if (Number(ready.rows[0]?.met ?? 0) >= 4) {
+      try {
+        const r = await generateMicroCrops(orgId, urlId);
+        cropped = { pins: r.cropped + r.originals, ok: true };
+      } catch (e) {
+        cropped = { pins: 0, ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+
     // ...and everything a regeneration just invalidated goes back with it.
     // Closing P4.3.1 alone was right for a first plan and wrong for every
     // one after it: the sixteen new pins have no image (the crops hang off
@@ -1129,6 +1166,7 @@ export async function generateWaterfall(
       spacing_hours: spacingHours,
       superseded,
       carried: superseded ? { images: imagesCarried, copy_sets: copyCarried } : undefined,
+      cropped,
     };
   } catch (e) {
     await client.query("ROLLBACK");
@@ -3236,11 +3274,112 @@ export async function saveCopyForDesign(
  * QC drops to PENDING: a new image has not been reviewed, whatever the old
  * row said. Same rule as regenerated copy.
  */
+/**
+ * Is this picture already in use somewhere it must not be?
+ *
+ * Reuse is not the fault, and refusing it outright would fight the method.
+ * The freshness ladder puts the landing PAGE first and the image second, and
+ * the `fresh_technique` enum (CROP, OVERLAY, FILTER, TEXT_SWAP, FRESHNATOR)
+ * exists precisely so one picture can serve again. One Canva batch serving
+ * several URLs across a month is intended.
+ *
+ * Two things are faults, and only these two are reported:
+ *
+ *  - the same file twice **inside one cycle** — P4.2.4 asks for "four
+ *    visually distinct designs" and P4.2.7's QC asks again;
+ *  - the same file on a **board this picture already goes onto**, from
+ *    another live cycle. That is a duplicate pin, not a variation. Fit
+ *    Cherries ran two cycles sharing two boards with byte-identical
+ *    designs: four pins live, four Pinterest ids, two pictures — and the
+ *    180-day cooldown could not catch it, because it is on the (board, URL)
+ *    pair and never on the image.
+ *
+ * The same picture on another URL whose boards do not overlap is silent,
+ * because it is correct.
+ *
+ * Compared on md5: the uploaded bytes against the stored objects' ETags. A
+ * HEAD that fails contributes nothing rather than a guess — this is a claim
+ * somebody redoes artwork over.
+ */
+async function artworkClashes(
+  orgId: string, designId: string, bytes: Buffer
+): Promise<string[]> {
+  const { createHash } = await import("node:crypto");
+  const mine = createHash("md5").update(bytes).digest("hex");
+
+  const others = await organicPool().query<{
+    design_id: string; label: string; asset_path: string; same_cycle: boolean; boards: string[];
+  }>(
+    `WITH me AS (
+       SELECT w.id AS wf, w.url_id
+         FROM organic.designs d JOIN organic.waterfalls w ON w.id = d.waterfall_id
+        WHERE d.id = $2 AND w.org_id = $1
+     )
+     SELECT d.id::text AS design_id,
+            u.name || ' · D' || d.design_number AS label,
+            d.asset_path,
+            (d.waterfall_id = (SELECT wf FROM me)) AS same_cycle,
+            COALESCE(ARRAY(
+              SELECT DISTINCT b.name FROM organic.pins p
+                JOIN organic.boards b ON b.id = p.board_id
+               WHERE p.design_id = d.id AND p.status <> 'CANCELLED'::organic.pin_status
+            ), ARRAY[]::text[]) AS boards
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+       JOIN organic.urls u       ON u.id = w.url_id
+      WHERE w.org_id = $1 AND d.id <> $2
+        AND w.status <> 'ABANDONED'::organic.waterfall_status
+        AND d.asset_path IS NOT NULL`,
+    [orgId, designId]
+  );
+  if (others.rowCount === 0) return [];
+
+  // The boards this design's own pins land on — the overlap is what matters.
+  const mineBoards = new Set((await organicPool().query<{ name: string }>(
+    `SELECT DISTINCT b.name FROM organic.pins p JOIN organic.boards b ON b.id = p.board_id
+      WHERE p.design_id = $1 AND p.status <> 'CANCELLED'::organic.pin_status`,
+    [designId]
+  )).rows.map((r) => r.name));
+
+  const out: string[] = [];
+  await Promise.all(others.rows.map(async (o) => {
+    let etag: string | null = null;
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 4000);
+      const res = await fetch(o.asset_path, { method: "HEAD", signal: ac.signal });
+      clearTimeout(t);
+      etag = res.headers.get("etag")?.replace(/"/g, "") ?? null;
+    } catch { return; }
+    if (etag !== mine) return;
+
+    if (o.same_cycle) {
+      out.push(
+        `This is the same file as ${o.label}, in this same cycle. The method asks for four ` +
+        `visually distinct designs — the rotation exists to put four different pictures in front ` +
+        `of five audiences.`
+      );
+      return;
+    }
+    const shared = o.boards.filter((b) => mineBoards.has(b));
+    if (shared.length > 0) {
+      out.push(
+        `${o.label} is the same file and already goes onto ${shared.join(", ")}, which this design ` +
+        `also pins to. The same picture on the same board is a duplicate pin, not a variation — ` +
+        `use a different image here, or move one of the two cycles onto other boards.`
+      );
+    }
+    // Same file, different URL, no shared board: that is a legitimate
+    // freshness combination and gets no message.
+  }));
+  return out;
+}
+
 export async function saveDesignImage(
   orgId: string,
   designId: string,
   file: { bytes: Buffer; contentType: string }
-): Promise<{ ok: true; asset_path: string; filename: string }> {
+): Promise<{ ok: true; asset_path: string; filename: string; warnings: string[] }> {
   const pool = organicPool();
   const meta = await pool.query<{
     design_number: number; filename: string | null; primary_keyword: string | null;
@@ -3288,7 +3427,12 @@ export async function saveDesignImage(
       st.designs > 0 && st.withImage >= st.designs,
       `${st.withImage} of ${st.designs} designs have an image (uploaded).`);
   }
-  return { ok: true, asset_path: pub.publicUrl, filename: wanted };
+  // Warned, not refused. The upload lands either way — the manager may have
+  // a reason, and a refusal at this point loses the file they just chose.
+  // It is said here because here it is cheap to fix; after four pins are
+  // live it is not.
+  const warnings = await artworkClashes(orgId, designId, file.bytes).catch(() => []);
+  return { ok: true, asset_path: pub.publicUrl, filename: wanted, warnings };
 }
 
 /** P4.2.10 — copy QC. */

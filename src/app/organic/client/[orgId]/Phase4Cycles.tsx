@@ -821,7 +821,7 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
     scheduled: number; blocked: Array<{ sequence: number; reason: string }>;
     warnings: string[]; first_date: string | null; last_date: string | null;
   } | null>(null);
-  const [result, setResult] = useState<{ waterfall_id: string; matrix: string[][]; pin_schedule: Array<{ seq: number; design: number; copy: string; board_index: number; date: string }>; interval_days_between_same_design: number; spacing_hours: number; carried?: { images: number; copy_sets: number }; superseded?: { waterfall_id: string; status: string; pins_cancelled: number; designs_discarded: number; designs_with_image: number; copy_sets_written: number } } | null>(null);
+  const [result, setResult] = useState<{ waterfall_id: string; matrix: string[][]; pin_schedule: Array<{ seq: number; design: number; copy: string; board_index: number; date: string }>; interval_days_between_same_design: number; spacing_hours: number; carried?: { images: number; copy_sets: number }; cropped?: { pins: number; ok: boolean; error?: string }; superseded?: { waterfall_id: string; status: string; pins_cancelled: number; designs_discarded: number; designs_with_image: number; copy_sets_written: number } } | null>(null);
 
   // Whether sixteen pins fit from a given day is decided by two database
   // triggers — the daily cap and the same-URL spacing — and at 48h spacing a
@@ -871,8 +871,8 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
     if (cycle.waterfall && !window.confirm(
       `This replaces the existing waterfall (${cycle.waterfall.id.slice(0, 8)}, ${cycle.waterfall.status}).\n\n` +
       `New dates, new board rotation, sixteen new pins. Your uploaded design images and your written ` +
-      `copy come across — you do not have to upload or write them again — but the micro-crops are cut ` +
-      `from the new pins, so run P4.2.5 once more afterwards.\n\n` +
+      `copy come across — you do not have to upload or write them again — and the micro-crops are cut ` +
+      `again for you as part of this.\n\n` +
       `Nothing is deleted: the old waterfall stays readable as ABANDONED.\n\nRegenerate?`
     )) return;
     setErr(null); setGenerating(true); setResult(null);
@@ -1000,9 +1000,29 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
                   {result.carried.images > 0 && `${result.carried.images} design image${result.carried.images === 1 ? "" : "s"}`}
                   {result.carried.images > 0 && result.carried.copy_sets > 0 && " and "}
                   {result.carried.copy_sets > 0 && `${result.carried.copy_sets} copy set${result.carried.copy_sets === 1 ? "" : "s"}`}
-                  {" "}— nothing to upload or write again. The micro-crops are cut from the new pins, so run P4.2.5 once more.
+                  {" "}— nothing to upload or write again.
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Cropping is no longer a step somebody has to remember. It is
+              reported rather than assumed: a run that could not crop must
+              say so, or this becomes the silent failure it replaced. */}
+          {result.cropped && (
+            <div className={cn("rounded-md border px-2 py-1.5 text-[11px]",
+              result.cropped.ok
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-red-200 bg-red-50 text-red-700")}>
+              {result.cropped.ok
+                ? <>Micro-crops cut for all {result.cropped.pins} pins (P4.2.5) — nothing left to press there.</>
+                : <>The micro-crops could not be cut: {result.cropped.error} · Run P4.2.5 by hand from section 2.</>}
+            </div>
+          )}
+          {!result.cropped && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+              No crops were cut — not every design has an image yet. Upload the four designs (P4.2.4),
+              then cut the crops (P4.2.5). From the next regenerate on it happens by itself.
             </div>
           )}
 
