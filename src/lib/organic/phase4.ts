@@ -1610,7 +1610,10 @@ export interface CycleView {
   topic_name: string | null;
   funnel_stage: string | null;
   assigned_boards: Array<{ board_id: string; board_name: string; position: number }>;
-  assigned_keywords: Array<{ keyword_id: string; term: string; is_primary: boolean; volume: number | null }>;
+  /** `is_overlay` is P4.1.8's answer — which non-primary terms become the
+   *  text overlay on the click pin. The setup form has to render it, or
+   *  saving there silently clears whatever the prefill proposed. */
+  assigned_keywords: Array<{ keyword_id: string; term: string; is_primary: boolean; is_overlay: boolean; volume: number | null }>;
   waterfall: { id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number } | null;
   tasks: CycleTaskRow[];
   progress: { total: number; done: number; blocked: number; pct: number };
@@ -1709,11 +1712,11 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
     arr.push({ board_id: b.board_id, board_name: b.board_name, position: b.position });
     boardsByUrl.set(b.url_id, arr);
   }
-  const kwsByUrl = new Map<string, Array<{ keyword_id: string; term: string; is_primary: boolean; volume: number | null }>>();
+  const kwsByUrl = new Map<string, Array<{ keyword_id: string; term: string; is_primary: boolean; is_overlay: boolean; volume: number | null }>>();
   const overlayByUrl = new Map<string, number>();
   for (const k of kwRes.rows) {
     const arr = kwsByUrl.get(k.url_id) ?? [];
-    arr.push({ keyword_id: k.keyword_id, term: k.term, is_primary: k.is_primary, volume: k.volume });
+    arr.push({ keyword_id: k.keyword_id, term: k.term, is_primary: k.is_primary, is_overlay: k.is_overlay, volume: k.volume });
     kwsByUrl.set(k.url_id, arr);
     if (k.is_overlay) overlayByUrl.set(k.url_id, (overlayByUrl.get(k.url_id) ?? 0) + 1);
   }

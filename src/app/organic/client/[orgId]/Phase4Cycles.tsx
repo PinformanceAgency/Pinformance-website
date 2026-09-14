@@ -299,6 +299,12 @@ function SetupSection({
   const [boardIds, setBoardIds] = useState<Set<string>>(new Set(cycle.assigned_boards.map((b) => b.board_id)));
   const [keywordIds, setKeywordIds] = useState<Set<string>>(new Set(cycle.assigned_keywords.map((k) => k.keyword_id)));
   const [primary, setPrimary] = useState(cycle.assigned_keywords.find((k) => k.is_primary)?.keyword_id ?? "");
+  // P4.1.8. The backend has taken overlay_ids since migration 083 and this
+  // form never sent any, so the task could not be satisfied from the one
+  // panel its own guidance points at — and worse, saving here DELETEs and
+  // reinserts url_keywords, so it wiped whatever the prefill had proposed.
+  const [overlayIds, setOverlayIds] = useState<Set<string>>(
+    new Set(cycle.assigned_keywords.filter((k) => k.is_overlay).map((k) => k.keyword_id)));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -322,7 +328,10 @@ function SetupSection({
       const kwArr = Array.from(keywordIds);
       if (kwArr.length > 0) {
         if (!primary || !keywordIds.has(primary)) throw new Error("Pick a primary keyword from the selected list.");
-        await callP4(orgId, { action: "assign_keywords", url_id: cycle.url_id, keyword_ids: kwArr, primary_id: primary });
+        await callP4(orgId, {
+          action: "assign_keywords", url_id: cycle.url_id, keyword_ids: kwArr, primary_id: primary,
+          overlay_ids: Array.from(overlayIds).filter((id) => id !== primary && keywordIds.has(id)),
+        });
       }
       startTransition(() => router.refresh());
     } catch (e) { setErr((e as Error).message); }
@@ -353,8 +362,19 @@ function SetupSection({
   };
   const toggleKeyword = (id: string) => {
     const n = new Set(keywordIds); n.has(id) ? n.delete(id) : n.add(id); setKeywordIds(n);
+    if (!n.has(id)) { const o = new Set(overlayIds); o.delete(id); setOverlayIds(o); }
     if (n.size === 0) setPrimary("");
     else if (!n.has(primary)) setPrimary(Array.from(n)[0]);
+  };
+  // The primary already opens the title; a CHECK on url_keywords keeps it out
+  // of the overlay set, so promoting a marked term has to unmark it here too
+  // rather than failing the save.
+  const makePrimary = (id: string) => {
+    setPrimary(id);
+    if (overlayIds.has(id)) { const o = new Set(overlayIds); o.delete(id); setOverlayIds(o); }
+  };
+  const toggleOverlay = (id: string) => {
+    const o = new Set(overlayIds); o.has(id) ? o.delete(id) : o.add(id); setOverlayIds(o);
   };
 
   return (
@@ -439,7 +459,17 @@ function SetupSection({
       <div>
         <div className="text-[11px] text-neutral-500 mb-1">
           Keywords (max 5, from cache) — {keywordIds.size} picked{primary && `, primary: ${orgKeywords.find((k) => k.id === primary)?.term ?? "?"}`}
+          {" · "}
+          <span className={overlayIds.size === 0 ? "text-red-600" : ""}>
+            {overlayIds.size} overlay term{overlayIds.size === 1 ? "" : "s"} (P4.1.8)
+          </span>
         </div>
+        <p className="text-[11px] text-neutral-400 mb-1">
+          ★ is the primary keyword, which opens the title. <b>OV</b> marks a term as text overlay on the
+          click pin — three to five long-tail ones, read as a phrase somebody sees on an image. Unmarked,
+          the design brief falls back to the first long-tail terms, and &quot;the fallback ran&quot; is not
+          &quot;somebody chose&quot;.
+        </p>
         <div className="max-h-40 overflow-y-auto rounded border border-neutral-200 bg-neutral-50 p-2 grid grid-cols-2 gap-1">
           {orgKeywords.slice(0, 50).map((k) => (
             <label key={k.id} className="flex items-center gap-1.5 text-[11px]">
@@ -447,9 +477,14 @@ function SetupSection({
               <span className="truncate">{k.term}</span>
               {k.volume != null && <span className="text-neutral-400 tabular-nums">{k.volume}</span>}
               {keywordIds.has(k.id) && (
-                <button type="button" onClick={() => setPrimary(k.id)}
+                <button type="button" onClick={() => makePrimary(k.id)}
                   className={`ml-1 text-[9px] px-1 rounded border ${primary === k.id ? "bg-primary text-primary-foreground border-primary" : "text-primary border-primary/30"}`}
                   title="Set as primary">{primary === k.id ? "★" : "☆"}</button>
+              )}
+              {keywordIds.has(k.id) && primary !== k.id && (
+                <button type="button" onClick={() => toggleOverlay(k.id)}
+                  className={`text-[9px] px-1 rounded border ${overlayIds.has(k.id) ? "bg-foreground text-white border-foreground" : "text-neutral-500 border-neutral-300"}`}
+                  title="Use as text overlay on the click pin (P4.1.8)">OV</button>
               )}
             </label>
           ))}
