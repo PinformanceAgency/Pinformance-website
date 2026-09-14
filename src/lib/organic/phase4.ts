@@ -1670,6 +1670,28 @@ export interface CycleView {
    *  nothing; it exists so a DONE task and an empty record cannot sit on one
    *  screen unnoticed. */
   readiness: LaunchReadiness;
+  /** The sixteen pins as they will go out: date, design, board, artwork.
+   *  P4.3.2 is "check the spread on a visual calendar before anything is
+   *  scheduled", and until now the calendar had no pictures on it — so the
+   *  one thing it could not show was whether sixteen pins carry sixteen
+   *  different images. */
+  plan: PlannedPin[];
+}
+
+export interface PlannedPin {
+  sequence: number;
+  scheduled_date: string;
+  design_number: number;
+  intent: string;
+  copy_variant: string;
+  board: string;
+  /** Whether that board exists on Pinterest yet — a pin onto a board that
+   *  does not is simply never picked up by the cron, with no error. */
+  board_live: boolean;
+  status: string;
+  image_url: string | null;
+  title: string | null;
+  pin_url: string | null;
 }
 
 /** Returns every URL-scoped Phase 4 cycle for this org, hydrated with the
@@ -1723,6 +1745,41 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
   );
   const wfLatestByUrl = new Map<string, { id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number }>();
   for (const w of wfRes.rows) if (!wfLatestByUrl.has(w.url_id)) wfLatestByUrl.set(w.url_id, { id: w.id, status: w.status, start_date: w.start_date, end_date: w.end_date, spacing_hours: w.spacing_hours });
+
+  // The plan, with its artwork. One query for every live waterfall in the
+  // store rather than one per cycle.
+  const planRes = await pool.query<{
+    url_id: string; sequence_number: number; scheduled_date: string; design_number: number;
+    intent: string; copy_variant: string; board_name: string; board_live: boolean;
+    status: string; image_path: string | null; title: string | null; pinterest_pin_id: string | null;
+  }>(
+    `SELECT w.url_id::text, p.sequence_number, p.scheduled_date::text AS scheduled_date,
+            d.design_number, d.intent::text AS intent, p.copy_variant,
+            b.name AS board_name, b.pinterest_board_id IS NOT NULL AS board_live,
+            p.status::text AS status, p.image_path, cs.title, p.pinterest_pin_id
+       FROM organic.pins p
+       JOIN organic.waterfalls w ON w.id = p.waterfall_id
+       JOIN organic.designs d    ON d.id = p.design_id
+       JOIN organic.boards b     ON b.id = p.board_id
+       LEFT JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
+      WHERE w.org_id = $1
+        AND w.status <> 'ABANDONED'::organic.waterfall_status
+        AND p.status <> 'CANCELLED'::organic.pin_status
+      ORDER BY p.sequence_number`,
+    [orgId]
+  );
+  const planByUrl = new Map<string, PlannedPin[]>();
+  for (const r of planRes.rows) {
+    const arr = planByUrl.get(r.url_id) ?? [];
+    arr.push({
+      sequence: r.sequence_number, scheduled_date: r.scheduled_date,
+      design_number: r.design_number, intent: r.intent, copy_variant: r.copy_variant,
+      board: r.board_name, board_live: r.board_live, status: r.status,
+      image_url: r.image_path, title: r.title,
+      pin_url: r.pinterest_pin_id ? `https://www.pinterest.com/pin/${r.pinterest_pin_id}/` : null,
+    });
+    planByUrl.set(r.url_id, arr);
+  }
 
   const tasksRes = await pool.query<CycleTaskRow & { cycle: string; id: string }>(
     `SELECT ct.cycle, ct.id::text, ct.task_id, td.phase, td.step, td.name,
@@ -1864,6 +1921,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
       funnel_stage: u.funnel_stage,
       assigned_boards: boardsByUrl.get(u.id) ?? [],
       assigned_keywords: kwsByUrl.get(u.id) ?? [],
+      plan: planByUrl.get(u.id) ?? [],
       waterfall: wfLatestByUrl.get(u.id) ?? null,
       tasks,
       progress: {

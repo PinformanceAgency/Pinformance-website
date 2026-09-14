@@ -899,6 +899,8 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
         </div>
       )}
 
+      <PlanCalendar plan={cycle.plan} />
+
       <div className="flex items-center gap-2 text-xs">
         <label>
           Start date:
@@ -1141,6 +1143,114 @@ function StatusPill({ status }: { status: string }) {
     status === "SKIPPED" ? "bg-neutral-100 text-neutral-500 border-neutral-200" :
     "bg-white text-neutral-600 border-neutral-200";
   return <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase ${cls}`}>{status.replace("_", " ")}</span>;
+}
+
+/**
+ * The sixteen pins as a calendar, with the artwork on it.
+ *
+ * P4.3.2 is specified as "checks the spread on a visual calendar before
+ * anything is scheduled", and the calendar had no pictures — so the single
+ * thing it could not show was whether sixteen pins carry sixteen different
+ * images. Fit Cherries ran two cycles whose four designs were byte-identical
+ * to each other's and nobody could see it from any screen; the report was
+ * "four went live but I can only find two".
+ *
+ * A repeated thumbnail is not by itself wrong — B, C and D of one design are
+ * micro-crops of the same picture on purpose, which is the method's second
+ * freshness signal. What is wrong is the same file landing on the same board
+ * twice, and that is what gets called out.
+ */
+function PlanCalendar({ plan }: { plan: CycleView["plan"] }) {
+  const [open, setOpen] = useState(false);
+  if (plan.length === 0) return null;
+
+  // The same artwork onto the same board. Compared on the stored object URL,
+  // which is as far as the browser can go — the ETag comparison that catches
+  // the same picture under two names runs server-side on P4.4.2.
+  const seen = new Map<string, number>();
+  const clashes = new Set<number>();
+  for (const p of plan) {
+    if (!p.image_url) continue;
+    const k = `${p.image_url}::${p.board}`;
+    const first = seen.get(k);
+    if (first != null) { clashes.add(first); clashes.add(p.sequence); }
+    else seen.set(k, p.sequence);
+  }
+
+  const live = plan.filter((p) => p.status === "PUBLISHED").length;
+  const noImage = plan.filter((p) => !p.image_url).length;
+  const noBoard = plan.filter((p) => !p.board_live).length;
+
+  return (
+    <div className="rounded-lg border border-neutral-200 bg-white overflow-hidden">
+      <button type="button" onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-neutral-50">
+        <span className="text-xs font-semibold text-neutral-800">
+          The plan — {plan.length} pins, {live} live
+        </span>
+        <span className="flex-1" />
+        {noImage > 0 && <span className="text-[11px] text-red-600">{noImage} without artwork</span>}
+        {noBoard > 0 && <span className="text-[11px] text-amber-700">{noBoard} on a board not yet on Pinterest</span>}
+        {clashes.size > 0 && <span className="text-[11px] text-red-600">{clashes.size} same image, same board</span>}
+        <span className="text-[11px] text-neutral-400">{open ? "hide" : "show"}</span>
+      </button>
+
+      {open && (
+        <>
+          <ul className="divide-y divide-neutral-100 max-h-[28rem] overflow-y-auto">
+            {plan.map((p) => (
+              <li key={p.sequence}
+                  className={cn("flex items-center gap-3 px-3 py-2",
+                    clashes.has(p.sequence) && "bg-red-50")}>
+                <span className="text-[11px] tabular-nums text-neutral-400 w-5 shrink-0">{p.sequence}</span>
+                {p.image_url
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={p.image_url} alt="" className="w-9 h-12 object-cover rounded shrink-0 bg-neutral-100" />
+                  : <div className="w-9 h-12 rounded shrink-0 bg-red-50 border border-dashed border-red-300" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] text-neutral-800 truncate">
+                    <span className="tabular-nums">{p.scheduled_date}</span>
+                    {" · "}
+                    <b>D{p.design_number}{p.copy_variant}</b>
+                    {" "}
+                    <span className="text-neutral-400">{p.intent === "CLICK" ? "click" : "save"}</span>
+                    {p.copy_variant !== "A" && <span className="text-neutral-400"> · crop</span>}
+                  </p>
+                  <p className="text-[11px] text-neutral-500 truncate">
+                    {p.board}
+                    {!p.board_live && <span className="text-amber-700"> · not on Pinterest yet</span>}
+                  </p>
+                  {!p.image_url && <p className="text-[11px] text-red-600">No artwork — run P4.2.5</p>}
+                  {clashes.has(p.sequence) && (
+                    <p className="text-[11px] text-red-600">
+                      Same picture already goes onto this board in this plan
+                    </p>
+                  )}
+                </div>
+                <span className={cn("text-[10px] px-1.5 py-0.5 rounded border shrink-0",
+                  p.status === "PUBLISHED" ? "bg-neutral-900 text-white border-neutral-900" :
+                  p.status === "SCHEDULED" ? "text-neutral-600 border-neutral-300" :
+                  p.status === "FAILED"    ? "bg-red-50 text-red-700 border-red-200" :
+                  "text-neutral-400 border-neutral-200")}>
+                  {p.status.toLowerCase()}
+                </span>
+                {p.pin_url && (
+                  <a href={p.pin_url} target="_blank" rel="noreferrer"
+                     className="text-[11px] text-primary hover:underline shrink-0">open</a>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="px-3 py-2 border-t border-neutral-100 text-[11px] text-neutral-400">
+            D1-D3 are save pins (2:3, no overlay), D4 is the click pin (9:16, with overlay). The letter
+            is the copy variant: A is the design as approved, B/C/D are micro-crops of it — the same
+            picture on purpose, because the image is the method&apos;s second freshness signal after the
+            URL. Four crops of one design sharing one copy set is why four copy sets per URL is right.
+          </p>
+        </>
+      )}
+    </div>
+  );
 }
 
 function SectionTitle({ text }: { text: string }) {
