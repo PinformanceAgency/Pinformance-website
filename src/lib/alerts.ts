@@ -10,12 +10,22 @@
  *
  * CONFIGURATIE
  * ------------
- * Eén env-var: SLACK_ALERT_WEBHOOK, een Slack Incoming Webhook URL. Het kanaal
- * zit in die URL, dus er valt hier verder niets in te stellen.
+ * SLACK_ALERT_WEBHOOK, een Slack Incoming Webhook URL. Het kanaal zit in die
+ * URL, dus dat is niet iets wat je hier kunt kiezen: een tweede kanaal is een
+ * tweede webhook. Vandaar `webhookEnv` -- de organic-watchdog post in
+ * #organic-daily-watchdog via SLACK_ORGANIC_WEBHOOK, en valt terug op
+ * SLACK_ALERT_WEBHOOK zolang die niet bestaat, zodat het alarm nooit stil is
+ * omdat er een var mist.
  *
- * Staat de var niet ingevuld -- lokaal, in preview -- dan gebeurt er niets en
- * schrijft hij één regel naar de console. Zo hoef je voor een lokale run geen
- * secret te hebben, en post een test nooit per ongeluk in het kanaal.
+ * `mention` is om dezelfde reden een env-var en geen constante: een Slack-tag
+ * is een member-ID (`<@U01ABC2DEF>`), niet een naam, en wie er gepiept moet
+ * worden verandert zonder dat de code verandert. Staat hij niet ingevuld, dan
+ * komt er geen tag -- nooit een letterlijke `@naam` die niemand bereikt en er
+ * wel uitziet alsof het werkte.
+ *
+ * Staat de webhook niet ingevuld -- lokaal, in preview -- dan gebeurt er niets
+ * en schrijft hij één regel naar de console. Zo hoef je voor een lokale run
+ * geen secret te hebben, en post een test nooit per ongeluk in het kanaal.
  *
  * DIT MAG NOOIT EEN RUN LATEN OMVALLEN
  * ------------------------------------
@@ -44,6 +54,16 @@ export interface CronAlert {
    * het niet is, en dan leer je het kanaal negeren.
    */
   level?: "failed" | "attention";
+  /**
+   * Welke env-var de webhook-URL levert. Standaard SLACK_ALERT_WEBHOOK.
+   * Een andere waarde valt daarop terug als die var leeg is.
+   */
+  webhookEnv?: string;
+  /**
+   * Slack member-ID om te taggen, bv. '<@U01ABC2DEF>'. Meerdere mag, spatie
+   * ertussen. Leeg = geen tag.
+   */
+  mention?: string | null;
 }
 
 function describeError(error: unknown): string | null {
@@ -62,7 +82,8 @@ function describeError(error: unknown): string | null {
  * er geen webhook is ingesteld of als Slack niet meewerkte. Gooit nooit.
  */
 export async function alertCronFailure(alert: CronAlert): Promise<boolean> {
-  const webhook = process.env.SLACK_ALERT_WEBHOOK;
+  const webhook =
+    (alert.webhookEnv ? process.env[alert.webhookEnv] : null) || process.env.SLACK_ALERT_WEBHOOK;
   if (!webhook) {
     console.warn(
       `[alerts] SLACK_ALERT_WEBHOOK niet ingesteld -- geen Slack-melding voor ${alert.cron}: ${alert.message}`
@@ -75,8 +96,11 @@ export async function alertCronFailure(alert: CronAlert): Promise<boolean> {
     alert.level === "attention"
       ? `:warning: *Nalopen: ${alert.cron}*`
       : `:rotating_light: *Cron gefaald: ${alert.cron}*`;
+  // De tag komt op zijn eigen regel bovenaan: in de notificatie van een lange
+  // melding is de eerste regel het enige wat je op een telefoon ziet.
   const text = [
     heading,
+    alert.mention?.trim() ? alert.mention.trim() : null,
     alert.message,
     detail ? `\`\`\`${detail}\`\`\`` : null,
     `Logs: https://vercel.com/pinformance-tt/pinformance-dashboard/logs`,

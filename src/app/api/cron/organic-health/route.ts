@@ -17,6 +17,20 @@
  * or organic.pins: those hold rows for ~50 orgs whose boards were imported
  * by the main dashboard and that never entered the organic workflow.
  *
+ * WAAROM 02:00 UTC
+ * ----------------
+ * Clarissa werkt vanuit de Filipijnen en begint eerder dan Amsterdam, en een
+ * melding die pas om 07:00 komt is een halve werkdag te laat. 02:00 kan,
+ * maar alleen omdat om 01:00 de boards worden aangemaakt en pins om 00:00
+ * publiceren -- gemeten over de laatste veertien publicaties: allemaal om
+ * 00:00 UTC, één om 02:45 die het uur ervoor niet kon. Om 02:00 is dus alles
+ * gebeurd wat vandaag hoorde te gebeuren, en is elke bevinding echt.
+ *
+ * Draai hem NIET voor 01:00: de boards van vandaag bestaan dan nog niet en
+ * elke pin die erop wacht wordt gemeld als "board staat nog niet op
+ * Pinterest" terwijl dat een uur later vanzelf klopt. Een waarschuwing die
+ * bij het ontbijt al onwaar is, is precies hoe dit kanaal genegeerd raakt.
+ *
  *     curl -H "x-cron-secret: $CRON_SECRET" \
  *       "https://dashboard.pinformance-agency.com/api/cron/organic-health"
  */
@@ -252,6 +266,8 @@ async function run(request: NextRequest) {
         cron: "organic-health",
         // Not "failed": the run worked. These are stores that need a person.
         level: "attention",
+        webhookEnv: "SLACK_ORGANIC_WEBHOOK",
+        mention: process.env.SLACK_ORGANIC_MENTION ?? null,
         message:
           `${findings.length} thing(s) standing between ${stores.length} store(s) and publishing:\n\n${body}`,
       });
@@ -267,6 +283,8 @@ async function run(request: NextRequest) {
     await alertCronFailure({
       cron: "organic-health",
       level: "failed",
+      webhookEnv: "SLACK_ORGANIC_WEBHOOK",
+      mention: process.env.SLACK_ORGANIC_MENTION ?? null,
       message: "De organic-watchdog zelf is gevallen — er is vanochtend niets gecontroleerd.",
       error: e,
     });
