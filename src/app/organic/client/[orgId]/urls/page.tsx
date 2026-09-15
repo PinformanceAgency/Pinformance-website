@@ -8,9 +8,10 @@
  */
 import { loadUrls } from "@/lib/organic/workspace";
 import { computeUrlRequirement, assessViability, loadProposals } from "@/lib/organic/expansion";
-import { loadTopicOptions } from "@/lib/organic/phase4";
+import { loadTopicOptions, loadBoardAssignmentOptions } from "@/lib/organic/phase4";
 import { ExpansionPanel } from "./ExpansionPanel";
 import { TopicCell, BulkTopicAssign } from "./TopicCell";
+import { BoardsCell } from "./BoardsCell";
 import { Band, Panel, Empty } from "@/components/organic/primitives";
 import { Table, TH, TD, Pill, Metric, Toolbar, CooldownTimeline } from "@/components/organic/internal";
 
@@ -22,12 +23,13 @@ const REASON_TONE: Record<string, "good" | "warn" | "accent" | "neutral"> = {
 
 export default async function UrlsPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
-  const [urls, requirement, assessment, proposals, topics] = await Promise.all([
+  const [urls, requirement, assessment, proposals, topics, boardOptions] = await Promise.all([
     loadUrls(orgId),
     computeUrlRequirement(orgId),
     assessViability(orgId),
     loadProposals(orgId),
     loadTopicOptions(orgId),
+    loadBoardAssignmentOptions(orgId),
   ]);
 
   const selectable = urls.filter((u) => u.is_selectable && !u.active_waterfall_status).length;
@@ -120,16 +122,26 @@ export default async function UrlsPage({ params }: { params: Promise<{ orgId: st
                   <TD muted={!u.funnel_stage}>{u.funnel_stage?.toLowerCase() ?? "—"}</TD>
                   <TD align="right">{u.waterfalls_run}</TD>
                   <TD align="right">
-                    {u.assigned_boards}
-                    {!u.topic_covered && (
-                      <span className="ml-1 text-o-neg" title={
-                        u.topic_id == null
-                          ? "No topic — coverage is counted per topic, so this URL can never be selected until one is set"
-                          : u.topic_boards_active === 0 && u.topic_boards_planned >= 5
-                            ? `${u.topic_name}: ${u.topic_boards_planned} boards designed, none created on Pinterest yet`
-                            : `${u.topic_name}: ${u.topic_boards_active} of the five boards it needs`
-                      }>!</span>
-                    )}
+                    {/* Was a bare number. Assigning the four boards a URL pins
+                        onto could only be done inside a cycle you could not
+                        start until they were assigned — and every blocker
+                        message pointed here, at a screen with no control. */}
+                    <BoardsCell
+                      orgId={orgId}
+                      urlId={u.id}
+                      urlTopicId={u.topic_id}
+                      assigned={u.assigned_boards}
+                      assignedIds={boardOptions.byUrl[u.id] ?? []}
+                      boards={boardOptions.boards}
+                      warning={
+                        u.topic_covered ? null
+                          : u.topic_id == null
+                            ? "No topic — coverage is counted per topic, so this URL can never be selected until one is set"
+                            : u.topic_boards_active === 0 && u.topic_boards_planned >= 5
+                              ? `${u.topic_name}: ${u.topic_boards_planned} boards designed, none created on Pinterest yet`
+                              : `${u.topic_name}: ${u.topic_boards_active} of the five boards it needs`
+                      }
+                    />
                   </TD>
                   <TD align="right">{u.total_outbound_clicks.toLocaleString("en-US")}</TD>
                   <TD align="right">{u.total_saves.toLocaleString("en-US")}</TD>

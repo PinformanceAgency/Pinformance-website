@@ -1981,6 +1981,42 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
   return out;
 }
 
+/**
+ * Live boards, plus which URLs already carry them — for the picker on the
+ * URLs library page.
+ *
+ * Only boards that exist on Pinterest. A pin onto a board with no
+ * `pinterest_board_id` is never returned by the publish query — no error, no
+ * failure, it simply never goes out — so a picker that offered one would hand
+ * somebody a cycle that cannot publish.
+ */
+export async function loadBoardAssignmentOptions(orgId: string): Promise<{
+  boards: Array<{ id: string; name: string; topic_id: string | null; topic_name: string | null; pin_count: number }>;
+  byUrl: Record<string, string[]>;
+}> {
+  const pool = organicPool();
+  const [boards, links] = await Promise.all([
+    pool.query<{ id: string; name: string; topic_id: string | null; topic_name: string | null; pin_count: number }>(
+      `SELECT b.id::text, b.name, b.topic_id::text, t.name AS topic_name, COALESCE(b.pin_count, 0) AS pin_count
+         FROM organic.boards b
+         LEFT JOIN organic.topics t ON t.id = b.topic_id
+        WHERE b.org_id = $1 AND b.pinterest_board_id IS NOT NULL
+        ORDER BY t.name NULLS LAST, b.name`,
+      [orgId]
+    ),
+    pool.query<{ url_id: string; board_id: string }>(
+      `SELECT ub.url_id::text, ub.board_id::text
+         FROM organic.url_boards ub
+        WHERE ub.url_id IN (SELECT id FROM organic.urls WHERE org_id = $1)
+        ORDER BY ub.position`,
+      [orgId]
+    ),
+  ]);
+  const byUrl: Record<string, string[]> = {};
+  for (const l of links.rows) (byUrl[l.url_id] ??= []).push(l.board_id);
+  return { boards: boards.rows, byUrl };
+}
+
 /** Boards this org has available to assign to a URL — for the board picker. */
 export async function loadOrgBoards(orgId: string) {
   const pool = organicPool();
