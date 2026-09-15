@@ -50,6 +50,50 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
     });
   }
 
+  // 1b. Boards designed but not yet on the account.
+  //
+  // Not a leak in the sense the others are — it is work in progress, and the
+  // pace it moves at (three a day, module 4) is the one thing protecting a
+  // young account. It is here because it is the answer to the question this
+  // store raises everywhere else: coverage short, a cycle's pins held back,
+  // warming only half started. Since 15-09-2026 nothing waits for it — P3.3.6
+  // opens on the first live board — so what was a blocker is now a fact about
+  // the store, and it has to be visible somewhere as exactly that.
+  const awaiting = await pool.query<{ n: string; last_due: string | null }>(
+    `SELECT COUNT(*)::text AS n, MAX(planned_creation_date)::text AS last_due
+       FROM organic.boards
+      WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
+        AND pinterest_board_id IS NULL
+        AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin`, [orgId]);
+  const awaitingN = Number(awaiting.rows[0]?.n ?? 0);
+  if (awaitingN > 0) {
+    const live = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.boards
+        WHERE org_id = $1 AND pinterest_board_id IS NOT NULL`, [orgId]);
+    const liveN = Number(live.rows[0]?.n ?? 0);
+    leaks.push({
+      kind: "boards_awaiting_creation",
+      label: `${awaitingN} board(s) designed but not on Pinterest yet`,
+      count: awaitingN,
+      detail: [
+        `${liveN} live · three created per nightly run`,
+        awaiting.rows[0]?.last_due
+          ? `the queue runs to ${awaiting.rows[0].last_due}`
+          : "no planned dates yet — run P3.3.4",
+      ],
+      fix_href: `boards`,
+      fix_task: awaiting.rows[0]?.last_due ? "P3.3.5" : "P3.3.4",
+      // Low while the architecture is genuinely being built out; the store
+      // publishes regardless. It only becomes expensive when a cycle is
+      // pinning onto one of them, and the publishing calendar says that.
+      severity: liveN === 0 ? "high" : "low",
+      cost_rank: liveN === 0 ? 2 : 9,
+      cost: liveN === 0
+        ? "Nothing can publish and nothing can be warmed until the first board exists on the account."
+        : "Pins planned onto a board that does not exist yet are silently skipped by the publishing cron until it does.",
+    });
+  }
+
   // 2. Topics under 5 boards — from the topic_coverage view
   const uncovered = await pool.query<{ topic_name: string; active_boards: string }>(
     `SELECT topic_name, active_boards::text

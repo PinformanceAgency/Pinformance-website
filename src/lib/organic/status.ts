@@ -9,6 +9,8 @@
  *       - requires_task_id  → satisfied when that task is DONE
  *       - requires_check='topic_coverage'  → every topic for this org has
  *         is_covered = true in the topic_coverage view
+ *       - requires_check='boards_exist'    → at least one board for this org
+ *         is actually on Pinterest (migration 099)
  *       - requires_check='urls_selectable' → at least one URL for this org
  *         has is_selectable = true in the urls_selectable view
  *   • With zero unmet preconditions → TODO. Otherwise → BLOCKED, and the
@@ -72,7 +74,7 @@ export async function recomputeStatuses(orgId: string): Promise<{ updated: numbe
 export async function loadStatusContext(orgId: string) {
   const pool = organicPool();
 
-  const [tasksRes, precondsRes, topicsRes, urlsRes] = await Promise.all([
+  const [tasksRes, precondsRes, topicsRes, urlsRes, boardsRes] = await Promise.all([
     pool.query<TaskRow>(
       `SELECT id::text, task_id, status::text, cycle FROM organic.client_tasks WHERE org_id = $1`,
       [orgId]
@@ -88,6 +90,18 @@ export async function loadStatusContext(orgId: string) {
     pool.query<{ id: string }>(
       `SELECT id::text FROM organic.urls_selectable
         WHERE org_id = $1 AND is_selectable = true LIMIT 1`,
+      [orgId]
+    ),
+    // Boards as they stand ON THE ACCOUNT, not per topic: a board with no
+    // topic is still a board you can warm, and topic_coverage cannot see it.
+    pool.query<{ live: string; waiting: string }>(
+      `SELECT COUNT(*) FILTER (WHERE pinterest_board_id IS NOT NULL)::text AS live,
+              COUNT(*) FILTER (
+                WHERE status = 'PLANNED'::organic.board_status
+                  AND pinterest_board_id IS NULL
+                  AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
+              )::text AS waiting
+         FROM organic.boards WHERE org_id = $1`,
       [orgId]
     ),
   ]);
@@ -115,6 +129,8 @@ export async function loadStatusContext(orgId: string) {
   const boardsPlanned = topics.reduce((n, t) => n + Number(t.planned_boards ?? 0), 0);
   const boardsLive = topics.reduce((n, t) => n + Number(t.active_boards ?? 0), 0);
   const hasSelectableUrl = urls.length > 0;
+  const boardsOnPinterest = Number(boardsRes.rows[0]?.live ?? 0);
+  const boardsAwaitingCreation = Number(boardsRes.rows[0]?.waiting ?? 0);
 
   // Keyed on cycle AND task, because a phase-4 task exists once per cycle and
   // a flat Map keyed on task_id alone keeps whichever row happened to come
@@ -140,6 +156,10 @@ export async function loadStatusContext(orgId: string) {
     topicsCount: topics.length,
     boardsPlanned,
     boardsLive,
+    // Counted on the boards table rather than through topic_coverage: a
+    // board with no topic is still a board that can be warmed.
+    boardsOnPinterest,
+    boardsAwaitingCreation,
   };
 }
 
@@ -189,6 +209,19 @@ export function evaluateBlockReasons(
             : ctx.boardsLive === 0 && ctx.boardsPlanned > 0
               ? `${ctx.boardsPlanned} boards are designed and none created on Pinterest yet — create them (P3.3.4). Coverage counts boards that exist on the account, not boards on paper.`
               : "No topic has five boards live on Pinterest yet — build them out (P3.3.2)"
+        );
+      }
+    } else if (c.requires_check === "boards_exist") {
+      // Migration 099. Board warming is a per-board loop, not a bar across
+      // the store: module 2 warms a board the day it exists. Waiting for the
+      // whole queue meant ten days of nothing on a store with 29 designed
+      // boards, because creation is capped at three a day.
+      if (ctx.boardsOnPinterest === 0) {
+        reasons.push(
+          ctx.boardsAwaitingCreation > 0
+            ? `No board is on Pinterest yet — ${ctx.boardsAwaitingCreation} are designed and queued. ` +
+              `The first ones appear on the next nightly run (three a day); warming can start the moment one does.`
+            : "No board is on Pinterest yet — design the board architecture first (P3.3.2), then create it (P3.3.4 / P3.3.5)."
         );
       }
     } else if (c.requires_check === "urls_selectable") {

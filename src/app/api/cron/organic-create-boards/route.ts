@@ -24,6 +24,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { organicPool } from "@/lib/organic/db";
 import { createBoardsToday } from "@/lib/organic/phase3";
+import { queueApprovedPinsForOrg } from "@/lib/organic/publish";
 import { alertCronFailure } from "@/lib/alerts";
 
 export const maxDuration = 300;
@@ -84,7 +85,7 @@ async function run(request: NextRequest) {
     );
 
     const todo = orgs.rows.filter((o) => Number(o.due) > 0 || Number(o.unscheduled) > 0);
-    let created = 0, adopted = 0, failed = 0;
+    let created = 0, adopted = 0, failed = 0, queued = 0;
     const perStore: Array<Record<string, unknown>> = [];
     const noToken: string[] = [];
     const notReached: string[] = [];
@@ -95,6 +96,13 @@ async function run(request: NextRequest) {
         // No time is recorded: a cron did the work, and 0 means "not
         // recorded" everywhere in this app since 06-09-2026.
         const r = await createBoardsToday(o.org_id, 0, { dryRun });
+        // A board appearing is the event that unblocks pins on an already
+        // approved plan. Doing it here rather than leaving it to the next
+        // person to press "queue" is what turns "your boards exist now" into
+        // "your pins are queued now" — see queueApprovedPinsForOrg for why
+        // only a RUNNING waterfall is touched.
+        const requeued = dryRun ? { queued: 0, waterfalls: [] } : await queueApprovedPinsForOrg(o.org_id);
+        queued += requeued.queued;
         created += r.created;
         adopted += r.adopted;
         failed += r.failed;
@@ -105,6 +113,7 @@ async function run(request: NextRequest) {
           // Named, never just counted: linking a method board to one the
           // client already had is a decision somebody may want to undo.
           linked_by_name: r.linked_by_name.length ? r.linked_by_name : undefined,
+          pins_queued: requeued.queued || undefined,
           errors: r.errors.length ? r.errors : undefined,
           unreachable: r.unreachable ?? undefined,
         });
@@ -118,7 +127,7 @@ async function run(request: NextRequest) {
 
     console.log(
       `[organic-create-boards] EINDCONTROLE: ${todo.length} store(s) met werk, ` +
-      `${created} boards aangemaakt, ${adopted} overgenomen, ${failed} mislukt, ` +
+      `${created} boards aangemaakt, ${adopted} overgenomen, ${queued} pins alsnog in de wachtrij, ${failed} mislukt, ` +
       `${noToken.length} zonder token, ${notReached.length} niet bereikt` +
       (dryRun ? " (dry run)" : "")
     );

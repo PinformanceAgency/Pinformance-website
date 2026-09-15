@@ -27,6 +27,16 @@ export default async function BoardsPage({ params }: { params: Promise<{ orgId: 
   const { boards, coverage } = await loadBoards(orgId);
 
   const live = boards.filter((b) => b.status !== "PLANNED");
+  // Designed and still to appear on the account. Nothing waits for this any
+  // more (migration 099 — warming starts on the first live board), which is
+  // exactly why it has to be stated: a queue nobody is blocked by is a queue
+  // people forget is running.
+  const awaiting = boards.filter((b) => b.status === "PLANNED" && !b.pinterest_board_id);
+  const lastDue = awaiting
+    .map((b) => b.planned_creation_date)
+    .filter((d): d is string => !!d)
+    .sort()
+    .at(-1) ?? null;
   const short = live.filter((b) => b.pin_count < 10).length;
   const uncovered = coverage.filter((c) => !c.is_covered).length;
   const dormant = live.filter((b) => !b.last_pin_scheduled_date).length;
@@ -38,6 +48,11 @@ export default async function BoardsPage({ params }: { params: Promise<{ orgId: 
         <Metric label="Under 10 pins" value={short} tone={short ? "bad" : "good"} />
         <Metric label="Topics short" value={uncovered} tone={uncovered ? "bad" : "good"} />
         <Metric label="No pins scheduled" value={dormant} tone={dormant ? "warn" : "good"} />
+        <Metric label="Still to create" value={awaiting.length}
+                tone={awaiting.length ? "warn" : "good"}
+                hint={awaiting.length
+                  ? (lastDue ? `three a night · queue runs to ${lastDue}` : "no planned dates — run P3.3.4")
+                  : "the architecture is live"} />
       </Toolbar>
 
       <Band title="Topic coverage"

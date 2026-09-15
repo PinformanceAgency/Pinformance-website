@@ -436,6 +436,59 @@ export async function publishDuePins(
   return report;
 }
 
+/**
+ * Pick up the pins a newly created board just unblocked.
+ *
+ * `scheduleWaterfall` queues what it can and holds back every pin whose board
+ * is not on Pinterest yet — which is right, and which left the rest of the
+ * plan waiting on somebody pressing the button again after the nightly board
+ * run. Nothing said when that moment had come. The Longevity store queued
+ * nine of sixteen on 15-09-2026 and the other six sat there with their boards
+ * due the following morning: the plan is approved, the artwork is cut, the
+ * copy is written, and the only thing between them and Pinterest was a second
+ * click nobody knew to make.
+ *
+ * **Only a RUNNING waterfall.** That status means a person has already
+ * approved this plan; re-queueing what they approved as its boards appear is
+ * finishing their instruction, not taking a decision. A PLANNING waterfall
+ * has never been approved and is left exactly where it is — an automatic
+ * queue there would publish a plan nobody agreed to.
+ *
+ * It publishes nothing: the pins go to SCHEDULED and the cron posts each on
+ * its own date, caps and all.
+ */
+export async function queueApprovedPinsForOrg(orgId: string): Promise<{
+  queued: number;
+  waterfalls: Array<{ id: string; queued: number; still_blocked: number }>;
+}> {
+  const pool = organicPool();
+  const ready = await pool.query<{ id: string }>(
+    `SELECT DISTINCT w.id::text
+       FROM organic.waterfalls w
+       JOIN organic.pins p ON p.waterfall_id = w.id
+      WHERE w.org_id = $1
+        AND w.status = 'RUNNING'::organic.waterfall_status
+        AND p.status = 'PLANNED'::organic.pin_status`,
+    [orgId]
+  );
+  const out: Array<{ id: string; queued: number; still_blocked: number }> = [];
+  let queued = 0;
+  for (const w of ready.rows) {
+    // One bad waterfall must not stop the others — this runs inside a cron
+    // that walks every store.
+    try {
+      const r = await scheduleWaterfall(orgId, w.id);
+      queued += r.scheduled;
+      if (r.scheduled > 0 || r.blocked.length > 0) {
+        out.push({ id: w.id.slice(0, 8), queued: r.scheduled, still_blocked: r.blocked.length });
+      }
+    } catch {
+      /* reported by loadPublishHealth and the daily watchdog */
+    }
+  }
+  return { queued, waterfalls: out };
+}
+
 /* ------------------------------------------------------------------ */
 /* P4.4.2 — the readout                                                */
 /* ------------------------------------------------------------------ */
