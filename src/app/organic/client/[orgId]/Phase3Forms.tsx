@@ -46,7 +46,7 @@ export function Phase3FormFor(p: Props): React.ReactNode {
     case "P3.3.2": return <ActionForm {...p} action="coverage" title="Check topic coverage" desc="Every topic needs ≥5 active (SECRET or PUBLIC) boards. Failure blocks P4.1.1 via the topic_coverage view." />;
     case "P3.3.3": return <DescriptionsForm {...p} />;
     case "P3.3.4": return <ActionForm {...p} action="schedule" title="Generate creation schedule" desc="Max 3 boards per day, starting tomorrow." />;
-    case "P3.3.5": return <CreateBoardsForm {...p} />;
+    case "P3.3.5": return <CreateBoardsPanel {...p} />;
     case "P3.3.6": return <SeedPlanPanel {...p} />;
     case "P3.3.7": return <SeedingStatusPanel {...p} />;
     case "P3.3.8": return <ActionForm {...p} action="flip_public" title="Make boards public at 10 pins" desc="Every board the method built that holds ten pins on Pinterest goes public — on Pinterest, not only here. Pins added by hand with the website widget count too. Safe to run repeatedly; the seeding cron does the same per board as it goes." />;
@@ -825,48 +825,221 @@ function DescriptionsForm({ orgId, snapshot, onDone }: Props) {
   );
 }
 
-function CreateBoardsForm({ orgId, task, onDone }: Props) {
-  const [dryRun, setDryRun] = useState(true);
-  const [time, setTime] = useState("");
+interface CreationRow {
+  board_id: string; name: string; topic_name: string | null; description_chars: number;
+  due: string | null; due_today: boolean; live_pins: number;
+  clash: { id: string; privacy: string; pins: number } | null;
+}
+interface CreationPlan {
+  today: string; pace: number; created_today: number; live_count: number;
+  remaining: number; account_unreachable: string | null; rows: CreationRow[];
+}
+
+/**
+ * P3.3.5 — the creation queue, checked against the account, before it runs.
+ *
+ * This was one button over a black box. You pressed "Create today's slot" and
+ * found out afterwards, from a note, what had happened — and the note is the
+ * last run's log, so The Longevity store kept showing *"1 failed: Vitamins —
+ * you already have a board with this name"* long after that board had been
+ * adopted. A stale log line in the place people look for current state reads
+ * as a fault that will not go away.
+ *
+ * The queue is now visible before anything is created: which boards are due,
+ * which ones the client already has under that name, how many pins are held
+ * up by each, and whether the description the SOP asks for is there. Each row
+ * can be linked to the existing board or taken out of the plan. Creating is
+ * still one button, and it still cannot make a duplicate — the pre-flight
+ * adopts an exact name match and a clash reported by Pinterest itself is
+ * linked rather than counted as a failure.
+ */
+function CreateBoardsPanel({ orgId, onDone }: Props) {
+  const [plan, setPlan] = useState<CreationPlan | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const load = useCallback(async () => {
+    setErr(null);
+    try {
+      const r = await post(orgId, { action: "board_creation_plan" }) as { plan: CreationPlan };
+      setPlan(r.plan);
+    } catch (e) { setErr((e as Error).message); }
+  }, [orgId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function act(key: string, body: Record<string, unknown>, done: (r: Record<string, unknown>) => string) {
+    setBusy(key); setMsg(null);
+    try {
+      const r = await post(orgId, body);
+      setMsg({ ok: true, text: done(r) });
+      await load(); onDone();
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+    finally { setBusy(null); }
+  }
+
+  const rows = plan?.rows ?? [];
+  const dueNow = rows.filter((r) => r.due_today);
+  const clashes = rows.filter((r) => r.clash);
+  const undated = rows.filter((r) => !r.due);
+  const roomToday = plan ? Math.max(0, plan.pace - plan.created_today) : 0;
+
   return (
-    <FormShell
-      title={`${task.task_id} — Create boards (max 3/day, enforced by DB trigger)`}
-      body={
-        <div className="text-xs text-neutral-600 space-y-2">
-          <div>Creates today&#39;s eligible boards on Pinterest as SECRET, then updates the board row with the returned Pinterest ID.</div>
-          <label className="flex items-center gap-2 text-[11px]">
-            <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
-            <span>Dry-run (flip locally only, no Pinterest API call)</span>
-          </label>
-        </div>
-      }
-      time={time} setTime={setTime} submitLabel="Create today's slot"
-      onSubmit={async () => {
-        const r = await post(orgId, { action: "create_boards", dry_run: dryRun, time_spent_min: n(time) }) as {
-          created: number; failed: number; remaining: number; errors: string[];
-          adopted: number; linked_by_name: string[]; would_create: string[]; scheduled: number;
-        };
-        onDone();
-        // The run's own answer, not "saved". A board that could not be
-        // created is the whole reason somebody presses this twice, and it
-        // used to be reported nowhere on the screen at all.
-        const bits = [
-          dryRun
-            ? `Dry run — would create: ${r.would_create.length ? r.would_create.join(", ") : "nothing due today"}.`
-            : `Created ${r.created} board(s).`,
-          r.linked_by_name.length
-            ? `Linked to the client's own board instead of creating a second one: ${r.linked_by_name.join(", ")}.`
-            : "",
-          r.adopted ? `${r.adopted} already existed on the account and were adopted.` : "",
-          r.scheduled ? `${r.scheduled} board(s) had no planned date and were put in the queue.` : "",
-          r.failed
-            ? `${r.failed} failed — ${r.errors.join("; ")}. Link it to an existing board or remove it in the Boards library.`
-            : "",
-          r.remaining > 0 ? `${r.remaining} still to create.` : "The architecture is live.",
-        ].filter(Boolean);
-        return bits.join(" ");
-      }}
-    />
+    <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-3">
+      <div className="text-[11px] font-semibold text-neutral-600 uppercase tracking-wide">
+        P3.3.5 — Create boards
+      </div>
+      <div className="text-xs text-neutral-600">
+        Three a night, enforced by the database — that pace is what keeps a young account out of trouble,
+        so it is not a setting. Nothing here can create a board the client already has: an exact name match
+        is linked instead, and a clash Pinterest reports is linked too.
+      </div>
+
+      {!plan && !err && <div className="text-xs text-neutral-500">Reading the queue and the account…</div>}
+      {err && <div className="text-xs text-red-600">Could not read the queue: {err}</div>}
+
+      {plan && (
+        <>
+          <div className="text-xs text-neutral-700">
+            <strong>{plan.remaining}</strong> still to create · <strong>{plan.live_count}</strong> live on the account ·{" "}
+            {plan.created_today} of {plan.pace} used today
+            {plan.remaining === 0 && " · the architecture is live"}
+          </div>
+
+          {plan.account_unreachable && (
+            <div className="text-xs rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-amber-800">
+              Pinterest could not be read ({plan.account_unreachable}), so duplicates cannot be checked for
+              from here. Creating is still safe — a clash is linked rather than failed — but this list cannot
+              tell you in advance which ones those are.
+            </div>
+          )}
+
+          {clashes.length > 0 && (
+            <div className="text-xs rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-amber-800">
+              {clashes.length} planned board{clashes.length === 1 ? "" : "s"} already exist on the account under that
+              exact name. Link them, or take them out of the plan — creating them is not possible and never was.
+            </div>
+          )}
+
+          {undated.length > 0 && (
+            <div className="text-xs text-neutral-600">
+              {undated.length} board{undated.length === 1 ? " has" : "s have"} no planned date, which means they are
+              outside the queue entirely. Creating picks them up automatically, or run P3.3.4 to reschedule.
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-neutral-500">
+                  <th className="py-1 pr-2 font-medium">Board</th>
+                  <th className="py-1 pr-2 font-medium">Due</th>
+                  <th className="py-1 pr-2 font-medium text-right">Pins waiting</th>
+                  <th className="py-1 pr-2 font-medium">Description</th>
+                  <th className="py-1 pr-2 font-medium">On the account</th>
+                  <th className="py-1" />
+                </tr>
+              </thead>
+              <tbody className="align-top">
+                {rows.slice(0, 15).map((r) => (
+                  <tr key={r.board_id} className="border-t border-neutral-200">
+                    <td className="py-1.5 pr-2">
+                      <div className="text-neutral-900">{r.name}</div>
+                      {r.topic_name && <div className="text-[10px] text-neutral-500">{r.topic_name}</div>}
+                    </td>
+                    <td className="py-1.5 pr-2 whitespace-nowrap">
+                      {r.due ?? <span className="text-amber-700">not queued</span>}
+                      {r.due_today && <span className="ml-1 text-emerald-700">· due</span>}
+                    </td>
+                    <td className="py-1.5 pr-2 text-right">
+                      {r.live_pins > 0
+                        ? <span className="font-semibold text-neutral-900">{r.live_pins}</span>
+                        : <span className="text-neutral-400">—</span>}
+                    </td>
+                    <td className="py-1.5 pr-2 whitespace-nowrap">
+                      {/* 400-480 is the build reference's hard rule (section 2).
+                          A board created without one is legal on Pinterest and
+                          wrong by the method, and this is the last moment it is
+                          cheap to fix. */}
+                      {r.description_chars === 0
+                        ? <span className="text-red-600">missing — P3.3.3</span>
+                        : r.description_chars < 400 || r.description_chars > 480
+                          ? <span className="text-amber-700">{r.description_chars} chars</span>
+                          : <span className="text-neutral-500">{r.description_chars} chars</span>}
+                    </td>
+                    <td className="py-1.5 pr-2 whitespace-nowrap">
+                      {r.clash
+                        ? <span className="text-amber-700">
+                            exists · {r.clash.privacy.toLowerCase()} · {r.clash.pins} pins
+                          </span>
+                        : <span className="text-neutral-400">—</span>}
+                    </td>
+                    <td className="py-1.5 text-right whitespace-nowrap">
+                      {r.clash && (
+                        <button type="button" disabled={!!busy}
+                          onClick={() => act(`link-${r.board_id}`,
+                            { action: "link_board", board_id: r.board_id, pinterest_board_id: r.clash!.id },
+                            () => `"${r.name}" is now linked to the board already on the account.`)}
+                          className="mr-1 px-2 py-1 rounded border border-neutral-300 bg-white font-medium hover:bg-neutral-100 disabled:opacity-50">
+                          {busy === `link-${r.board_id}` ? "Linking…" : "Link"}
+                        </button>
+                      )}
+                      <button type="button" disabled={!!busy}
+                        onClick={() => {
+                          if (!window.confirm(
+                            `Take "${r.name}" out of the plan?\n\nOnly the row goes — nothing is touched on Pinterest.`
+                          )) return;
+                          void act(`rm-${r.board_id}`, { action: "remove_board", board_id: r.board_id },
+                            (x) => `"${x.removed}" is out of the plan.`);
+                        }}
+                        className="px-2 py-1 rounded border border-neutral-300 bg-white text-neutral-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50">
+                        {busy === `rm-${r.board_id}` ? "Removing…" : "Remove"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rows.length > 15 && (
+            <div className="text-[11px] text-neutral-500">
+              and {rows.length - 15} more further down the queue.
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" disabled={!!busy || plan.remaining === 0}
+              onClick={() => act("create", { action: "create_boards", time_spent_min: 0 }, (r) => {
+                const linked = (r.linked_by_name as string[] | undefined) ?? [];
+                const errs = (r.errors as string[] | undefined) ?? [];
+                return [
+                  `Created ${r.created} board(s).`,
+                  linked.length ? `Linked instead of duplicating: ${linked.join(", ")}.` : "",
+                  r.scheduled ? `${r.scheduled} board(s) had no date and joined the queue.` : "",
+                  errs.length ? `Failed: ${errs.join("; ")}` : "",
+                  Number(r.remaining) > 0 ? `${r.remaining} still to create.` : "The architecture is live.",
+                ].filter(Boolean).join(" ");
+              })}
+              className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-50">
+              {busy === "create"
+                ? "Creating…"
+                : dueNow.length > 0
+                  ? `Create today's slot (${Math.min(dueNow.length, plan.pace)} due, ${roomToday} left in today's three)`
+                  : "Create today's slot (nothing due today)"}
+            </button>
+            <button type="button" disabled={!!busy} onClick={() => void load()}
+              className="px-3 py-1.5 rounded-md border border-neutral-300 bg-white text-xs font-medium hover:bg-neutral-100 disabled:opacity-50">
+              Re-check the account
+            </button>
+          </div>
+
+          {msg && (
+            <div className={`text-xs ${msg.ok ? "text-emerald-700" : "text-red-600"}`}>{msg.text}</div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

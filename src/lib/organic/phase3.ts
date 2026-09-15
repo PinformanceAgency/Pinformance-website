@@ -1402,6 +1402,165 @@ export async function generateCreationSchedule(orgId: string, timeSpentMin: numb
   return { scheduled, recomputed: await recomputeAfter(orgId) };
 }
 
+/* ------------------------------------------------------------------ *
+ * P3.3.5 — what the next run would do, before it does it
+ * ------------------------------------------------------------------ */
+
+export interface BoardCreationRow {
+  board_id: string;
+  name: string;
+  topic_name: string | null;
+  description_chars: number;
+  due: string | null;
+  due_today: boolean;
+  /** Pins in a live cycle that cannot publish until this board exists. */
+  live_pins: number;
+  /** A board of this exact name already on the account — so creating it is
+   *  not an option, and linking is the whole answer. */
+  clash: { id: string; privacy: string; pins: number } | null;
+}
+
+export interface BoardCreationPlan {
+  today: string;
+  pace: number;
+  created_today: number;
+  live_count: number;
+  remaining: number;
+  /** Null when Pinterest answered; a message when it did not, in which case
+   *  every `clash` is unknown rather than absent — stated, never implied. */
+  account_unreachable: string | null;
+  rows: BoardCreationRow[];
+}
+
+/**
+ * The creation queue, checked against the account, before anything is created.
+ *
+ * P3.3.5 used to be one button over a black box: press it, and find out
+ * afterwards from a note that it created two and failed on one. The note is a
+ * log of the last run, so on The Longevity store it went on saying
+ * *"1 failed: Vitamins — you already have a board with this name"* long after
+ * that board had been adopted, which reads as a live fault that will not go
+ * away.
+ *
+ * So the panel shows the queue as it stands: which boards are due, which ones
+ * the client already has under that name, how many pins are waiting on each,
+ * and whether the description the SOP asks for is actually there. Every row
+ * can then be created, linked or taken out of the plan — which is the part
+ * that was missing entirely. Nothing here writes.
+ */
+export async function loadBoardCreationPlan(orgId: string): Promise<BoardCreationPlan> {
+  const pool = organicPool();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [queue, counts] = await Promise.all([
+    pool.query<{
+      id: string; name: string; topic_name: string | null; description: string | null;
+      due: string | null; live_pins: number;
+    }>(
+      `SELECT b.id::text, b.name, t.name AS topic_name, b.description,
+              b.planned_creation_date::text AS due,
+              (SELECT COUNT(*) FROM organic.pins p
+                 JOIN organic.waterfalls w ON w.id = p.waterfall_id
+                WHERE p.board_id = b.id
+                  AND w.status <> 'ABANDONED'::organic.waterfall_status
+                  AND p.status <> 'CANCELLED'::organic.pin_status)::int AS live_pins
+         FROM organic.boards b
+         LEFT JOIN organic.topics t ON t.id = b.topic_id
+        WHERE b.org_id = $1
+          AND b.status = 'PLANNED'::organic.board_status
+          AND b.pinterest_board_id IS NULL
+          AND b.origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin
+        ORDER BY b.planned_creation_date NULLS LAST, b.name`,
+      [orgId]
+    ),
+    pool.query<{ live: string; created_today: string }>(
+      `SELECT COUNT(*) FILTER (WHERE pinterest_board_id IS NOT NULL)::text AS live,
+              COUNT(*) FILTER (WHERE created_on_pinterest = current_date)::text AS created_today
+         FROM organic.boards WHERE org_id = $1`,
+      [orgId]
+    ),
+  ]);
+
+  const account = await listAccountBoards(orgId);
+  const byName = new Map(
+    account.boards.map((b) => [b.name.trim().toLowerCase(), b])
+  );
+
+  return {
+    today,
+    // Module 4, and check_board_pace() refuses the fourth. Reported so the
+    // panel can say why today's list stops where it does.
+    pace: 3,
+    created_today: Number(counts.rows[0]?.created_today ?? 0),
+    live_count: Number(counts.rows[0]?.live ?? 0),
+    remaining: queue.rowCount ?? 0,
+    account_unreachable: account.unreachable,
+    rows: queue.rows.map((r) => {
+      const hit = byName.get(r.name.trim().toLowerCase());
+      return {
+        board_id: r.id,
+        name: r.name,
+        topic_name: r.topic_name,
+        description_chars: r.description?.trim().length ?? 0,
+        due: r.due,
+        due_today: !!r.due && r.due <= today,
+        live_pins: r.live_pins,
+        clash: hit && !hit.linked_to
+          ? { id: hit.id, privacy: hit.privacy, pins: hit.pins }
+          : null,
+      };
+    }),
+  };
+}
+
+/**
+ * Pinterest refused this name as a duplicate — find the board it meant.
+ *
+ * Re-reads the account rather than trusting the list we fetched before the
+ * loop started: the clash can be caused by a board created seconds ago, by
+ * another run, or by the client. Matched on the trimmed lower-cased name, the
+ * same comparison `adoptExistingBoards` makes, and it returns false rather
+ * than guessing when there is no match — a wrong link puts a whole cycle onto
+ * a board nobody chose.
+ */
+async function linkByNameAfterClash(
+  orgId: string,
+  client: PinterestClient,
+  boardRowId: string,
+  name: string
+): Promise<boolean> {
+  const pool = organicPool();
+  let remote: { items: Array<{ id: string; name: string; privacy: "PUBLIC" | "SECRET" | "PROTECTED"; pin_count?: number | null }> };
+  try {
+    remote = await client.getBoards();
+  } catch {
+    return false;
+  }
+  const found = remote.items.find((b) => b.name.trim().toLowerCase() === name.trim().toLowerCase());
+  if (!found) return false;
+
+  // Already held by another row: linking would point two library rows at one
+  // board, which pins the same cycle onto it twice.
+  const taken = await pool.query<{ name: string }>(
+    `SELECT name FROM organic.boards
+      WHERE org_id = $1 AND pinterest_board_id = $2 AND id <> $3`,
+    [orgId, found.id, boardRowId]
+  );
+  if ((taken.rowCount ?? 0) > 0) return false;
+
+  // `created_on_pinterest` stays null: we did not make this board, and
+  // check_board_pace() counts that column against the three-a-day rule.
+  await pool.query(
+    `UPDATE organic.boards
+        SET pinterest_board_id = $1,
+            status = $2::organic.board_status,
+            pin_count = $3
+      WHERE id = $4`,
+    [found.id, found.privacy, found.pin_count ?? 0, boardRowId]
+  );
+  return true;
+}
+
 /** P3.3.5 — create boards on Pinterest as SECRET, respecting today's slots.
  *  dryRun=true is safe for verification: it flips PLANNED → SECRET locally
  *  without hitting Pinterest. Real runs need a valid token on the org. */
@@ -1438,6 +1597,8 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
   );
   let created = 0, failed = 0;
   const errors: string[] = [];
+  /** Boards Pinterest refused as duplicates and we linked instead. */
+  const adoptedOnClash: string[] = [];
   if (!opts.dryRun && due.rows.length > 0) {
     const orgRes = await pool.query<{ token_enc: string | null }>(
       `SELECT pinterest_access_token_encrypted AS token_enc FROM public.organizations WHERE id = $1`,
@@ -1466,8 +1627,32 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
         );
         created++;
       } catch (e) {
+        const msg = (e as Error).message;
+        // Pinterest code 58: "Try a different name. You already have a board
+        // with this name!". The pre-flight adoption matches on the exact
+        // trimmed lower-cased name, and Pinterest's own uniqueness rule is
+        // not identical to that — punctuation, doubled spaces, a trailing
+        // emoji. So the error itself is treated as what it literally says:
+        // the board exists. Re-read the account and link it.
+        //
+        // This is the belt to the pre-flight's braces, and it is the half
+        // that cannot drift: whatever normalisation Pinterest applies, a
+        // board it refuses on this ground is one we already have.
+        if (/"code"\s*:\s*58\b/.test(msg) || /already have a board with this name/i.test(msg)) {
+          const linked = await linkByNameAfterClash(orgId, client, b.id, b.name);
+          if (linked) {
+            adoptedOnClash.push(b.name);
+            continue;
+          }
+          failed++;
+          errors.push(
+            `${b.name}: Pinterest says this board already exists, but no board of that name is on the ` +
+            `connected account. Link it by hand in the Boards library, or rename the planned board.`
+          );
+          continue;
+        }
         failed++;
-        errors.push(`${b.name}: ${(e as Error).message}`);
+        errors.push(`${b.name}: ${msg}`);
       }
     }
   }
@@ -1478,6 +1663,7 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
   // account. Harmless enough behind a button somebody presses once; not
   // behind a cron with ?dry_run=1 on it.
   const wouldCreate = opts.dryRun ? due.rows.map((b) => b.name) : [];
+  const linkedNames = [...adopted.linked_by_name, ...adoptedOnClash];
   // What is still waiting, using the same filters the due query uses. The
   // task closes when the queue is empty, not on the first run: creation is
   // paced at three a day, so a store with 23 boards is a week of runs and
@@ -1493,19 +1679,20 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
   const remaining = Number(left.rows[0].n);
   if (opts.dryRun) {
     return { created: 0, failed: 0, errors: [], remaining, would_create: wouldCreate,
-             scheduled, ...adopted, recomputed: 0 };
+             scheduled, ...adopted, linked_by_name: linkedNames, recomputed: 0 };
   }
   await recordTaskProgress({
     orgId, taskId: "P3.3.5", addMinutes: timeSpentMin, done: remaining === 0,
     notes: `${opts.dryRun ? "DRY-RUN " : ""}Created ${created} board(s)` +
       `${adopted.adopted ? `, adopted ${adopted.adopted} that already existed` : ""}` +
-      `${adopted.linked_by_name.length ? `, linked to the client's own board instead of creating a second one: ${adopted.linked_by_name.join("; ")}` : ""}` +
+      `${linkedNames.length ? `, linked to the client's own board instead of creating a second one: ${linkedNames.join("; ")}` : ""}` +
       `${failed ? `, ${failed} failed: ${errors.join("; ")}` : ""}` +
       `${scheduled ? `, put ${scheduled} board(s) into the creation queue that had no planned date` : ""}` +
       `${remaining > 0 ? `, ${remaining} still to create` : ", the architecture is live"}.`,
   });
   return { created, failed, errors, remaining, would_create: wouldCreate,
-           scheduled, ...adopted, recomputed: await recomputeAfter(orgId) };
+           scheduled, ...adopted, linked_by_name: linkedNames,
+           recomputed: await recomputeAfter(orgId) };
 }
 
 // ---------- P3.3.6 – P3.3.8 board warming -------------------------------------

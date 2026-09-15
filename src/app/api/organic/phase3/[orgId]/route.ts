@@ -13,6 +13,7 @@ import {
   generateCreationSchedule, createBoardsToday,
   proposeSeedPins, reviewSeedPlan, loadSeedingState, flipBoardsPublicAtTen,
   listAccountBoards, linkBoardToPinterest, removeBoardFromLibrary,
+  loadBoardCreationPlan,
   searchInterests, loadBoardListContext,
   draftDisplayName, draftBio, draftBoardDescription,
   approveAndSaveDisplayName, approveAndSaveBio, approveAndSaveBoardDescription,
@@ -102,6 +103,9 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
     // whose name the client already uses, and until these existed the row
     // then sat in the creation queue failing on every run with no way to
     // link it, remove it, or even see what was wrong.
+    // What the next run would do, checked against the account first.
+    case "board_creation_plan":
+      return { plan: await loadBoardCreationPlan(orgId) };
     case "account_boards":
       return listAccountBoards(orgId);
     case "link_board":
