@@ -2,12 +2,15 @@ import Link from "next/link";
 import { loadClientHeader } from "@/lib/organic/queries";
 import { loadLeaks, loadTrendSeries, pctChange, type Leak, type TrendSeries } from "@/lib/organic/workspace";
 import { loadCyclesForOrg } from "@/lib/organic/phase4";
+import { loadPublishCalendar, type PublishCalendar } from "@/lib/organic/calendar";
 import { computeHealthScore, loadCohortContext, type HealthScore, type CohortContext } from "@/lib/organic/health";
 import * as P5 from "@/lib/organic/phase5";
 import { PROVENANCE_REASON, type ProvenanceState } from "@/lib/organic/provenance";
 import { Band, Panel, Label, Figure, Stat, Empty, AccentLink } from "@/components/organic/primitives";
 import { SegmentedScore, BarList, type Segment } from "@/components/organic/charts";
 import { Kpi, KpiGrid } from "@/components/organic/kpi";
+import { Pill } from "@/components/organic/internal";
+import { PublishCalendarView } from "@/components/organic/PublishCalendarView";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +27,11 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
   const today = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
 
-  const [header, leaks, cycles, baseline, pinterest, setup, trend] = await Promise.all([
+  const [header, leaks, cycles, calendar, baseline, pinterest, setup, trend] = await Promise.all([
     loadClientHeader(orgId),
     loadLeaks(orgId),
     loadCyclesForOrg(orgId),
+    loadPublishCalendar(orgId),
     P5.loadBaseline(orgId),
     P5.fetchOrganicAnalytics(orgId, from, today),
     P5.loadSetupState(orgId, from, today),
@@ -59,6 +63,7 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
       <LeakBand leaks={leaks} orgId={orgId} />
       {!onboardingDone && <OnboardingBand phases={onboarding} nextPhase={nextPhase?.phase ?? null} orgId={orgId} />}
       <CyclesBand cycles={cycles} orgId={orgId} onboardingDone={onboardingDone} />
+      <CalendarBand cal={calendar} orgId={orgId} />
       <ResultsBand rows={hard} ok={pinterest.ok} reason={pinterest.reason} orgId={orgId} />
     </div>
   );
@@ -382,6 +387,71 @@ function CyclesBand({
             ))}
           </tbody>
         </table>
+      </Panel>
+    </Band>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Calendar
+ * ------------------------------------------------------------------ */
+
+/**
+ * This month's publishing, at a glance.
+ *
+ * Deliberately not a second copy of the calendar page: it answers "is
+ * anything going out, and is anything in the way" and hands off for the
+ * detail. What it must carry is the standstill — a store whose pins are
+ * all still on paper looks busy on every other band of this screen, and
+ * this is the only place that says otherwise.
+ */
+function CalendarBand({ cal, orgId }: { cal: PublishCalendar; orgId: string }) {
+  const href = `/client/${orgId}/calendar`;
+
+  if (cal.months_with_pins.length === 0) {
+    return (
+      <Band title="Publishing calendar" sub="What goes out, and when.">
+        <Empty
+          headline="Nothing has a date yet."
+          body="A cycle plans sixteen pins across several weeks. Until one is generated there is nothing to schedule."
+          action={<AccentLink href={`/client/${orgId}/phase/4`}>Open phase 4</AccentLink>}
+        />
+      </Band>
+    );
+  }
+
+  const blocking = cal.issues.filter((i) => i.severity === "blocking");
+
+  return (
+    <Band
+      title="Publishing calendar"
+      sub={`${cal.month_label} — each creative on the day it goes out, onto the board it lands on.`}
+      right={<AccentLink href={href}>Open the month</AccentLink>}
+    >
+      <Panel className="px-5 py-5">
+        <div className="mb-4 flex flex-wrap items-center gap-x-8 gap-y-3">
+          <span className="text-[length:var(--text-o-body)] text-o-ink-2">
+            <span className="o-num text-o-ink">{cal.totals.pins}</span> pins this month
+            {cal.totals.published > 0 && <span className="text-o-pos"> · {cal.totals.published} live</span>}
+            {cal.totals.blocked > 0 && <span className="text-o-neg"> · {cal.totals.blocked} blocked</span>}
+          </span>
+          <span className="text-[length:var(--text-o-body)] text-o-ink-2">
+            Next out{" "}
+            {cal.next_publish
+              ? <span className="o-num text-o-ink">{cal.next_publish}</span>
+              : <span className="text-o-ink-3">—</span>}
+          </span>
+          {blocking.length > 0 && <Pill tone="bad">{blocking.length} blocking</Pill>}
+        </div>
+
+        {cal.standstill && (
+          <p className="mb-4 border-l-[3px] border-l-o-neg pl-4 text-[length:var(--text-o-body)] leading-relaxed text-o-ink-2">
+            <span className="font-medium text-o-ink">Nothing is queued. </span>
+            {cal.standstill}
+          </p>
+        )}
+
+        <PublishCalendarView cal={cal} compact />
       </Panel>
     </Band>
   );

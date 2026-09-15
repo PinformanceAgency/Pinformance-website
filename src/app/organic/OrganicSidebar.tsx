@@ -7,7 +7,7 @@ import {
   Users, LayoutDashboard, ChevronRight, ChevronDown,
   FileText, Sun, LayoutGrid, Search, Link2, FolderOpen,
   BarChart3, Settings, LineChart, Gauge, Scale, AlertTriangle, Radar,
-  Share2, BookOpen, Sparkles
+  Share2, BookOpen, Sparkles, CalendarDays
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ClientSwitcher } from "./ClientSwitcher";
@@ -323,6 +323,12 @@ export function OrganicSidebar({
                      active={isActive(`${base}/today`)} />
             <NavLink item={{ href: `${base}/overview`, label: "Overview", icon: LayoutDashboard }}
                      active={isActive(`${base}/overview`)} />
+            {/* Next to Today on purpose: the two operational screens. Today
+                is what needs doing now, the calendar is what happens next —
+                and "when does the next pin go out" was not answerable from
+                anywhere in this app. */}
+            <NavLink item={{ href: `${base}/calendar`, label: "Calendar", icon: CalendarDays }}
+                     active={isActive(`${base}/calendar`)} />
 
             {/* ---- STRATEGY CORE ---------------------------------- */}
             <GroupLabel>Strategy core</GroupLabel>
