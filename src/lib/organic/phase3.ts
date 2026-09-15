@@ -2143,6 +2143,7 @@ export async function loadSeedingState(orgId: string) {
   const boards = await pool.query<{
     id: string; name: string; status: string; pin_count: number; on_pinterest: boolean;
     planned_creation_date: string | null; first_waterfall_pin: string | null;
+    ever_proposed: boolean;
   }>(
     `SELECT b.id::text, b.name, b.status::text, COALESCE(b.pin_count, 0) AS pin_count,
             b.pinterest_board_id IS NOT NULL AS on_pinterest,
@@ -2150,7 +2151,11 @@ export async function loadSeedingState(orgId: string) {
             (SELECT MIN(p.scheduled_date)::text FROM organic.pins p
                JOIN organic.waterfalls w ON w.id = p.waterfall_id
               WHERE p.board_id = b.id AND w.status <> 'ABANDONED'::organic.waterfall_status
-                AND p.status IN ('PLANNED'::organic.pin_status, 'SCHEDULED'::organic.pin_status)) AS first_waterfall_pin
+                AND p.status IN ('PLANNED'::organic.pin_status, 'SCHEDULED'::organic.pin_status)) AS first_waterfall_pin,
+            -- Any row at all, REMOVED included: "a proposal has been made for
+            -- this board" and "the proposal is empty" are different facts, and
+            -- the panel said the second when it meant the first.
+            EXISTS (SELECT 1 FROM organic.seed_plan sp WHERE sp.board_id = b.id) AS ever_proposed
        FROM organic.boards b
       WHERE b.org_id = $1 AND ${METHOD_BOARD}
         AND b.status <> 'ARCHIVED'::organic.board_status

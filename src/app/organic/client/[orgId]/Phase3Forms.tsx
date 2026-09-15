@@ -1058,6 +1058,8 @@ interface SeedBoard {
   id: string; name: string; status: string; pin_count: number; on_pinterest: boolean;
   planned_creation_date: string | null; first_waterfall_pin: string | null;
   proposed: number; approved: number; saved: number; pins: SeedPin[];
+  /** Has P3.3.6 ever produced a row for this board? */
+  ever_proposed: boolean;
 }
 interface SeedState { per_day: number; public_at: number; target: number; saved_today: number; boards: SeedBoard[] }
 
@@ -1189,7 +1191,15 @@ function SeedingStatusPanel({ orgId }: Props) {
   // Proposed pins count towards what a board can reach: before anybody approves,
   // every hidden board read "needs the website widget" while fifteen of the
   // account's own pins were waiting for it in P3.3.6.
-  const widget = live.filter((b) => b.status !== "PUBLIC" && b.pin_count + b.approved + b.proposed < (state?.public_at ?? 10));
+  const short = live.filter((b) => b.status !== "PUBLIC" && b.pin_count + b.approved + b.proposed < (state?.public_at ?? 10));
+  // "The account has nothing that fits this board" and "nobody has looked yet"
+  // are different facts, and the panel stated the first when it meant the
+  // second. The Longevity store carried a P3.3.6 marked DONE by an older
+  // version that wrote no rows at all, so two empty boards read as "needs the
+  // website widget" — a person with the client's login, by hand — while
+  // re-running the proposal found 247 of the store's own pins in a minute.
+  const unproposed = short.filter((b) => !b.ever_proposed);
+  const widget = short.filter((b) => b.ever_proposed);
   const unreviewed = boards.reduce((a, b) => a + b.proposed, 0);
   const waiting = boards.reduce((a, b) => a + b.approved, 0);
   return (
@@ -1210,6 +1220,14 @@ function SeedingStatusPanel({ orgId }: Props) {
           {waiting === 0 && unreviewed > 0 && (
             <div className="text-[11px] text-amber-800">
               Nothing is approved yet — {unreviewed} proposed pins are waiting in P3.3.6. Approve them there and this starts within the hour.
+            </div>
+          )}
+          {unproposed.length > 0 && (
+            <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              No seed pins have been proposed for{" "}
+              {unproposed.map((b) => b.name).join(", ")} yet — run <strong>Propose seed pins</strong> in P3.3.6
+              first. Until that has run, there is no way to tell whether the account has pins that fit
+              {unproposed.length === 1 ? " it" : " them"}.
             </div>
           )}
           {widget.length > 0 && (
