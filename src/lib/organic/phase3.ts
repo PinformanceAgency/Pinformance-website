@@ -1131,6 +1131,78 @@ export async function adoptExistingBoards(
  * ------------------------------------------------------------------ */
 
 /**
+ * Re-derive P3.3.5 from the creation queue itself.
+ *
+ * The task closes when the queue is empty and not before — a store with 23
+ * designed boards is a week of nightly runs, and marking it DONE on day one
+ * says the architecture is live when almost none of it is. `createBoardsToday`
+ * has always set that at the end of its own run, which is right for the path
+ * that creates a board and wrong for every other way the queue changes.
+ *
+ * Since the library became editable there are three more: linking a board to
+ * one the client already has, removing a row from the plan, and scheduling
+ * newly designed boards. Each of them moves the queue, and none of them
+ * re-read the task — so removing the last board left P3.3.5 sitting at
+ * IN_PROGRESS with nothing left to do, and it would have stayed there until
+ * somebody pressed "Create today's slot" on an empty queue. Reported on Roha
+ * Home, 15-09-2026.
+ *
+ * Same rule the phase-4 sync uses, for the same reason: closed only when the
+ * artefact is there, reopened only from DONE and only to IN_PROGRESS.
+ * **SKIPPED and BLOCKED are left alone** — the first is a decision somebody
+ * made and the second is computed from preconditions, and neither is ours to
+ * overwrite from a board count.
+ */
+export async function syncBoardCreationTask(
+  orgId: string
+): Promise<{ remaining: number; status: string | null; changed: boolean }> {
+  const pool = organicPool();
+  const [left, task] = await Promise.all([
+    pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.boards
+        WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
+          AND pinterest_board_id IS NULL
+          AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin`,
+      [orgId]
+    ),
+    pool.query<{ status: string }>(
+      `SELECT status::text FROM organic.client_tasks
+        WHERE org_id = $1 AND task_id = 'P3.3.5'`,
+      [orgId]
+    ),
+  ]);
+  const remaining = Number(left.rows[0]?.n ?? 0);
+  const status = task.rows[0]?.status ?? null;
+  if (status === null || status === "SKIPPED" || status === "BLOCKED") {
+    return { remaining, status, changed: false };
+  }
+
+  if (remaining === 0 && status !== "DONE") {
+    await pool.query(
+      `UPDATE organic.client_tasks
+          SET status = 'DONE'::organic.task_status,
+              completed_at = COALESCE(completed_at, now()),
+              notes = $2
+        WHERE org_id = $1 AND task_id = 'P3.3.5'`,
+      [orgId, "The creation queue is empty — every designed board is on the account."]
+    );
+    return { remaining, status: "DONE", changed: true };
+  }
+  if (remaining > 0 && status === "DONE") {
+    await pool.query(
+      `UPDATE organic.client_tasks
+          SET status = 'IN_PROGRESS'::organic.task_status,
+              notes = $2
+        WHERE org_id = $1 AND task_id = 'P3.3.5'`,
+      [orgId, `${remaining} board(s) are designed and not on the account yet.`]
+    );
+    return { remaining, status: "IN_PROGRESS", changed: true };
+  }
+  return { remaining, status, changed: false };
+}
+
+
+/**
  * Which boards are on the account, and which of them we already hold.
  *
  * The picker behind "link to an existing board". It does not filter the
@@ -1235,6 +1307,7 @@ export async function linkBoardToPinterest(
       WHERE id = $4`,
     [found.id, found.privacy, found.pin_count ?? 0, boardId]
   );
+  await syncBoardCreationTask(orgId);
   await recomputeAfter(orgId);
   return { name: row.rows[0].name, status: found.privacy, pins: found.pin_count ?? 0 };
 }
@@ -1294,6 +1367,9 @@ export async function removeBoardFromLibrary(
   }
 
   await pool.query(`DELETE FROM organic.boards WHERE id = $1 AND org_id = $2`, [boardId, orgId]);
+  // Removing the last row in the queue finishes P3.3.5 as surely as creating
+  // the last board does.
+  await syncBoardCreationTask(orgId);
   await recomputeAfter(orgId);
   return { removed: row.rows[0].name };
 }
@@ -1399,6 +1475,9 @@ export async function generateCreationSchedule(orgId: string, timeSpentMin: numb
   const scheduled = await fillCreationSchedule(orgId, { from: "tomorrow" });
   await completeTaskByDefinition({ orgId, taskId: "P3.3.4", timeSpentMin,
     notes: `Scheduled ${scheduled} boards across ${Math.ceil(scheduled / 3)} day(s), max 3/day.` });
+  // Newly designed boards put work back into the queue, so a P3.3.5 that was
+  // finished is not finished any more.
+  await syncBoardCreationTask(orgId);
   return { scheduled, recomputed: await recomputeAfter(orgId) };
 }
 
@@ -1690,6 +1769,7 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
       `${scheduled ? `, put ${scheduled} board(s) into the creation queue that had no planned date` : ""}` +
       `${remaining > 0 ? `, ${remaining} still to create` : ", the architecture is live"}.`,
   });
+  await syncBoardCreationTask(orgId);
   return { created, failed, errors, remaining, would_create: wouldCreate,
            scheduled, ...adopted, linked_by_name: linkedNames,
            recomputed: await recomputeAfter(orgId) };
