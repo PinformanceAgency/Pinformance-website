@@ -38,6 +38,10 @@ export type ActionKind =
   | { kind: "external"; tool: string; describe: string }
   /** Approve or reject each design or copy set. */
   | { kind: "qc"; mode: "design" | "copy"; describe: string }
+  /** Hands the plan to the publishing cron, and reports what it could not
+   *  take. Its own kind rather than a `run`, because the answer is a report
+   *  and not a tick — a partial queue is the normal case. */
+  | { kind: "queue"; label: string; describe: string }
   /** What went live, what is waiting, and what is in the way. */
   | { kind: "publish"; describe: string }
   /** No control yet. Named rather than papered over. */
@@ -91,10 +95,16 @@ export const PHASE4_ACTIONS: Record<string, ActionKind> = {
 
   "P4.3.1": { kind: "run", label: "Generate the waterfall", action: "waterfall",
     describe: "Sixteen pins, dates and board rotation. Design 1 goes to boards 1-2-3-4, design 2 to 2-3-4-1, so every board gets every design." },
-  "P4.3.2": { kind: "panel", section: "3 · Waterfall",
-    describe: "Check the spread on the calendar before anything is scheduled. Nothing goes to Pinterest until you approve it." },
+  // Was a pointer at "3 · Waterfall on this cycle, above" — which is only
+  // above you on the cycle card. On the step page there is no cycle card, so
+  // the task that approves the plan had no control at all on the screen the
+  // SOP sends you to, and could not be closed by hand either (the artefact
+  // guard refuses that, correctly). The Longevity store sat there for days
+  // with sixteen finished pins nobody could release.
+  "P4.3.2": { kind: "queue", label: "Approve & queue the waterfall",
+    describe: "Check the spread on the calendar first — nothing goes to Pinterest until you approve it. Queueing hands the pins to the cron, which publishes each one on its own date. Pins whose board is not on Pinterest yet are held back by name; press again once those boards exist." },
 
-  "P4.4.1": { kind: "run", label: "Queue for publishing", action: "push",
+  "P4.4.1": { kind: "queue", label: "Queue for publishing",
     describe: "Queues the sixteen pins; the cron posts each one on its own date. It does not publish now on purpose — the dates are spread over weeks, and posting them together would collapse the waterfall into a single day. Standard pins over the API, never the simplified or idea format, which are barely distributed." },
   "P4.4.2": { kind: "publish",
     describe: "What went live, what is still waiting, and what is in the way. A rate limit re-queues itself and needs nobody; an expired token never resolves on its own and takes the next cycle down with it." },
@@ -125,6 +135,10 @@ export function Phase4Action({
 
         {spec.kind === "run" && (
           <RunButton orgId={orgId} urlId={cycle.url_id} action={spec.action} label={spec.label} />
+        )}
+
+        {spec.kind === "queue" && (
+          <QueueButton orgId={orgId} cycle={cycle} label={spec.label} />
         )}
 
         {spec.kind === "designs" && (
@@ -225,6 +239,140 @@ function RunButton({
 
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * P4.3.2 / P4.4.1 — hand the plan to the cron.
+ *
+ * Both tasks ask for the same act, so both get the same control rather than
+ * one of them pointing at a panel on another screen. Two things make this
+ * its own component instead of a `RunButton`:
+ *
+ *   · **The answer is a report, not a tick.** Queueing is partial by design:
+ *     `scheduleWaterfall` takes every pin it can and holds back the ones
+ *     whose board is not on Pinterest yet, with the reason per pin. A
+ *     control that answered "Done — refreshed" to "seven of sixteen queued"
+ *     would be the third time this app has said a thing was finished while
+ *     the record said otherwise.
+ *   · **It asks first.** After queueing, regenerating cancels real scheduled
+ *     pins rather than a plan on paper.
+ *
+ * With no waterfall there is nothing to approve, and the button says which
+ * task makes one rather than sitting there greyed out — a disabled button
+ * with no reason on it has been reported as broken three times in this app.
+ */
+function QueueButton({
+  orgId, cycle, label,
+}: {
+  orgId: string; cycle: CycleView; label: string;
+}) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [report, setReport] = useState<{
+    scheduled: number;
+    blocked: Array<{ sequence: number; reason: string }>;
+    warnings: string[];
+    first_date: string | null;
+    last_date: string | null;
+  } | null>(null);
+
+  const wf = cycle.waterfall;
+  const waiting = cycle.plan.filter((p) => p.status === "PLANNED").length;
+
+  async function queue() {
+    if (!wf) return;
+    if (!window.confirm(
+      `This hands the plan to the publishing cron.\n\n` +
+      `Each pin goes out on its own date — the first on ${wf.start_date} — and the plan stops ` +
+      `being editable. Regenerating after this cancels real scheduled pins.\n\n` +
+      `Pins whose board is not on Pinterest yet are held back and can be queued later.\n\nQueue them?`
+    )) return;
+    setErr(null); setReport(null); setBusy(true);
+    try {
+      const res = await fetch(`/api/organic/phase4/${orgId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "push", waterfall_id: wf.id }),
+        redirect: "error",
+      });
+      const raw = await res.text();
+      let data: Record<string, unknown> = {};
+      try { data = JSON.parse(raw); } catch { /* keep raw */ }
+      if (!res.ok) throw new Error((data.error as string) ?? `HTTP ${res.status} — ${raw.slice(0, 140)}`);
+      setReport(data as unknown as typeof report);
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!wf) {
+    return (
+      <p className="text-sm text-o-ink-2">
+        There is no waterfall on this cycle yet — <span className="font-medium text-o-ink">P4.3.1</span> generates
+        the sixteen pins, and this queues them.
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" onClick={queue} disabled={busy} className={cn("o-btn o-btn-primary")}>
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {busy ? "Queueing…" : label}
+        </button>
+        <span className="text-xs text-o-ink-3">
+          waterfall {wf.id.slice(0, 8)} · {wf.status.toLowerCase()} · from {wf.start_date}
+          {waiting > 0 && ` · ${waiting} pin${waiting === 1 ? "" : "s"} still unqueued`}
+        </span>
+      </div>
+
+      {/* Already running and nothing left on paper: say so rather than
+          offering a button whose only honest outcome is "queued 0". */}
+      {wf.status === "RUNNING" && waiting === 0 && !report && (
+        <p className="mt-2 text-xs text-o-pos">
+          Everything on this cycle is queued — the cron publishes each pin on its date.
+        </p>
+      )}
+
+      {report && (
+        <div className={cn(
+          "mt-3 rounded-[8px] border px-3 py-2.5 text-xs leading-relaxed",
+          report.blocked.length > 0
+            ? "border-o-clay/40 bg-o-sunk text-o-ink-2"
+            : "border-o-pos/40 bg-o-pos/[0.06] text-o-ink"
+        )}>
+          <span className="font-semibold text-o-ink">
+            {report.scheduled} pin{report.scheduled === 1 ? "" : "s"} queued
+          </span>
+          {report.first_date && <> · {report.first_date} → {report.last_date}</>}
+          {report.blocked.length > 0 && (
+            <ul className="mt-1.5 space-y-0.5">
+              {report.blocked.map((b) => (
+                <li key={b.sequence}>
+                  <span className="o-num text-o-ink-3">#{b.sequence}</span> {b.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+          {report.warnings.length > 0 && (
+            <p className="mt-1.5 text-o-ink-3">{report.warnings.join(" · ")}</p>
+          )}
+        </div>
+      )}
+
+      {err && (
+        <p className="mt-2 text-xs text-o-neg break-words" role="alert">
+          Could not queue: {err}
+        </p>
+      )}
+    </div>
+  );
+}
 
 /**
  * P4.2.4 — the four designs: generate them, or put your own in.

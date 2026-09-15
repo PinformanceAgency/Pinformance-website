@@ -10,6 +10,7 @@ import { loadBoards } from "@/lib/organic/workspace";
 import { Band, Panel, Empty } from "@/components/organic/primitives";
 import { Table, TH, TD, Pill, Metric, Toolbar, CoverageMatrix } from "@/components/organic/internal";
 import { cn } from "@/lib/utils";
+import { BoardActions } from "./BoardActions";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,8 @@ export default async function BoardsPage({ params }: { params: Promise<{ orgId: 
         </Panel>
       </Band>
 
-      <Band title="Boards" sub={`${boards.length} in the library.`}>
+      <Band title="Boards"
+            sub={`${boards.length} in the library. A planned board can be linked to one that already exists on the account, or taken out of the plan — a board a cycle is pinning onto cannot.`}>
         {boards.length === 0 ? (
           <Empty
             headline="No boards yet."
@@ -62,6 +64,7 @@ export default async function BoardsPage({ params }: { params: Promise<{ orgId: 
                 <TH align="right">Pins</TH>
                 <TH>Last pin</TH>
                 <TH align="right">URLs on board</TH>
+                <TH align="right">{""}</TH>
               </tr>
             </thead>
             <tbody>
@@ -94,6 +97,13 @@ export default async function BoardsPage({ params }: { params: Promise<{ orgId: 
                     </TD>
                     <TD align="right">
                       <span title={b.urls_pinned_names.join(", ")}>{b.urls_pinned_count}</span>
+                    </TD>
+                    {/* The library stopped being read-only on 15-09-2026:
+                        a board P3.3.5 cannot create has to be linkable to
+                        the client's own, or removable from the plan. */}
+                    <TD align="right">
+                      <BoardActions orgId={orgId} boardId={b.id} boardName={b.name}
+                                    linked={!!b.pinterest_board_id} />
                     </TD>
                   </tr>
                 );

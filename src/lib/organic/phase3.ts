@@ -1011,7 +1011,15 @@ export async function saveBoardDescriptions(orgId: string, rows: DescriptionRow[
 export async function adoptExistingBoards(
   orgId: string,
   opts: { skipRemote?: boolean } = {}
-): Promise<{ adopted: number; vanished: number; unreachable: string | null }> {
+): Promise<{
+  adopted: number;
+  vanished: number;
+  unreachable: string | null;
+  /** Boards that were linked to an existing board on the account by name
+   *  rather than created. Named, not counted: adopting somebody else's board
+   *  is a decision the manager has to be able to see and undo. */
+  linked_by_name: string[];
+}> {
   const pool = organicPool();
   const claimed = await pool.query<{ id: string; pinterest_board_id: string; name: string }>(
     `SELECT id::text, pinterest_board_id, name
@@ -1020,20 +1028,39 @@ export async function adoptExistingBoards(
         AND pinterest_board_id IS NOT NULL`,
     [orgId]
   );
-  // Imported boards whose id was cleared while getBoards() still read only
+  // Every planned board with no id, matched back to the account on its exact
+  // name. Two different cases, one rule.
+  //
+  // An imported board whose id was cleared while getBoards() still read only
   // its first page: three real boards on Fit Cherries were written off as
-  // deleted that way. They are matched back on their exact name — nothing
-  // with origin MIGRATED is ever created by us, so a board by that name on
-  // the account is that board.
-  const orphaned = await pool.query<{ id: string; name: string }>(
-    `SELECT id::text, name FROM organic.boards
+  // deleted that way.
+  //
+  // And — since 15-09-2026 — a board the METHOD designed whose name the
+  // client already uses. P3.3.5 on Roha Home refused to create "Bathroom
+  // Organization Ideas" because that board exists on the account; the row
+  // then sat in the creation queue failing on every run, and P3.3.6 stayed
+  // blocked behind it. Creating a second board under a name the account
+  // already has is the worse outcome in every direction: it splits the pins,
+  // it splits whatever authority the existing board has, and the client ends
+  // up with two boards they did not ask for. A board with that name IS that
+  // board, so it is adopted.
+  //
+  // Match is exact on the trimmed, lower-cased name — deliberately not
+  // fuzzy. A wrong adoption pins a cycle onto a board nobody chose, which is
+  // far more expensive than a board that has to be linked by hand.
+  const orphaned = await pool.query<{ id: string; name: string; origin: string | null }>(
+    `SELECT id::text, name, origin::text
+       FROM organic.boards
       WHERE org_id = $1 AND status = 'PLANNED'::organic.board_status
-        AND pinterest_board_id IS NULL
-        AND origin = 'MIGRATED'::organic.board_origin`,
+        AND pinterest_board_id IS NULL`,
     [orgId]
   );
-  if (claimed.rowCount === 0 && orphaned.rowCount === 0) return { adopted: 0, vanished: 0, unreachable: null };
-  if (opts.skipRemote) return { adopted: 0, vanished: 0, unreachable: "skipped (dry run)" };
+  if (claimed.rowCount === 0 && orphaned.rowCount === 0) {
+    return { adopted: 0, vanished: 0, unreachable: null, linked_by_name: [] };
+  }
+  if (opts.skipRemote) {
+    return { adopted: 0, vanished: 0, unreachable: "skipped (dry run)", linked_by_name: [] };
+  }
 
   const orgRes = await pool.query<{ token_enc: string | null }>(
     `SELECT pinterest_access_token_encrypted AS token_enc FROM public.organizations WHERE id = $1`,
@@ -1042,7 +1069,9 @@ export async function adoptExistingBoards(
   const enc = orgRes.rows[0]?.token_enc;
   // No token is not a reason to guess: leaving the rows alone keeps them out
   // of the creation queue (the queue skips anything with an id) and says so.
-  if (!enc) return { adopted: 0, vanished: 0, unreachable: "no Pinterest token on the organisation" };
+  if (!enc) {
+    return { adopted: 0, vanished: 0, unreachable: "no Pinterest token on the organisation", linked_by_name: [] };
+  }
 
   // Privacy AND pin count, both from the account. The pin count is not
   // decoration: `public_needs_seeding` holds a method-built board back from
@@ -1056,15 +1085,19 @@ export async function adoptExistingBoards(
     live = new Map(remote.items.map((b) => [b.id, { privacy: b.privacy, pins: b.pin_count ?? 0 }]));
     byName = new Map(remote.items.map((b) => [b.name.trim().toLowerCase(), b.id]));
   } catch (e) {
-    return { adopted: 0, vanished: 0, unreachable: (e as Error).message };
+    return { adopted: 0, vanished: 0, unreachable: (e as Error).message, linked_by_name: [] };
   }
 
   const rows = [...claimed.rows];
+  const linkedByName: string[] = [];
   for (const o of orphaned.rows) {
     const id = byName.get(o.name.trim().toLowerCase());
     if (!id) continue;
     await pool.query(`UPDATE organic.boards SET pinterest_board_id = $2 WHERE id = $1`, [o.id, id]);
     rows.push({ id: o.id, pinterest_board_id: id, name: o.name });
+    // A migrated board finding its own id back is a repair, not news. A
+    // method board adopting one the client already had is news.
+    if (o.origin !== "MIGRATED") linkedByName.push(o.name);
   }
 
   let adopted = 0, vanished = 0;
@@ -1090,7 +1123,179 @@ export async function adoptExistingBoards(
       vanished++;
     }
   }
-  return { adopted, vanished, unreachable: null };
+  return { adopted, vanished, unreachable: null, linked_by_name: linkedByName };
+}
+
+/* ------------------------------------------------------------------ *
+ * The boards library, made editable
+ * ------------------------------------------------------------------ */
+
+/**
+ * Which boards are on the account, and which of them we already hold.
+ *
+ * The picker behind "link to an existing board". It does not filter the
+ * already-linked ones out — it marks them, with the row that holds them —
+ * because a name that looks free but is taken is exactly the confusion this
+ * whole control exists to end.
+ */
+export async function listAccountBoards(orgId: string): Promise<{
+  boards: Array<{ id: string; name: string; privacy: string; pins: number; linked_to: string | null }>;
+  unreachable: string | null;
+}> {
+  const pool = organicPool();
+  const orgRes = await pool.query<{ token_enc: string | null }>(
+    `SELECT pinterest_access_token_encrypted AS token_enc FROM public.organizations WHERE id = $1`,
+    [orgId]
+  );
+  const enc = orgRes.rows[0]?.token_enc;
+  if (!enc) return { boards: [], unreachable: "no Pinterest token on the organisation" };
+
+  const held = await pool.query<{ pinterest_board_id: string; name: string }>(
+    `SELECT pinterest_board_id, name FROM organic.boards
+      WHERE org_id = $1 AND pinterest_board_id IS NOT NULL`,
+    [orgId]
+  );
+  const heldBy = new Map(held.rows.map((r) => [r.pinterest_board_id, r.name]));
+
+  try {
+    const client = new PinterestClient(decrypt(enc), false);
+    const remote = await client.getBoards();
+    return {
+      boards: remote.items
+        .map((b) => ({
+          id: b.id, name: b.name, privacy: b.privacy, pins: b.pin_count ?? 0,
+          linked_to: heldBy.get(b.id) ?? null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      unreachable: null,
+    };
+  } catch (e) {
+    return { boards: [], unreachable: (e as Error).message };
+  }
+}
+
+/**
+ * Point a designed board at a board that already exists on the account.
+ *
+ * The manual half of `adoptExistingBoards`: the automatic match is exact on
+ * the name, deliberately, so anything the client named differently — "Bathroom
+ * Organisation" against our "Bathroom Organization Ideas" — needs a person to
+ * say that they are the same board. Until 15-09-2026 there was nowhere to say
+ * it: the library was read-only, and a board that could not be created sat in
+ * the queue failing on every run with P3.3.6 blocked behind it.
+ *
+ * `created_on_pinterest` stays null, for the same reason adoption leaves it
+ * null: it means "we made this board, on this day", and `check_board_pace()`
+ * counts it against the three-a-day rule. Linking is not creating.
+ */
+export async function linkBoardToPinterest(
+  orgId: string, boardId: string, pinterestBoardId: string
+): Promise<{ name: string; status: string; pins: number }> {
+  const pool = organicPool();
+  const row = await pool.query<{ id: string; name: string }>(
+    `SELECT id::text, name FROM organic.boards WHERE id = $1 AND org_id = $2`,
+    [boardId, orgId]
+  );
+  if (row.rowCount === 0) throw new Error("That board is not in this store's library.");
+
+  const clash = await pool.query<{ name: string }>(
+    `SELECT name FROM organic.boards
+      WHERE org_id = $1 AND pinterest_board_id = $2 AND id <> $3`,
+    [orgId, pinterestBoardId, boardId]
+  );
+  if ((clash.rowCount ?? 0) > 0) {
+    throw new Error(
+      `That Pinterest board is already linked to "${clash.rows[0].name}". ` +
+      `Two library rows pointing at one board would pin the same cycle twice onto it.`
+    );
+  }
+
+  const orgRes = await pool.query<{ token_enc: string | null }>(
+    `SELECT pinterest_access_token_encrypted AS token_enc FROM public.organizations WHERE id = $1`,
+    [orgId]
+  );
+  const enc = orgRes.rows[0]?.token_enc;
+  if (!enc) throw new Error("No Pinterest token on the organisation — connect Pinterest first.");
+
+  // The status comes from Pinterest, never from us. A board's privacy is a
+  // fact about the account, and writing PROTECTED here because that is what
+  // the method usually makes would be the same lie the old dry run told.
+  const client = new PinterestClient(decrypt(enc), false);
+  const remote = await client.getBoards();
+  const found = remote.items.find((b) => b.id === pinterestBoardId);
+  if (!found) {
+    throw new Error("That board is not on the account any more — refresh the list.");
+  }
+
+  await pool.query(
+    `UPDATE organic.boards
+        SET pinterest_board_id = $1,
+            status = $2::organic.board_status,
+            pin_count = $3
+      WHERE id = $4`,
+    [found.id, found.privacy, found.pin_count ?? 0, boardId]
+  );
+  await recomputeAfter(orgId);
+  return { name: row.rows[0].name, status: found.privacy, pins: found.pin_count ?? 0 };
+}
+
+/**
+ * Take a board out of the library.
+ *
+ * Only ever the row. Nothing is deleted on Pinterest — a board with real pins
+ * on it is the client's, and an app that quietly removes one from their
+ * account is not a thing anybody wants to explain afterwards.
+ *
+ * It refuses rather than cascades. A board a waterfall pins onto, or a board
+ * a URL has been assigned, is load-bearing for work that exists, and silently
+ * dropping either leaves a cycle short of the boards its rotation was built
+ * from. The refusal names what is in the way so it can be undone in the one
+ * place that owns it.
+ */
+export async function removeBoardFromLibrary(
+  orgId: string, boardId: string
+): Promise<{ removed: string }> {
+  const pool = organicPool();
+  const row = await pool.query<{ name: string; status: string; live: boolean }>(
+    `SELECT name, status::text, pinterest_board_id IS NOT NULL AS live
+       FROM organic.boards WHERE id = $1 AND org_id = $2`,
+    [boardId, orgId]
+  );
+  if (row.rowCount === 0) throw new Error("That board is not in this store's library.");
+
+  const pins = await pool.query<{ n: string; urls: string }>(
+    `SELECT COUNT(*)::text AS n,
+            COALESCE(string_agg(DISTINCT u.name, ', '), '') AS urls
+       FROM organic.pins p
+       JOIN organic.waterfalls w ON w.id = p.waterfall_id
+       JOIN organic.urls u ON u.id = w.url_id
+      WHERE p.board_id = $1
+        AND w.status <> 'ABANDONED'::organic.waterfall_status
+        AND p.status <> 'CANCELLED'::organic.pin_status`,
+    [boardId]
+  );
+  if (Number(pins.rows[0].n) > 0) {
+    throw new Error(
+      `${pins.rows[0].n} live pin(s) are planned onto this board (${pins.rows[0].urls}). ` +
+      `Regenerate or cancel that cycle first — removing the board would leave those pins pointing at nothing.`
+    );
+  }
+
+  const assigned = await pool.query<{ urls: string }>(
+    `SELECT string_agg(u.name, ', ') AS urls
+       FROM organic.url_boards ub JOIN organic.urls u ON u.id = ub.url_id
+      WHERE ub.board_id = $1`,
+    [boardId]
+  );
+  if (assigned.rows[0]?.urls) {
+    throw new Error(
+      `This board is assigned to ${assigned.rows[0].urls}. Unassign it on that cycle first.`
+    );
+  }
+
+  await pool.query(`DELETE FROM organic.boards WHERE id = $1 AND org_id = $2`, [boardId, orgId]);
+  await recomputeAfter(orgId);
+  return { removed: row.rows[0].name };
 }
 
 /**
@@ -1294,6 +1499,7 @@ export async function createBoardsToday(orgId: string, timeSpentMin: number, opt
     orgId, taskId: "P3.3.5", addMinutes: timeSpentMin, done: remaining === 0,
     notes: `${opts.dryRun ? "DRY-RUN " : ""}Created ${created} board(s)` +
       `${adopted.adopted ? `, adopted ${adopted.adopted} that already existed` : ""}` +
+      `${adopted.linked_by_name.length ? `, linked to the client's own board instead of creating a second one: ${adopted.linked_by_name.join("; ")}` : ""}` +
       `${failed ? `, ${failed} failed: ${errors.join("; ")}` : ""}` +
       `${scheduled ? `, put ${scheduled} board(s) into the creation queue that had no planned date` : ""}` +
       `${remaining > 0 ? `, ${remaining} still to create` : ", the architecture is live"}.`,

@@ -841,7 +841,31 @@ function CreateBoardsForm({ orgId, task, onDone }: Props) {
         </div>
       }
       time={time} setTime={setTime} submitLabel="Create today's slot"
-      onSubmit={async () => { await post(orgId, { action: "create_boards", dry_run: dryRun, time_spent_min: n(time) }); onDone(); }}
+      onSubmit={async () => {
+        const r = await post(orgId, { action: "create_boards", dry_run: dryRun, time_spent_min: n(time) }) as {
+          created: number; failed: number; remaining: number; errors: string[];
+          adopted: number; linked_by_name: string[]; would_create: string[]; scheduled: number;
+        };
+        onDone();
+        // The run's own answer, not "saved". A board that could not be
+        // created is the whole reason somebody presses this twice, and it
+        // used to be reported nowhere on the screen at all.
+        const bits = [
+          dryRun
+            ? `Dry run — would create: ${r.would_create.length ? r.would_create.join(", ") : "nothing due today"}.`
+            : `Created ${r.created} board(s).`,
+          r.linked_by_name.length
+            ? `Linked to the client's own board instead of creating a second one: ${r.linked_by_name.join(", ")}.`
+            : "",
+          r.adopted ? `${r.adopted} already existed on the account and were adopted.` : "",
+          r.scheduled ? `${r.scheduled} board(s) had no planned date and were put in the queue.` : "",
+          r.failed
+            ? `${r.failed} failed — ${r.errors.join("; ")}. Link it to an existing board or remove it in the Boards library.`
+            : "",
+          r.remaining > 0 ? `${r.remaining} still to create.` : "The architecture is live.",
+        ].filter(Boolean);
+        return bits.join(" ");
+      }}
     />
   );
 }

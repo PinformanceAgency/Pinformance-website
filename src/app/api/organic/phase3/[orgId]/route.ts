@@ -12,6 +12,7 @@ import {
   finaliseBoardList, checkCoverage, saveBoardDescriptions,
   generateCreationSchedule, createBoardsToday,
   proposeSeedPins, reviewSeedPlan, loadSeedingState, flipBoardsPublicAtTen,
+  listAccountBoards, linkBoardToPinterest, removeBoardFromLibrary,
   searchInterests, loadBoardListContext,
   draftDisplayName, draftBio, draftBoardDescription,
   approveAndSaveDisplayName, approveAndSaveBio, approveAndSaveBoardDescription,
@@ -97,6 +98,16 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       return generateCreationSchedule(orgId, t());
     case "create_boards":
       return createBoardsToday(orgId, t(), { dryRun: !!body.dry_run });
+    // The boards library, made editable. P3.3.5 can refuse to create a board
+    // whose name the client already uses, and until these existed the row
+    // then sat in the creation queue failing on every run with no way to
+    // link it, remove it, or even see what was wrong.
+    case "account_boards":
+      return listAccountBoards(orgId);
+    case "link_board":
+      return linkBoardToPinterest(orgId, String(body.board_id), String(body.pinterest_board_id));
+    case "remove_board":
+      return removeBoardFromLibrary(orgId, String(body.board_id));
     case "select_seeds":
       return proposeSeedPins(orgId, t());
     // P3.3.6 — the person's half of the proposal.

@@ -102,6 +102,9 @@ async function run(request: NextRequest) {
           store: o.name, due: Number(o.due), created: r.created,
           adopted: r.adopted, failed: r.failed, remaining: r.remaining,
           scheduled: r.scheduled || undefined,
+          // Named, never just counted: linking a method board to one the
+          // client already had is a decision somebody may want to undo.
+          linked_by_name: r.linked_by_name.length ? r.linked_by_name : undefined,
           errors: r.errors.length ? r.errors : undefined,
           unreachable: r.unreachable ?? undefined,
         });
