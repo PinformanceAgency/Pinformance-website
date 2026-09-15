@@ -20,6 +20,10 @@
       "schedule": "0 2 * * *"
     },
     {
+      "path": "/api/cron/organic-pacing",
+      "schedule": "0 3 * * *"
+    },
+    {
       "path": "/api/cron/organic-pull-analytics",
       "schedule": "0 7 * * *"
     },
