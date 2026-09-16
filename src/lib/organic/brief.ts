@@ -29,6 +29,7 @@
  * ends up looking like a considered decision for 40 accounts.
  */
 import { organicPool } from "./db";
+import { writingLanguage, type WritingLanguage } from "./language";
 
 /* ------------------------------------------------------------------ */
 
@@ -57,6 +58,10 @@ export interface AccountBrief {
   domain: string | null;
   daily_pin_target: number | null;
   urls_per_month: number | null;
+  /** The language every generated surface writes in. Carries its own
+   *  "nobody chose this" flag rather than being absent when unset — the
+   *  fallback is English and has to be visible as a fallback. */
+  language: WritingLanguage;
 
   /** P1.0.4 — how much room the account has, and the reasoning. */
   potential: Known<{ rating: string; rationale: string | null }>;
@@ -153,7 +158,8 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
     await Promise.all([
       pool.query<{ name: string }>(`SELECT name FROM public.organizations WHERE id = $1`, [orgId]),
       pool.query(
-        `SELECT niche, domain, daily_pin_target, urls_per_month
+        `SELECT niche, domain, daily_pin_target, urls_per_month,
+                primary_language, market_country
            FROM organic.client_settings WHERE org_id = $1`, [orgId]),
       pool.query<{ verdict: string | null; rationale: string | null }>(
         `SELECT verdict::text AS verdict, rationale
@@ -221,6 +227,7 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
     domain: s?.domain ?? null,
     daily_pin_target: s?.daily_pin_target ?? null,
     urls_per_month: s?.urls_per_month ?? null,
+    language: writingLanguage(s ?? null),
 
     potential: v?.verdict
       ? known({ rating: v.verdict, rationale: v.rationale })

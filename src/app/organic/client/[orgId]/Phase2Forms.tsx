@@ -486,7 +486,14 @@ type RowState =
 /** Vercel refuses a request body over 4.5MB, and the failure arrives as an
  *  opaque 413 rather than as anything about CSVs. Caught here so the file
  *  that is too big is named, with the count that makes it too big. */
-const MAX_CSV_BYTES = 4_000_000;
+/**
+ * The CSV travels inside a JSON body, and Vercel refuses a request body over
+ * 4.5MB with a response that reads like a crash rather than a limit. Measured
+ * in real bytes (a file with accented characters is longer than its character
+ * count) and left well under, because JSON escaping adds to it: a quote or a
+ * newline inside a description becomes two characters on the wire.
+ */
+const MAX_CSV_BYTES = 3_500_000;
 
 /** Strip everything that differs between a brand's name and its export's
  *  file name — case, @, spaces, punctuation — so "@LuluAndGeorgia" matches
@@ -545,10 +552,11 @@ function ImportPinsForm({ orgId, snapshot, onDone }: Props) {
       setState((s) => ({ ...s, [c.id]: { kind: "busy" } }));
       try {
         const text = await file.text();
-        if (text.length > MAX_CSV_BYTES) {
+        const bytes = new TextEncoder().encode(text).length;
+        if (bytes > MAX_CSV_BYTES) {
           throw new Error(
-            `${(text.length / 1_000_000).toFixed(1)}MB is over the 4MB upload limit — ` +
-            `export this competitor in two halves and import both.`
+            `${(bytes / 1_000_000).toFixed(1)}MB is over the ${(MAX_CSV_BYTES / 1_000_000).toFixed(1)}MB upload limit — ` +
+            `export this competitor in two halves and import both. Re-importing overlapping rows is safe.`
           );
         }
         // The batch's time is booked once, on the first file: the manager
@@ -1040,6 +1048,16 @@ function FormShell({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  // Reloading during a save is the one moment a draft cannot cover: the
+  // competitor import is six files in a row, and a tab closed after the
+  // third leaves the operator with no way to tell which three landed
+  // (they can re-import — it deduplicates — but they have to know to).
+  useEffect(() => {
+    if (!submitting) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [submitting]);
   async function go() {
     setErr(null); setOk(null); setSubmitting(true);
     try {

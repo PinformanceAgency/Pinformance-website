@@ -15,6 +15,8 @@ import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { loadPhase3Snapshot } from "@/lib/organic/phase3";
 import { loadAssets, loadTaskAnswers } from "@/lib/organic/workspace";
 import { loadPhase4StepTasks } from "@/lib/organic/phase4";
+import { automationFor, type AutomationWaits } from "@/lib/organic/automation";
+import { loadAutomationWaits } from "@/lib/organic/queries";
 import { TaskCard } from "../PhaseBoard";
 import type { TaskRow } from "@/lib/organic/types";
 import { phaseMeta, stepMeta, OWNER_LABEL } from "@/lib/organic/phase-meta";
@@ -36,7 +38,7 @@ export default async function StepPage({
   if (!pMeta) notFound();
   const sMeta = stepMeta(phase, step);
 
-  const [header, tasks, viability, p2, p3, assets, answers, p4step] = await Promise.all([
+  const [header, tasks, viability, p2, p3, assets, answers, p4step, automation] = await Promise.all([
     loadClientHeader(orgId),
     loadClientTasks(orgId),
     loadViability(orgId),
@@ -49,6 +51,7 @@ export default async function StepPage({
     // cycle — which is every store before its first one. See
     // loadPhase4StepTasks.
     phase === 4 ? loadPhase4StepTasks(orgId, step) : Promise.resolve(null),
+    loadAutomationWaits(orgId),
   ]);
   if (!header) notFound();
 
@@ -113,6 +116,7 @@ export default async function StepPage({
           orgId={orgId} step={step} data={p4step!}
           answers={answers} assets={assets}
           viability={viability} phase2={p2} phase3={p3}
+          automation={automation}
         />
       ) : (
         <PhaseBoard
@@ -125,6 +129,7 @@ export default async function StepPage({
           phase2={p2}
           phase3={p3}
           assets={assets}
+          automation={automation}
         />
       )}
     </div>
@@ -142,7 +147,7 @@ export default async function StepPage({
  * that had not started one.
  */
 function Phase4Step({
-  orgId, step, data, answers, assets, viability, phase2, phase3,
+  orgId, step, data, answers, assets, viability, phase2, phase3, automation,
 }: {
   orgId: string;
   step: string;
@@ -152,6 +157,7 @@ function Phase4Step({
   viability: Awaited<ReturnType<typeof loadViability>>;
   phase2: Awaited<ReturnType<typeof loadPhase2Snapshot>>;
   phase3: Awaited<ReturnType<typeof loadPhase3Snapshot>>;
+  automation?: AutomationWaits;
 }) {
   if (data.instances.length > 0) {
     return (
@@ -174,6 +180,7 @@ function Phase4Step({
                   phase3={phase3}
                   assets={assets.filter((a) => a.linked_task_id === t.task_id)}
                   answers={answers}
+                  automation={automationFor(automation, t.task_id, inst.cycle)}
                 />
               ))}
             </div>

@@ -3,6 +3,7 @@
  * pool — see src/lib/organic/db.ts for the reasoning.
  */
 import { organicPool } from "./db";
+import { automationKey, BOARDS_PER_RUN, SEEDS_PER_DAY_HINT, type AutomationWaits } from "./automation";
 import { loadStatusContext, evaluateBlockReasons } from "./status";
 import type {
   ClientHeader,
@@ -254,4 +255,112 @@ export async function loadClientTasks(orgId: string): Promise<TaskRow[]> {
     notes: r.notes,
     block_reasons: r.status === "BLOCKED" ? evaluateBlockReasons(r.task_id, ctx, r.cycle ?? null) : [],
   }));
+}
+
+// ---------- waiting on automation -------------------------------------------
+
+/**
+ * What a cron is still working through, per task. See automation.ts for why
+ * this is computed on read rather than a seventh task_status.
+ */
+export async function loadAutomationWaits(orgId: string): Promise<AutomationWaits> {
+  const pool = organicPool();
+  const out: AutomationWaits = new Map();
+
+  const [boards, seeds, publishing] = await Promise.all([
+    // P3.3.5 — the creation queue.
+    pool.query<{ total: string; dated: string; overdue: string; next_due: string | null }>(
+      `SELECT COUNT(*)::text AS total,
+              COUNT(*) FILTER (WHERE planned_creation_date IS NOT NULL)::text AS dated,
+              COUNT(*) FILTER (WHERE planned_creation_date <= current_date)::text AS overdue,
+              MIN(planned_creation_date) FILTER (WHERE planned_creation_date > current_date)::text AS next_due
+         FROM organic.boards
+        WHERE org_id = $1
+          AND status = 'PLANNED'::organic.board_status
+          AND pinterest_board_id IS NULL
+          AND origin IS DISTINCT FROM 'MIGRATED'::organic.board_origin`, [orgId]),
+
+    // P3.3.7 — board warming. Only pins a person has already approved, and
+    // only onto boards that exist: an approved pin for a board that is still
+    // being created is waiting on P3.3.5, not on the seeding cron.
+    pool.query<{ approved: string; saved_today: string; boards: string }>(
+      `SELECT COUNT(*) FILTER (WHERE sp.status = 'APPROVED')::text AS approved,
+              COUNT(*) FILTER (WHERE sp.status = 'SAVED'
+                               AND sp.saved_at >= date_trunc('day', now()))::text AS saved_today,
+              COUNT(DISTINCT sp.board_id) FILTER (WHERE sp.status = 'APPROVED')::text AS boards
+         FROM organic.seed_plan sp
+         JOIN organic.boards b ON b.id = sp.board_id
+        WHERE sp.org_id = $1 AND b.pinterest_board_id IS NOT NULL`, [orgId]),
+
+    // P4.4.2 — pins queued and not yet out, per cycle. SCHEDULED only:
+    // a PLANNED pin has a date and will never publish, which is the one
+    // distinction this must not blur.
+    pool.query<{ url_id: string; waiting: string; next_date: string | null; total: string }>(
+      `SELECT w.url_id::text,
+              COUNT(*) FILTER (WHERE p.status = 'SCHEDULED'::organic.pin_status)::text AS waiting,
+              MIN(p.scheduled_date) FILTER (WHERE p.status = 'SCHEDULED'::organic.pin_status)::text AS next_date,
+              COUNT(*)::text AS total
+         FROM organic.pins p
+         JOIN organic.waterfalls w ON w.id = p.waterfall_id
+        WHERE w.org_id = $1 AND w.status = 'RUNNING'::organic.waterfall_status
+        GROUP BY w.url_id`, [orgId]),
+  ]);
+
+  const b = boards.rows[0];
+  const bTotal = Number(b?.total ?? 0);
+  const bDated = Number(b?.dated ?? 0);
+  const bUndated = bTotal - bDated;
+  if (bTotal > 0 && bDated > 0) {
+    const batch = Math.min(BOARDS_PER_RUN, bDated);
+    // Overdue boards are created on the next run, which is tonight. A future
+    // date is the honest answer only when nothing is due yet.
+    const when = Number(b?.overdue ?? 0) > 0 ? "tonight" : (b?.next_due ?? null);
+    const days = Math.ceil(bDated / BOARDS_PER_RUN);
+    out.set(automationKey(null, "P3.3.5"), {
+      label: "Waiting on automation",
+      detail:
+        `${bDated} board${bDated === 1 ? "" : "s"} remaining · next batch: ${batch} · ` +
+        `${when === "tonight" ? "tonight" : when ?? "no date"}` +
+        (days > 1 ? ` · about ${days} night${days === 1 ? "" : "s"} to clear` : ""),
+      runs: "organic-create-boards, 01:00 UTC daily — three per store per day (check_board_pace)",
+      next_run: b?.overdue && Number(b.overdue) > 0 ? null : b?.next_due ?? null,
+      operator_can_help: bUndated > 0
+        ? `${bUndated} designed board${bUndated === 1 ? " has" : "s have"} no planned date, so ${bUndated === 1 ? "it is" : "they are"} outside the queue entirely — run P3.3.4.`
+        : null,
+    });
+  }
+
+  const s = seeds.rows[0];
+  const approved = Number(s?.approved ?? 0);
+  if (approved > 0) {
+    const perDay = SEEDS_PER_DAY_HINT; // one save per hourly run, 06:20–17:20 UTC.
+    const days = Math.ceil(approved / perDay);
+    out.set(automationKey(null, "P3.3.7"), {
+      label: "Waiting on automation",
+      detail:
+        `${approved} approved seed pin${approved === 1 ? "" : "s"} still to save ` +
+        `across ${s?.boards ?? 0} board${Number(s?.boards ?? 0) === 1 ? "" : "s"} · ` +
+        `${s?.saved_today ?? 0} of ${perDay} saved today` +
+        (days > 1 ? ` · about ${days} days to clear` : ""),
+      runs: "organic-seed-boards, hourly 06:20–17:20 UTC — one save per run, ten a day",
+      next_run: null,
+      operator_can_help: null,
+    });
+  }
+
+  for (const p of publishing.rows) {
+    const waiting = Number(p.waiting);
+    if (waiting === 0) continue;
+    out.set(automationKey(`URL-${p.url_id.slice(0, 8)}`, "P4.4.2"), {
+      label: "Waiting on automation",
+      detail:
+        `${waiting} of ${p.total} pin${Number(p.total) === 1 ? "" : "s"} still queued · ` +
+        `next goes out ${p.next_date ?? "—"}`,
+      runs: "organic-post-pins, every 15 minutes — a pin publishes on the day it is dated",
+      next_run: p.next_date,
+      operator_can_help: null,
+    });
+  }
+
+  return out;
 }

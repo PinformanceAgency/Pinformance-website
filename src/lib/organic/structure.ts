@@ -32,6 +32,19 @@ export interface Deviation {
   /** `structure` — departs from a documented rule of the method.
    *  `research` — departs from what this account's own research found. */
   kind: "structure" | "research";
+  /**
+   * The items behind the count, named.
+   *
+   * "Its topic has fewer than five boards" is a fact; "needs 3 more live
+   * boards: Foundation, Dewy Makeup, Make-up Looks" is the same fact with
+   * the work in it. Reported 16-09-2026 from May Cosmetics: the panels said
+   * what was short and never what was missing, so every warning cost a trip
+   * to another screen to find out what it meant.
+   */
+  detail?: string[];
+  /** Where the fix is made. `task` is the SOP step that owns it, so the
+   *  button can read "Go to Board creation (P3.3.5)" instead of "Go there". */
+  fix?: { label: string; href: string; task?: string | null };
 }
 
 export interface Advice<T> {
@@ -478,6 +491,12 @@ export interface UrlReadiness {
   /** Boards under that topic that exist on Pinterest, and boards still only planned. */
   topic_boards_active: number;
   topic_boards_planned: number;
+  /** The designed boards under that topic that are not on Pinterest yet,
+   *  by name and by the date the creation queue reaches them. This is what
+   *  turns "fewer than five boards" into a list somebody can act on. */
+  topic_boards_pending: Array<{ name: string; planned_creation_date: string | null }>;
+  /** How many boards the gate still wants on the URL itself (four). */
+  boards_short: number;
 }
 
 /**
@@ -501,26 +520,56 @@ export function checkUrlReadiness(r: UrlReadiness | null, urlName: string): Devi
       kind: "structure",
       what: `"${urlName}" has no topic yet`,
       why: "Coverage is counted per topic (P3.3.2), so a URL without one can never clear the gate — not because it is short of boards, but because there is nothing to count. Set it with the Topic picker in the cycle's Setup section, or in the Topic column on the URLs page.",
+      fix: { label: "URL library", href: "urls", task: null },
     });
   } else if (!r.topic_covered && r.topic_boards_active === 0 && r.topic_boards_planned >= 5) {
     out.push({
       kind: "structure",
       what: `"${r.topic_name}" has ${r.topic_boards_planned} boards designed and none created on Pinterest`,
-      why: "Coverage counts boards that exist on the account, not boards on paper. The architecture is done; the boards still have to be created (P3.3.4).",
+      why: "Coverage counts boards that exist on the account, not boards on paper. The architecture is done; the boards still have to be created (P3.3.5), three a night.",
+      detail: pendingBoardLines(r),
+      fix: { label: "Board creation", href: "boards", task: "P3.3.5" },
     });
   } else if (!r.topic_covered) {
+    const short = Math.max(0, 5 - r.topic_boards_active);
     out.push({
       kind: "structure",
-      what: `"${r.topic_name}" has ${r.topic_boards_active} of the five boards it needs`,
-      why: "Board coverage gates phase 4 for that topic (P3.3.2). Pins land in too few contexts, and the rotation has nothing to rotate through.",
+      // The count AND the names. "Fewer than five boards" is a fact about
+      // the number; "needs 3 more live boards: Foundation, Dewy Makeup,
+      // Make-up Looks" is the same fact with the work in it, and it is the
+      // difference between reading the panel and acting on it.
+      what: `"${r.topic_name}" needs ${short} more live board${short === 1 ? "" : "s"} ` +
+            `(${r.topic_boards_active} of 5 on Pinterest)`,
+      why: r.topic_boards_pending.length > 0
+        ? "Board coverage gates phase 4 for that topic (P3.3.2). These are already designed — they are waiting on the creation queue, three a night."
+        : "Board coverage gates phase 4 for that topic (P3.3.2). Nothing more is designed under this topic yet, so the architecture step comes first.",
+      detail: pendingBoardLines(r),
+      fix: r.topic_boards_pending.length > 0
+        ? { label: "Board creation", href: "boards", task: "P3.3.5" }
+        : { label: "Board architecture", href: "boards", task: "P3.3.2" },
     });
   }
+  // Deliberately NOT reporting a shortfall on the URL's own boards here:
+  // checkBoards() already says "3 boards selected, the method asks for four
+  // to five" from the cycle's actual selection, and two warnings for one
+  // fact is how a panel starts getting skimmed. `boards_short` is carried on
+  // the interface because the pre-cycle blocker list reads the same number.
   if (!r.cooldown_clear) {
     out.push({
       kind: "structure",
       what: `"${urlName}" is still inside its cooldown`,
-      why: "A URL that returns before its cooldown clears competes with its own pins from the previous cycle.",
+      why: "A URL that returns before its cooldown clears competes with its own pins from the previous cycle. This is the one condition an override never reaches, so there is nothing to go and do.",
     });
   }
   return out;
+}
+
+/** The boards behind a coverage shortfall, newest due date last. An empty
+ *  list is returned rather than a placeholder line: "nothing is designed
+ *  yet" is said by the `why` above, and a detail list saying the same thing
+ *  twice is what makes people stop reading them. */
+function pendingBoardLines(r: UrlReadiness): string[] {
+  return r.topic_boards_pending
+    .slice(0, 6)
+    .map((b) => b.planned_creation_date ? `${b.name} — due ${b.planned_creation_date}` : `${b.name} — no date yet (P3.3.4)`);
 }

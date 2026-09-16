@@ -42,6 +42,12 @@ import { loadAccountBrief, productionSplit, formatNotesFromGrid } from "./brief"
 import { adviseBoards, adviseKeywords, adviseUrls, checkBoards, checkKeywords, checkUrlReadiness } from "./structure";
 import type { UrlReadiness } from "./structure";
 import { generateWithValidator, persistDraft } from "./ai";
+import { imageAudienceDirective, languageDirective, languageSummary, writingLanguage, type WritingLanguage } from "./language";
+
+/** The org brief carries the resolved language; a store with no brief row at
+ *  all still has to render, and falls back to the same English default. */
+const cycleLanguage = (brief: { language: WritingLanguage } | null): WritingLanguage =>
+  brief?.language ?? writingLanguage(null);
 import type { Deviation } from "./structure";
 
 /** Stamped on every generated copy set so a regression can be traced to
@@ -447,6 +453,10 @@ export interface DesignBrief {
   gaps: string[];
   /** Non-negotiable design constraints, spelled out for the designer. */
   constraints: string[];
+  /** What every generated word on this cycle is written in. On the brief
+   *  because the designer needs it too: an overlay in the wrong language is
+   *  as wrong as a description in the wrong language. */
+  language: WritingLanguage;
 }
 
 /** P4.2.3 — assemble a brief from the DB for the design/copy stages. */
@@ -533,9 +543,19 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
     // What the research could not tell us, named rather than defaulted.
     // A designer reading "no brand book" behaves differently from one who
     // assumes the palette below is the brand's.
-    gaps: [brief.grid, brief.brand, brief.taste, brief.market, brief.proven, brief.templates]
-      .filter((k) => !k.known)
-      .map((k) => (k as { why: string }).why),
+    language: brief.language,
+    gaps: [
+      ...[brief.grid, brief.brand, brief.taste, brief.market, brief.proven, brief.templates]
+        .filter((k) => !k.known)
+        .map((k) => (k as { why: string }).why),
+      // Named, not silently applied. An unset store writes English, which is
+      // deterministic and therefore already an improvement — but a Dutch
+      // brand reading English pins has to be able to find out why in one
+      // place instead of three.
+      ...(brief.language.is_default
+        ? ["No copy language set for this store — everything is written in English by default (Settings → Primary language)"]
+        : []),
+    ],
     constraints: [
       "Sans-serif fonts only — Pinterest OCR fails on cursive and script.",
       "Keep the top-left and top-right corners clear: Pinterest overlays Save / More buttons there.",
@@ -1708,6 +1728,10 @@ export interface CycleView {
    *  nothing; it exists so a DONE task and an empty record cannot sit on one
    *  screen unnoticed. */
   readiness: LaunchReadiness;
+  /** What every generated word on this cycle is written in. On the cycle
+   *  rather than only in Settings because this is the screen where copy gets
+   *  drafted, and a store on the English fallback has to say so here. */
+  language: WritingLanguage;
   /** The sixteen pins as they will go out: date, design, board, artwork.
    *  P4.3.2 is "check the spread on a visual calendar before anything is
    *  scheduled", and until now the calendar had no pictures on it — so the
@@ -1877,7 +1901,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
   const boardMeta = new Map<string, { topic_id: string | null; pin_count: number | null; status: string | null }>();
   const readiness = new Map<string, UrlReadiness>();
   if (brief) {
-    const [bm, rd] = await Promise.all([
+    const [bm, rd, pending] = await Promise.all([
       pool.query<{ id: string; topic_id: string | null; pin_count: number | null; status: string | null }>(
         `SELECT id::text, topic_id::text, pin_count, status::text FROM organic.boards WHERE org_id = $1`, [orgId]),
       pool.query<{
@@ -1892,7 +1916,24 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
            FROM organic.urls_selectable u
            LEFT JOIN organic.topic_coverage tc ON tc.topic_id = u.topic_id
           WHERE u.org_id = $1`, [orgId]),
+      // The designed-but-not-live boards per topic, so a coverage warning can
+      // name them instead of saying "fewer than five". Ordered by the date
+      // the creation queue reaches them — a board with no date is outside the
+      // queue entirely and says so.
+      pool.query<{ topic_id: string; name: string; planned_creation_date: string | null }>(
+        `SELECT topic_id::text, name, planned_creation_date::text
+           FROM organic.boards
+          WHERE org_id = $1 AND topic_id IS NOT NULL
+            AND pinterest_board_id IS NULL
+            AND status = 'PLANNED'::organic.board_status
+          ORDER BY planned_creation_date NULLS LAST, name`, [orgId]),
     ]);
+    const pendingByTopic = new Map<string, Array<{ name: string; planned_creation_date: string | null }>>();
+    for (const b of pending.rows) {
+      const arr = pendingByTopic.get(b.topic_id) ?? [];
+      arr.push({ name: b.name, planned_creation_date: b.planned_creation_date });
+      pendingByTopic.set(b.topic_id, arr);
+    }
     for (const b of bm.rows) boardMeta.set(b.id, { topic_id: b.topic_id, pin_count: b.pin_count, status: b.status });
     for (const r of rd.rows) {
       readiness.set(r.id, {
@@ -1903,6 +1944,8 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
         topic_name: r.topic_name,
         topic_boards_active: Number(r.topic_boards_active ?? 0),
         topic_boards_planned: Number(r.topic_boards_planned ?? 0),
+        topic_boards_pending: r.topic_id ? pendingByTopic.get(r.topic_id) ?? [] : [],
+        boards_short: Math.max(0, 4 - Number(r.assigned_boards)),
       });
     }
   }
@@ -1969,6 +2012,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
         pct: tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0,
       },
       deviations,
+      language: cycleLanguage(brief),
       readiness: launchReadiness(
         await cycleWorkState(orgId, u.id),
         cycleBoards.length,
@@ -2416,7 +2460,18 @@ async function designContext(orgId: string, designId: string): Promise<DesignCon
   return r.rows[0];
 }
 
-const COPY_SYSTEM = `You write Pinterest pin copy for a media buying agency.
+/**
+ * The system prompt takes the store's language rather than stating English.
+ *
+ * It goes in the SYSTEM turn, not appended to the user turn: the retry loop
+ * in generateWithValidator replays the user turn with the failure feedback,
+ * so a language rule living there competes with "your previous attempt was
+ * rejected because ..." on exactly the attempt most likely to drift.
+ */
+function copySystem(language: WritingLanguage): string {
+  return `You write Pinterest pin copy for a media buying agency.
+
+${languageDirective(language)}
 
 You return ONLY a JSON object, no preamble and no code fence:
 {"tagline": "...", "title": "...", "description": "..."}
@@ -2433,6 +2488,7 @@ Write in the brand's tone. Pinterest is a search engine before it is a
 social network: the description is read by the algorithm as much as by a
 person, so it should carry the long-tail terms naturally rather than
 stuffing them.`;
+}
 
 /** P4.2.8 — copy for one design, drafted from the account's own research. */
 export async function generateCopyForDesign(orgId: string, designId: string) {
@@ -2453,6 +2509,8 @@ export async function generateCopyForDesign(orgId: string, designId: string) {
     : "This is a SAVE pin: 2:3 lifestyle, no text on the image. The tagline is still needed for the overlay variant, but the copy should read as inspiration rather than a pitch.";
 
   const user = [
+    `Write in: ${languageSummary(account.language)}`,
+    "",
     `Brand: ${account.name}${account.niche ? ` — ${account.niche}` : ""}`,
     account.brand.value?.positioning ? `Positioning: ${account.brand.value.positioning}` : null,
     account.intake.value?.brand_personality ? `Personality: ${account.intake.value.brand_personality}` : null,
@@ -2481,7 +2539,7 @@ export async function generateCopyForDesign(orgId: string, designId: string) {
   ].filter((l) => l !== null).join("\n");
 
   const { text, attempts, failed_attempts } = await generateWithValidator(
-    COPY_SYSTEM,
+    copySystem(account.language),
     user,
     (raw) => {
       const parsed = parseCopyJson(raw, brief.primary_keyword);
@@ -2612,6 +2670,11 @@ export async function generateImagePromptForDesign(
   const palette = [...brief.dominant_colors, ...brief.brand_colors].slice(0, 5);
 
   const user = [
+    // The prompt stays English on purpose — see imageAudienceDirective.
+    // What the store's market changes is who is in the picture, not what
+    // language the instruction is written in.
+    imageAudienceDirective(account.language),
+    "",
     `Brand: ${account.name}${account.niche ? ` — ${account.niche}` : ""}`,
     account.intake.value?.products_services ? `Products: ${account.intake.value.products_services}` : null,
     `Landing page: ${brief.url_name}`,
@@ -2671,7 +2734,24 @@ export interface CycleReadiness {
   /** Ranked, best first, with the research reason. Empty when none qualify. */
   ready: Array<{ url_id: string; name: string; why: string }>;
   /** Why the rest cannot start, grouped by cause, worst first. */
-  blockers: Array<{ count: number; what: string; fix: string; href: string; examples: string[] }>;
+  blockers: Array<{
+    count: number;
+    what: string;
+    fix: string;
+    href: string;
+    examples: string[];
+    /**
+     * Exactly what is missing, named — one line per topic or per item, not a
+     * count. Reported 16-09-2026: the panel said "topic under five live
+     * boards" and left the manager to work out which topic, how many more,
+     * and whether they were already designed. All three are known here.
+     */
+    detail: string[];
+    /** The SOP step that owns the fix, so the button can say which one. */
+    task: string | null;
+    /** What the button reads. "Go there" is not a destination. */
+    action: string;
+  }>;
 }
 
 /**
@@ -2688,7 +2768,7 @@ export interface CycleReadiness {
  */
 export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness> {
   const pool = organicPool();
-  const [rows, running, brief] = await Promise.all([
+  const [rows, running, brief, pendingBoards] = await Promise.all([
     pool.query<{
       id: string; name: string; topic_id: string | null; topic_name: string | null;
       cooldown_clear: boolean; topic_covered: boolean;
@@ -2709,7 +2789,22 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
       `SELECT COUNT(DISTINCT cycle)::text AS n FROM organic.client_tasks
         WHERE org_id = $1 AND cycle LIKE 'URL-%'`, [orgId]),
     loadAccountBrief(orgId),
+    // Designed, not on Pinterest. What turns "this topic is short" into
+    // "these three are already drawn and due on the 17th".
+    pool.query<{ topic_id: string; name: string; planned_creation_date: string | null }>(
+      `SELECT topic_id::text, name, planned_creation_date::text
+         FROM organic.boards
+        WHERE org_id = $1 AND topic_id IS NOT NULL
+          AND pinterest_board_id IS NULL
+          AND status = 'PLANNED'::organic.board_status
+        ORDER BY planned_creation_date NULLS LAST, name`, [orgId]),
   ]);
+  const pendingByTopic = new Map<string, Array<{ name: string; due: string | null }>>();
+  for (const b of pendingBoards.rows) {
+    const arr = pendingByTopic.get(b.topic_id) ?? [];
+    arr.push({ name: b.name, due: b.planned_creation_date });
+    pendingByTopic.set(b.topic_id, arr);
+  }
 
   const all = rows.rows;
   const inCycle = new Set(
@@ -2737,11 +2832,55 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
     }));
 
   const blockers: CycleReadiness["blockers"] = [];
-  const push = (list: typeof all, what: string, fix: string, href: string) => {
+  const push = (
+    list: typeof all, what: string, fix: string, href: string,
+    opts: { detail?: string[]; task?: string | null; action?: string } = {},
+  ) => {
     if (list.length === 0) return;
     blockers.push({
       count: list.length, what, fix, href,
       examples: list.slice(0, 4).map((u) => u.name),
+      detail: opts.detail ?? [],
+      task: opts.task ?? null,
+      action: opts.action ?? "Go there",
+    });
+  };
+
+  /**
+   * The coverage shortfall per topic, named.
+   *
+   * One line per topic rather than per URL: nine URLs under one topic are
+   * one job, and listing them nine times is how a panel stops being read.
+   * The line says the topic, how many more live boards it needs, and which
+   * designed boards are standing in the queue with their dates — which is
+   * the difference between "go and look at the boards screen" and "these
+   * three arrive on the 17th, nothing to do".
+   */
+  const coverageLines = (list: typeof all): string[] => {
+    const byTopic = new Map<string, { name: string; active: number }>();
+    for (const u of list) {
+      if (!u.topic_id) continue;
+      byTopic.set(u.topic_id, {
+        name: u.topic_name ?? "(unnamed topic)",
+        active: Number(u.topic_boards_active ?? 0),
+      });
+    }
+    return [...byTopic.entries()].map(([topicId, t]) => {
+      const short = Math.max(0, 5 - t.active);
+      const pending = pendingByTopic.get(topicId) ?? [];
+      const named = pending.slice(0, 4)
+        .map((b) => (b.due ? `${b.name} (due ${b.due})` : `${b.name} (no date — run P3.3.4)`))
+        .join(", ");
+      const rest = pending.length > 4 ? ` +${pending.length - 4} more` : "";
+      const gap = short - pending.length;
+      return `${t.name} needs ${short} more live board${short === 1 ? "" : "s"} ` +
+             `(${t.active} of 5)` +
+             (pending.length > 0 ? ` — designed and queued: ${named}${rest}` : "") +
+             (gap > 0
+               ? (pending.length > 0
+                   ? ` — still ${gap} short after those, so ${gap} more have to be designed`
+                   : " — nothing designed yet under it")
+               : "");
     });
   };
 
@@ -2750,7 +2889,8 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
       count: 0,
       what: "There are no URLs on this store yet",
       fix: "Add the pages worth pinning to — collections, guides, strong product pages.",
-      href: "urls", examples: [],
+      href: "urls", examples: [], detail: [], task: "P4.1.1",
+      action: "Import the URL pool",
     });
   } else {
     // Reported independently: a URL can be short on both, and telling
@@ -2777,25 +2917,64 @@ export async function loadCycleReadiness(orgId: string): Promise<CycleReadiness>
     push(noTopic,
       `have no topic`,
       "Coverage is counted per topic, so a URL without one can never clear the gate. Set the topic on the URL — the import proposes one where it can.",
-      "urls");
+      "urls",
+      {
+        detail: noTopic.slice(0, 6).map((u) => u.name),
+        task: null,
+        action: "Set topics on the URLs page",
+      });
     push(boardsUnbuilt,
       `sit under a topic whose boards are designed but not created`,
-      "The architecture is done; create those boards on Pinterest (P3.3.4). Coverage counts boards that exist on the account, not boards on paper.",
-      "boards");
-    push(noCoverage,
-      `topic has fewer than five boards`,
-      "Build boards for that topic. Coverage gates phase 4 for everything under it (P3.3.2).",
-      "boards");
+      "The architecture is done — these are waiting on the creation queue, three a night. Coverage counts boards that exist on the account, not boards on paper.",
+      "boards",
+      { detail: coverageLines(boardsUnbuilt), task: "P3.3.5", action: "Board creation" });
+    // Short of coverage splits again, and it has to: "the boards exist and
+    // the queue is creating them" and "nothing more is designed under this
+    // topic" are different jobs on different screens. Sending somebody to
+    // the architecture step for a topic whose boards are already drawn and
+    // due on Thursday is the fix-that-cannot-work this app keeps shipping.
+    // "The queue covers it" is the question, not "is anything queued". A
+    // topic one board short with one queued needs nobody; a topic four short
+    // with two queued still needs two designed, and calling that "waiting on
+    // the queue" would leave it short for ever.
+    const hasPending = (u: typeof all[number]) => {
+      if (u.topic_id == null) return false;
+      const queued = pendingByTopic.get(u.topic_id)?.length ?? 0;
+      const short = Math.max(0, 5 - Number(u.topic_boards_active ?? 0));
+      return queued > 0 && queued >= short;
+    };
+    const coverageQueued = noCoverage.filter(hasPending);
+    const coverageUndesigned = noCoverage.filter((u) => !hasPending(u));
+    push(coverageQueued,
+      `sit under a topic whose remaining boards are designed and queued`,
+      "Nothing to design — the creation cron takes three a night and coverage opens as they land. Coverage counts boards that exist on the account, not boards on paper.",
+      "boards",
+      { detail: coverageLines(coverageQueued), task: "P3.3.5", action: "Board creation" });
+    push(coverageUndesigned,
+      `sit under a topic that still needs boards designed`,
+      "Coverage gates phase 4 for everything under that topic (P3.3.2). Whatever is already queued will land on its own; the shortfall after that has to be designed first. Each line says which of the two it is.",
+      "boards",
+      { detail: coverageLines(coverageUndesigned), task: "P3.3.2", action: "Board architecture" });
     push(fewBoards,
       `fewer than four boards assigned`,
-      "Boards are assigned inside the cycle for that URL (P4.1.7), not on the URLs page — start the " +
-      "cycle and the assign step is the second card. A URL that cannot reach four, because the store " +
-      "has few boards at all, can be started with a reason instead.",
-      "phase/4");
+      "Assign them in the Boards column on the URLs page, or inside the cycle once it is running. A URL " +
+      "that cannot reach four, because the store has few boards at all, can be started with a reason instead.",
+      "urls",
+      {
+        detail: fewBoards.slice(0, 6).map((u) => `${u.name} — ${u.assigned_boards} of 4 assigned`),
+        task: "P4.1.7",
+        action: "Assign boards on the URLs page",
+      });
     push(cooling,
       `still inside cooldown`,
-      "Nothing to do — they come back on their own. The date is on the URL.",
-      "urls");
+      "Nothing to do — they come back on their own, and this is the one condition an override never waives.",
+      "urls",
+      {
+        detail: cooling.slice(0, 6)
+          .map((u) => u.cooldown_until ? `${u.name} — free again on ${u.cooldown_until}` : u.name),
+        task: null,
+        action: "URL library",
+      });
   }
   blockers.sort((a, b) => b.count - a.count);
 

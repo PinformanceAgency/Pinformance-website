@@ -13,6 +13,7 @@ import type { AssetRow, TaskAnswer } from "@/lib/organic/workspace";
 import type { Phase2Snapshot } from "./Phase2Forms";
 import type { Phase3Snapshot } from "./Phase3Forms";
 import type { Deviation } from "@/lib/organic/structure";
+import { automationFor, type AutomationWaits } from "@/lib/organic/automation";
 import { Phase4Sourcing } from "./Phase4Sourcing";
 
 interface OrgBoard { id: string; name: string; status: string; topic_name: string | null }
@@ -30,7 +31,7 @@ const REASONS = ["SEASONAL","NEW","BEST_PERFORMER","CLIENT_REQUEST","STOCK_PUSH"
 
 export function Phase4Cycles({
   orgId, cycles, selectableUrls, orgBoards, orgKeywords, orgTopics,
-  assets, answers, viability, phase2, phase3,
+  assets, answers, viability, phase2, phase3, automation,
 }: {
   orgId: string;
   cycles: CycleView[];
@@ -43,6 +44,8 @@ export function Phase4Cycles({
   viability: ViabilityRow | null;
   phase2: Phase2Snapshot;
   phase3: Phase3Snapshot;
+  /** Cycle tasks whose remainder belongs to the publishing cron. */
+  automation?: AutomationWaits;
 }) {
   return (
     <section className="space-y-3">
@@ -69,7 +72,8 @@ export function Phase4Cycles({
         {cycles.map((c) => (
           <CycleCard key={c.cycle} orgId={orgId} cycle={c} orgBoards={orgBoards} orgKeywords={orgKeywords}
                      orgTopics={orgTopics}
-                     assets={assets} answers={answers} viability={viability} phase2={phase2} phase3={phase3} />
+                     assets={assets} answers={answers} viability={viability} phase2={phase2} phase3={phase3}
+                     automation={automation} />
         ))}
       </div>
     </section>
@@ -206,7 +210,7 @@ function StartCycle({
 // ---------- Cycle card ------------------------------------------------------
 
 function CycleCard({
-  orgId, cycle, orgBoards, orgKeywords, orgTopics, assets, answers, viability, phase2, phase3,
+  orgId, cycle, orgBoards, orgKeywords, orgTopics, assets, answers, viability, phase2, phase3, automation,
 }: {
   orgId: string;
   cycle: CycleView;
@@ -218,6 +222,7 @@ function CycleCard({
   viability: ViabilityRow | null;
   phase2: Phase2Snapshot;
   phase3: Phase3Snapshot;
+  automation?: AutomationWaits;
 }) {
   const [expanded, setExpanded] = useState(cycle.progress.pct < 100);
 
@@ -261,7 +266,8 @@ function CycleCard({
           <CopySection orgId={orgId} cycle={cycle} />
           <WaterfallSection orgId={orgId} cycle={cycle} />
           <TaskListSection cycle={cycle} orgId={orgId} assets={assets} answers={answers}
-                           viability={viability} phase2={phase2} phase3={phase3} />
+                           viability={viability} phase2={phase2} phase3={phase3}
+                           automation={automation} />
         </div>
       )}
     </div>
@@ -404,6 +410,7 @@ function SetupSection({
 
   return (
     <div className="p-4 space-y-3">
+      <LanguageLine orgId={orgId} language={cycle.language} />
       <ReadinessPanel readiness={cycle.readiness} />
 
       {/* P4.1.5 was retired — the reason is set when the URL enters the pool
@@ -411,7 +418,7 @@ function SetupSection({
           urls.reason still drives the candidate ranking. */}
       <SectionTitle text="1 · Setup — reason, boards, keywords (P4.1.6 / P4.1.7 / P4.1.8)" />
 
-      <DeviationPanel deviations={cycle.deviations} />
+      <DeviationPanel deviations={cycle.deviations} orgId={orgId} />
 
       {/* The research is one click from the decision it informs. Half of it
           does not steer anything automatically — the competitor exports,
@@ -1073,7 +1080,7 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
 // ---------- section 4: raw task list ---------------------------------------
 
 function TaskListSection({
-  cycle, orgId, assets, answers, viability, phase2, phase3,
+  cycle, orgId, assets, answers, viability, phase2, phase3, automation,
 }: {
   cycle: CycleView;
   orgId: string;
@@ -1082,6 +1089,7 @@ function TaskListSection({
   viability: ViabilityRow | null;
   phase2: Phase2Snapshot;
   phase3: Phase3Snapshot;
+  automation?: AutomationWaits;
 }) {
   const grouped = useMemo(() => {
     const m = new Map<string, typeof cycle.tasks>();
@@ -1144,6 +1152,7 @@ function TaskListSection({
                   phase3={phase3}
                   assets={assetsByTask.get(t.task_id) ?? []}
                   answers={answers}
+                  automation={automationFor(automation, t.task_id, cycle.cycle)}
                 />
               ))}
             </div>
@@ -1309,6 +1318,39 @@ async function callP4(orgId: string, body: Record<string, unknown>): Promise<unk
  * often the one who knows why that research is out of date.
  */
 /**
+ * What this cycle's copy will be written in.
+ *
+ * On the cycle card and not only in Settings, because this is the screen
+ * where copy is drafted and QC'd. May Cosmetics had two of four copy sets in
+ * Dutch and two in English inside one cycle, which nothing anywhere could
+ * have predicted: no prompt named a language, so each call inferred one. The
+ * fallback is stated rather than silent — an English line on a Dutch store is
+ * the thing somebody has to be able to spot before the copy is generated,
+ * not after a client reads it.
+ */
+function LanguageLine({ orgId, language }: { orgId: string; language: CycleView["language"] }) {
+  return (
+    <div className={cn(
+      "flex items-center gap-2 flex-wrap rounded-md px-2.5 py-1.5 text-[11px]",
+      language.is_default
+        ? "bg-amber-50 ring-1 ring-inset ring-amber-200 text-amber-900"
+        : "bg-neutral-50 ring-1 ring-inset ring-neutral-200 text-neutral-700"
+    )}>
+      <span className="font-medium">Copy language: {language.label}</span>
+      {language.market_label && <span>· {language.market_label}</span>}
+      {language.is_default && (
+        <>
+          <span>· nobody set one for this store, so everything is written in English</span>
+          <a href={`/client/${orgId}/settings`} className="underline underline-offset-2 font-medium">
+            Set it
+          </a>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
  * Launch readiness — which of the nine things a live cycle needs are there.
  *
  * Clarissa's suggestion, 12-09-2026, after finding "P4.2.10 · DONE" sitting
@@ -1362,7 +1404,7 @@ function ReadinessPanel({ readiness }: { readiness: CycleView["readiness"] }) {
   );
 }
 
-function DeviationPanel({ deviations }: { deviations: Deviation[] }) {
+function DeviationPanel({ deviations, orgId }: { deviations: Deviation[]; orgId: string }) {
   if (deviations.length === 0) return null;
   return (
     <div className="rounded-lg ring-1 ring-inset ring-o-accent/25 bg-o-accent/[0.04] px-3.5 py-3">
@@ -1386,6 +1428,22 @@ function DeviationPanel({ deviations }: { deviations: Deviation[] }) {
             </span>
             <span className="font-medium text-foreground">{d.what}</span>
             <span className="block mt-0.5 ml-[3.6rem] text-muted-foreground">{d.why}</span>
+            {/* The items behind the count. A warning that names three boards
+                is a job; the same warning as a number is a trip to another
+                screen to find out what it meant. */}
+            {d.detail && d.detail.length > 0 && (
+              <ul className="mt-1 ml-[3.6rem] space-y-0.5">
+                {d.detail.map((line, j) => (
+                  <li key={j} className="text-[11px] text-o-ink-2">· {line}</li>
+                ))}
+              </ul>
+            )}
+            {d.fix && (
+              <a href={`/client/${orgId}/${d.fix.href}`}
+                 className="inline-flex items-center gap-1 mt-1 ml-[3.6rem] text-[11px] font-medium text-o-accent hover:underline underline-offset-2">
+                Go to {d.fix.label}{d.fix.task ? ` (${d.fix.task})` : ""} →
+              </a>
+            )}
           </li>
         ))}
       </ul>

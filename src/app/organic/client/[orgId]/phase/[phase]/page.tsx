@@ -5,6 +5,7 @@ import { loadPhase2Snapshot } from "@/lib/organic/phase2";
 import { loadPhase3Snapshot } from "@/lib/organic/phase3";
 import { loadPhase4Snapshot, loadCyclesForOrg, loadOrgBoards, loadOrgKeywordsWithVolume, loadCycleReadiness, loadTopicOptions } from "@/lib/organic/phase4";
 import { loadAssets, loadCycleOps, loadTaskAnswers } from "@/lib/organic/workspace";
+import { loadAutomationWaits } from "@/lib/organic/queries";
 import { phaseMeta } from "@/lib/organic/phase-meta";
 import { TASK_STATUS_SERIES } from "@/lib/organic/types";
 import type { PhaseProgress } from "@/lib/organic/types";
@@ -27,7 +28,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
   // flat task list.
   if (phase === 4) {
     const [header, p4, cycles, orgBoards, orgKeywords, orgTopics, assets, ops, readiness,
-           answers, viability, p2, p3] = await Promise.all([
+           answers, viability, p2, p3, automation] = await Promise.all([
       loadClientHeader(orgId),
       loadPhase4Snapshot(orgId),
       loadCyclesForOrg(orgId),
@@ -43,6 +44,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
       loadViability(orgId),
       loadPhase2Snapshot(orgId),
       loadPhase3Snapshot(orgId),
+      loadAutomationWaits(orgId),
     ]);
     if (!header) notFound();
     // Resolved server-side so the calendar's "today" column and the pin
@@ -68,6 +70,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
           viability={viability}
           phase2={p2}
           phase3={p3}
+          automation={automation}
         />
         <StepGuideGrid meta={meta} />
         <PhaseAssets assets={assets.filter((a) => a.linked_task_id?.startsWith("P4."))} />
@@ -75,7 +78,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
     );
   }
 
-  const [header, tasks, viability, p2, p3, assets, answers] = await Promise.all([
+  const [header, tasks, viability, p2, p3, assets, answers, automation] = await Promise.all([
     loadClientHeader(orgId),
     loadClientTasks(orgId),
     loadViability(orgId),
@@ -83,6 +86,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
     loadPhase3Snapshot(orgId),
     loadAssets(orgId),
     loadTaskAnswers(orgId),
+    loadAutomationWaits(orgId),
   ]);
   if (!header) notFound();
 
@@ -100,6 +104,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
         phase2={p2}
         phase3={p3}
         assets={assets}
+        automation={automation}
       />
     </div>
   );

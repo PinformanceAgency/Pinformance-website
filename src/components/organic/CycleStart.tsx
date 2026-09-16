@@ -38,11 +38,11 @@ export function CycleStart({ readiness, base }: { readiness: CycleReadiness; bas
         </div>
         <p className="mt-1 text-sm text-muted-foreground max-w-3xl leading-relaxed">
           {eligible > 0
-            ? <>{eligible} URL{eligible === 1 ? " is" : "s are"} out of cooldown with a covered topic and five boards
+            ? <>{eligible} URL{eligible === 1 ? " is" : "s are"} out of cooldown with a covered topic and four boards
                assigned. Pick one and the sixteen-pin chain begins.</>
             : total_urls === 0
               ? <>A cycle turns one URL into sixteen pins. This store has no URLs yet, so there is nothing to run.</>
-              : <>A cycle needs a URL that is out of cooldown, sits under a topic with five boards, and has five
+              : <>A cycle needs a URL that is out of cooldown, sits under a topic with five live boards, and has four
                  boards of its own assigned. None of the {total_urls} URLs here clear all three
                  {running > 0 ? " — so the ones below are all that can run for now." : " yet."}</>}
         </p>
@@ -78,13 +78,26 @@ export function CycleStart({ readiness, base }: { readiness: CycleReadiness; bas
                   {b.count > 0 ? `URL${b.count === 1 ? "" : "s"}: ${b.what}` : b.what}
                 </p>
                 <p className="mt-0.5 text-sm text-muted-foreground">{b.fix}</p>
+                {/* What is missing, by name. The count alone sent the
+                    manager to another screen to find out what it meant —
+                    reported from May Cosmetics, 16-09-2026. */}
+                {b.detail.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {b.detail.map((line, j) => (
+                      <li key={j} className="text-xs text-o-ink-2">· {line}</li>
+                    ))}
+                  </ul>
+                )}
                 {b.examples.length > 0 && (
-                  <p className="mt-1 text-xs text-o-ink-3">{b.examples.join(" · ")}{b.count > b.examples.length ? " …" : ""}</p>
+                  <p className="mt-1 text-xs text-o-ink-3">
+                    {b.detail.length > 0 ? "URLs held up: " : ""}
+                    {b.examples.join(" · ")}{b.count > b.examples.length ? " …" : ""}
+                  </p>
                 )}
               </div>
               <Link href={`${base}/${b.href}`}
                     className="o-btn shrink-0 text-xs">
-                Go there <ArrowRight className="w-3.5 h-3.5" />
+                {b.action}{b.task ? ` (${b.task})` : ""} <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </li>
           ))}

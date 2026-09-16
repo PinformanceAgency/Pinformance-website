@@ -11,6 +11,7 @@
  *      should be re-run as paid.
  */
 import { organicPool } from "./db";
+import { languageDirective } from "./language";
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
 import {
@@ -634,7 +635,10 @@ export async function draftTrendForecast(orgId: string) {
   ].filter((l) => l !== null).join("\n");
 
   const { text, attempts, failed_attempts } = await generateWithValidator(
-    FORECAST_SYSTEM, user, validateForecast, 700
+    // The client reads this paragraph in their own report, so it follows the
+    // store's language like every other client-facing surface.
+    `${FORECAST_SYSTEM}\n\n${languageDirective(brief.language)}`,
+    user, validateForecast, 700
   );
   const draftId = await persistDraft(orgId, "TREND_FORECAST", null, text);
   return { forecast: text, draft_id: draftId, attempts, failed_attempts, had_trend_input: (notes.rowCount ?? 0) > 0 };

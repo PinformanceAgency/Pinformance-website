@@ -13,6 +13,7 @@ import { completeTaskByDefinition, recordTaskProgress, recomputeAfter } from "./
 import { decrypt } from "@/lib/encryption";
 import { PinterestClient } from "@/lib/pinterest/client";
 import { generateWithValidator, persistDraft, approveDraft, latestDraft } from "./ai";
+import { languageDirective, writingLanguage } from "./language";
 
 // ---------- helpers ---------------------------------------------------------
 
@@ -272,6 +273,29 @@ export async function generateWorkList(orgId: string, timeSpentMin: number) {
  * which reads on screen as "PinClicks lost my work" and puts the same terms
  * back in the next work list for ever.
  */
+/**
+ * P3.1.8 — write a PinClicks session back to the shared cache.
+ *
+ * SUBMITTED IN SLICES, AND THAT IS THE POINT
+ * ------------------------------------------
+ * A session is the whole work list at once — 375 terms for Fit Cherries —
+ * and until 16-09-2026 it was one request. If anything took that request
+ * down (a timeout, a closed laptop, the dashboard reloading under someone),
+ * the transaction rolled back and an afternoon of looking up volumes existed
+ * nowhere but the draft. Reported by the organic specialist as "the system
+ * shut down during keyword research and I had to redo it".
+ *
+ * So the screen now posts a few hundred terms at a time and each slice is
+ * its own transaction: a failure costs the slice in flight, never the ones
+ * already written. Re-submitting a term that is already cached simply
+ * rewrites the same row, so a retry after a crash is safe and finishes the
+ * job rather than restarting it.
+ *
+ * The task therefore cannot be closed by the caller saying so. It closes
+ * when the org's lookup queue is actually empty — derived here, from the
+ * table, because "this was the last slice" is exactly the claim a crash
+ * makes false.
+ */
 export async function submitPinClicksResults(
   orgId: string,
   results: { term: string; volume?: number | null; taxonomy_path?: string | null; not_found?: boolean }[],
@@ -344,9 +368,24 @@ export async function submitPinClicksResults(
     }
     await client.query("COMMIT");
     const written = terms.length;
-    await completeTaskByDefinition({ orgId, taskId: "P3.1.8", timeSpentMin,
-      notes: `PinClicks: wrote ${written} to shared cache; +${extras.length} related finds.` });
-    return { written, extra_finds: extras.length, recomputed: await recomputeAfter(orgId) };
+
+    // What is left in the queue decides whether the task is finished — not
+    // the caller, and not a count of what this slice happened to carry.
+    const left = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.volume_lookup_queue
+        WHERE org_id = $1 AND status = 'QUEUED'::organic.lookup_status`, [orgId]);
+    const remaining = Number(left.rows[0]?.n ?? 0);
+    const note = remaining === 0
+      ? `PinClicks: queue cleared; +${extras.length} related finds.`
+      : `PinClicks: ${written} written this pass, ${remaining} still queued.`;
+    await recordTaskProgress({ orgId, taskId: "P3.1.8", addMinutes: timeSpentMin,
+      done: remaining === 0, notes: note });
+    return {
+      written, remaining, extra_finds: extras.length,
+      // Only worth doing once the queue is empty: recompute walks every task
+      // for the org, and a session in slices would otherwise run it per slice.
+      recomputed: remaining === 0 ? await recomputeAfter(orgId) : 0,
+    };
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
@@ -645,7 +684,7 @@ export async function saveBio(orgId: string, bio: string, timeSpentMin: number) 
 /** Assemble the shared context every AI_DRAFT prompt needs. */
 async function loadAiContext(orgId: string) {
   const pool = organicPool();
-  const [intake, brand, taste, cachedKws] = await Promise.all([
+  const [intake, brand, taste, cachedKws, settings] = await Promise.all([
     pool.query(`SELECT contact_name, business_story, products_services, value_proposition,
                        target_markets, ideal_audience, brand_personality, primary_goals
                   FROM organic.client_intake WHERE org_id = $1`, [orgId]),
@@ -658,12 +697,19 @@ async function loadAiContext(orgId: string) {
          FROM organic.keyword_volume_cache c JOIN organic.keywords k ON k.term = c.term
         WHERE k.org_id = $1 AND c.volume IS NOT NULL AND c.not_found = false
         ORDER BY c.volume DESC LIMIT 40`, [orgId]),
+    pool.query<{ primary_language: string | null; market_country: string | null }>(
+      `SELECT primary_language, market_country
+         FROM organic.client_settings WHERE org_id = $1`, [orgId]),
   ]);
   return {
     intake: intake.rows[0] ?? null,
     brand: brand.rows[0] ?? null,
     taste: taste.rows[0] ?? null,
     cached_keywords: cachedKws.rows,
+    // The profile name, the bio and every board description are read by the
+    // client's own audience. Before this they were written in whatever
+    // language the context happened to suggest.
+    language: writingLanguage(settings.rows[0] ?? null),
   };
 }
 
@@ -682,7 +728,9 @@ export async function draftDisplayName(orgId: string, brandName: string): Promis
     }
     return { ok: errs.length === 0, errors: errs };
   };
-  const system = "You draft Pinterest display names for e-commerce brands. Output ONLY the display name, no quotes, no preamble.";
+  const system =
+    "You draft Pinterest display names for e-commerce brands. Output ONLY the display name, no quotes, no preamble.\n\n" +
+    languageDirective(ctx.language);
   const user = [
     `Brand name: ${brandName}`,
     "Rules:",
@@ -719,7 +767,9 @@ export async function draftBio(orgId: string, brandName: string): Promise<{ draf
     if (hits < 3) errs.push(`only ${hits} cached keywords present, need ≥3 (aim for ~5)`);
     return { ok: errs.length === 0, errors: errs };
   };
-  const system = "You write Pinterest bios for e-commerce brands. Natural, readable, no jargon. Output only the bio.";
+  const system =
+    "You write Pinterest bios for e-commerce brands. Natural, readable, no jargon. Output only the bio.\n\n" +
+    languageDirective(ctx.language);
   const user = [
     `Brand: ${brandName}`,
     "Rules:",
@@ -763,7 +813,9 @@ export async function draftBoardDescription(orgId: string, boardId: string): Pro
     }
     return { ok: errs.length === 0, errors: errs };
   };
-  const system = "You write Pinterest board descriptions. Natural running sentences, no bullet lists. Output the description only.";
+  const system =
+    "You write Pinterest board descriptions. Natural running sentences, no bullet lists. Output the description only.\n\n" +
+    languageDirective(ctx.language);
   const user = [
     `Board name: "${board.name}"`,
     board.primary_keyword ? `Primary keyword: ${board.primary_keyword}` : "",

@@ -76,6 +76,16 @@ function FormShell({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  // A save in flight is the one moment a reload actually costs work: the
+  // draft has what was typed, but a half-written session has to be finished
+  // rather than started again. The browser's own dialog is the only thing
+  // that can interrupt a navigation, so it gets used.
+  useEffect(() => {
+    if (!submitting) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [submitting]);
   async function go() {
     setErr(null); setOk(null); setSubmitting(true);
     try {
@@ -297,6 +307,11 @@ function ActionForm({ orgId, task, onDone, action, title, desc }: Props & { acti
   );
 }
 
+/** Terms per request. Small enough that one slice is well inside the route's
+ *  limit, large enough that a 375-term session is two round trips rather than
+ *  three hundred. */
+const PINCLICKS_CHUNK = 200;
+
 function PinClicksForm({ orgId, snapshot, onDone }: Props) {
   // Queue: cache misses for this org.
   const queued = snapshot.queue.filter((q) => q.status === "QUEUED");
@@ -306,6 +321,7 @@ function PinClicksForm({ orgId, snapshot, onDone }: Props) {
   );
   const [extra, setExtra] = useState("");
   const [time, setTime] = useState("");
+  const [progress, setProgress] = useState<string | null>(null);
   const draft = useFormDraft(orgId, "P3.1.8", { values, extra, time }, (d) => {
     if (d.values) setValues((cur) => mergeDraftRows(cur, d.values as Record<string, { volume: string; not_found: boolean }>));
     if (typeof d.extra === "string") setExtra(d.extra);
@@ -342,14 +358,53 @@ function PinClicksForm({ orgId, snapshot, onDone }: Props) {
             <div className="text-[11px] text-neutral-600 mb-1">Related keywords found along the way (added to pool)</div>
             <TextList v={extra} on={setExtra} rows={2} placeholder="Comma-separated or one per line" />
           </div>
+          <div className="text-[11px] text-neutral-500">
+            {progress
+              ? progress
+              : `Written in batches of ${PINCLICKS_CHUNK}. A term left blank stays in the queue, so you can stop half way and pick the rest up later.`}
+          </div>
         </div>
       }
       time={time} setTime={setTime} submitLabel="Write to shared cache"
       onSubmit={async () => {
-        const results = Object.entries(values).map(([term, v]) => ({ term, volume: v.volume ? Number(v.volume) : null, not_found: v.not_found }));
+        // Only the rows somebody actually answered. A blank volume with the
+        // box unticked is a term nobody has looked up yet, and closing its
+        // queue entry with a null volume would hide it from the next work
+        // list — the work would look done and the answer would not exist.
+        const results = Object.entries(values)
+          .filter(([, v]) => v.volume.trim() !== "" || v.not_found)
+          .map(([term, v]) => ({ term, volume: v.volume ? Number(v.volume) : null, not_found: v.not_found }));
+        if (results.length === 0) {
+          throw new Error("Nothing filled in yet — enter a volume or tick \"not found\" on at least one term.");
+        }
         const extra_finds = extra.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
-        await post(orgId, { action: "pinclicks_submit", results, extra_finds, time_spent_min: n(time) });
+
+        // In slices, so a timeout or a closed tab costs the slice in flight
+        // and nothing else. Each one is its own transaction server-side and
+        // re-writing a cached term is a no-op, so picking up after a crash
+        // finishes the session instead of restarting it.
+        let written = 0;
+        let remaining = 0;
+        for (let i = 0; i < results.length; i += PINCLICKS_CHUNK) {
+          const slice = results.slice(i, i + PINCLICKS_CHUNK);
+          setProgress(`${i} of ${results.length} written…`);
+          const d = await post(orgId, {
+            action: "pinclicks_submit",
+            results: slice,
+            // The related finds and the time on task belong to the session,
+            // not to every slice of it.
+            extra_finds: i === 0 ? extra_finds : [],
+            time_spent_min: i === 0 ? n(time) : 0,
+          });
+          written += Number(d.written ?? 0);
+          remaining = Number(d.remaining ?? 0);
+        }
+        setProgress(null);
         onDone();
+        return `${written} term(s) written to the shared cache` +
+               (remaining > 0
+                 ? ` · ${remaining} still queued — the task stays open until they are all in.`
+                 : " · the queue is clear.");
       }}
     />
   );

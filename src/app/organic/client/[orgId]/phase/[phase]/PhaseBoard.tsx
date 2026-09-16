@@ -17,6 +17,8 @@ import { SkipDialog } from "../../SkipDialog";
 import { Phase4Action } from "../../Phase4Action";
 import { Phase5Action } from "../../Phase5Action";
 import type { CycleView } from "@/lib/organic/phase4";
+import { automationFor, type AutomationWait, type AutomationWaits } from "@/lib/organic/automation";
+import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const STATUS_CHOICES: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE", "SKIPPED"];
@@ -38,7 +40,7 @@ const CUSTOM_FORM_TASKS = new Set([
 ]);
 
 export function PhaseBoard({
-  orgId, phase, tasks, viability, phase2, phase3, assets, answers, showStepHeaders = true,
+  orgId, phase, tasks, viability, phase2, phase3, assets, answers, automation, showStepHeaders = true,
 }: {
   orgId: string;
   phase: number;
@@ -48,6 +50,8 @@ export function PhaseBoard({
   phase3: Phase3Snapshot;
   assets: AssetRow[];
   answers: TaskAnswer[];
+  /** Tasks whose remaining work belongs to a cron, computed on read. */
+  automation?: AutomationWaits;
   /** The step route renders the step's own title and context panel above
    *  the board, so it turns this off — two headers for one step is the
    *  kind of duplication that makes a screen look unconsidered. */
@@ -122,6 +126,7 @@ export function PhaseBoard({
               {s.tasks.map((t) => (
                 <TaskCard answers={answers} standalone={!showStepHeaders} key={t.client_task_id} task={t} orgId={orgId}
                   viability={viability} phase2={phase2} phase3={phase3}
+                  automation={automationFor(automation, t.task_id, null)}
                   assets={assetsByTask.get(t.task_id) ?? []} />
               ))}
             </div>
@@ -129,6 +134,63 @@ export function PhaseBoard({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * "Waiting on automation" — nothing for the operator, a cron is working
+ * through it.
+ *
+ * Deliberately not a colour that asks for attention. The whole reason this
+ * exists is that a board-creation queue sitting at IN_PROGRESS for eight
+ * nights reads the same as work somebody started and dropped, and the cost
+ * of that is a manager re-deriving "nothing to do here" every morning.
+ *
+ * `operator_can_help` is the exception that keeps it honest: a designed
+ * board with no planned date is not in the queue at all, and calling that
+ * "waiting on automation" would be a lie with a week's delay built in.
+ */
+function AutomationPanel({ wait }: { wait: AutomationWait }) {
+  return (
+    <div className="mt-3 flex gap-2.5 rounded-lg bg-o-sunk ring-1 ring-inset ring-o-hairline-firm/60 px-3.5 py-2.5">
+      <Bot className="w-4 h-4 text-o-ink-3 shrink-0 mt-0.5" />
+      <div className="text-sm text-o-ink-2 min-w-0">
+        <span className="font-semibold text-o-ink">{wait.label}</span> · {wait.detail}
+        <p className="mt-0.5 text-xs text-o-ink-3">
+          Nothing to do here — it closes itself when the queue is empty. Runs: {wait.runs}.
+        </p>
+        {wait.operator_can_help && (
+          <p className="mt-1 text-xs font-medium text-o-accent">{wait.operator_can_help}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A block reason with its task ids turned into links.
+ *
+ * Every one of these sentences names the step that clears it — "Waiting on
+ * task P2.1.1", "create them (P3.3.4)" — and until now the reader had to
+ * find that step in the sidebar themselves. The id is the whole address: the
+ * phase is its first number and the step its second, so the link is derived
+ * rather than maintained in a table that would drift.
+ */
+function LinkedReason({ orgId, text }: { orgId: string; text: string }) {
+  const parts = text.split(/(P\d\.\d+\.\d+)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const m = /^P(\d)\.(\d+)\.\d+$/.exec(part);
+        if (!m) return <span key={i}>{part}</span>;
+        return (
+          <a key={i} href={`/client/${orgId}/phase/${m[1]}/${m[2]}`}
+             className="font-medium text-o-accent hover:underline underline-offset-2">
+            {part}
+          </a>
+        );
+      })}
+    </>
   );
 }
 
@@ -143,7 +205,7 @@ export function PhaseBoard({
  * other task, and every reason for it not to.
  */
 export function TaskCard({
-  task, orgId, viability, phase2, phase3, assets, answers, standalone, cycle,
+  task, orgId, viability, phase2, phase3, assets, answers, standalone, cycle, automation,
 }: {
   /** Set on phase-4 tasks. Its presence is what switches the card from the
    *  research treatment to the execution one. */
@@ -159,6 +221,10 @@ export function TaskCard({
    *  task carries its own surface instead of being a divider-separated
    *  row inside one. */
   standalone?: boolean;
+  /** Set when there is nothing left for a person to do here and a cron is
+   *  working through the rest. Never replaces the status — it is computed on
+   *  read and the stored status still closes itself. */
+  automation?: AutomationWait | null;
 }) {
   const hasCustomForm = CUSTOM_FORM_TASKS.has(task.task_id);
   const fields = fieldsFor(task.task_id);
@@ -210,6 +276,16 @@ export function TaskCard({
           <span className="text-xs font-semibold text-muted-foreground tabular-nums">{task.task_id}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0 order-3 sm:order-2 ml-auto">
+          {/* Next to the stored status, never instead of it. The dropdown has
+              to keep saying what is actually in the database — a pill that
+              overwrote it would be a sixth status nobody could set, and the
+              next person to read client_progress would find it disagreed
+              with every screen. */}
+          {automation && task.status !== "DONE" && task.status !== "SKIPPED" && (
+            <span className="inline-flex items-center gap-1 rounded-md px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wide bg-o-sunk text-o-ink-2 ring-1 ring-inset ring-o-hairline-firm/60">
+              <Bot className="w-3 h-3" /> waiting on automation
+            </span>
+          )}
           <StatusSelect value={task.status} onChange={onStatusPick} disabled={disabled} submitting={submitting} />
           {hasCustomForm && (
             <button type="button" onClick={() => setExpanded((v) => !v)}
@@ -240,10 +316,19 @@ export function TaskCard({
           {task.status === "BLOCKED" && task.block_reasons.length > 0 && (
             <div className="mt-3 flex gap-2.5 rounded-lg bg-o-accent/[0.05] ring-1 ring-inset ring-o-accent/15 px-3.5 py-2.5">
               <span aria-hidden className="w-[3px] rounded-full bg-o-accent shrink-0" />
-              <p className="text-sm text-o-ink-2">
-                <span className="font-semibold text-o-accent">Blocked</span> · {task.block_reasons.join(" · ")}
-              </p>
+              <div className="text-sm text-o-ink-2">
+                <span className="font-semibold text-o-accent">Blocked</span>
+                <ul className="mt-0.5 space-y-0.5">
+                  {task.block_reasons.map((r, i) => (
+                    <li key={i}>· <LinkedReason orgId={orgId} text={r} /></li>
+                  ))}
+                </ul>
+              </div>
             </div>
+          )}
+
+          {automation && task.status !== "DONE" && task.status !== "SKIPPED" && (
+            <AutomationPanel wait={automation} />
           )}
 
           {task.status === "SKIPPED" && task.skip_reason && (

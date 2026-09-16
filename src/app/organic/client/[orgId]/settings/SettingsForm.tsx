@@ -6,6 +6,7 @@ import type { StoreSettings } from "@/lib/organic/workspace";
 import { Panel, Label } from "@/components/organic/primitives";
 import { cn } from "@/lib/utils";
 import { ORGANIC_DAILY_CAP } from "@/lib/organic/pacing";
+import { ORGANIC_LANGUAGES, ORGANIC_MARKETS } from "@/lib/organic/language";
 
 const ENGAGEMENT = ["PROSPECT", "ONBOARDING", "ACTIVE", "PAUSED", "CHURNED"];
 // "Is this account new, yes or no." Older than six months and still active
@@ -17,7 +18,12 @@ const CURRENCIES = ["EUR", "USD", "GBP", "CHF"];
 
 type Field =
   | { key: keyof StoreSettings; label: string; kind: "text" | "number" | "date" | "textarea"; hint?: string; step?: string }
-  | { key: keyof StoreSettings; label: string; kind: "select"; options: string[]; hint?: string };
+  // `options` are the values that get stored; `optionLabels` is what the
+  // reader sees. Never the other way round — the viability rating shipped
+  // buttons reading STRONG against an enum holding STRONG_FIT, and every
+  // click 400'd on the cast while the button lit up.
+  | { key: keyof StoreSettings; label: string; kind: "select"; options: string[];
+      optionLabels?: Record<string, string>; hint?: string };
 
 const GROUPS: Array<{ title: string; note?: string; fields: Field[] }> = [
   {
@@ -29,6 +35,23 @@ const GROUPS: Array<{ title: string; note?: string; fields: Field[] }> = [
       { key: "onboarded_date", label: "Onboarded", kind: "date",
         hint: "Sets tenure, which sets the cohort every portfolio comparison uses." },
       { key: "domain", label: "Domain", kind: "text" },
+    ],
+  },
+  {
+    title: "Language & market",
+    note:
+      "Every AI-generated word on this store follows these: pin titles, descriptions and overlay " +
+      "taglines, board descriptions, the profile name and bio, and the design brief. Left blank, " +
+      "everything is written in English and each of those surfaces says it is falling back.",
+    fields: [
+      { key: "primary_language", label: "Primary language", kind: "select",
+        options: ORGANIC_LANGUAGES.map((l) => l.code),
+        optionLabels: Object.fromEntries(ORGANIC_LANGUAGES.map((l) => [l.code, l.label])),
+        hint: "Keywords are never translated — they go into the copy exactly as researched, because that is what people search for." },
+      { key: "market_country", label: "Market", kind: "select",
+        options: ORGANIC_MARKETS.map((m) => m.code),
+        optionLabels: Object.fromEntries(ORGANIC_MARKETS.map((m) => [m.code, m.label])),
+        hint: "Sets spelling, prices and seasonal references. A Dutch store selling into Belgium is not the same brief as one selling into the Netherlands." },
     ],
   },
   {
@@ -133,7 +156,9 @@ export function SettingsForm({ initial }: { initial: StoreSettings }) {
                     onChange={(e) => setForm((s) => ({ ...s, [f.key as string]: e.target.value }))}
                   >
                     <option value="">—</option>
-                    {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                    {f.options.map((o) => (
+                      <option key={o} value={o}>{f.optionLabels?.[o] ?? o}</option>
+                    ))}
                   </select>
                 ) : f.kind === "textarea" ? (
                   <textarea

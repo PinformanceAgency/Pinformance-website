@@ -772,6 +772,11 @@ export interface StoreSettings {
   monthly_retainer: number | null;
   retainer_currency: string | null;
   hourly_cost: number | null;
+  /** ISO-639-1, or null when nobody chose. Every AI-generated surface reads
+   *  it; null means English and every surface that falls back says so. */
+  primary_language: string | null;
+  /** ISO-3166-1 alpha-2 of the market the copy addresses, or null. */
+  market_country: string | null;
 }
 
 export async function loadStoreSettings(orgId: string): Promise<StoreSettings | null> {
@@ -784,7 +789,8 @@ export async function loadStoreSettings(orgId: string): Promise<StoreSettings | 
             cs.onboarded_date::text AS onboarded_date,
             cs.domain, cs.display_name, cs.bio,
             cs.urls_per_month, cs.url_cooldown_days,
-            cs.monthly_retainer, cs.retainer_currency, cs.hourly_cost
+            cs.monthly_retainer, cs.retainer_currency, cs.hourly_cost,
+            cs.primary_language, cs.market_country
        FROM organic.client_settings cs
        JOIN public.organizations o ON o.id = cs.org_id
       WHERE cs.org_id = $1`,
@@ -807,6 +813,7 @@ const SETTABLE = [
   "daily_pin_target", "onboarded_date", "domain", "display_name", "bio",
   "urls_per_month", "url_cooldown_days",
   "monthly_retainer", "retainer_currency", "hourly_cost",
+  "primary_language", "market_country",
 ] as const;
 
 const ENUM_COLUMN: Record<string, string> = {
