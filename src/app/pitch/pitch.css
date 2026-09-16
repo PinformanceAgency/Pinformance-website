@@ -953,6 +953,7 @@
   height: 52px;
   border-radius: 10px;
   border: 1px dashed rgba(200, 155, 160, 0.3);
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -962,6 +963,16 @@
   letter-spacing: 0.8px;
   text-transform: uppercase;
   color: var(--faint);
+}
+/* With a banner in it the frame is the picture, so the dashed hint goes. */
+.pitch-case-art:has(img) {
+  border: 0;
+}
+.pitch-case-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .pitch-case-body {
   display: flex;
@@ -1010,7 +1021,7 @@
 /* --- Visual slot --------------------------------------------------------- */
 
 .pitch-visual {
-  margin-top: 16px;
+  margin: 16px 0 0;
   min-height: 92px;
   border-radius: 12px;
   border: 1px dashed rgba(200, 155, 160, 0.28);
@@ -1018,15 +1029,46 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 5px;
   padding: 16px 18px;
   overflow: hidden;
+}
+/* Delivered: a solid frame, and the note drops to a caption under the image. */
+.pitch-visual.is-done {
+  border-style: solid;
+  border-color: var(--line);
+  padding: 0;
+  min-height: 0;
 }
 .pitch-visual img {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 8px;
+  /* Tall shots (the phone mock, the Ads Manager column) would otherwise run
+     several screens long inside the modal. */
+  max-height: 460px;
+  object-fit: contain;
+  object-position: top;
+  background: #0d0b0e;
+}
+/* A logo with black lettering on a transparent ground needs a white plate,
+   or it disappears into the canvas. */
+.pitch-visual.on-light img {
+  background: #fff;
+  padding: 26px;
+  max-height: 200px;
+}
+.pitch-visual.is-done img {
+  cursor: zoom-in;
+}
+.pitch-visual figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.pitch-visual.is-done figcaption {
+  padding: 12px 16px 13px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
 }
 .pitch-visual .vk {
   font-family: var(--mono);
@@ -1047,6 +1089,46 @@
   letter-spacing: 1.2px;
   text-transform: uppercase;
   color: var(--red-2);
+}
+
+/* --- Full-screen visual -------------------------------------------------- */
+
+.pitch-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: rgba(4, 3, 5, 0.94);
+  backdrop-filter: blur(6px);
+  cursor: zoom-out;
+  animation: pitch-fade 0.16s ease;
+}
+.pitch-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 40px 120px -30px rgba(0, 0, 0, 0.9);
+}
+.pitch-lightbox .x {
+  position: absolute;
+  top: 22px;
+  right: 24px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+.pitch-lightbox .x:hover {
+  color: var(--text);
+  border-color: var(--red);
 }
 
 /* --- Still to be settled ------------------------------------------------- */

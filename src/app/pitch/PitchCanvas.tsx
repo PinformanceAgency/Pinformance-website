@@ -88,6 +88,9 @@ export default function PitchCanvas() {
   const [tool, setTool] = useState<"pan" | "draw">("pan");
   const [openPhase, setOpenPhase] = useState<string | null>(null);
   const [detail, setDetail] = useState<RoadmapNode | null>(null);
+  /** A visual opened full screen. The dashboards are only worth showing if
+      the numbers on them can actually be read from across a call. */
+  const [zoom, setZoom] = useState<{ src: string; alt: string } | null>(null);
   const [hintOpen, setHintOpen] = useState(true);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const drawing = useRef<{ pts: { x: number; y: number }[] } | null>(null);
@@ -139,7 +142,12 @@ export default function PitchCanvas() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setDetail(null);
+        // Close the enlarged visual first, so one Escape doesn't also drop
+        // the section the presenter is still talking through.
+        setZoom((z) => {
+          if (!z) setDetail(null);
+          return null;
+        });
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
@@ -630,7 +638,12 @@ export default function PitchCanvas() {
                     {detail.cases.map((c) => (
                       <div className="pitch-case" key={c.brand}>
                         <span className="pitch-case-art" title={c.visual}>
-                          Merkbeeld
+                          {c.src ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={c.src} alt="" />
+                          ) : (
+                            "Merkbeeld"
+                          )}
                         </span>
                         <span className="pitch-case-body">
                           <span className="b">{c.brand}</span>
@@ -675,21 +688,40 @@ export default function PitchCanvas() {
 
             {/* Every section carries a visual. Until the image is delivered
                 the slot stays visible with what belongs in it, so a section
-                cannot quietly go out without one. */}
-            <div className="pitch-visual">
-              {detail.visual.src ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={detail.visual.src} alt={detail.visual.note} />
-              ) : (
-                <>
-                  <span className="vk">Visual</span>
-                  <span className="vn">{detail.visual.note}</span>
-                  {detail.visual.by && (
-                    <span className="vb">{detail.visual.by}</span>
+                cannot quietly go out without one. A section whose imagery sits
+                inside its own cards (the cases) counts as delivered, and gets
+                the caption without the empty frame. */}
+            {(() => {
+              const art = detail.visual.src;
+              const carried = !art && !!detail.cases?.some((c) => c.src);
+              return (
+                <figure
+                  className={`pitch-visual${art || carried ? " is-done" : ""}${
+                    detail.visual.light ? " on-light" : ""
+                  }`}
+                >
+                  {art && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={art}
+                      alt={detail.visual.note}
+                      onClick={() =>
+                        setZoom({ src: art, alt: detail.visual.note })
+                      }
+                    />
                   )}
-                </>
-              )}
-            </div>
+                  <figcaption>
+                    <span className="vk">
+                      {art ? "Visual · klik om te vergroten" : "Visual"}
+                    </span>
+                    <span className="vn">{detail.visual.note}</span>
+                    {detail.visual.by && !art && (
+                      <span className="vb">{detail.visual.by}</span>
+                    )}
+                  </figcaption>
+                </figure>
+              );
+            })()}
 
             {detail.open && (
               <div className="pitch-open">
@@ -707,6 +739,17 @@ export default function PitchCanvas() {
               <span className="v">{detail.result}</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Full-screen visual --------------------------------------------- */}
+      {zoom && (
+        <div className="pitch-lightbox" onClick={() => setZoom(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={zoom.src} alt={zoom.alt} />
+          <button type="button" className="x" aria-label="Sluiten">
+            ✕
+          </button>
         </div>
       )}
     </div>

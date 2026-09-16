@@ -90,8 +90,9 @@ export interface CaseRow {
   revenue: string;
   roas: string;
   cpa: string;
-  /** Wat er naast de cijfers komt te staan. */
+  /** Wat er bij de cijfers komt te staan, en het beeld zodra het er is. */
   visual: string;
+  src?: string;
 }
 
 export interface RoadmapNode {
@@ -116,8 +117,12 @@ export interface RoadmapNode {
    * zonder vinkje, als cue om hem mondeling te beantwoorden.
    */
   question?: string;
-  /** Wat er aan beeld bij deze sectie hoort. `src` zodra het er is. */
-  visual: { note: string; by?: string; src?: string };
+  /**
+   * Wat er aan beeld bij deze sectie hoort. `src` zodra het er is.
+   * `light` zet het beeld op een witte plaat: een logo met zwarte letters en
+   * een transparante achtergrond valt op het zwarte canvas anders weg.
+   */
+  visual: { note: string; by?: string; src?: string; light?: boolean };
   /** Gezet zolang de sectie nog niet af is. Zichtbaar op kaart en in modal. */
   pending?: string;
   /** Losse punten die nog vastgelegd moeten worden voordat dit naar buiten kan. */
@@ -142,8 +147,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Vroeger in de funnel dan Meta, veel vroeger dan Google",
     ],
     visual: {
-      note: "Screenshot van een echte Pinterest feed op mobiel, zoals je hem ziet tijdens het scrollen.",
-      by: "Nog aan te leveren",
+      note: "Een Pinterest feed op mobiel, zoals je hem ziet tijdens het scrollen.",
+      src: "/pitch/feed-mobile.png",
     },
     result:
       "Je bereikt mensen terwijl ze nog aan het kiezen zijn, niet als ze al gekozen hebben.",
@@ -248,8 +253,9 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Optie tot meer calls als daar vraag naar is",
     ],
     visual: {
-      note: "Slack. Bijvoorbeeld een kanaal in de Pinformance-stijl, of het Slack-icoon groot naast de opsomming.",
-      by: "Nog te maken",
+      note: "Slack, het kanaal waar alles langsgaat.",
+      src: "/pitch/slack.png",
+      light: true,
     },
     result: "Je hoort van ons als er iets te melden is, niet omdat het dinsdag is.",
   },
@@ -269,8 +275,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Op volume: gericht creative-advies uit onze data",
     ],
     visual: {
-      note: "Google Drive als aanduiding dat je alleen toegang hoeft te delen, bijvoorbeeld een mapweergave. Drive boven Notion: Drive leest direct als map met creatives, Notion leest als projectmanagement.",
-      by: "Nog te maken",
+      note: "De Meta Ads Library: het materiaal dat je al draait, en waar wij mee starten.",
+      src: "/pitch/meta-ads-library.png",
     },
     result: "Je hoeft niets extra te laten maken om te kunnen starten.",
   },
@@ -288,8 +294,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Pas daarna gaan we live, met de sterkste markten en collecties eerst",
     ],
     visual: {
-      note: "Pinterest Ads Manager met een sterk resultaat. Merknaam anonimiseren, en bij voorkeur uit hetzelfde account als de andere resultaatvisuals.",
-      by: "Nog aan te leveren",
+      note: "Pinterest Ads Manager, dit jaar: €721.927 spend, ROAS 2,37, CPA €28,43, €1,7 mln orderwaarde. Campagnenamen staan buiten beeld, dus het account is niet herleidbaar.",
+      src: "/pitch/ads-manager.png",
     },
     result: "We starten waar je al wint, niet waar het spannend is.",
   },
@@ -375,8 +381,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Wij kijken verder dan omzet, jouw winst is wat telt",
     ],
     visual: {
-      note: "Triple Whale dashboard met Pinterest erin en een sterke ROAS. Pinterest moet náást de andere kanalen staan, niet alleen: de kracht zit erin dat een onafhankelijke tool Pinterest naast Meta bevestigt. Merknaam anonimiseren.",
-      by: "Nog aan te leveren",
+      note: "Triple Whale, laatste 30 dagen: Pinterest op ROAS 2,35 naast Meta 1,56, Google 3,23 en TikTok 1,48. Een onafhankelijke tool die Pinterest náást de andere kanalen bevestigt.",
+      src: "/pitch/triple-whale.png",
     },
     result: "Geen discussie achteraf over wiens cijfer klopt.",
   },
@@ -394,28 +400,35 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         revenue: "1,8 mln",
         roas: "2,37",
         cpa: "€28",
-        visual: "Productfoto of sfeerbeeld zonder logo, anders verraadt het beeld wie het is",
+        // Sfeerbeeld zonder logo, en het bestand is naar de niche genoemd en
+        // niet naar het merk: een bestandsnaam staat in de broncode van de
+        // pagina, en daarmee zou de anonimisering niets meer waard zijn.
+        visual: "Sfeerbeeld zonder logo",
+        src: "/pitch/case-fashion.jpg",
       },
       {
         brand: "Celestia",
         revenue: "692k",
         roas: "2,42",
         cpa: "€33",
-        visual: "Merkbeeld naast de cijfers",
+        visual: "Merkbanner",
+        src: "/pitch/case-celestia.jpg",
       },
       {
         brand: "FitCherries",
         revenue: "420k",
         roas: "2,20",
         cpa: "€34",
-        visual: "Merkbeeld naast de cijfers",
+        visual: "Merkbanner",
+        src: "/pitch/case-fitcherries.jpg",
       },
       {
         brand: "May Cosmetics",
         revenue: "389k",
         roas: "2,31",
         cpa: "€17",
-        visual: "Merkbeeld naast de cijfers",
+        visual: "Merkbanner",
+        src: "/pitch/case-may-cosmetics.jpg",
       },
     ],
     highlight: {
@@ -425,8 +438,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       f: "Blended ROAS 2,35",
     },
     visual: {
-      note: "Per case een merkbeeld naast de cijfers. Voor het anonieme fashion merk een productfoto of sfeerbeeld zonder logo.",
-      by: "Nog aan te leveren",
+      note: "Elke case draagt zijn eigen merkbeeld hierboven. Voor het anonieme fashion merk een sfeerbeeld zonder logo.",
     },
     result:
       "Vier merken in vier categorieën, ROAS tussen 2,20 en 2,42. De kracht zit in de consistentie, niet in één uitschieter.",
