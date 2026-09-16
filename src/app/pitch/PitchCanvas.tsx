@@ -19,6 +19,7 @@ import {
   type RoadmapNode,
 } from "./data";
 import PitchCalculator from "./PitchCalculator";
+import { FIGURES } from "./figures";
 import "./pitch.css";
 
 // ---------------------------------------------------------------------------
@@ -701,12 +702,17 @@ export default function PitchCanvas() {
                 the caption without the empty frame. */}
             {(() => {
               const art = detail.visual.src;
+              const Figure = detail.visual.figure
+                ? FIGURES[detail.visual.figure]
+                : undefined;
               // The calculator is its own visual; a slot under it asking for a
               // picture of a calculator would be asking for a screenshot of
               // the thing directly above it.
               const carried =
                 !art &&
-                (!!detail.calculator || !!detail.cases?.some((c) => c.src));
+                (!!Figure ||
+                  !!detail.calculator ||
+                  !!detail.cases?.some((c) => c.src));
               return (
                 <figure
                   className={`pitch-visual${art || carried ? " is-done" : ""}${
@@ -723,6 +729,7 @@ export default function PitchCanvas() {
                       }
                     />
                   )}
+                  {Figure && <Figure />}
                   <figcaption>
                     <span className="vk">
                       {art ? "Visual · klik om te vergroten" : "Visual"}

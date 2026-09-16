@@ -129,7 +129,14 @@ export interface RoadmapNode {
    * `light` zet het beeld op een witte plaat: een logo met zwarte letters en
    * een transparante achtergrond valt op het zwarte canvas anders weg.
    */
-  visual: { note: string; by?: string; src?: string; light?: boolean };
+  visual: {
+    note: string;
+    by?: string;
+    src?: string;
+    light?: boolean;
+    /** Sleutel in FIGURES (figures.tsx), voor beeld dat wij zelf tekenen. */
+    figure?: string;
+  };
   /** Gezet zolang de sectie nog niet af is. Zichtbaar op kaart en in modal. */
   pending?: string;
   /** Deze sectie draagt de werkende calculator in plaats van een opsomming. */
@@ -184,8 +191,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       f: "Opgebouwd over maanden, niet in week één",
     },
     visual: {
-      note: "Nog te bepalen. Suggestie: maandelijkse bereikcijfers of een simpel groeigrafiekje.",
-      by: "Keuze bij Thijmen",
+      note: "Het bereik per markt, en daaronder hoe Pinterest zich in de VS tot Meta verhoudt.",
+      figure: "scale",
     },
     result:
       "Een tweede kanaal dat 15 tot 30% van je advertentieomzet kan dragen, tegen lagere kosten per duizend.",
@@ -225,8 +232,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Andere bureaus doen Pinterest erbij, wij hebben geen tweede kanaal",
     ],
     visual: {
-      note: "Meta, Google en TikTok, alle drie met een kruis erdoor. Geen officiële logo's, maar woordmerken of neutrale weergaves in de Pinformance-stijl.",
-      by: "Nog te maken",
+      note: "De kanalen die wij niet doen, en het ene dat we wel doen.",
+      figure: "onlyPinterest",
     },
     result:
       "Alles wat wij op tientallen accounts leren, komt op één kanaal terecht: het jouwe.",
@@ -328,8 +335,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       f: "Omhoog zodra de ROAS het toelaat",
     },
     visual: {
-      note: "Nog te bepalen. Suggestie: een budgetcurve die in de eerste weken vlak loopt en daarna oploopt.",
-      by: "Nog te maken",
+      note: "Het budget blijft de eerste weken vlak en loopt daarna pas op.",
+      figure: "expectations",
     },
     result: "Rustig starten kost je twee weken. Te hard starten kost je het kanaal.",
   },
@@ -369,8 +376,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Eerste campagnes live binnen 48 uur, als jij snel schakelt",
     ],
     visual: {
-      note: "Horizontale tijdlijn met de vier stappen, per stap de tijdsinvestering van de klant, en een tijdbalk die eindigt op 48 uur.",
-      by: "Nog te maken",
+      note: "De vier stappen, met per stap wat het jou aan tijd kost.",
+      figure: "onboarding",
     },
     result: "Vier stappen, en 15 tot 20 minuten werk aan jouw kant.",
   },
@@ -472,8 +479,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       f: "Opgebouwd over maanden",
     },
     visual: {
-      note: "Nog te bepalen. Suggestie: een opbouwcurve over twaalf maanden naar het aandeel van 15 tot 30%.",
-      by: "Nog te maken",
+      note: "De opbouw over twaalf maanden, als bandbreedte en niet als één lijn.",
+      figure: "realistic",
     },
     result: "Eén getal om ons op af te rekenen, en de tijd die het kost om er te komen.",
   },
@@ -494,8 +501,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Setup fee en base fee blijven staan, alleen de fee over je ad spend vervalt",
     ],
     visual: {
-      note: "Nog te bepalen. Suggestie: de twee scenario's naast elkaar, target gehaald en target niet gehaald, met wat je in beide gevallen betaalt.",
-      by: "Nog te maken",
+      note: "Wat je betaalt als het target gehaald wordt, en wat je betaalt als dat niet lukt.",
+      figure: "twoScenarios",
     },
     result: `Als het niet werkt, betaal je alleen de base fee van ${eur(BASE_FEE)}.`,
   },
@@ -517,13 +524,13 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       { k: "Looptijd", v: "2 maanden, daarna maandelijks opzegbaar" },
     ],
     visual: {
-      note: "Nog te bepalen. Suggestie: de zes afspraken als contractblok, zodat het leest als iets dat zwart op wit staat.",
-      by: "Nog te maken",
+      note: "De afspraken zoals ze in de overeenkomst komen te staan.",
+      figure: "guarantees",
     },
     open: [
       "De regel over KPI en target is teruggehaald uit de geschrapte KPI-sectie (B8). Zonder die regel staat nergens meer dat de KPI vooraf wordt vastgelegd, en daar hangt de hele garantie aan.",
     ],
-    result: "Zes afspraken die in het contract staan, niet in een verkooppraatje.",
+    result: "Zeven afspraken die in het contract staan, niet in een verkooppraatje.",
   },
 
   // --- Eigen gebied · Prijs en calculator ----------------------------------
@@ -558,8 +565,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       },
     ],
     visual: {
-      note: "Nog te bepalen. Suggestie: de twee kolommen als twee kaarten, met de setup fee eenmalig en de base fee maandelijks duidelijk van elkaar gescheiden.",
-      by: "Nog te maken",
+      note: "De drie kostenposten los van elkaar: eenmalig, per maand, en op resultaat.",
+      figure: "whatsIncluded",
     },
     result: "Tien concrete onderdelen, zodat je weet waar je base fee heen gaat.",
   },
@@ -824,23 +831,26 @@ export const PHASE_HUBS: PhaseHub[] = [
     meta: "Pagina 5 · Het risicoverhaal",
     title: "Garanties",
     desc: "Wat je betaalt als het niet werkt, en wat er contractueel vastligt.",
-    count: "9 punten",
+    count: "12 punten",
     cats: [
       {
         name: "Niet gehaald, niet betaald",
         systems: [
           "Lage vaste vergoeding",
-          "Fee vervalt bij gemiste KPI",
+          "Spend fee vervalt bij gemiste KPI",
           "Target en KPI vooraf vastgelegd",
+          "Beoordeling per periode",
+          "Setup en base fee blijven staan",
         ],
       },
       {
         name: "Garanties",
         systems: [
           "KPI en target vooraf samen vast",
-          "Minimale ROAS, eronder alleen base",
-          "Onder €20.000 geen performance fee",
-          "Maximum €10.000 per maand",
+          "Beoordeling per periode",
+          "Niet gehaald: alleen base fee",
+          `Onder ${eur(MIN_ADSPEND_FOR_FEE)} geen spend fee`,
+          `Maximum ${eur(INVOICE_CAP)} per maand`,
           "Altijd achteraf, nooit vooraf",
           "2 maanden, daarna maandelijks op",
         ],
