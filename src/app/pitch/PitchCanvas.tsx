@@ -690,38 +690,6 @@ export default function PitchCanvas() {
                   </div>
                 )}
 
-                {detail.cases && (
-                  <div className="pitch-cases">
-                    {detail.cases.map((c) => (
-                      <div className="pitch-case" key={c.brand}>
-                        <span className="pitch-case-art" title={c.visual}>
-                          {c.src ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={c.src} alt="" />
-                          ) : (
-                            "Merkbeeld"
-                          )}
-                        </span>
-                        <span className="pitch-case-body">
-                          <span className="b">{c.brand}</span>
-                          <span className="m">
-                            <span className="k">Omzet</span>
-                            <span className="v">{c.revenue}</span>
-                          </span>
-                          <span className="m">
-                            <span className="k">ROAS</span>
-                            <span className="v">{c.roas}</span>
-                          </span>
-                          <span className="m">
-                            <span className="k">CPA</span>
-                            <span className="v">{c.cpa}</span>
-                          </span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 {/* A question, not a statement: no tick, set apart, so it
                     reads as the cue to answer it out loud. */}
                 {detail.question && (
@@ -744,6 +712,40 @@ export default function PitchCanvas() {
             </div>
             {sideVisual && visual}
             </div>
+            )}
+
+            {/* Casebanners over de volle breedte: merkbeeld rechts, cijfers
+                links op een verloop eroverheen. */}
+            {detail.cases && (
+              <div className="pitch-cases">
+                {detail.cases.map((c) => (
+                  <div className="pcase" key={c.brand}>
+                    {c.src ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img className="pcase-art" src={c.src} alt="" />
+                    ) : (
+                      <span className="pcase-art pcase-art-empty" title={c.visual}>
+                        Merkbeeld
+                      </span>
+                    )}
+                    <span className="pcase-veil" />
+                    <span className="pcase-body">
+                      <span className="e">Dit jaar</span>
+                      <span className="v">{c.revenue}</span>
+                      <span className="r">Revenue</span>
+                      <span className="m">
+                        ROAS {c.roas} · CPA {c.cpa}
+                      </span>
+                      {c.logo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img className="pcase-logo" src={c.logo} alt={c.brand} />
+                      ) : (
+                        <span className="pcase-name">{c.brand}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
 
             {!sideVisual && visual}

@@ -932,79 +932,113 @@
   color: rgba(255, 255, 255, 0.75);
 }
 
-/* Case cards: four merken naast elkaar, met een plek voor het merkbeeld. */
+/* --- Casebanners --------------------------------------------------------- */
+
+/* Eén merk per band, over de volle breedte: het merkbeeld rechts, de cijfers
+   links op een verloop dat het beeld naar links uitdooft. Dezelfde opbouw als
+   go.pinformance-agency.com, zodat het deck en de site hetzelfde vertellen. */
 .pitch-cases {
-  margin-top: 18px;
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-.pitch-case {
+  margin-top: 16px;
   display: flex;
+  flex-direction: column;
   gap: 14px;
-  align-items: center;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.025);
 }
-.pitch-case-art {
-  flex: 0 0 52px;
-  height: 52px;
-  border-radius: 10px;
-  border: 1px dashed rgba(200, 155, 160, 0.3);
+.pcase {
+  position: relative;
+  isolation: isolate;
+  height: 260px;
+  border-radius: 16px;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  font-family: var(--mono);
-  font-size: 7.5px;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: var(--faint);
+  border: 1px solid var(--line);
 }
-/* With a banner in it the frame is the picture, so the dashed hint goes. */
-.pitch-case-art:has(img) {
-  border: 0;
-}
-.pitch-case-art img {
+.pcase-art {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
-.pitch-case-body {
+.pcase-art-empty {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 13px;
-  min-width: 0;
-}
-.pitch-case-body .b {
-  /* Own line, so the three figures below it always sit on one row together. */
-  flex: 1 0 100%;
-  font-size: 12.5px;
-  font-weight: 800;
-  letter-spacing: -0.2px;
-}
-.pitch-case-body .m {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.pitch-case-body .m .k {
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8%;
+  background: rgba(255, 255, 255, 0.03);
   font-family: var(--mono);
-  font-size: 7.5px;
-  letter-spacing: 1.2px;
+  font-size: 10px;
+  letter-spacing: 1.4px;
   text-transform: uppercase;
   color: var(--faint);
 }
-.pitch-case-body .m .v {
-  font-size: 13px;
+/* Het verloop loopt van bijna dekkend links naar vrijwel open rechts, zodat de
+   cijfers leesbaar blijven zonder het merkbeeld af te dekken. */
+.pcase-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(10, 10, 12, 0.96) 0%,
+    rgba(10, 10, 12, 0.9) 38%,
+    rgba(10, 10, 12, 0.45) 68%,
+    rgba(10, 10, 12, 0.06) 100%
+  );
+}
+.pcase-body {
+  position: relative;
+  height: 100%;
+  max-width: 50%;
+  padding: 0 0 0 38px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.pcase-body .e {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2.2px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+}
+.pcase-body .v {
+  margin-top: 4px;
+  font-size: clamp(30px, 4vw, 42px);
   font-weight: 800;
-  white-space: nowrap;
-  color: var(--red-3);
+  line-height: 1;
+  letter-spacing: -1.4px;
+  color: var(--red);
+}
+.pcase-body .r {
+  margin-top: 5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.86);
+}
+.pcase-body .m {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.86);
+}
+.pcase-logo {
+  filter: brightness(0) invert(1);
+  opacity: 0.92;
+  margin-top: 18px;
+  height: 24px;
+  width: auto;
+  max-width: 180px;
+  object-fit: contain;
+  object-position: left;
+  display: block;
+}
+.pcase-name {
+  margin-top: 18px;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  color: #fff;
 }
 
 /* A question set apart from the ticked list, on purpose. */
@@ -1227,14 +1261,19 @@
 @media (max-width: 720px) {
   .pitch-demo,
   .pitch-demo:has(.pitch-demo-right),
-  .pitch-cols,
-  .pitch-cases {
+  .pitch-cols {
     grid-template-columns: 1fr;
   }
-  .pitch-row,
-  .case-row {
+  .pitch-row {
     grid-template-columns: 1fr;
     gap: 3px;
+  }
+  .pcase {
+    height: 210px;
+  }
+  .pcase-body {
+    max-width: 62%;
+    padding-left: 24px;
   }
   .calc-inputs,
   .calc-scenarios {

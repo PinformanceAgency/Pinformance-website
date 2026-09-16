@@ -100,6 +100,8 @@ export interface CaseRow {
   /** Wat er bij de cijfers komt te staan, en het beeld zodra het er is. */
   visual: string;
   src?: string;
+  /** Het woordmerk dat op de banner komt. Zonder logo valt het terug op de naam. */
+  logo?: string;
 }
 
 export interface RoadmapNode {
@@ -449,6 +451,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         cpa: "€33",
         visual: "Merkbanner",
         src: "/pitch/case-celestia.jpg",
+        logo: "/pitch/brand-celestia.png",
       },
       {
         brand: "FitCherries",
@@ -457,6 +460,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         cpa: "€34",
         visual: "Merkbanner",
         src: "/pitch/case-fitcherries.jpg",
+        logo: "/pitch/brand-fitcherries.png",
       },
       {
         brand: "May Cosmetics",
@@ -465,6 +469,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         cpa: "€17",
         visual: "Merkbanner",
         src: "/pitch/case-may-cosmetics.jpg",
+        logo: "/pitch/brand-may.png",
       },
     ],
     highlight: {
