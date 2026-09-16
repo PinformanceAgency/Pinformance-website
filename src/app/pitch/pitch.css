@@ -1683,3 +1683,55 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Tekst links, beeld rechts ------------------------------------------- */
+
+/* De standaard: het beeld staat naast de tekst. Een sectie leest dan als een
+   uitspraak met het bewijs ernaast, in plaats van als een lap tekst met een
+   plaatje eronder. */
+.pitch-body.has-aside {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.pitch-body.has-aside .pitch-demo {
+  margin-top: 0;
+}
+.pitch-body.has-aside .pitch-visual {
+  margin-top: 0;
+}
+
+/* Staand beeld in de smalle kolom mag hoger zijn dan een brede tabel: de
+   telefoonmock en de teamfoto zijn juist hoog. */
+.pitch-visual.is-side img {
+  max-height: 420px;
+  object-fit: contain;
+}
+.pitch-visual.is-side.on-light img {
+  max-height: 150px;
+  padding: 20px;
+}
+
+/* Een getekende figuur in de smalle kolom zet zijn eigen rasters op één rij. */
+.pitch-visual.is-side .fig {
+  padding: 16px 18px;
+  gap: 12px;
+}
+.pitch-visual.is-side .fig-channels,
+.pitch-visual.is-side .fig-stats,
+.pitch-visual.is-side .fig-three,
+.pitch-visual.is-side .fig-two,
+.pitch-visual.is-side .fig-scen {
+  grid-template-columns: 1fr;
+}
+.pitch-visual.is-side .fig-ch {
+  height: 58px;
+  font-size: 15px;
+}
+
+@media (max-width: 900px) {
+  .pitch-body.has-aside {
+    grid-template-columns: 1fr;
+  }
+}

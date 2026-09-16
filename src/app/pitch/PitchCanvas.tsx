@@ -78,6 +78,50 @@ const center = (n: { x: number; y: number }) => ({
   y: n.y + NODE_SIZE.h / 2,
 });
 
+/**
+ * Het beeld bij een sectie. Staat standaard rechts naast de tekst; alleen wat
+ * van links naar rechts gelezen wordt (een grafiek, een tijdlijn, een brede
+ * tabel) krijgt `wide` en gaat over de volle breedte eronder.
+ *
+ * Zolang het beeld niet is aangeleverd blijft het kader staan met wat erin
+ * hoort, zodat een sectie niet stilletjes zonder naar buiten kan.
+ */
+function renderVisual(
+  node: RoadmapNode,
+  onZoom: (z: { src: string; alt: string }) => void
+) {
+  const art = node.visual.src;
+  const Figure = node.visual.figure ? FIGURES[node.visual.figure] : undefined;
+  // De calculator en de casekaarten dragen hun eigen beeld; een leeg kader
+  // eronder zou om een foto van het ding erboven vragen.
+  const carried =
+    !art && (!!Figure || !!node.calculator || !!node.cases?.some((c) => c.src));
+  return (
+    <figure
+      className={`pitch-visual${art || carried ? " is-done" : ""}${
+        node.visual.light ? " on-light" : ""
+      }${node.visual.wide ? " is-wide" : " is-side"}`}
+    >
+      {art && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={art}
+          alt={node.visual.note}
+          onClick={() => onZoom({ src: art, alt: node.visual.note })}
+        />
+      )}
+      {Figure && <Figure />}
+      <figcaption>
+        <span className="vk">
+          {art ? "Visual · klik om te vergroten" : "Visual"}
+        </span>
+        <span className="vn">{node.visual.note}</span>
+        {node.visual.by && !art && <span className="vb">{node.visual.by}</span>}
+      </figcaption>
+    </figure>
+  );
+}
+
 interface Stroke {
   d: string;
 }
@@ -101,6 +145,10 @@ export default function PitchCanvas() {
 
   const camRef = useRef(cam);
   camRef.current = cam;
+
+  // Het beeld hoort naast de tekst, tenzij het van links naar rechts loopt.
+  const visual = detail ? renderVisual(detail, setZoom) : null;
+  const sideVisual = !!detail && !detail.visual.wide && !detail.calculator;
 
   // Fit a section and remember which tab is lit.
   const goTo = useCallback((i: number) => {
@@ -597,6 +645,7 @@ export default function PitchCanvas() {
             {detail.calculator && <PitchCalculator />}
 
             {!detail.calculator && (
+            <div className={`pitch-body${sideVisual ? " has-aside" : ""}`}>
             <div className="pitch-demo">
               <div className="pitch-demo-left">
                 <div className="pitch-demo-brand">Wat er staat</div>
@@ -693,55 +742,11 @@ export default function PitchCanvas() {
                 </div>
               )}
             </div>
+            {sideVisual && visual}
+            </div>
             )}
 
-            {/* Every section carries a visual. Until the image is delivered
-                the slot stays visible with what belongs in it, so a section
-                cannot quietly go out without one. A section whose imagery sits
-                inside its own cards (the cases) counts as delivered, and gets
-                the caption without the empty frame. */}
-            {(() => {
-              const art = detail.visual.src;
-              const Figure = detail.visual.figure
-                ? FIGURES[detail.visual.figure]
-                : undefined;
-              // The calculator is its own visual; a slot under it asking for a
-              // picture of a calculator would be asking for a screenshot of
-              // the thing directly above it.
-              const carried =
-                !art &&
-                (!!Figure ||
-                  !!detail.calculator ||
-                  !!detail.cases?.some((c) => c.src));
-              return (
-                <figure
-                  className={`pitch-visual${art || carried ? " is-done" : ""}${
-                    detail.visual.light ? " on-light" : ""
-                  }`}
-                >
-                  {art && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={art}
-                      alt={detail.visual.note}
-                      onClick={() =>
-                        setZoom({ src: art, alt: detail.visual.note })
-                      }
-                    />
-                  )}
-                  {Figure && <Figure />}
-                  <figcaption>
-                    <span className="vk">
-                      {art ? "Visual · klik om te vergroten" : "Visual"}
-                    </span>
-                    <span className="vn">{detail.visual.note}</span>
-                    {detail.visual.by && !art && (
-                      <span className="vb">{detail.visual.by}</span>
-                    )}
-                  </figcaption>
-                </figure>
-              );
-            })()}
+            {!sideVisual && visual}
 
             {detail.open && (
               <div className="pitch-open">

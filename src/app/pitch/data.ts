@@ -136,6 +136,12 @@ export interface RoadmapNode {
     light?: boolean;
     /** Sleutel in FIGURES (figures.tsx), voor beeld dat wij zelf tekenen. */
     figure?: string;
+    /**
+     * Over de volle breedte onder de tekst in plaats van ernaast. Alleen voor
+     * beeld dat van links naar rechts gelezen wordt: een grafiek, een tijdlijn,
+     * een brede tabel. Alles wat staand of vierkant is hoort naast de tekst.
+     */
+    wide?: boolean;
   };
   /** Gezet zolang de sectie nog niet af is. Zichtbaar op kaart en in modal. */
   pending?: string;
@@ -193,6 +199,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "Het bereik per markt, en daaronder hoe Pinterest zich in de VS tot Meta verhoudt.",
       figure: "scale",
+      // Breed: balken die van links naar rechts lopen.
+      wide: true,
     },
     result:
       "Een tweede kanaal dat 15 tot 30% van je advertentieomzet kan dragen, tegen lagere kosten per duizend.",
@@ -293,6 +301,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "De Meta Ads Library: het materiaal dat je al draait, en waar wij mee starten.",
       src: "/pitch/meta-ads-library.png",
+      // Breed: Meta Ads Library, een breed raster.
+      wide: true,
     },
     result: "Je hoeft niets extra te laten maken om te kunnen starten.",
   },
@@ -312,6 +322,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "Pinterest Ads Manager, dit jaar: €721.927 spend, ROAS 2,37, CPA €28,43, €1,7 mln orderwaarde. Campagnenamen staan buiten beeld, dus het account is niet herleidbaar.",
       src: "/pitch/ads-manager.png",
+      // Breed: Ads Manager, een brede tabel.
+      wide: true,
     },
     result: "We starten waar je al wint, niet waar het spannend is.",
   },
@@ -337,6 +349,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "Het budget blijft de eerste weken vlak en loopt daarna pas op.",
       figure: "expectations",
+      // Breed: een curve over twaalf weken.
+      wide: true,
     },
     result: "Rustig starten kost je twee weken. Te hard starten kost je het kanaal.",
   },
@@ -359,6 +373,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "Lijngrafiek van de organic omzet over minstens zes maanden, met een oplopende lijn. Visueel duidelijk anders dan de Ads Manager-shot bij Paid, zodat het twee aparte motoren blijven. Merknaam anonimiseren.",
       by: "Nog aan te leveren",
+      // Breed: een lijngrafiek over zes maanden.
+      wide: true,
     },
     result: "Een kanaal dat blijft opleveren op de dagen dat je advertenties uitstaan.",
   },
@@ -378,6 +394,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "De vier stappen, met per stap wat het jou aan tijd kost.",
       figure: "onboarding",
+      // Breed: een tijdlijn van links naar rechts.
+      wide: true,
     },
     result: "Vier stappen, en 15 tot 20 minuten werk aan jouw kant.",
   },
@@ -399,6 +417,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "Triple Whale, laatste 30 dagen: Pinterest op ROAS 2,35 naast Meta 1,56, Google 3,23 en TikTok 1,48. Een onafhankelijke tool die Pinterest náást de andere kanalen bevestigt.",
       src: "/pitch/triple-whale.png",
+      // Breed: Triple Whale, een brede tabel.
+      wide: true,
     },
     result: "Geen discussie achteraf over wiens cijfer klopt.",
   },
@@ -455,6 +475,9 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     },
     visual: {
       note: "Elke case draagt zijn eigen merkbeeld hierboven. Voor het anonieme fashion merk een sfeerbeeld zonder logo.",
+      // Breed: de casekaarten dragen hun eigen beeld, hier staat alleen het
+      // bijschrift eronder.
+      wide: true,
     },
     result:
       "Vier merken in vier categorieën, ROAS tussen 2,20 en 2,42. De kracht zit in de consistentie, niet in één uitschieter.",
@@ -481,6 +504,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "De opbouw over twaalf maanden, als bandbreedte en niet als één lijn.",
       figure: "realistic",
+      // Breed: een curve over twaalf maanden.
+      wide: true,
     },
     result: "Eén getal om ons op af te rekenen, en de tijd die het kost om er te komen.",
   },
@@ -503,6 +528,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "Wat je betaalt als het target gehaald wordt, en wat je betaalt als dat niet lukt.",
       figure: "twoScenarios",
+      // Breed: twee scenario's naast elkaar.
+      wide: true,
     },
     result: `Als het niet werkt, betaal je alleen de base fee van ${eur(BASE_FEE)}.`,
   },
@@ -526,6 +553,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "De afspraken zoals ze in de overeenkomst komen te staan.",
       figure: "guarantees",
+      // Breed: een contracttabel.
+      wide: true,
     },
     open: [
       "De regel over KPI en target is teruggehaald uit de geschrapte KPI-sectie (B8). Zonder die regel staat nergens meer dat de KPI vooraf wordt vastgelegd, en daar hangt de hele garantie aan.",
@@ -567,6 +596,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "De drie kostenposten los van elkaar: eenmalig, per maand, en op resultaat.",
       figure: "whatsIncluded",
+      // Breed: drie kostenkaarten naast elkaar.
+      wide: true,
     },
     result: "Tien concrete onderdelen, zodat je weet waar je base fee heen gaat.",
   },
