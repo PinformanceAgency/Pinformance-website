@@ -1,5 +1,17 @@
 "use client";
 
+// Dit is het ORIGINEEL en het blijft zoals het is.
+//
+// Deze pagina wordt niet meer gebruikt in salescalls (besluit 16-09-2026),
+// maar blijft staan met alle drie de berekeningen: first purchase, dropship en
+// de spend fee-variant. Base fee €1.000, staffel 10/9/8/7.
+//
+// Het deck rekent met een ANDER model — één berekening, base fee €1.500,
+// staffel 8/7/6/5 — en dat staat in `src/app/pitch/pricing.ts`. Die twee horen
+// van elkaar te verschillen. Trek ze niet gelijk en laat deze pagina niet
+// uit `pricing.ts` lezen: dat zou dit archief overschrijven met het nieuwe
+// model, en dan is het geen origineel meer.
+
 import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
