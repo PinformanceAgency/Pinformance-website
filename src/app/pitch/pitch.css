@@ -1093,20 +1093,36 @@
 
 /* --- Calculator ---------------------------------------------------------- */
 
-/* De calculator is de opmaak van de losse calculatorpagina, één op één: een
-   licht vlak binnen het zwarte deck. De stijl komt daar van Tailwind, dus hier
-   staat alleen wat de modal eromheen moet doen. */
+/* De calculator heeft de opmaak van de losse calculatorpagina en de kleuren van
+   dit canvas. De rangschikking komt van Tailwind in het component; hier staat
+   alleen wat niet in een utility past. */
 .pitch-modal-panel.is-wide {
   width: min(1240px, 100%);
 }
-/* Het canvas zet de tekstkleur en schakelt tekstselectie-achtig gedrag uit;
-   binnen het lichte vlak moet alles zich weer als een gewone pagina gedragen. */
 .pitch-calc {
-  color: #0a0a0a;
   cursor: auto;
 }
 .pitch-calc input {
   font-family: var(--sans);
+}
+
+/* De ondergrond van het blok, met dezelfde stippen als het canvas eronder maar
+   een slag zachter: het is een vlak in een paneel, geen tweede achtergrond. */
+.pitch-calc-dots {
+  background-image: radial-gradient(
+    circle,
+    rgba(196, 150, 155, 0.13) 0.75px,
+    transparent 0.75px
+  );
+  background-size: 24px 24px;
+}
+
+/* De kaarten. Waar de calculatorpagina wit op grijs zet, zet dit lichter
+   donker op donker: dezelfde verhouding, ander palet. Het is hetzelfde
+   verloop als `.n`, zodat een kaart hier en een node op het canvas van
+   hetzelfde materiaal zijn. */
+.pitch-calc-card {
+  background: linear-gradient(162deg, var(--card2), var(--card));
 }
 
 /* --- Full-screen visual -------------------------------------------------- */

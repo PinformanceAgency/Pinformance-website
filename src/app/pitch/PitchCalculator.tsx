@@ -28,8 +28,10 @@ import {
 // het invoerpaneel, de staffelkaart met de breakdown eronder, en de grafiek
 // ernaast. Alleen de taal volgt het deck, en de bedragen komen uit pricing.ts.
 //
-// Dat betekent dat dit blok bewust LICHT is binnen een verder zwart deck: het
-// leest als de tool die het is, en niet als weer een sectie.
+// De kleuren zijn die van .pitch-root, dus het blok staat in hetzelfde
+// zwart-met-rood als de rest van het deck. Alleen de rangschikking komt van de
+// calculatorpagina: donkere ondergrond, lichtere kaarten erop, precies de
+// verhouding die daar grijs-met-wit was.
 
 const PRESETS = [
   { label: "€ 10k", value: "10000" },
@@ -94,15 +96,15 @@ export default function PitchCalculator() {
       : null;
 
   return (
-    <div className="pitch-calc mt-6 rounded-2xl bg-[#f8f9fb] dot-grid-bg p-6 sm:p-8">
+    <div className="pitch-calc mt-6 rounded-2xl bg-[#0a0a0d] pitch-calc-dots p-6 sm:p-8">
       <div className="space-y-12">
         {/* Garanties -------------------------------------------------- */}
         <section>
           <div className="mb-6">
-            <h3 className="text-2xl font-semibold tracking-tight text-[#0a0a0a] sm:text-3xl">
+            <h3 className="text-2xl font-semibold tracking-tight text-[#f2f1f6] sm:text-3xl">
               Garanties en voorwaarden
             </h3>
-            <p className="mt-1 text-sm text-[#6b7280]">
+            <p className="mt-1 text-sm text-[#a5a0a2]">
               Vastgelegd in de overeenkomst.
             </p>
           </div>
@@ -121,18 +123,18 @@ export default function PitchCalculator() {
             ].map((it) => (
               <div
                 key={it.label}
-                className="group relative overflow-hidden rounded-2xl border border-[#e2e4ea] bg-white p-7 shadow-[0_4px_16px_rgba(10,10,10,0.03)] transition-all hover:border-[#E30613]/30 hover:shadow-[0_12px_32px_rgba(227,6,19,0.08)]"
+                className="group relative overflow-hidden rounded-2xl border border-[rgba(200,155,160,0.14)] pitch-calc-card p-7 shadow-[0_16px_40px_-22px_rgba(0,0,0,0.9)] transition-all hover:border-[#E30613]/30 hover:shadow-[0_22px_50px_-22px_rgba(227,6,19,0.45)]"
               >
                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#E30613] via-[#E30613]/60 to-transparent" />
                 <div
                   aria-hidden
-                  className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full bg-[#E30613]/[0.04] blur-2xl transition-opacity group-hover:bg-[#E30613]/[0.08]"
+                  className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full bg-[#E30613]/[0.10] blur-2xl transition-opacity group-hover:bg-[#E30613]/[0.18]"
                 />
                 <div className="relative">
-                  <div className="inline-flex items-center rounded-full bg-[#fef2f2] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#E30613]">
+                  <div className="inline-flex items-center rounded-full bg-[rgba(227,6,19,0.14)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#ff5c63]">
                     {it.label}
                   </div>
-                  <div className="mt-5 text-lg font-semibold leading-snug text-[#0a0a0a]">
+                  <div className="mt-5 text-lg font-semibold leading-snug text-[#f2f1f6]">
                     {it.headline}
                   </div>
                 </div>
@@ -144,33 +146,33 @@ export default function PitchCalculator() {
         {/* Investering ------------------------------------------------ */}
         <section>
           <div className="mb-6">
-            <h3 className="text-xl font-semibold tracking-tight text-[#0a0a0a]">
+            <h3 className="text-xl font-semibold tracking-tight text-[#f2f1f6]">
               Jouw investering
             </h3>
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-[#E30613]/25 bg-white p-6 shadow-[0_8px_32px_rgba(227,6,19,0.06)] sm:p-7">
+          <div className="relative overflow-hidden rounded-2xl border border-[#E30613]/25 pitch-calc-card p-6 shadow-[0_22px_50px_-22px_rgba(227,6,19,0.35)] sm:p-7">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
               {/* Ad spend */}
               <div>
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#6b7280]">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
                     Ad spend per maand
                   </div>
                 </div>
-                <div className="flex items-baseline gap-2 rounded-xl border border-[#e2e4ea] bg-[#fafbfc] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-white">
-                  <span className="text-lg font-semibold text-[#9ca3af]">€</span>
+                <div className="flex items-baseline gap-2 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-[rgba(0,0,0,0.5)]">
+                  <span className="text-lg font-semibold text-[#6e6769]">€</span>
                   <input
                     type="text"
                     inputMode="numeric"
                     value={adspendInput}
                     onChange={(e) => setAdspendInput(e.target.value)}
                     onPointerDown={(e) => e.stopPropagation()}
-                    className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#0a0a0a] outline-none placeholder:text-[#d1d5db] sm:text-3xl"
+                    className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#f2f1f6] outline-none placeholder:text-[#4a4548] sm:text-3xl"
                   />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#9ca3af]">
+                  <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#6e6769]">
                     Probeer:
                   </span>
                   {PRESETS.map((p) => (
@@ -181,8 +183,8 @@ export default function PitchCalculator() {
                       className={
                         "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors " +
                         (adspendInput === p.value
-                          ? "border-[#E30613] bg-[#fef2f2] text-[#E30613]"
-                          : "border-[#e2e4ea] bg-white text-[#6b7280] hover:border-[#d1d5db] hover:text-[#0a0a0a]")
+                          ? "border-[#E30613] bg-[rgba(227,6,19,0.14)] text-[#ff5c63]"
+                          : "border-[rgba(200,155,160,0.14)] pitch-calc-card text-[#a5a0a2] hover:border-[rgba(255,92,99,0.45)] hover:text-[#f2f1f6]")
                       }
                     >
                       {p.label}
@@ -193,10 +195,10 @@ export default function PitchCalculator() {
 
               {/* KPI */}
               <div>
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#6b7280]">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
                   Waarop sturen we
                 </div>
-                <div className="flex gap-1.5 rounded-xl border border-[#e2e4ea] bg-[#fafbfc] p-1.5">
+                <div className="flex gap-1.5 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] p-1.5">
                   {(["roas", "cpa"] as KpiKind[]).map((k) => (
                     <button
                       key={k}
@@ -205,15 +207,15 @@ export default function PitchCalculator() {
                       className={
                         "flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors " +
                         (kpi === k
-                          ? "bg-[#E30613] text-white"
-                          : "text-[#6b7280] hover:text-[#0a0a0a]")
+                          ? "bg-[#e30613] text-white"
+                          : "text-[#a5a0a2] hover:text-[#f2f1f6]")
                       }
                     >
                       {k === "roas" ? "ROAS" : "CPA"}
                     </button>
                   ))}
                 </div>
-                <div className="mt-3 text-[11px] leading-relaxed text-[#9ca3af]">
+                <div className="mt-3 text-[11px] leading-relaxed text-[#6e6769]">
                   {kpi === "roas"
                     ? "Omzet gedeeld door spend. Voor de meeste merken."
                     : "Kosten per order. Bij abonnementen en hoge LTV."}
@@ -222,12 +224,12 @@ export default function PitchCalculator() {
 
               {/* Minimum */}
               <div>
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#6b7280]">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
                   {kpi === "roas" ? "Minimale ROAS" : "Maximale CPA"}
                 </div>
-                <div className="flex items-baseline gap-2 rounded-xl border border-[#e2e4ea] bg-[#fafbfc] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-white">
+                <div className="flex items-baseline gap-2 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-[rgba(0,0,0,0.5)]">
                   {kpi === "cpa" && (
-                    <span className="text-lg font-semibold text-[#9ca3af]">
+                    <span className="text-lg font-semibold text-[#6e6769]">
                       €
                     </span>
                   )}
@@ -237,10 +239,10 @@ export default function PitchCalculator() {
                     value={minInput}
                     onChange={(e) => setMinInput(e.target.value)}
                     onPointerDown={(e) => e.stopPropagation()}
-                    className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#0a0a0a] outline-none placeholder:text-[#d1d5db] sm:text-3xl"
+                    className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#f2f1f6] outline-none placeholder:text-[#4a4548] sm:text-3xl"
                   />
                 </div>
-                <div className="mt-3 text-[11px] leading-relaxed text-[#9ca3af]">
+                <div className="mt-3 text-[11px] leading-relaxed text-[#6e6769]">
                   {implies
                     ? `${implies.label} ${implies.value} per maand`
                     : "Vul een getal in"}
@@ -250,32 +252,32 @@ export default function PitchCalculator() {
           </div>
 
           {note && (
-            <div className="mt-5 rounded-xl border border-[#fce4e4] bg-[#fef2f2] px-4 py-3 text-xs text-[#E30613]">
+            <div className="mt-5 rounded-xl border border-[rgba(255,160,164,0.3)] bg-[rgba(227,6,19,0.14)] px-4 py-3 text-xs text-[#ff5c63]">
               {note}
             </div>
           )}
 
           {/* Gehaald versus niet gehaald ---------------------------- */}
           <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-            <div className="rounded-xl border border-[#E30613]/25 bg-white px-5 py-4 shadow-[0_8px_32px_rgba(227,6,19,0.06)]">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#E30613]">
+            <div className="rounded-xl border border-[#E30613]/25 pitch-calc-card px-5 py-4 shadow-[0_22px_50px_-22px_rgba(227,6,19,0.35)]">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#ff5c63]">
                 {kpi === "roas" ? "ROAS gehaald" : "CPA gehaald"}
               </div>
-              <div className="mt-1.5 text-xl font-semibold tabular-nums text-[#0a0a0a] sm:text-2xl">
+              <div className="mt-1.5 text-xl font-semibold tabular-nums text-[#f2f1f6] sm:text-2xl">
                 {eur(q.totalOnTarget)}
               </div>
-              <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#9ca3af]">
+              <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
                 per maand, base fee plus spend fee
               </div>
             </div>
-            <div className="rounded-xl border border-[#e2e4ea] bg-white px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+            <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6e6769]">
                 Niet gehaald
               </div>
-              <div className="mt-1.5 text-xl font-semibold tabular-nums text-[#0a0a0a] sm:text-2xl">
+              <div className="mt-1.5 text-xl font-semibold tabular-nums text-[#f2f1f6] sm:text-2xl">
                 {eur(q.totalOffTarget)}
               </div>
-              <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#9ca3af]">
+              <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
                 per maand, de spend fee vervalt volledig
               </div>
             </div>
@@ -284,8 +286,8 @@ export default function PitchCalculator() {
           {/* Staffel en grafiek ------------------------------------- */}
           <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-5">
             <div className="space-y-4 lg:col-span-2">
-              <div className="rounded-2xl border border-[#e2e4ea] bg-white p-5 shadow-sm">
-                <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-[#9ca3af]">
+              <div className="rounded-2xl border border-[rgba(200,155,160,0.14)] pitch-calc-card p-5 shadow-[0_16px_40px_-22px_rgba(0,0,0,0.9)]">
+                <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-[#6e6769]">
                   Staffel over de ad spend
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -297,17 +299,17 @@ export default function PitchCalculator() {
                         className={
                           "rounded-lg border px-3 py-3 text-center transition-all " +
                           (active
-                            ? "border-[#E30613] bg-[#fef2f2]"
-                            : "border-[#e2e4ea] bg-white")
+                            ? "border-[#E30613] bg-[rgba(227,6,19,0.14)]"
+                            : "border-[rgba(200,155,160,0.14)] pitch-calc-card")
                         }
                       >
-                        <div className="text-[9px] uppercase tracking-[0.2em] text-[#9ca3af]">
+                        <div className="text-[9px] uppercase tracking-[0.2em] text-[#6e6769]">
                           {bracketLabel(b)}
                         </div>
                         <div
                           className={
                             "mt-1 text-lg font-semibold " +
-                            (active ? "text-[#E30613]" : "text-[#0a0a0a]")
+                            (active ? "text-[#ff5c63]" : "text-[#f2f1f6]")
                           }
                         >
                           {b.pct}%
@@ -318,34 +320,34 @@ export default function PitchCalculator() {
                 </div>
 
                 {!q.belowThreshold && (
-                  <div className="mt-6 border-t border-[#e2e4ea] pt-6">
-                    <div className="mb-6 text-center text-sm font-bold uppercase tracking-[0.15em] text-[#0a0a0a] sm:text-base">
+                  <div className="mt-6 border-t border-[rgba(200,155,160,0.14)] pt-6">
+                    <div className="mb-6 text-center text-sm font-bold uppercase tracking-[0.15em] text-[#f2f1f6] sm:text-base">
                       <span>
                         Bij{" "}
-                        <span className="text-[#E30613]">{eur(adspend)}</span> ad
+                        <span className="text-[#ff5c63]">{eur(adspend)}</span> ad
                         spend
                       </span>
                     </div>
                     <div className="space-y-3.5 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-[#6b7280]">Base fee</span>
-                        <span className="font-medium tabular-nums text-[#0a0a0a]">
+                        <span className="text-[#a5a0a2]">Base fee</span>
+                        <span className="font-medium tabular-nums text-[#f2f1f6]">
                           {eur(BASE_FEE)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-[#6b7280]">
+                        <span className="text-[#a5a0a2]">
                           {eur(adspend)} × {q.bracketPct}%
                         </span>
-                        <span className="font-medium tabular-nums text-[#0a0a0a]">
+                        <span className="font-medium tabular-nums text-[#f2f1f6]">
                           {eur(q.spendFee)}
                         </span>
                       </div>
-                      <div className="mt-5 flex items-baseline justify-between border-t border-[#e2e4ea] pt-5">
-                        <span className="font-semibold text-[#0a0a0a]">
+                      <div className="mt-5 flex items-baseline justify-between border-t border-[rgba(200,155,160,0.14)] pt-5">
+                        <span className="font-semibold text-[#f2f1f6]">
                           Totaal{q.capped ? " (maximum)" : ""}
                         </span>
-                        <span className="font-semibold tabular-nums text-[#E30613]">
+                        <span className="font-semibold tabular-nums text-[#ff5c63]">
                           {eur(q.totalOnTarget)}
                         </span>
                       </div>
@@ -356,13 +358,13 @@ export default function PitchCalculator() {
             </div>
 
             <div className="lg:col-span-3">
-              <div className="rounded-2xl border border-[#e2e4ea] bg-white p-6">
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9ca3af]">
+              <div className="rounded-2xl border border-[rgba(200,155,160,0.14)] pitch-calc-card p-6">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6e6769]">
                   Spend fee per staffel
                 </div>
-                <div className="text-base font-semibold text-[#0a0a0a]">
+                <div className="text-base font-semibold text-[#f2f1f6]">
                   Bij een ad spend van{" "}
-                  <span className="text-[#E30613]">{eur(adspend)}</span>
+                  <span className="text-[#ff5c63]">{eur(adspend)}</span>
                 </div>
                 <div className="mt-5 h-64 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -372,25 +374,25 @@ export default function PitchCalculator() {
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
-                        stroke="#e2e4ea"
+                        stroke="rgba(200,155,160,0.14)"
                         vertical={false}
                       />
                       <XAxis
                         dataKey="adspend"
-                        tick={{ fontSize: 11, fill: "#6b7280" }}
-                        axisLine={{ stroke: "#e2e4ea" }}
+                        tick={{ fontSize: 11, fill: "#a5a0a2" }}
+                        axisLine={{ stroke: "rgba(200,155,160,0.14)" }}
                         tickLine={false}
                         label={{
                           value: "AD SPEND",
                           position: "insideBottom",
                           offset: -12,
                           fontSize: 10,
-                          fill: "#9ca3af",
+                          fill: "#6e6769",
                           letterSpacing: "0.2em",
                         }}
                       />
                       <YAxis
-                        tick={{ fontSize: 11, fill: "#6b7280" }}
+                        tick={{ fontSize: 11, fill: "#a5a0a2" }}
                         axisLine={false}
                         tickLine={false}
                         // Vier procentpunten marge om de staffel heen, zodat
@@ -403,7 +405,7 @@ export default function PitchCalculator() {
                           position: "insideLeft",
                           offset: 12,
                           fontSize: 10,
-                          fill: "#9ca3af",
+                          fill: "#6e6769",
                           letterSpacing: "0.2em",
                           style: { textAnchor: "middle" },
                         }}
@@ -411,11 +413,14 @@ export default function PitchCalculator() {
                       <Tooltip
                         contentStyle={{
                           borderRadius: 8,
-                          border: "1px solid #e2e4ea",
+                          border: "1px solid rgba(200,155,160,0.14)",
+                          background: "#1f181b",
                           fontSize: 12,
                         }}
+                        labelStyle={{ color: "#a5a0a2" }}
+                        itemStyle={{ color: "#f2f1f6" }}
                         formatter={(value) => [
-                          Number(value).toFixed(1) + " %",
+                          Number(value).toFixed(1).replace(".", ",") + " %",
                           "Spend fee",
                         ]}
                         labelFormatter={(l) => "Ad spend " + l}
@@ -423,7 +428,7 @@ export default function PitchCalculator() {
                       <Line
                         type="monotone"
                         dataKey="pct"
-                        stroke="#E30613"
+                        stroke="#ff5c63"
                         strokeWidth={2.5}
                         dot={(props) => {
                           const { cx, cy, payload, index } = props as {
@@ -439,16 +444,16 @@ export default function PitchCalculator() {
                               cx={cx}
                               cy={cy}
                               r={isCurrent ? 8 : 4}
-                              fill={isCurrent ? "#E30613" : "#fff"}
-                              stroke="#E30613"
+                              fill={isCurrent ? "#ff5c63" : "#141115"}
+                              stroke="#ff5c63"
                               strokeWidth={isCurrent ? 0 : 2}
                             />
                           );
                         }}
                         activeDot={{
                           r: 8,
-                          fill: "#E30613",
-                          stroke: "#fff",
+                          fill: "#ff5c63",
+                          stroke: "#141115",
                           strokeWidth: 2,
                         }}
                       />
