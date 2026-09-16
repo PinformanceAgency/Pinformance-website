@@ -1,13 +1,23 @@
 // Pitch canvas content + world coordinates.
 //
-// De inhoud komt uit de Pinformance salespresentatie (5 pagina's). Elke pagina
-// is een lane op het canvas; elke sectie binnen die pagina is een node in die
-// lane. Daaronder staat per pagina een hub die alle punten van die pagina
-// uitklapt, en onderaan de cases, het team en de afsluiting.
+// De inhoud komt uit de Pinformance salespresentatie. Elke pagina is een lane
+// op het canvas; elke sectie binnen die pagina is een node in die lane.
+// Daaronder staat per pagina een hub die alle punten uitklapt.
+//
+// Pagina 5 is gesplitst: het risicoverhaal (niet gehaald, niet betaald plus de
+// garanties) blijft pagina 5, de prijs en de calculator zijn een eigen gebied
+// daarnaast. De prospect hoort eerst dat hij niets betaalt als er niet
+// geleverd wordt, en kijkt pas daarna naar een bedrag.
 //
 // Alle coördinaten zijn absoluut in wereldruimte en veranderen nooit; alleen de
-// camera beweegt. De oorsprong (0,0) ligt linksboven in de middelste lane, dus
-// de vijf lanes liggen symmetrisch om het nulpunt.
+// camera beweegt. De oorsprong (0,0) ligt linksboven in de middelste lane.
+//
+// Twee regels gelden voor elke string in dit bestand:
+//   1. Geen em-dashes in tekst die op het scherm komt. Komma, punt of
+//      herschrijven.
+//   2. Elke sectie heeft een `visual`. Geen enkele kaart gaat zonder beeld
+//      naar buiten, dus een sectie zonder aangeleverd beeld houdt een zichtbare
+//      lege plek in plaats van stilletjes zonder te verschijnen.
 
 export type SectionId =
   | "totaal"
@@ -15,8 +25,8 @@ export type SectionId =
   | "wie"
   | "hoe"
   | "resultaten"
-  | "prijs"
-  | "afsluiting";
+  | "garanties"
+  | "prijs";
 
 export interface Section {
   id: SectionId;
@@ -37,7 +47,7 @@ export const HERO = {
   title: "Pinformance",
   line1: "Pinterest, en verder niets",
   line2:
-    "Vijf pagina's: het kanaal, wie wij zijn, hoe wij werken, de cijfers en het model",
+    "Het kanaal, wie wij zijn, hoe wij werken, de cijfers, de garanties en het model",
 };
 
 export const START_NODE = {
@@ -50,7 +60,7 @@ export const START_NODE = {
 };
 
 // ---------------------------------------------------------------------------
-// Lanes — één per pagina uit de presentatie
+// Lanes
 // ---------------------------------------------------------------------------
 export const LANE = { w: 940, h: 820, y: 0, titleY: -84, titleH: 58 };
 
@@ -66,20 +76,30 @@ export const LANES: Lane[] = [
   { n: "Pagina 2", x: -1454, title: "Wie wij zijn", days: "Het bureau" },
   { n: "Pagina 3", x: -470, title: "Hoe wij werken", days: "De uitvoering" },
   { n: "Pagina 4", x: 514, title: "Resultaten", days: "De cijfers" },
-  { n: "Pagina 5", x: 1498, title: "Prijs en garanties", days: "Het model" },
+  { n: "Pagina 5", x: 1498, title: "Garanties", days: "Het risicoverhaal" },
+  { n: "Eigen gebied", x: 2482, title: "Prijs en calculator", days: "Het model" },
 ];
 
 // ---------------------------------------------------------------------------
-// Nodes — de secties van elke pagina, als ketting van links naar rechts
+// Nodes
 // ---------------------------------------------------------------------------
 export const NODE_SIZE = { w: 200, h: 71 };
+
+export interface CaseRow {
+  brand: string;
+  revenue: string;
+  roas: string;
+  cpa: string;
+  /** Wat er naast de cijfers komt te staan. */
+  visual: string;
+}
 
 export interface RoadmapNode {
   id: string;
   x: number;
   y: number;
   name: string;
-  /** De pagina waar deze sectie bij hoort — staat boven de titel in de modal. */
+  /** De pagina waar deze sectie bij hoort. Staat boven de titel in de modal. */
   cat: string;
   desc: string;
   bullets: string[];
@@ -89,6 +109,19 @@ export interface RoadmapNode {
   columns?: { title: string; items: string[] }[];
   /** Optionele sleutel/waarde-tabel in plaats van de opsomming. */
   rows?: { k: string; v: string }[];
+  /** Kaartenrij met cases, in plaats van een opsomming. */
+  cases?: CaseRow[];
+  /**
+   * Een vraag die bewust geen statement is. Staat los onder de opsomming,
+   * zonder vinkje, als cue om hem mondeling te beantwoorden.
+   */
+  question?: string;
+  /** Wat er aan beeld bij deze sectie hoort. `src` zodra het er is. */
+  visual: { note: string; by?: string; src?: string };
+  /** Gezet zolang de sectie nog niet af is. Zichtbaar op kaart en in modal. */
+  pending?: string;
+  /** Losse punten die nog vastgelegd moeten worden voordat dit naar buiten kan. */
+  open?: string[];
   /** Wat je uit deze sectie meeneemt. */
   result: string;
 }
@@ -104,12 +137,14 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     desc: "Pinterest is een inspiratieplatform, geen doomscroll. Dat verandert wie je bereikt en op welk moment.",
     bullets: [
       "Inspiratieplatform, geen doomscroll",
-      "Mensen komen om te ontdekken en te plannen",
-      "Ze zoeken actief naar ideeën: interieur, outfit, cadeau",
+      "Mensen zoeken actief naar ideeën: interieur, outfit, cadeau",
       "Oriëntatie duurt weken tot maanden voor de aankoop",
-      "Positieve omgeving, geen nieuws en geen discussie",
       "Vroeger in de funnel dan Meta, veel vroeger dan Google",
     ],
+    visual: {
+      note: "Screenshot van een echte Pinterest feed op mobiel, zoals je hem ziet tijdens het scrollen.",
+      by: "Nog aan te leveren",
+    },
     result:
       "Je bereikt mensen terwijl ze nog aan het kiezen zijn, niet als ze al gekozen hebben.",
   },
@@ -134,6 +169,10 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       s: "van je advertentieomzet",
       f: "Opgebouwd over maanden, niet in week één",
     },
+    visual: {
+      note: "Nog te bepalen. Suggestie: maandelijkse bereikcijfers of een simpel groeigrafiekje.",
+      by: "Keuze bij Thijmen",
+    },
     result:
       "Een tweede kanaal dat 15 tot 30% van je advertentieomzet kan dragen, tegen lagere kosten per duizend.",
   },
@@ -150,6 +189,10 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Bewezen resultaat op een ander kanaal",
       "Meerdere producten of varianten",
     ],
+    visual: {
+      note: "Staande sfeerbeelden in de sfeer van beauty, fashion en home decor, in een grid of strip zoals de feed. Puur decoratief, geen labels of nichenamen: we claimen geen niches.",
+      by: "Nog aan te leveren",
+    },
     result: "Vier signalen. Hoe meer je er herkent, hoe sneller het kanaal rendeert.",
   },
 
@@ -165,38 +208,31 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "5 jaar Pinterest",
       "2 jaar volledig gericht op merken",
       "Geen Meta, geen Google, geen TikTok",
-      "Andere bureaus doen Pinterest erbij; wij hebben geen tweede kanaal",
+      "Andere bureaus doen Pinterest erbij, wij hebben geen tweede kanaal",
     ],
+    visual: {
+      note: "Meta, Google en TikTok, alle drie met een kruis erdoor. Geen officiële logo's, maar woordmerken of neutrale weergaves in de Pinformance-stijl.",
+      by: "Nog te maken",
+    },
     result:
       "Alles wat wij op tientallen accounts leren, komt op één kanaal terecht: het jouwe.",
   },
   {
     id: "nederlands-team",
-    x: -1194,
-    y: 500,
+    x: -1084,
+    y: 420,
     name: "Nederlands team",
     cat: "Pagina 2 · Wie wij zijn",
-    desc: "Eigen kantoor, eigen mensen, niets uitbesteed.",
+    desc: "Senior media buyers in Nederland, met ervaring op grotere DTC merken.",
     bullets: [
-      "Eigen kantoor in Hengelo",
-      "Geen offshore media buyers",
-      "Iedereen heeft zelf een merk gerund of media buying gedaan",
+      "Eigen kantoor in Hengelo, Nederland",
+      "Alleen senior media buyers, geen juniors die het erbij doen",
+      "Ervaring met DTC merken die maandelijks zes cijfers aan advertentiebudget draaien",
+      "Nederlandse projectmanager als vast aanspreekpunt",
     ],
-    result: "De persoon die jouw account draait heeft zelf een webshop gerund.",
-  },
-  {
-    id: "wie-jij-krijgt",
-    x: -974,
-    y: 340,
-    name: "Wie jij krijgt",
-    cat: "Pagina 2 · Wie wij zijn",
-    desc: "Twee vaste mensen op jouw account, geen wisselende poule.",
-    bullets: [],
-    rows: [
-      { k: "Tristan", v: "Projectmanager en jouw vaste aanspreekpunt" },
-      { k: "Media buyer", v: "Nederlands, draait jouw account, kent jouw niche" },
-    ],
-    result: "Twee namen, twee gezichten. Je weet altijd bij wie je moet zijn.",
+    visual: { note: "Teamfoto.", by: "Tycho levert aan" },
+    result:
+      "Jouw account wordt gedraaid door iemand die dit dagelijks op schaal doet.",
   },
   {
     id: "communicatie",
@@ -207,32 +243,22 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     desc: "Kort en direct. Geen calls om het houden van calls.",
     bullets: [
       "Slack",
-      "Snelle reactie",
-      "Eén call per maand, door ons voorbereid",
-      "Meer bij volume, minder als er niets te bespreken is",
+      "Altijd binnen 3 uur reactie",
+      "Maandelijkse check-in call, door ons voorbereid",
+      "Optie tot meer calls als daar vraag naar is",
     ],
+    visual: {
+      note: "Slack. Bijvoorbeeld een kanaal in de Pinformance-stijl, of het Slack-icoon groot naast de opsomming.",
+      by: "Nog te maken",
+    },
     result: "Je hoort van ons als er iets te melden is, niet omdat het dinsdag is.",
   },
 
   // --- Pagina 3 · Hoe wij werken -------------------------------------------
   {
-    id: "rolverdeling",
+    id: "geen-eigen-content",
     x: -430,
     y: 660,
-    name: "Rolverdeling",
-    cat: "Pagina 3 · Hoe wij werken",
-    desc: "Wie levert wat.",
-    bullets: [],
-    rows: [
-      { k: "Paid ads", v: "Jij levert de creatives" },
-      { k: "Organic", v: "Wij maken het" },
-    ],
-    result: "Eén duidelijke grens, zodat er nooit iets tussen wal en schip valt.",
-  },
-  {
-    id: "geen-pinterest-content",
-    x: -298,
-    y: 564,
     name: "Geen eigen content nodig",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Je bestaande materiaal is genoeg om mee te starten.",
@@ -242,26 +268,35 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Toegang tot je drive of creative-systeem is genoeg",
       "Op volume: gericht creative-advies uit onze data",
     ],
+    visual: {
+      note: "Google Drive als aanduiding dat je alleen toegang hoeft te delen, bijvoorbeeld een mapweergave. Drive boven Notion: Drive leest direct als map met creatives, Notion leest als projectmanagement.",
+      by: "Nog te maken",
+    },
     result: "Je hoeft niets extra te laten maken om te kunnen starten.",
   },
   {
     id: "paid",
-    x: -166,
-    y: 468,
+    x: -265,
+    y: 540,
     name: "Paid",
     cat: "Pagina 3 · Hoe wij werken",
-    desc: "Waar we beginnen en hoe we de campagnes opbouwen.",
+    desc: "Eerst onderzoeken wat er al werkt, daarna pas bouwen.",
     bullets: [
-      "Sterkste markten en collecties eerst",
-      "Campagnestructuur afgestemd op jouw merk en catalogus",
-      "Targeting op interesses en zoektermen",
+      "We analyseren eerst wat je merk al draait: Meta-resultaten, welke creatives presteren en welke landingspagina's in Shopify converteren",
+      "Op basis daarvan bouwen we de campagnestructuur, afgestemd op jouw merk en catalogus",
+      "Bij meerdere sterke producten of een brede catalogus zetten we catalog ads in",
+      "Pas daarna gaan we live, met de sterkste markten en collecties eerst",
     ],
+    visual: {
+      note: "Pinterest Ads Manager met een sterk resultaat. Merknaam anonimiseren, en bij voorkeur uit hetzelfde account als de andere resultaatvisuals.",
+      by: "Nog aan te leveren",
+    },
     result: "We starten waar je al wint, niet waar het spannend is.",
   },
   {
     id: "verwachtingen",
-    x: -34,
-    y: 372,
+    x: -100,
+    y: 420,
     name: "Verwachtingen",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Wat je in de eerste weken wel en niet moet verwachten.",
@@ -277,12 +312,16 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       s: "per dag, totaal",
       f: "Omhoog zodra de ROAS het toelaat",
     },
+    visual: {
+      note: "Nog te bepalen. Suggestie: een budgetcurve die in de eerste weken vlak loopt en daarna oploopt.",
+      by: "Nog te maken",
+    },
     result: "Rustig starten kost je twee weken. Te hard starten kost je het kanaal.",
   },
   {
     id: "organic",
-    x: 98,
-    y: 276,
+    x: 65,
+    y: 300,
     name: "Organic",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Pinterest is een zoekmachine. Organic is daarom geen bijzaak.",
@@ -293,8 +332,12 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Vindbaarheid zonder advertentiebudget",
       "Een sterker profiel betekent hogere conversie op paid",
       "Omzet vanaf 3 tot 6 maanden",
-      "Standaard inbegrepen — paid presteert zonder organic slechter",
+      "Standaard inbegrepen, paid presteert zonder organic slechter",
     ],
+    visual: {
+      note: "Lijngrafiek van de organic omzet over minstens zes maanden, met een oplopende lijn. Visueel duidelijk anders dan de Ads Manager-shot bij Paid, zodat het twee aparte motoren blijven. Merknaam anonimiseren.",
+      by: "Nog aan te leveren",
+    },
     result: "Een kanaal dat blijft opleveren op de dagen dat je advertenties uitstaan.",
   },
   {
@@ -308,25 +351,33 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Setup fee betaald",
       "Slack en onboarding in Notion, 15 tot 20 minuten van jouw tijd",
       "Kick-off call: tracking, contracten, toegang",
-      "Live",
+      "Eerste campagnes live binnen 48 uur, als jij snel schakelt",
     ],
+    visual: {
+      note: "Horizontale tijdlijn met de vier stappen, per stap de tijdsinvestering van de klant, en een tijdbalk die eindigt op 48 uur.",
+      by: "Nog te maken",
+    },
     result: "Vier stappen, en 15 tot 20 minuten werk aan jouw kant.",
   },
 
   // --- Pagina 4 · Resultaten -----------------------------------------------
   {
-    id: "hoe-wij-meten",
+    id: "meten-en-attributie",
     x: 554,
     y: 660,
-    name: "Hoe wij meten",
+    name: "Meten en attributie",
     cat: "Pagina 4 · Resultaten",
     desc: "Het meten staat vast vóór de eerste euro spend.",
     bullets: [
       "Attributievenster en UTM's goed vóór de eerste euro spend",
-      "Bij volume: een third-party tool zoals Triple Whale, Converge of Billy Grace",
+      "Bij omnichannel: een third-party tool zoals Triple Whale, Converge of Billy Grace",
       "Wijkt het platform af van de third-party, dan zoeken we het uit",
-      "Jouw P&L is de enige volledige waarheid",
+      "Wij kijken verder dan omzet, jouw winst is wat telt",
     ],
+    visual: {
+      note: "Triple Whale dashboard met Pinterest erin en een sterke ROAS. Pinterest moet náást de andere kanalen staan, niet alleen: de kracht zit erin dat een onafhankelijke tool Pinterest naast Meta bevestigt. Merknaam anonimiseren.",
+      by: "Nog aan te leveren",
+    },
     result: "Geen discussie achteraf over wiens cijfer klopt.",
   },
   {
@@ -335,13 +386,50 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     y: 420,
     name: "De cases",
     cat: "Pagina 4 · Resultaten",
-    desc: "Drie tot maximaal vier accounts, met de cijfers erbij.",
-    bullets: [
-      "Per case: start, markten, uitgangspunt, aanpak, waar het nu staat en organic",
-      "Merknaam alleen waar de klant daar expliciet toestemming voor geeft",
-      "Anders geanonimiseerd naar niche en markt",
+    desc: "Vier accounts, grootste eerst. Alle cijfers over dit jaar.",
+    bullets: [],
+    cases: [
+      {
+        brand: "Fashion merk (anoniem)",
+        revenue: "1,8 mln",
+        roas: "2,37",
+        cpa: "€28",
+        visual: "Productfoto of sfeerbeeld zonder logo, anders verraadt het beeld wie het is",
+      },
+      {
+        brand: "Celestia",
+        revenue: "692k",
+        roas: "2,42",
+        cpa: "€33",
+        visual: "Merkbeeld naast de cijfers",
+      },
+      {
+        brand: "FitCherries",
+        revenue: "420k",
+        roas: "2,20",
+        cpa: "€34",
+        visual: "Merkbeeld naast de cijfers",
+      },
+      {
+        brand: "May Cosmetics",
+        revenue: "389k",
+        roas: "2,31",
+        cpa: "€17",
+        visual: "Merkbeeld naast de cijfers",
+      },
     ],
-    result: "Vergelijkbare merken met hun cijfers erbij, geen losse screenshots.",
+    highlight: {
+      k: "Samen, dit jaar",
+      v: "3,3 mln",
+      s: "omzet op vier accounts",
+      f: "Blended ROAS 2,35",
+    },
+    visual: {
+      note: "Per case een merkbeeld naast de cijfers. Voor het anonieme fashion merk een productfoto of sfeerbeeld zonder logo.",
+      by: "Nog aan te leveren",
+    },
+    result:
+      "Vier merken in vier categorieën, ROAS tussen 2,20 en 2,42. De kracht zit in de consistentie, niet in één uitschieter.",
   },
   {
     id: "wat-realistisch-is",
@@ -353,92 +441,78 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     bullets: [
       "Geen beloftes",
       "15 tot 30% van je advertentieomzet, opgebouwd over maanden",
+      "Bij het ene merk gaat het binnen weken, bij het andere duurt het langer",
     ],
+    question: "Maar wat is er mogelijk?",
     highlight: {
       k: "Waar het heen gaat",
       v: "15–30%",
       s: "van je advertentieomzet",
       f: "Opgebouwd over maanden",
     },
+    visual: {
+      note: "Nog te bepalen. Suggestie: een opbouwcurve over twaalf maanden naar het aandeel van 15 tot 30%.",
+      by: "Nog te maken",
+    },
     result: "Eén getal om ons op af te rekenen, en de tijd die het kost om er te komen.",
   },
 
-  // --- Pagina 5 · Prijs en garanties ---------------------------------------
+  // --- Pagina 5 · Garanties (het risicoverhaal) ----------------------------
   {
-    id: "je-betaalt-niet",
+    id: "niet-gehaald-niet-betaald",
     x: 1538,
     y: 660,
     name: "Niet gehaald, niet betaald",
-    cat: "Pagina 5 · Prijs en garanties",
+    cat: "Pagina 5 · Garanties",
     desc: "Het vaste werk is laag geprijsd. De rest moeten wij verdienen.",
     bullets: [
       "Een lage vaste vergoeding voor het vaste werk",
-      "Performance fee alleen bij het halen van vooraf afgesproken targets",
-      "Target niet gehaald? De performance fee vervalt volledig, ook bij hoge spend",
+      "De fee over je ad spend vervalt als de afgesproken KPI niet gehaald wordt",
+      "Het target en de KPI leggen we vooraf samen vast",
+    ],
+    visual: {
+      note: "Nog te bepalen. Suggestie: de twee scenario's naast elkaar, target gehaald en target niet gehaald, met wat je in beide gevallen betaalt.",
+      by: "Nog te maken",
+    },
+    open: [
+      "Het model verandert naar een fee over ad spend met een resultaatgarantie eronder. De formulering hierboven is vooruitgelopen op dat besluit.",
     ],
     result: "Als het niet werkt, betaal je alleen de base fee.",
   },
   {
     id: "garanties",
-    x: 1670,
-    y: 564,
+    x: 2198,
+    y: 180,
     name: "Garanties",
-    cat: "Pagina 5 · Prijs en garanties",
+    cat: "Pagina 5 · Garanties",
     desc: "Wat er contractueel vastligt.",
     bullets: [],
     rows: [
+      { k: "KPI en target", v: "Vooraf samen vastgelegd, jij kiest waarop we sturen" },
       { k: "Minimale ROAS", v: "Daaronder betaal je alleen de base fee" },
       { k: "Omzetdrempel", v: "Onder €20.000 per maand geen performance fee" },
       { k: "Maximum", v: "Je factuur is gemaximeerd op €10.000 per maand" },
       { k: "Facturatie", v: "Altijd achteraf, nooit vooraf" },
       { k: "Looptijd", v: "2 maanden, daarna maandelijks opzegbaar" },
     ],
-    result: "Vijf afspraken die in het contract staan, niet in een verkooppraatje.",
-  },
-  {
-    id: "kpi",
-    x: 1802,
-    y: 468,
-    name: "Op welke KPI sturen we?",
-    cat: "Pagina 5 · Prijs en garanties",
-    desc: "Jij kiest vooraf waarop we sturen. Het target moet aan beide kanten realistisch zijn, en seizoen mag meewegen.",
-    bullets: [],
-    rows: [
-      { k: "Blended ROAS", v: "Voor de meeste merken" },
-      { k: "New customer ROAS", v: "Focus op nieuwe klanten, bestaande basis" },
-      { k: "CPA / CAC", v: "Abonnementen en hoge LTV" },
-      { k: "Cost per session", v: "Bewust top-of-funnel, sturen op verkeer" },
-    ],
-    result: "Eén KPI waar we allebei op afgerekend worden, vooraf gekozen.",
-  },
-  {
-    id: "prijs",
-    x: 1934,
-    y: 372,
-    name: "Prijs",
-    cat: "Pagina 5 · Prijs en garanties",
-    desc: "Een eenmalige setup, een lage base fee en een performance fee op resultaat.",
-    bullets: [],
-    rows: [
-      { k: "Eenmalige setup", v: "€1.000" },
-      { k: "Base fee", v: "€1.000 per maand" },
-      { k: "Performance fee", v: "Nog in te vullen" },
-      { k: "Maximum", v: "€10.000 per maand" },
-    ],
-    highlight: {
-      k: "Maximum per maand",
-      v: "€10.000",
-      s: "hard gemaximeerd",
-      f: "Altijd achteraf gefactureerd",
+    visual: {
+      note: "Nog te bepalen. Suggestie: de zes afspraken als contractblok, zodat het leest als iets dat zwart op wit staat.",
+      by: "Nog te maken",
     },
-    result: "Een vaste ondergrens die laag is, en een bovengrens die vaststaat.",
+    open: [
+      "De regel over KPI en target is teruggehaald uit de geschrapte KPI-sectie (B8). Zonder die regel staat nergens meer dat de KPI vooraf wordt vastgelegd, en daar hangt de hele garantie aan.",
+      "De drie bedragen hieronder horen bij het oude model en moeten mee veranderen zodra het spend fee-model vastligt.",
+    ],
+    result: "Zes afspraken die in het contract staan, niet in een verkooppraatje.",
   },
+
+  // --- Eigen gebied · Prijs en calculator ----------------------------------
   {
     id: "wat-zit-erin",
-    x: 2066,
-    y: 276,
+    x: 2522,
+    y: 660,
     name: "Wat zit erin",
-    cat: "Pagina 5 · Prijs en garanties",
+    cat: "Prijs en calculator",
     desc: "Wat de setup fee dekt, en wat er maandelijks in de base fee zit.",
     bullets: [],
     columns: [
@@ -463,22 +537,53 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         ],
       },
     ],
+    visual: {
+      note: "Nog te bepalen. Suggestie: de twee kolommen als twee kaarten, met de setup fee eenmalig en de base fee maandelijks duidelijk van elkaar gescheiden.",
+      by: "Nog te maken",
+    },
     result: "Tien concrete onderdelen, zodat je weet waar je base fee heen gaat.",
   },
   {
+    id: "de-calculator",
+    x: 2852,
+    y: 420,
+    name: "De calculator",
+    cat: "Prijs en calculator",
+    desc: "Je vult in wat je nu draait, en ziet wat Pinterest oplevert en wat het kost.",
+    bullets: [
+      "Invoer: je huidige advertentieomzet of ad spend",
+      "Uitkomst: wat Pinterest daar naar verwachting bovenop doet, plus de fee",
+      "Sluit aan op de 15 tot 30% van pagina 4",
+    ],
+    pending: "Het model ligt nog niet vast",
+    open: [
+      "Wat is het percentage over de ad spend?",
+      "Geldt de KPI per periode of per campagne?",
+      "Vervalt bij het niet halen alleen de fee, of ook de setup fee?",
+      "Wat weerhoudt ons ervan het budget op te blazen zodra de KPI gehaald is? Een prospect stelt die vraag binnen tien seconden, en het antwoord hoort in het deck te staan.",
+      "Wat zijn precies de invoer en de uitkomst van de calculator?",
+    ],
+    visual: {
+      note: "De calculator zelf, ingebed of als screenshot van calculator.pinformance-agency.com.",
+      by: "Bestaat al, moet nog aangesloten worden",
+    },
+    result: "De prospect rekent zelf, met zijn eigen cijfers.",
+  },
+  {
     id: "waarom-dit-model",
-    x: 2198,
+    x: 3182,
     y: 180,
     name: "Waarom dit model",
-    cat: "Pagina 5 · Prijs en garanties",
-    desc: "Waarom wij niet op ad spend factureren.",
-    bullets: [
-      "Bureaus die op spend factureren verdienen aan uitgeven, niet aan resultaat",
-      "Bij ons geldt: hogere ROAS is een hogere vergoeding",
-      "De prikkel is eerst rendement, dan pas schaal",
-      "Werkt het niet, dan stoppen wij er zelf mee",
+    cat: "Prijs en calculator",
+    desc: "Vangt de twijfel op die direct na het getal ontstaat.",
+    bullets: [],
+    pending: "Nog op te bouwen",
+    open: [
+      "De oude tekst verkocht het model door facturatie op ad spend af te branden. Dat kan niet blijven staan nu wij zelf op een spend fee overgaan.",
+      "Deze sectie wordt opnieuw geschreven zodra het nieuwe model vastligt.",
     ],
-    result: "Ons belang en jouw belang wijzen dezelfde kant op.",
+    visual: { note: "Nog te bepalen.", by: "Volgt met de tekst" },
+    result: "Nog te schrijven.",
   },
 ];
 
@@ -496,7 +601,7 @@ export const SYS_LABEL = {
 };
 
 // ---------------------------------------------------------------------------
-// Pagina-hubs + de volledige opsomming per pagina
+// Pagina-hubs
 // ---------------------------------------------------------------------------
 export const HUB = { w: 760, h: 230, y: 1134 };
 export const CAT = { w: 210, h: 40, y: 1404 };
@@ -529,16 +634,14 @@ export const PHASE_HUBS: PhaseHub[] = [
     meta: "Pagina 1 · Het kanaal",
     title: "Pinterest",
     desc: "Waarom Pinterest een ander kanaal is dan Meta, hoe groot het is en voor wie het werkt.",
-    count: "17 punten",
+    count: "14 punten",
     cats: [
       {
         name: "Geen tweede Meta",
         systems: [
           "Inspiratieplatform, geen doomscroll",
-          "Komen om te ontdekken en plannen",
           "Zoeken actief naar ideeën",
           "Oriëntatie: weken tot maanden",
-          "Positieve omgeving",
           "Vroeger in de funnel dan Meta",
         ],
       },
@@ -547,9 +650,8 @@ export const PHASE_HUBS: PhaseHub[] = [
         systems: [
           "NL + BE: 7 tot 8 mln",
           "Duitsland: ±20 mln",
-          "VS: ±100 mln vs 300–400 mln Meta",
+          "VS: ±100 mln vs 300 tot 400 mln Meta",
           "Wereldwijd: ±600 mln, groeiend",
-          "Aandeel: 15 tot 30%",
           "Minder concurrentie dan Meta",
           "CPM's fors onder Meta",
         ],
@@ -569,11 +671,11 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p2",
     n: "02",
     x: -1364,
-    catX: -1449,
+    catX: -1329,
     meta: "Pagina 2 · Het bureau",
     title: "Wie wij zijn",
-    desc: "Eén kanaal, een Nederlands team en twee vaste mensen op jouw account.",
-    count: "13 punten",
+    desc: "Eén kanaal, senior media buyers in Nederland en korte lijnen via Slack.",
+    count: "12 punten",
     cats: [
       {
         name: "Pinterest, verder niets",
@@ -588,24 +690,18 @@ export const PHASE_HUBS: PhaseHub[] = [
         name: "Nederlands team",
         systems: [
           "Eigen kantoor in Hengelo",
-          "Geen offshore media buyers",
-          "Zelf een merk gerund of media buying gedaan",
-        ],
-      },
-      {
-        name: "Wie jij krijgt",
-        systems: [
-          "Tristan — projectmanager, jouw aanspreekpunt",
-          "Media buyer — draait jouw account, kent jouw niche",
+          "Alleen senior media buyers",
+          "Ervaring met zes cijfers per maand",
+          "Nederlandse projectmanager",
         ],
       },
       {
         name: "Communicatie",
         systems: [
           "Slack",
-          "Snelle reactie",
-          "Eén call per maand, voorbereid",
-          "Meer bij volume, minder als er niets is",
+          "Altijd binnen 3 uur reactie",
+          "Maandelijkse check-in call",
+          "Meer calls als daar vraag naar is",
         ],
       },
     ],
@@ -614,16 +710,12 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p3",
     n: "03",
     x: -380,
-    catX: -705,
+    catX: -585,
     meta: "Pagina 3 · De uitvoering",
     title: "Hoe wij werken",
-    desc: "Wie wat levert, wat je van paid mag verwachten en waarom organic standaard meegaat.",
-    count: "24 punten",
+    desc: "Wat je aanlevert, hoe we paid opbouwen en waarom organic standaard meegaat.",
+    count: "23 punten",
     cats: [
-      {
-        name: "Rolverdeling",
-        systems: ["Paid ads — jij levert creatives", "Organic — wij maken het"],
-      },
       {
         name: "Geen eigen content nodig",
         systems: [
@@ -636,9 +728,10 @@ export const PHASE_HUBS: PhaseHub[] = [
       {
         name: "Paid",
         systems: [
-          "Sterkste markten en collecties eerst",
+          "Eerst analyseren wat je al draait",
           "Structuur op jouw merk en catalogus",
-          "Targeting op interesses en zoektermen",
+          "Catalog ads bij brede catalogus",
+          "Pas daarna live, sterkste eerst",
         ],
       },
       {
@@ -668,7 +761,7 @@ export const PHASE_HUBS: PhaseHub[] = [
           "Setup fee betaald",
           "Slack en Notion, 15 tot 20 min",
           "Kick-off: tracking, contracten, toegang",
-          "Live",
+          "Eerste campagnes live binnen 48 uur",
         ],
       },
     ],
@@ -680,29 +773,35 @@ export const PHASE_HUBS: PhaseHub[] = [
     catX: 639,
     meta: "Pagina 4 · De cijfers",
     title: "Resultaten",
-    desc: "Hoe we meten, welke cases we laten zien en wat realistisch is.",
-    count: "9 punten",
+    desc: "Hoe we meten, vier cases met hun cijfers, en wat realistisch is.",
+    count: "12 punten",
     cats: [
       {
-        name: "Hoe wij meten",
+        name: "Meten en attributie",
         systems: [
           "Attributievenster en UTM's vooraf",
-          "Bij volume: third-party tool",
+          "Bij omnichannel: third-party tool",
           "Afwijking uitzoeken, niet volhouden",
-          "Jouw P&L is de waarheid",
+          "Verder dan omzet, je winst telt",
         ],
       },
       {
         name: "De cases",
         systems: [
-          "Drie tot maximaal vier cases",
-          "Merknaam alleen met toestemming",
-          "Anders naar niche en markt",
+          "Fashion (anoniem): 1,8 mln · 2,37 · €28",
+          "Celestia: 692k · 2,42 · €33",
+          "FitCherries: 420k · 2,20 · €34",
+          "May Cosmetics: 389k · 2,31 · €17",
         ],
       },
       {
         name: "Wat realistisch is",
-        systems: ["Geen beloftes", "15 tot 30%, opgebouwd over maanden"],
+        systems: [
+          "Geen beloftes",
+          "15 tot 30%, opgebouwd over maanden",
+          "Soms weken, soms langer",
+          "Maar wat is er mogelijk?",
+        ],
       },
     ],
   },
@@ -710,48 +809,43 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p5",
     n: "05",
     x: 1588,
-    catX: 1263,
-    meta: "Pagina 5 · Het model",
-    title: "Prijs en garanties",
-    desc: "Lage vaste vergoeding, performance fee alleen op gehaalde targets.",
-    count: "30 punten",
+    catX: 1743,
+    meta: "Pagina 5 · Het risicoverhaal",
+    title: "Garanties",
+    desc: "Wat je betaalt als het niet werkt, en wat er contractueel vastligt.",
+    count: "9 punten",
     cats: [
       {
         name: "Niet gehaald, niet betaald",
         systems: [
           "Lage vaste vergoeding",
-          "Fee alleen bij gehaalde targets",
-          "Niet gehaald? Fee vervalt volledig",
+          "Fee vervalt bij gemiste KPI",
+          "Target en KPI vooraf vastgelegd",
         ],
       },
       {
         name: "Garanties",
         systems: [
-          "Minimale ROAS — eronder alleen base",
+          "KPI en target vooraf samen vast",
+          "Minimale ROAS, eronder alleen base",
           "Onder €20.000 geen performance fee",
           "Maximum €10.000 per maand",
           "Altijd achteraf, nooit vooraf",
           "2 maanden, daarna maandelijks op",
         ],
       },
-      {
-        name: "KPI-keuze",
-        systems: [
-          "Blended ROAS — de meeste merken",
-          "New customer ROAS",
-          "CPA / CAC — abonnementen, hoge LTV",
-          "Cost per session — top-of-funnel",
-        ],
-      },
-      {
-        name: "Prijs",
-        systems: [
-          "Eenmalige setup €1.000",
-          "Base fee €1.000 per maand",
-          "Performance fee nog in te vullen",
-          "Maximum €10.000 per maand",
-        ],
-      },
+    ],
+  },
+  {
+    key: "p6",
+    n: "06",
+    x: 2572,
+    catX: 2607,
+    meta: "Eigen gebied · Het model",
+    title: "Prijs en calculator",
+    desc: "Wat er in de fee zit, de calculator zelf, en waarom het model zo werkt.",
+    count: "14 punten",
+    cats: [
       {
         name: "Wat zit erin",
         systems: [
@@ -768,81 +862,18 @@ export const PHASE_HUBS: PhaseHub[] = [
         ],
       },
       {
-        name: "Waarom dit model",
+        name: "De calculator",
         systems: [
-          "Spend-facturatie beloont uitgeven",
-          "Bij ons: hogere ROAS, hogere fee",
-          "Prikkel is rendement, dan schaal",
-          "Werkt het niet, dan stoppen wij",
+          "Invoer: huidige omzet of spend",
+          "Uitkomst: opbrengst plus fee",
+          "Sluit aan op de 15 tot 30%",
         ],
       },
+      {
+        name: "Waarom dit model",
+        systems: ["Nog op te bouwen"],
+      },
     ],
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Cases (pagina 4) — template, nog te vullen met de echte cijfers
-// ---------------------------------------------------------------------------
-export const RESULTS_CARD = { x: -836, y: 2276, w: 1672, h: 620 };
-export const CASE = { w: 512, h: 380, y: 2432 };
-export const CASE_GAP = 30;
-export const CASE_LEFT = -798;
-
-export interface CaseStudy {
-  brand: string;
-  niche: string;
-  rows: { k: string; v: string }[];
-}
-
-const CASE_TEMPLATE_ROWS = [
-  { k: "Start", v: "Maand, jaar" },
-  { k: "Markten", v: "Landen" },
-  { k: "Bij start", v: "Uitgangspunt" },
-  { k: "Aanpak", v: "Catalogs, organic, et cetera" },
-  { k: "Nu", v: "Omzet p/m · ROAS · aandeel van totaal" },
-  { k: "Organic", v: "Impressies · omzet" },
-];
-
-export const CASES: CaseStudy[] = [
-  { brand: "Case 1", niche: "Niche en markt", rows: CASE_TEMPLATE_ROWS },
-  { brand: "Case 2", niche: "Niche en markt", rows: CASE_TEMPLATE_ROWS },
-  { brand: "Case 3", niche: "Niche en markt", rows: CASE_TEMPLATE_ROWS },
-];
-
-export const RESULTS_TITLE = "De cases";
-export const RESULTS_SUB =
-  "Drie tot maximaal vier accounts · cijfers nog in te vullen";
-
-// ---------------------------------------------------------------------------
-// Team (pagina 2 — "Wie jij krijgt")
-// ---------------------------------------------------------------------------
-export const SUPPORT_CARD = { x: -836, y: 2996, w: 1672, h: 530 };
-export const SHOT = { w: 512, h: 300, y: 3114 };
-
-export const SUPPORT_TITLE = "Wie jij krijgt";
-export const SUPPORT_SUB = "Twee vaste mensen en één kanaal om ons te bereiken";
-
-export interface SupportShot {
-  title: string;
-  role: string;
-  sub?: string;
-}
-
-export const SUPPORT_SHOTS: SupportShot[] = [
-  {
-    title: "Tristan",
-    role: "Projectmanager",
-    sub: "Jouw vaste aanspreekpunt. Bereidt de maandelijkse call voor.",
-  },
-  {
-    title: "Media buyer",
-    role: "Nederlands, vast op jouw account",
-    sub: "Draait jouw account en kent jouw niche. Geen offshore.",
-  },
-  {
-    title: "Slack",
-    role: "Direct contact",
-    sub: "Snelle reactie. Eén call per maand — meer bij volume, minder als er niets te bespreken is.",
   },
 ];
 
@@ -851,12 +882,12 @@ export const SUPPORT_SHOTS: SupportShot[] = [
 // ---------------------------------------------------------------------------
 export const CTA = {
   x: -300,
-  y: 3626,
+  y: 2200,
   w: 600,
   h: 250,
   eyebrow: "Volgende stap",
   title: "Van akkoord naar live.",
-  desc: "Setup fee betaald, Slack en onboarding in Notion (15 tot 20 minuten), kick-off call voor tracking, contracten en toegang. Daarna live.",
+  desc: "Setup fee betaald, Slack en onboarding in Notion (15 tot 20 minuten), kick-off call voor tracking, contracten en toegang. Eerste campagnes live binnen 48 uur.",
   button: "Plan de kick-off →",
 };
 
@@ -868,7 +899,7 @@ export const SECTIONS: Section[] = [
     id: "totaal",
     index: "00",
     label: "Totaaloverzicht",
-    bounds: { x: -2758, y: -360, w: 5196, h: 1724 },
+    bounds: { x: -2758, y: -360, w: 6180, h: 2810 },
   },
   {
     id: "pinterest",
@@ -895,16 +926,16 @@ export const SECTIONS: Section[] = [
     bounds: { x: 514, y: -84, w: 940, h: 904 },
   },
   {
-    id: "prijs",
+    id: "garanties",
     index: "05",
-    label: "Prijs en garanties",
+    label: "Garanties",
     bounds: { x: 1498, y: -84, w: 940, h: 904 },
   },
   {
-    id: "afsluiting",
+    id: "prijs",
     index: "06",
-    label: "Cases, team en start",
-    bounds: { x: -836, y: 2276, w: 1672, h: 1600 },
+    label: "Prijs en calculator",
+    bounds: { x: 2482, y: -84, w: 940, h: 904 },
   },
 ];
 

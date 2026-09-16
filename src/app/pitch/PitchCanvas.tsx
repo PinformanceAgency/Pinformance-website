@@ -2,10 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  CASE,
-  CASES,
-  CASE_GAP,
-  CASE_LEFT,
   CAT,
   CTA,
   HERO,
@@ -14,17 +10,9 @@ import {
   LANES,
   NODE_SIZE,
   PHASE_HUBS,
-  RESULTS_CARD,
-  RESULTS_SUB,
-  RESULTS_TITLE,
   ROADMAP_NODES,
   SECTIONS,
-  SHOT,
   START_NODE,
-  SUPPORT_CARD,
-  SUPPORT_SHOTS,
-  SUPPORT_SUB,
-  SUPPORT_TITLE,
   SYS,
   SYS_LABEL,
   TOOLBAR_HINT,
@@ -87,21 +75,6 @@ const center = (n: { x: number; y: number }) => ({
   x: n.x + NODE_SIZE.w / 2,
   y: n.y + NODE_SIZE.h / 2,
 });
-
-// ---------------------------------------------------------------------------
-// Layout helpers derived from the world coordinates
-// ---------------------------------------------------------------------------
-const initials = (name: string) =>
-  name
-    .replace(/&/g, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
-
-// ---------------------------------------------------------------------------
 
 interface Stroke {
   d: string;
@@ -364,7 +337,7 @@ export default function PitchCanvas() {
             <button
               key={n.id}
               type="button"
-              className="n rmnode"
+              className={`n rmnode${n.pending ? " is-pending" : ""}`}
               // minHeight, not height: a two-line section name must push the
               // card taller instead of clipping the "klik om te openen" line.
               style={{ left: n.x, top: n.y, width: NODE_SIZE.w, minHeight: NODE_SIZE.h }}
@@ -373,7 +346,7 @@ export default function PitchCanvas() {
             >
               <span className="rmn-lbl">
                 <i className="rmn-dot" />
-                Sectie
+                {n.pending ?? "Sectie"}
               </span>
               <span className="rmn-name">{n.name}</span>
               <span className="rmn-cta">Klik om te openen →</span>
@@ -460,82 +433,6 @@ export default function PitchCanvas() {
               );
             })
           )}
-
-          {/* Results ----------------------------------------------------- */}
-          <div
-            className="n blockcard"
-            style={{
-              left: RESULTS_CARD.x,
-              top: RESULTS_CARD.y,
-              width: RESULTS_CARD.w,
-              height: RESULTS_CARD.h,
-            }}
-          >
-            <span className="card-title">{RESULTS_TITLE}</span>
-            <span className="card-sub">{RESULTS_SUB}</span>
-            <span className="card-rule" />
-          </div>
-          {CASES.map((c, i) => (
-            <div
-              key={c.brand}
-              className="n casecard"
-              style={{
-                left: CASE_LEFT + i * (CASE.w + CASE_GAP),
-                top: CASE.y,
-                width: CASE.w,
-                height: CASE.h,
-              }}
-            >
-              <span className="case-head">
-                <span className="case-brand">{c.brand}</span>
-                <span className="case-niche">{c.niche}</span>
-              </span>
-              <span className="case-rows">
-                {c.rows.map((r) => (
-                  <span className="case-row" key={r.k}>
-                    <span className="k">{r.k}</span>
-                    <span className="v">{r.v}</span>
-                  </span>
-                ))}
-              </span>
-            </div>
-          ))}
-
-          {/* Support ----------------------------------------------------- */}
-          <div
-            className="n supportcard"
-            style={{
-              left: SUPPORT_CARD.x,
-              top: SUPPORT_CARD.y,
-              width: SUPPORT_CARD.w,
-              height: SUPPORT_CARD.h,
-            }}
-          >
-            <span className="card-title">{SUPPORT_TITLE}</span>
-            <span className="card-sub">{SUPPORT_SUB}</span>
-            <span className="card-rule" />
-          </div>
-          {SUPPORT_SHOTS.map((s, i) => (
-            <div
-              key={s.title}
-              className="n shotcard"
-              style={{
-                left: CASE_LEFT + i * (SHOT.w + CASE_GAP),
-                top: SHOT.y,
-                width: SHOT.w,
-                height: SHOT.h,
-              }}
-            >
-              <span className="shot-face">
-                <span className="shot-initials">{initials(s.title)}</span>
-              </span>
-              <span className="shot-foot">
-                <span className="t">{s.title}</span>
-                <span className="r">{s.role}</span>
-                {s.sub && <span className="s">{s.sub}</span>}
-              </span>
-            </div>
-          ))}
 
           {/* CTA --------------------------------------------------------- */}
           <div
@@ -727,6 +624,39 @@ export default function PitchCanvas() {
                     ))}
                   </div>
                 )}
+
+                {detail.cases && (
+                  <div className="pitch-cases">
+                    {detail.cases.map((c) => (
+                      <div className="pitch-case" key={c.brand}>
+                        <span className="pitch-case-art" title={c.visual}>
+                          Merkbeeld
+                        </span>
+                        <span className="pitch-case-body">
+                          <span className="b">{c.brand}</span>
+                          <span className="m">
+                            <span className="k">Omzet</span>
+                            <span className="v">{c.revenue}</span>
+                          </span>
+                          <span className="m">
+                            <span className="k">ROAS</span>
+                            <span className="v">{c.roas}</span>
+                          </span>
+                          <span className="m">
+                            <span className="k">CPA</span>
+                            <span className="v">{c.cpa}</span>
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* A question, not a statement: no tick, set apart, so it
+                    reads as the cue to answer it out loud. */}
+                {detail.question && (
+                  <p className="pitch-question">{detail.question}</p>
+                )}
               </div>
 
               {detail.highlight && (
@@ -742,6 +672,35 @@ export default function PitchCanvas() {
                 </div>
               )}
             </div>
+
+            {/* Every section carries a visual. Until the image is delivered
+                the slot stays visible with what belongs in it, so a section
+                cannot quietly go out without one. */}
+            <div className="pitch-visual">
+              {detail.visual.src ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={detail.visual.src} alt={detail.visual.note} />
+              ) : (
+                <>
+                  <span className="vk">Visual</span>
+                  <span className="vn">{detail.visual.note}</span>
+                  {detail.visual.by && (
+                    <span className="vb">{detail.visual.by}</span>
+                  )}
+                </>
+              )}
+            </div>
+
+            {detail.open && (
+              <div className="pitch-open">
+                <span className="k">Nog vast te leggen</span>
+                <ul>
+                  {detail.open.map((o) => (
+                    <li key={o}>{o}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="pitch-result">
               <span className="k">Resultaat</span>
