@@ -490,6 +490,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Een lage vaste vergoeding voor het vaste werk",
       "De fee over je ad spend vervalt als de afgesproken KPI niet gehaald wordt",
       "Het target en de KPI leggen we vooraf samen vast",
+      "We beoordelen per periode, niet per campagne",
+      "Setup fee en base fee blijven staan, alleen de fee over je ad spend vervalt",
     ],
     visual: {
       note: "Nog te bepalen. Suggestie: de twee scenario's naast elkaar, target gehaald en target niet gehaald, met wat je in beide gevallen betaalt.",
@@ -507,6 +509,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     bullets: [],
     rows: [
       { k: "KPI en target", v: "Vooraf samen vastgelegd, jij kiest waarop we sturen" },
+      { k: "Beoordeling", v: "Per periode, niet per campagne" },
       { k: "Niet gehaald", v: `Dan vervalt de spend fee en betaal je ${eur(BASE_FEE)} base fee` },
       { k: "Spend-drempel", v: `Onder ${eur(MIN_ADSPEND_FOR_FEE)} ad spend per maand rekenen we geen spend fee` },
       { k: "Maximum", v: `Je factuur is gemaximeerd op ${eur(INVOICE_CAP)} per maand` },
@@ -573,9 +576,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       note: "De calculator is de visual. Hij rekent live mee tijdens de call, met de cijfers van de prospect zelf.",
     },
     open: [
-      "Geldt de KPI per periode of per campagne?",
-      "Vervalt bij het niet halen alleen de spend fee, of ook de setup fee?",
-      "Wat weerhoudt ons ervan het budget op te blazen zodra de KPI gehaald is? Een prospect stelt die vraag binnen tien seconden, en het antwoord hoort in het deck te staan.",
+      "Wat weerhoudt ons ervan het budget op te blazen zodra de KPI gehaald is? Wij verdienen meer naarmate de spend stijgt, en de garantie beschermt de prospect alleen tegen zakken onder het target, niet tegen doorschalen tot precies op de grens. Het antwoord hoort in het deck te staan.",
     ],
     result: "De prospect rekent zelf, met zijn eigen cijfers, en ziet beide uitkomsten naast elkaar.",
   },
