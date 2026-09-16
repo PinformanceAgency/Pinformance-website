@@ -19,6 +19,13 @@
 //      naar buiten, dus een sectie zonder aangeleverd beeld houdt een zichtbare
 //      lege plek in plaats van stilletjes zonder te verschijnen.
 
+import {
+  BASE_FEE,
+  INVOICE_CAP,
+  MIN_ADSPEND_FOR_FEE,
+  eur,
+} from "./pricing";
+
 export type SectionId =
   | "totaal"
   | "pinterest"
@@ -125,6 +132,8 @@ export interface RoadmapNode {
   visual: { note: string; by?: string; src?: string; light?: boolean };
   /** Gezet zolang de sectie nog niet af is. Zichtbaar op kaart en in modal. */
   pending?: string;
+  /** Deze sectie draagt de werkende calculator in plaats van een opsomming. */
+  calculator?: true;
   /** Losse punten die nog vastgelegd moeten worden voordat dit naar buiten kan. */
   open?: string[];
   /** Wat je uit deze sectie meeneemt. */
@@ -486,10 +495,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       note: "Nog te bepalen. Suggestie: de twee scenario's naast elkaar, target gehaald en target niet gehaald, met wat je in beide gevallen betaalt.",
       by: "Nog te maken",
     },
-    open: [
-      "Het model verandert naar een fee over ad spend met een resultaatgarantie eronder. De formulering hierboven is vooruitgelopen op dat besluit.",
-    ],
-    result: "Als het niet werkt, betaal je alleen de base fee.",
+    result: `Als het niet werkt, betaal je alleen de base fee van ${eur(BASE_FEE)}.`,
   },
   {
     id: "garanties",
@@ -501,9 +507,9 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     bullets: [],
     rows: [
       { k: "KPI en target", v: "Vooraf samen vastgelegd, jij kiest waarop we sturen" },
-      { k: "Minimale ROAS", v: "Daaronder betaal je alleen de base fee" },
-      { k: "Omzetdrempel", v: "Onder €20.000 per maand geen performance fee" },
-      { k: "Maximum", v: "Je factuur is gemaximeerd op €10.000 per maand" },
+      { k: "Niet gehaald", v: `Dan vervalt de spend fee en betaal je ${eur(BASE_FEE)} base fee` },
+      { k: "Spend-drempel", v: `Onder ${eur(MIN_ADSPEND_FOR_FEE)} ad spend per maand rekenen we geen spend fee` },
+      { k: "Maximum", v: `Je factuur is gemaximeerd op ${eur(INVOICE_CAP)} per maand` },
       { k: "Facturatie", v: "Altijd achteraf, nooit vooraf" },
       { k: "Looptijd", v: "2 maanden, daarna maandelijks opzegbaar" },
     ],
@@ -513,7 +519,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     },
     open: [
       "De regel over KPI en target is teruggehaald uit de geschrapte KPI-sectie (B8). Zonder die regel staat nergens meer dat de KPI vooraf wordt vastgelegd, en daar hangt de hele garantie aan.",
-      "De drie bedragen hieronder horen bij het oude model en moeten mee veranderen zodra het spend fee-model vastligt.",
     ],
     result: "Zes afspraken die in het contract staan, niet in een verkooppraatje.",
   },
@@ -561,25 +566,18 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     y: 420,
     name: "De calculator",
     cat: "Prijs en calculator",
-    desc: "Je vult in wat je nu draait, en ziet wat Pinterest oplevert en wat het kost.",
-    bullets: [
-      "Invoer: je huidige advertentieomzet of ad spend",
-      "Uitkomst: wat Pinterest daar naar verwachting bovenop doet, plus de fee",
-      "Sluit aan op de 15 tot 30% van pagina 4",
-    ],
-    pending: "Het model ligt nog niet vast",
-    open: [
-      "Wat is het percentage over de ad spend?",
-      "Geldt de KPI per periode of per campagne?",
-      "Vervalt bij het niet halen alleen de fee, of ook de setup fee?",
-      "Wat weerhoudt ons ervan het budget op te blazen zodra de KPI gehaald is? Een prospect stelt die vraag binnen tien seconden, en het antwoord hoort in het deck te staan.",
-      "Wat zijn precies de invoer en de uitkomst van de calculator?",
-    ],
+    desc: "Vul je ad spend in, kies waarop we sturen, en zie wat je betaalt als we het halen en wat je betaalt als we het niet halen.",
+    bullets: [],
+    calculator: true,
     visual: {
-      note: "De calculator zelf, ingebed of als screenshot van calculator.pinformance-agency.com.",
-      by: "Bestaat al, moet nog aangesloten worden",
+      note: "De calculator is de visual. Hij rekent live mee tijdens de call, met de cijfers van de prospect zelf.",
     },
-    result: "De prospect rekent zelf, met zijn eigen cijfers.",
+    open: [
+      "Geldt de KPI per periode of per campagne?",
+      "Vervalt bij het niet halen alleen de spend fee, of ook de setup fee?",
+      "Wat weerhoudt ons ervan het budget op te blazen zodra de KPI gehaald is? Een prospect stelt die vraag binnen tien seconden, en het antwoord hoort in het deck te staan.",
+    ],
+    result: "De prospect rekent zelf, met zijn eigen cijfers, en ziet beide uitkomsten naast elkaar.",
   },
   {
     id: "waarom-dit-model",

@@ -18,6 +18,7 @@ import {
   TOOLBAR_HINT,
   type RoadmapNode,
 } from "./data";
+import PitchCalculator from "./PitchCalculator";
 import "./pitch.css";
 
 // ---------------------------------------------------------------------------
@@ -576,7 +577,10 @@ export default function PitchCanvas() {
       {/* Detail modal --------------------------------------------------- */}
       {detail && (
         <div className="pitch-modal" onClick={() => setDetail(null)}>
-          <div className="pitch-modal-panel" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`pitch-modal-panel${detail.calculator ? " is-wide" : ""}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               type="button"
               className="pitch-modal-close"
@@ -589,6 +593,9 @@ export default function PitchCanvas() {
             <h2>{detail.name}</h2>
             <p className="pitch-modal-desc">{detail.desc}</p>
 
+            {detail.calculator && <PitchCalculator />}
+
+            {!detail.calculator && (
             <div className="pitch-demo">
               <div className="pitch-demo-left">
                 <div className="pitch-demo-brand">Wat er staat</div>
@@ -685,6 +692,7 @@ export default function PitchCanvas() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Every section carries a visual. Until the image is delivered
                 the slot stays visible with what belongs in it, so a section
@@ -693,7 +701,12 @@ export default function PitchCanvas() {
                 the caption without the empty frame. */}
             {(() => {
               const art = detail.visual.src;
-              const carried = !art && !!detail.cases?.some((c) => c.src);
+              // The calculator is its own visual; a slot under it asking for a
+              // picture of a calculator would be asking for a screenshot of
+              // the thing directly above it.
+              const carried =
+                !art &&
+                (!!detail.calculator || !!detail.cases?.some((c) => c.src));
               return (
                 <figure
                   className={`pitch-visual${art || carried ? " is-done" : ""}${
