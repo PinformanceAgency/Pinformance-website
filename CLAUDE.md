@@ -212,6 +212,64 @@ believing otherwise); is the org's token alive (`GET /user_account`, 401 means
 reconnect); is the store being reached at all (`not_reached` in the run's JSON);
 is the head of its queue postable.
 
+## Read-only agent API (`/api/agent/*`)
+
+Viktor — the agency's Slack agent — reads the dashboard through here. One key
+(`AGENT_API_KEY`) as `Authorization: Bearer <key>` or `x-agent-key: <key>`;
+`GET /api/agent` describes itself, endpoints and conventions included, so a
+model can find its way without anybody pasting documentation into Slack.
+
+| Path | What |
+|---|---|
+| `/api/agent/stores` | fee model, invoice ROAS, break-even ROAS, buyer, department, niche, countries, currency |
+| `/api/agent/zones` | red/orange/green per store with the numbers it was decided on |
+| `/api/agent/critical` | exceptions + zone flips |
+| `/api/agent/team-activity` | the 6-hourly cache, with `refreshed_at` |
+| `/api/agent/organic` | per organic store: pacing, boards, pins, cycles |
+| `/api/agent/pinterest/{org}/{resource}` | one whitelisted Pinterest read on behalf of a store |
+
+Five decisions in it, each of which is the reason it is not one of the two
+simpler things it could have been:
+
+- **Read-only is structural, not a promise.** Every route here exports `GET`
+  and nothing else, so there is no write path behind that key to forget to
+  protect. The moment a POST appears under `/api/agent`, that guarantee is
+  gone — put it somewhere else.
+- **It fails closed.** No `AGENT_API_KEY`, no answers (503). The opposite of
+  `basicAuthChallenge()` in `middleware.ts`, which is deliberately fail-open
+  so a pitch page is never locked before its env vars are set: a marketing
+  page that opens early costs nothing, a data API that does publishes the
+  whole book.
+- **A Supabase key was the obvious alternative and cannot do the job.** Not
+  for Pinterest — the tokens are AES-256-GCM ciphertext and `ENCRYPTION_KEY`
+  is in the app, not the database, and they usually need refreshing first.
+  And not for the zones, which are TypeScript in `src/lib/media-buying/`, not
+  SQL: an agent re-deriving them from the snapshots would quote numbers that
+  disagree with the screen the buyers are looking at.
+- **A dashboard login was the other one.** `user_role` has no agency-wide
+  viewer: `client_viewer` is pinned to one org and `agency_admin` writes
+  everything, invitations included.
+- **The Pinterest surface is a named whitelist, never a path passthrough.**
+  `POST /pins` lives on the same host as `GET /boards`, one `method` away.
+  Each resource in `src/lib/agent/pinterest-proxy.ts` calls one read method on
+  `PinterestClient`; the methods that create, update or delete are simply not
+  referenced, so there is no path to forge. A dead token comes back as **409**
+  with the reason — that store needs reconnecting and no retry fixes it —
+  never as a 500.
+
+Two smaller things worth knowing. The store key accepts a uuid, a slug **or
+the exact name**, because a person in Slack says "Fit Cherries". And the ad
+account id is read `store_settings.ad_account_id` → `organizations.settings` →
+**newest metrics snapshot**, because the first two are caches almost nobody
+fills in (2 and 7 of 72 orgs); the snapshot is where it actually lives, same
+source `dashboardLinks()` uses.
+
+Everything reuses the existing computations (`computeStoreZones`,
+`computeExceptions`, `readCachedTeamActivity`, `pinterestClientForOrg`) and
+the `organicPool()` connection — deliberately not a second pg pool, because
+the session pooler allows 15 clients for the whole project and a new pool for
+one read endpoint resurfaces later as an unrelated 500 on a page that is fine.
+
 ## Key modules
 
 ### Media Buying Hub UI (`src/app/(dashboard)/media-buying-hub/`)

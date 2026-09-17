@@ -42,6 +42,10 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/organic") ||
     pathname.startsWith("/api/webhooks") ||
     pathname.startsWith("/api/cron") ||
+    // The read-only agent API carries its own key (AGENT_API_KEY) and fails
+    // closed without it — see src/lib/agent/auth.ts. It must not be pushed
+    // at /login: its caller is a machine with no cookie jar.
+    pathname.startsWith("/api/agent") ||
     pathname.startsWith("/api/pipeline") ||
     pathname.startsWith("/api/pinterest/conversion-sync") ||
     pathname.startsWith("/api/ai/create-pin-image") ||
