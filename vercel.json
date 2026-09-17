@@ -56,10 +56,6 @@
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/cron/refresh-team-activity",
-      "schedule": "15 */6 * * *"
-    },
-    {
       "path": "/api/cron/weekly-update-seed",
       "schedule": "0 1 * * 1"
     },

@@ -48,6 +48,25 @@ const make = (k: string) => ({ bucket: "", note: `seeded:${k}` });
   check("a stale draft cannot leave a hole", ["a", "b", "c"].every((k) => k in merged));
 }
 
+// 3b. A key that is THERE but holds nothing is a hole too — and it is the one
+//     that reached a person. A draft row stored as null passed `k in state`,
+//     the hook left it alone, and the next render read `rows[k].fmt_simple_pins`
+//     on null. Presence was never the invariant; a usable row is.
+{
+  type Row = ReturnType<typeof make>;
+  const holed: Record<string, Row> = {
+    a: make("a"),
+    b: null as unknown as Row,
+    c: undefined as unknown as Row,
+  };
+  const merged = withMissingKeys(holed, ["a", "b", "c"], make);
+  check(
+    "a key holding null is rebuilt, not trusted",
+    ["a", "b", "c"].every((k) => merged[k] != null && typeof merged[k] === "object")
+  );
+  check("the row that was already there is untouched", merged.a === holed.a);
+}
+
 // 4. Nothing to add must not produce a new object — that would re-render and
 //    re-setState on every pass.
 {

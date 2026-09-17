@@ -34,7 +34,14 @@ import { useState } from "react";
 export function withMissingKeys<T>(
   state: Record<string, T>, keys: string[], make: (key: string) => T
 ): Record<string, T> {
-  const missing = keys.filter((k) => !(k in state));
+  // A key that is PRESENT but holds null or undefined counts as missing.
+  // `k in state` alone left a hole: mergeDraftRows() writes whatever the
+  // stored draft holds for a key, and a draft written by an older version of
+  // a form — or one that round-tripped through something that nulled a row —
+  // puts the key there with nothing in it. The hook then leaves it alone, the
+  // render reads `rows[k].fmt_simple_pins`, and the screen goes white on the
+  // next click. Presence was never the invariant; a usable row is.
+  const missing = keys.filter((k) => state[k] === undefined || state[k] === null);
   if (missing.length === 0) return state;
   return { ...state, ...Object.fromEntries(missing.map((k) => [k, make(k)])) };
 }

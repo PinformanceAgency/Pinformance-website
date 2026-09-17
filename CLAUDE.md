@@ -60,7 +60,6 @@ The script connects via `pg` using `DATABASE_URL` from `.env.local` (bypasses Su
 | `/api/cron/refresh-pinterest-tokens` | 0 4 * * * | Refresh OAuth tokens before expiry |
 | `/api/cron/snapshot-pinterest` | 30 */6 * * * | Snapshot campaigns/ad_groups/ads every 6h (parallelized) |
 | `/api/cron/snapshot-metrics` | 0 */6 * * * | Snapshot spend/revenue/conversions per day every 6h (self-healing 7-day window) |
-| `/api/cron/refresh-team-activity` | 15 */6 * * * | Recompute Team Activity cache every 6h |
 | `/api/cron/weekly-update-seed` | 0 1 * * 1 | Create an **empty** subitem (timeline + send date only) for every active store on the Monday "Weekly Updates" board, so media buyers can write zone + text update into a row that already exists |
 | `/api/cron/weekly-update-sync` | 0 12 * * 1 | Write last week's spend/revenue per store into those same subitems |
 | `/api/cron/weekly-update-sync-retry` | 30 12 * * 1 | Same run again — finishes stores the 12:00 run didn't reach, no-op (~8s) if it did. Re-exports the handler from `weekly-update-sync`; the separate path only exists because cron paths must be unique |
@@ -224,7 +223,6 @@ model can find its way without anybody pasting documentation into Slack.
 | `/api/agent/stores` | fee model, invoice ROAS, break-even ROAS, buyer, department, niche, countries, currency |
 | `/api/agent/zones` | red/orange/green per store with the numbers it was decided on |
 | `/api/agent/critical` | exceptions + zone flips |
-| `/api/agent/team-activity` | the 6-hourly cache, with `refreshed_at` |
 | `/api/agent/organic` | per organic store: pacing, boards, pins, cycles |
 | `/api/agent/pinterest/{org}/{resource}` | one whitelisted Pinterest read on behalf of a store |
 
@@ -277,7 +275,6 @@ one read endpoint resurfaces later as an unrelated 500 on a page that is fine.
 - `overview/` — analytic overview page
 - `zones/` — red/orange/green zone matrix, weekly (4 buckets) + monthly (3 buckets) views
 - `critical/` — Critical Attention: alarms, exceptions, currently-red, recovering, winners, persistence cards (longest in red/orange/green)
-- `team-activity/` — per-store paid + organic activity per rolling 7-day window
 - `benchmarks/` — niche/country/self benchmarks
 - `store-settings/` — configure per-store BER, invoice ROAS, buyer, invoicing model, countries
 
@@ -288,7 +285,6 @@ one read endpoint resurfaces later as an unrelated 500 on a page that is fine.
 - `exceptions.ts` — auto-flag rules: red_streak, spend_drop (7d vs prior 7d), roas_crash (3d vs prior 7d), stale_account
 - `history.ts` — computeMovers (alarms/recovery categorization)
 - `benchmarks.ts` — niche/country/self benchmark math
-- `team-activity.ts` — per-store weekly paid + organic activity, cached in `team_activity_cache` table, refreshed by cron
 
 ### Organic app (`src/app/organic/**`, `src/lib/organic/**`)
 
@@ -322,20 +318,18 @@ it lands on whichever connection served that one statement and is gone by the
 next. Explicit `BEGIN`/`COMMIT` on a checked-out client is fine either way — the
 pooler pins the connection for the transaction, which is the whole trick.
 
-`src/lib/media-buying/team-activity.ts` used to be the documented exception for
-exactly that reason and **is no longer one**: its bare `SET statement_timeout`
-is now a `SET LOCAL` inside a transaction, and its pool moved to `:6543` on
-17-09-2026. What forced it is worth remembering, because it is the failure that
-takes everything else down with it. Session mode caps *clients* at 15 for the
-whole project and this pool holds 8, while a frozen serverless instance keeps
-its sockets open without ever running the idle timer that would release them.
-Six invocations of the refresh cron inside ten minutes was enough: the pooler
-then answered **every** new connection, from any code path and from a laptop,
-with `(ECHECKOUTTIMEOUT) ... in Session mode`, and it stayed that way until the
-next deploy replaced the instances. Nothing in the app was wrong; it simply
-could not reach Postgres. Treat 8 session-mode connections in a serverless
-function as a loaded gun — if a module needs more than a couple, it belongs in
-transaction mode.
+**There is no session-mode module left, and that is deliberate.** The last one
+was `team-activity.ts` (removed 17-09-2026), and what it did on its way out is
+the reason to keep it that way. Session mode caps *clients* at 15 for the whole
+project; that pool held 8, and a frozen serverless instance keeps its sockets
+open without ever running the idle timer that would release them. Six
+invocations of its cron inside ten minutes was enough: the pooler then answered
+**every** new connection — every code path, every hostname, and a laptop with
+`psql` — with `(ECHECKOUTTIMEOUT) ... in Session mode`, PostgREST fell over with
+it, and the whole platform was unreachable for the better part of an hour while
+Postgres itself sat idle. Nothing in the app was wrong; it simply could not get
+a connection. If something ever needs session mode again, give it two
+connections, not eight, and never loop a heavy run to test it.
 
 **The viability gate flags its own bad answers (P1.0.1 / P1.0.2).** A `TaskField`
 in `task-fields.ts` can carry a `concern`: which answer is the bad news, what it
@@ -448,10 +442,11 @@ Backend modules: `status.ts` (recompute engine), `viability.ts`, `intake.ts`,
 
 ### RPCs (server-side aggregation)
 
-Defined in migrations 031-041. Called from `team-activity.ts` via direct pg connection because PostgREST statement_timeout kills heavy queries.
-
-- `team_paid_activity_for_org(uuid, int)` — launched (campaigns whose start_time falls in window), paused (ACTIVE→PAUSED transitions), ads_paused (in currently-active campaigns), budget_changed (daily_spend_cap diffs), active_days per rolling 7-day window
-- `team_organic_activity(int)` — boards_created (excluding source='imported') + pins_added per org per window
+The team-activity RPCs that lived here were dropped in migration 102 — see
+"Team Activity was removed" below. The pattern they established still stands
+for anything heavy: put the aggregation in Postgres, call it over direct `pg`
+rather than PostgREST (whose statement_timeout kills a long sweep), and give
+it its own timeout with `SET LOCAL` inside an explicit transaction.
 
 ## Common tasks
 
@@ -488,7 +483,7 @@ UPDATE store_settings s
   FROM organizations o
  WHERE s.org_id = o.id AND o.name = 'Store Name';
 ```
-Data preserved. Store disappears from Hub / Zones / Benchmarks / Team Activity. Reversible via `is_active = true` again.
+Data preserved. Store disappears from Hub / Zones / Benchmarks. Reversible via `is_active = true` again.
 
 ### Demo store (organic)
 
@@ -564,16 +559,10 @@ options reflect the currently loaded cohort, and a benchmark needs three stores
 before it says anything at all (`BENCHMARK_MIN_STORES`), so an option that can
 only produce an empty cohort would be noise there.
 
-### Refresh Team Activity cache manually
-
-```bash
-curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/api/cron/refresh-team-activity"
-```
-
 ## Data conventions
 
-- **Time windows**: rolling 7-day windows (`today-6` to `today` inclusive) for Team Activity; ISO week (Mon-Sun) or calendar month for Zones weekly/monthly views.
-- **Postgres DATE serialization gotcha**: node-pg's default parser turns DATE into JS Date at LOCAL midnight — which then serializes back as the PREVIOUS day if the process TZ isn't UTC. Every module that queries DATE columns via `pg` registers `types.setTypeParser(1082, val => val)` (see top of `team-activity.ts`) to keep dates as raw "YYYY-MM-DD" strings. Copy this pattern when writing new modules.
+- **Time windows**: ISO week (Mon-Sun) or calendar month for Zones weekly/monthly views; rolling windows elsewhere are `today-(n-1)` to `today` inclusive.
+- **Postgres DATE serialization gotcha**: node-pg's default parser turns DATE into JS Date at LOCAL midnight — which then serializes back as the PREVIOUS day if the process TZ isn't UTC. Every module that queries DATE columns via `pg` registers `types.setTypeParser(1082, val => val)` (see the top of `src/lib/organic/db.ts`) to keep dates as raw "YYYY-MM-DD" strings. Copy this pattern when writing new modules.
 - **Currency**: stored as-is per Pinterest ad account (EUR/USD/CHF/GBP...). Never mixed in computations without conversion. The live currency per ad account is readable from `pinterest_metrics_snapshots.currency` (that table only; `pinterest_entity_snapshots` doesn't carry it). Amounts written to the Monday "Weekly Updates" board stay in the ad account's currency — never convert. The currency column there is a label only, and the store name is not a reliable hint: Tola Jewelry **US** bills in **EUR**. `weekly-update-sync.ts` logs a `VALUTA-LABEL` warning when the label and Pinterest disagree.
 - **Amounts vs thresholds**: amounts (spend, revenue) are NEVER converted — they stay in the ad account's currency everywhere: dashboard, Monday board, exports. The **thresholds** are the things that move. All zone thresholds are configured in euros (including per-store overrides in `zone_thresholds` / `min_monthly_spend`), and `scaleFloorFor({ fxPerEur })` converts them into the store's currency at the latest ECB rate from `fx_rates`. €20k becomes CHF 18,780 / $23,134 / £17,090. Skipping this measures a USD store against a floor that is 13.5% too lenient and a GBP store against one 17% too strict.
 - **Zone scale gate**: green needs ROAS ≥ invoice ROAS **and** enough scale, and the scale floor depends on the bucket's period (`scaleBasis` on `classifyZone`). Weekly buckets use the weekly floor (€5k revenue / €7.5k÷4.345 spend); calendar-month buckets use the monthly floor (€20k revenue for `revenue_fee`, €7.5k spend for `spend_fee`) because the agency invoices per month. The month in progress is prorated by `daysWithData / daysInMonth`, where `daysWithData` is the newest `snapshot_date` we received that month, taken **globally** — a store that only ran ads 3 of 13 elapsed days is behind, and dividing by its own active days would hide that. Finished months get the full floor. Never classify a month bucket with the weekly floor; that was the bug fixed on 14-08-2026.
@@ -748,6 +737,8 @@ curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/
 - **Organic — a task with a checklist derives its own status; do not set it by hand.** `syncTaskStatusFromAnswers()` (workspace.ts) runs on every answer save and clear: every visible question answered → `DONE`, one cleared → `IN_PROGRESS`. It deliberately never touches a task with no checklist (nothing to derive from), never touches `BLOCKED` (that is computed from preconditions, and answering a question does not clear one), and never returns a task to `TODO` (work has started). A field counts as answered only when its required reasoning is also present — without that a task flips to DONE while a row is still flagged red for the missing "why". There is no completion dialog any more; picking DONE on a manual task just does it.
 - **Organic — an answer belongs to the cycle it was given in** (migration 096). `task_answers` was keyed on `(org_id, task_id, field_key)`, which is right for phases 1-3: those tasks exist once per store. Phase 4 does not — its tasks exist once per **cycle** — and exactly one of them has a checklist: **P4.2.1, the grid reading**, which asks what Pinterest is rewarding for *that URL's* primary keyword. Fit Cherries runs two cycles on "padded push up bras" and "small bust swimwear"; on the old key they shared one row, so filling in the second silently overwrote the first and each screen showed the other cycle's answer as its own. The key is now `(org_id, task_id, cycle, field_key)`, with `''` for a store-level task so every existing answer stays where it is. Two things travelled with it: `syncTaskStatusFromAnswers` updated `WHERE cycle IS NULL`, so a phase-4 checklist could never advance its own task's status — it matched nothing, and the task sat at TODO however completely it was filled in; and `TaskChecklist` filters the answers it renders on the cycle it is in, or a card would show the other cycle's work.
 - **Organic — the attachment belongs to the question, not the task.** `organic.task_answers.file_url` / `file_title` (migration 071). A task with six checks used to share one task-level attachment, so the reader got a document and no way to tell which check it proved. Links pasted there are still swept into the Assets library by `autoLinkAssetsFromText()`, so the library view stays complete without anyone filing the same thing twice — do not add an `assets` row by hand for these.
+- **Organic — "the screen goes white" has two halves, and `organic/error.tsx` only ever covered one.** A throw inside a page renders the segment boundary, which is the styled "This screen hit an error" with a reference on it. A throw in **`src/app/organic/layout.tsx`** does not: in Next an error boundary never catches its own segment's layout, and that layout is not a passive shell — it loads the client sidebar, which reads the database. So on a day the pooler refuses connections, what a media buyer gets is Next's bare "Application error", with no reference, no explanation and nothing to do but reload — sometimes twice. `src/app/global-error.tsx` (17-09-2026) is the other half, for every hostname in the repo. It replaces the whole document, so it carries its own `<html>`/`<body>` and uses **inline styles only**: it has to render when the fonts, the CSS and the data layer have all already failed. Keep it import-free for that reason.
+- **Organic — a keyed form updates its rows FUNCTIONALLY, and never renders a row it cannot build.** `setRows({ ...rows, [k]: … })` captures `rows` at render time, so two toggles clicked inside one frame — or a toggle clicked while the draft restore is landing — write the second change onto a snapshot taken before the first and silently drop it. On screen that reads as "the toggle doesn't work". Every keyed form now uses `setRows((cur) => …)` and reads through `rows[k] ?? makeRow(k)`, with **one factory** shared by the hook and every read site. `withMissingKeys()` also treats a key that is *present but null* as missing (it only checked `k in state`), because `mergeDraftRows` writes whatever a stored draft holds for a key — and a row that renders from `undefined` is the white screen this file has produced twice.
 - **Organic — a per-keyword form must stay in step with the list it was built from.** `useKeyedRows` (`src/app/organic/client/[orgId]/useKeyedRows.ts`) is that contract; do not go back to a `useState` initialiser that maps over the snapshot once. P2.1.1 (seed keywords) and P2.1.3 (record the grid) sit on the same step page and are **both expanded by default**, so saving the seed keywords fires a `router.refresh()` that hands the still-mounted grid form a longer keyword list. Its state was built at mount, so every new term read back as undefined and the next render threw on `rows[k].fmt_simple_pins` — clicking a format toggle turned the whole screen white and the toggle never ticked (reproduced and fixed 04-09-2026). A `?? fallback` at the read site stops the crash but not the bug: the new keyword then renders empty while the database holds values for it, which is what P2.1.4, P2.4.1, P3.1.8 and P3.1.12 were quietly doing. `src/app/organic/error.tsx` is the second half of the fix — the organic app had **no error boundary anywhere in `src/app`**, so any thrown render replaced the entire app with Next's bare "Application error". Keep it, and remember when triaging that "the screen goes white" is a client-side throw, not a server fault. The invariant itself — every rendered key present in state, including after a stale draft is restored — is asserted by `npx tsx scripts/check-keyed-form-rows.ts`, because the failure is invisible until somebody clicks and by then their work is gone.
 - **Organic — time on task is recorded where somebody wants to record it, never demanded** (decided 06-09-2026). Phase 1 dropped the field long ago; phases 2 and 3 kept it and gated the Save button on it, so the button sat greyed out with nothing saying why, and the overview's own DONE path opened a dialog that refused to close without a positive number. `completeTaskByDefinition` now treats a falsy `timeSpentMin` as "not recorded" and leaves the column alone — which is what the status route always did. Two consequences worth knowing: the viability route (P1.0.1–P1.0.4) had required a positive time while its own forms posted 0 since phase 1 dropped the field, so **every save from those forms answered 400** until this went in; and `time_spent_min` still feeds the margin per client, so the figures are now sparser than they look.
 - **Organic — P1.0.3 keeps the sitemap, not only the count.** Every later task that says "the URL pool from P1.0.3" pointed at something that did not exist: the count was written to the viability gate and the URLs were thrown away. The form now also runs the phase-4 import (`import_sitemap` proposes, `accept_urls` writes through `upsertUrl`, so locale folding, shortener refusal and classification all apply exactly once) and offers the list for import into the pool. Importing at phase 1 rather than phase 4 only means earlier; the pool dedupes.
@@ -768,7 +759,8 @@ curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/
   status is recomputed from SOP preconditions, which says which task is in the
   way, not who we are waiting on. An inferred "waiting on client" ends up quoted
   back to a client in a review, so it has to be true.
-- **A scan of `pinterest_entity_snapshots` is expensive because the ROWS are fat, not because there are many.** 2,7M rows in 4,5 GB — ~1,7 KB each, because every row carries Pinterest's full `raw` jsonb. `team_paid_activity_for_org()` needs four small columns per row and was reading all of it: 225.790 ad rows for Nordheim came to 490 MB off disk plus a sort that spilled to temp files, 58,9s for one store and 478s for the book. The two covering partial indexes in migration 101 (`idx_pes_ad_window_cover`, `idx_pes_campaign_window_cover`) put exactly those columns in the index, in the order the window function wants, and it became an index-only scan: 138 MB + 27 MB of index instead of 4,5 GB of heap, 58,9s → 7,4s. Two things travel with that: an index-only scan only works once the **visibility map** is current, so a `VACUUM (ANALYZE)` belongs with the index (same lesson as migration 044 — without it the planner goes back to a seq scan), and any new aggregate over this table should be checked with `EXPLAIN (ANALYZE, BUFFERS)` for heap reads it does not need. Build the index `CONCURRENTLY` on production: the snapshot crons write to this table four times a day and a plain `CREATE INDEX` locks them out for a minute and a half.
+- **A scan of `pinterest_entity_snapshots` is expensive because the ROWS are fat, not because there are many.** 2,7M rows in 4,5 GB — ~1,7 KB each, because every row carries Pinterest's full `raw` jsonb. An aggregate that needs four small columns per row still drags all of it off disk: measured 17-09-2026, one store's 225.790 ad rows came to 490 MB and a sort that spilled to temp files, 58,9s for that store alone. A covering partial index — the needed columns in the index, in the order the window function wants — turned the same query into an index-only scan at 7,4s. Three things travel with that, and they apply to the next aggregate over this table as much as they did to that one: check it with `EXPLAIN (ANALYZE, BUFFERS)` for heap reads it does not need; an index-only scan only works once the **visibility map** is current, so a `VACUUM (ANALYZE)` belongs with the index (same lesson as migration 044 — without it the planner goes straight back to a seq scan); and build it `CONCURRENTLY` on production, because the snapshot crons write here four times a day and a plain `CREATE INDEX` locks them out for a minute and a half.
+
 - **Attribution**: default 30/1 (30-day click, 1-day view) unless overridden per-store in `store_settings.attribution_setting`.
 - **Supabase JS pagination**: PostgREST caps responses at 1000 rows. Paginate with `.range(offset, offset + PAGE_SIZE - 1)` in a loop if you might exceed that. Sort DESC by the most-important dimension so a hypothetical truncation drops old data instead of recent.
 
@@ -776,11 +768,11 @@ curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/
 
 1. **Some Pinterest tokens are dead** — Bella Bra, Olvia Charleseton, Smartsporter. Snapshot cron returns 401 for them. Owner must reconnect via `/integrations`. Cron continues successfully for other orgs (per-org try/catch).
 2. **Pins stuck in `generated` status** for some stores (Breathfree) — AI created them but they never got approved/posted. Either token is dead, auto-approve is off, or something else. Check `SELECT status, COUNT(*) FROM pins WHERE org_id = ? GROUP BY status`.
-3. **Boards imported from Pinterest** during onboarding get `source='imported'`. `team_organic_activity` RPC excludes those from "boards created this week". New AI-generated boards default to `source='ai_generated'`.
-4. **PostgREST statement_timeout** — heavier RPCs (LAG over 100k+ rows) blow the ~15s default. `team-activity.ts` bypasses this by connecting via `pg` directly with a 120s pool-level statement_timeout.
+3. **Boards imported from Pinterest** during onboarding get `source='imported'`. Anything counting "boards created this week" has to exclude them. New AI-generated boards default to `source='ai_generated'`.
+4. **PostgREST statement_timeout** — a heavy RPC (LAG over 100k+ rows) blows the ~15s default. Anything of that shape connects via `pg` directly with its own timeout instead.
 5. **CRON_SET typo** — used to exist as a fallback for `CRON_SECRET`. Cleaned up Aug 14 2026. If you see it anywhere, remove it.
 6. **The weekly sync's speed depends on a vacuumed index** — `LINKS_QUERY` (ad account → org, from both snapshot tables) took 19.5s over 1.5M rows until migration 044 added covering indexes on `(snapshot_date, org_id, ad_account_id)`. The index alone did nothing: the planner only picked the index-only scan after `VACUUM (ANALYZE)`, which is why 044 also lowers `autovacuum_vacuum_scale_factor` to 0.05 on both snapshot tables. If the Monday cron starts creeping back towards its time limit, measure that query first and check whether autovacuum is keeping up.
-9. **Team Activity's cron outgrew its budget once and will do it again.** It stood still from 13-09-2026 06:20 until 17-09-2026: `computeTeamActivity()` took longer than the route's `maxDuration = 300` and died with "Query read timeout", four days running. Nothing said so — the page and `/api/team-activity` read `team_activity_cache` and four-day-old numbers render exactly like fresh ones. Migration 101 took the per-store RPC from **478s to 51s** agency-wide with two covering indexes and a filter pushed into the scan (see "Data conventions"), the route now reports `elapsed_ms` against `budget_ms`, `alertCronFailure()` is wired into its catch, and the page carries the refresh time — loudly past 12 hours, which is two missed runs. Refresh it by hand with `DOTENV_CONFIG_PATH=.env.local npx tsx scripts/refresh-team-activity.ts` (~80s), which needs no cron secret. **The growth is in `pinterest_entity_snapshots`, so this will creep back**: if `elapsed_ms` starts climbing towards 300s, measure the per-org RPC before tuning anything else.
+9. **Team Activity was removed on 17-09-2026, and the reason is worth keeping.** The page, `/api/team-activity`, the 6-hourly cron, the cache table and both RPCs are gone (migration 102). It measured what each buyer shipped per week — campaigns launched and paused, ads paused, budgets changed — and nobody made a decision on it, while it read every store's slice of `pinterest_entity_snapshots` (4,5 GB, 2,7M rows) four times a day. It had also been **silently dead since 13-09**: the compute outgrew the route's `maxDuration = 300`, and because the page read a cache, four-day-old numbers rendered exactly like fresh ones. Migration 101 fixed the speed (478s → 51s) and the honest question then was not how to make it faster but why it was running. If something like it comes back, the lesson is the cache: **a page that reads a precomputed blob must say when the blob is from**, or a broken refresh is invisible for as long as nobody happens to check.
 
 8. **No Slack webhook is configured in Vercel, so every alert in this app is currently silent.** Checked 15-09-2026 with `npx vercel env ls production`: neither `SLACK_ALERT_WEBHOOK` nor `SLACK_ORGANIC_WEBHOOK` exists in any environment. `alertCronFailure()` is written to be a no-op without them and never to throw, which is right — but it means the weekly-update crons and `/api/cron/organic-health` have been reporting into nothing since they shipped. The organic watchdog's own check 2b would have flagged The Longevity store on the morning of 15-09-2026 ("planned to start 2026-09-14 and is still being built"); nobody was told. Adding the webhook is a Vercel env change, not a code change.
 7. **ANTHROPHIC_API_KEY typo** — env var was misnamed. Code reads `process.env.ANTHROPIC_API_KEY || process.env.ANTHROPHIC_API_KEY`. Same cleanup pending.
@@ -802,7 +794,6 @@ curl -H "x-cron-secret: $CRON_SECRET" "https://dashboard.pinformance-agency.com/
 - Conventional-commit prefixes: `feat(hub): ...`, `fix(zones): ...`, `chore(cron): ...`, `refactor(critical): ...`
 - Test locally with `npm run dev` when touching the frontend
 - When adding a migration that changes semantics, update this file's "Data conventions" or "Known issues" section in the same commit
-- When adding a new metric to Team Activity or a new card to Critical Attention, note the source data + refresh cadence here
 
 ## First-run smoke test after fresh setup
 

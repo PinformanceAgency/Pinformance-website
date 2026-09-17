@@ -59,10 +59,6 @@ export async function GET(request: NextRequest) {
         params: { window: "7 | 14 | 30 (default 7)" },
       },
       {
-        path: "/api/agent/team-activity",
-        what: "Per store, per rolling 7-day window: campaigns launched and paused, ads paused, budgets changed, active days, boards and pins created. Served from the cache the cron refreshes every 6h; `refreshed_at` says when.",
-      },
-      {
         path: "/api/agent/organic",
         what: "Per store on the organic method: daily pin target, account class, live/queued boards, pins scheduled, published and failed, running cycles.",
       },

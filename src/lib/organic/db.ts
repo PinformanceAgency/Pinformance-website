@@ -10,7 +10,7 @@
  *   - Our own statement_timeout per request
  *   - Predictable behavior regardless of PostgREST changes
  *
- * Same pattern as src/lib/media-buying/team-activity.ts.
+ * The media-buying modules use the same pattern.
  */
 import { Pool, types } from "pg";
 
@@ -55,8 +55,9 @@ type PoolHolder = { [POOL_KEY]?: Pool };
  *
  * What must NOT move here is a bare `SET` outside a transaction: it lands
  * on whichever server connection served that one statement and is gone by
- * the next. Nothing in src/lib/organic does that (media-buying does, which
- * is exactly why team-activity.ts stays on session mode).
+ * the next. Nothing here does that, and nothing should:
+ * a timeout belongs in a SET LOCAL inside an explicit transaction, which
+ * the pooler pins for the duration.
  *
  * ORGANIC_DATABASE_URL overrides, for the case where the two need to point
  * somewhere different entirely.

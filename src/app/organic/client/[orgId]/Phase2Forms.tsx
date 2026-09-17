@@ -158,7 +158,10 @@ type GridRowState = {
 function GridForm({ orgId, snapshot, onDone }: Props) {
   const keywords = snapshot.keywords;
   const seeded = useMemo(() => Object.fromEntries(snapshot.grid_analyses.map((g) => [g.target_keyword, g])), [snapshot.grid_analyses]);
-  const [rows, setRows] = useKeyedRows<GridRowState>(keywords, (k) => ({
+  // One factory, used by the hook AND by every read site below. A second
+  // literal somewhere else is how the two drift apart, and a row this form
+  // renders but cannot build is exactly the crash this file keeps having.
+  const makeRow = useCallback((k: string): GridRowState => ({
     fmt_simple_pins:    !!seeded[k]?.fmt_simple_pins,
     fmt_infographics:   !!seeded[k]?.fmt_infographics,
     fmt_video_916:      !!seeded[k]?.fmt_video_916,
@@ -167,7 +170,8 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
     has_visible_ctas:   !!seeded[k]?.has_visible_ctas,
     text_overlay_bucket: seeded[k]?.text_overlay_bucket ?? "",
     look_and_feel:       seeded[k]?.look_and_feel ?? "",
-  }));
+  }), [seeded]);
+  const [rows, setRows] = useKeyedRows<GridRowState>(keywords, makeRow);
   const [time, setTime] = useState("");
   // Which keywords are in the database right now — seeded from the snapshot,
   // then updated by each per-keyword save so the ticks are honest without a
@@ -186,10 +190,13 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
   }
   const buckets = ["NONE","MINIMAL","HALF","MOST","ALL"] as const;
   const filled = (k: string) => !!rows[k]?.text_overlay_bucket;
-  const recordFor = (k: string) => ({
-    target_keyword: k, ...rows[k],
-    text_overlay_bucket: rows[k].text_overlay_bucket as "NONE"|"MINIMAL"|"HALF"|"MOST"|"ALL",
-  });
+  const recordFor = (k: string) => {
+    const row = rows[k] ?? makeRow(k);
+    return {
+      target_keyword: k, ...row,
+      text_overlay_bucket: row.text_overlay_bucket as "NONE"|"MINIMAL"|"HALF"|"MOST"|"ALL",
+    };
+  };
 
   /** One keyword, on its own, without a time entry — the point is that
    *  finishing a card is enough to make it safe. */
@@ -217,8 +224,21 @@ function GridForm({ orgId, snapshot, onDone }: Props) {
       body={
         <div className="space-y-2 max-h-[34rem] overflow-y-auto">
           {keywords.map((k) => {
-            const r = rows[k];
-            const setRow = (patch: Partial<GridRowState>) => setRows({ ...rows, [k]: { ...r, ...patch } });
+            // `?? makeRow(k)` is the belt to useKeyedRows' braces. The hook
+            // seeds every visible key, so this should never fire — and it is
+            // here because when it did fire, in September, the whole app went
+            // white and the person clicking lost an afternoon. A row that
+            // renders from the seed is a wrong row for one frame; a row that
+            // renders from `undefined` is a blank screen.
+            const r = rows[k] ?? makeRow(k);
+            // Functional update, not `{ ...rows }`. `rows` is captured in this
+            // closure at render time, so two toggles clicked inside one frame —
+            // or a toggle clicked while the draft restore is landing — used to
+            // write the second change onto a snapshot taken before the first,
+            // silently dropping it. The ticks then disagree with what was
+            // clicked, which reads as "the toggle doesn't work".
+            const setRow = (patch: Partial<GridRowState>) =>
+              setRows((cur) => ({ ...cur, [k]: { ...(cur[k] ?? makeRow(k)), ...patch } }));
             return (
               <div key={k} className="rounded border border-border bg-card p-2 space-y-1.5">
                 <div className="flex items-center gap-2">
@@ -295,11 +315,14 @@ const HEX_RE = /^#?[0-9a-fA-F]{6}$/;
 function HexForm({ orgId, snapshot, onDone }: Props) {
   const keywords = snapshot.keywords;
   const seeded = useMemo(() => Object.fromEntries(snapshot.grid_analyses.map((g) => [g.target_keyword, g])), [snapshot.grid_analyses]);
-  const [rows, setRows] = useKeyedRows<[string, string, string]>(keywords, (k) => [
+  // Same rule as the grid form: one factory, shared by the hook and by every
+  // read site, so a row can never be rendered from `undefined`.
+  const makeTrio = useCallback((k: string): [string, string, string] => [
     seeded[k]?.hex_1 ?? "",
     seeded[k]?.hex_2 ?? "",
     seeded[k]?.hex_3 ?? "",
-  ]);
+  ], [seeded]);
+  const [rows, setRows] = useKeyedRows<[string, string, string]>(keywords, makeTrio);
   const [time, setTime] = useState("");
   const [stored, setStored] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(snapshot.grid_analyses.filter((g) => g.hex_1).map((g) => [g.target_keyword, true])));
@@ -336,7 +359,7 @@ function HexForm({ orgId, snapshot, onDone }: Props) {
       body={
         <div className="space-y-1.5 max-h-[34rem] overflow-y-auto">
           {keywords.map((k) => {
-            const trio = rows[k];
+            const trio = rows[k] ?? makeTrio(k);
             return (
               <div key={k} className="flex items-center gap-2 text-xs">
                 <span className="w-40 text-neutral-700 shrink-0">{k}</span>
@@ -347,9 +370,15 @@ function HexForm({ orgId, snapshot, onDone }: Props) {
                     <div key={i} className="flex items-center gap-1">
                       <input value={v}
                         onChange={(e) => {
-                          const next = [...trio] as [string, string, string];
-                          next[i] = e.target.value;
-                          setRows({ ...rows, [k]: next });
+                          const typed = e.target.value;
+                          // Functional, for the same reason as the grid form:
+                          // three boxes on one row, and `{ ...rows }` captured
+                          // at render time drops whichever change did not win.
+                          setRows((cur) => {
+                            const next = [...(cur[k] ?? makeTrio(k))] as [string, string, string];
+                            next[i] = typed;
+                            return { ...cur, [k]: next };
+                          });
                         }}
                         placeholder="#a1b2c3"
                         className={`w-24 rounded border px-2 py-1 text-[11px] tabular-nums ${valid ? "border-neutral-300" : "border-red-400 bg-red-50"}`}
@@ -969,7 +998,7 @@ function VelocityForm({ orgId, snapshot, onDone }: Props) {
           {snapshot.competitors.map((c) => (
             <div key={c.id} className="flex items-center gap-2 text-xs">
               <span className="w-56 text-neutral-700 shrink-0 truncate">{c.name || c.profile_url}</span>
-              <input value={rows[c.profile_url] ?? ""} onChange={(e) => setRows({ ...rows, [c.profile_url]: e.target.value })}
+              <input value={rows[c.profile_url] ?? ""} onChange={(e) => setRows((cur) => ({ ...cur, [c.profile_url]: e.target.value }))}
                 type="number" step="0.1" min={0}
                 className="w-24 rounded border border-neutral-300 px-2 py-1 text-xs tabular-nums" />
               <span className="text-neutral-500 text-[11px]">pins/day</span>

@@ -105,7 +105,7 @@ import { PinterestClient } from '../src/lib/pinterest/client';
 
 // node-pg maakt van een DATE-kolom een JS Date op LOKALE middernacht, die
 // vervolgens als de VORIGE dag terugserialiseert zodra de process-TZ niet UTC
-// is. We lezen snapshot_date, dus dezelfde parser als in team-activity.ts.
+// is. We lezen snapshot_date, dus dezelfde parser als elders bij DATE-kolommen.
 pgTypes.setTypeParser(1082, (val) => val);
 
 // Naast MONDAY_API_TOKEN heeft dit script uit .env.local nodig:
