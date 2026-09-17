@@ -20,7 +20,7 @@
  *   - boards_created: boards.created_at in the week
  *   - pins_added: pins.created_at in the week
  */
-import { Pool, types } from "pg";
+import { Pool, types, type PoolClient } from "pg";
 import { mediaBuyerOptions } from "./config";
 
 // Force Postgres DATE (OID 1082) to come back as a raw "YYYY-MM-DD" string
@@ -88,23 +88,83 @@ const WEEKS_BACK = 8;
 const CONCURRENCY = 2;
 const STATEMENT_TIMEOUT_MS = 120_000;
 
-// Module-scoped pool so consecutive requests reuse the same connections.
-// statement_timeout is set at pool level so every query gets 60s regardless
-// of what the pooler's default is (the transaction-mode pooler doesn't
-// preserve per-query SET statements).
+/**
+ * Transaction pooler (:6543), not session mode (:5432).
+ *
+ * This module used to be the documented exception that had to stay on
+ * session mode, because it did a bare `SET statement_timeout` on a
+ * checked-out client — in transaction mode that lands on whichever server
+ * connection served that one statement and is gone by the next. The SET is
+ * now a `SET LOCAL` inside an explicit BEGIN/COMMIT, which the pooler pins
+ * for the duration of the transaction, so the exception no longer applies.
+ *
+ * Why it matters: session mode caps *clients* at 15 for the whole project,
+ * shared by every Vercel instance, every cron and every dev machine, and a
+ * serverless instance that freezes keeps its sockets open without running
+ * the idle timer that would have released them. Eight connections per
+ * instance means two warm instances of this one cron can lock out
+ * everything else that talks to Postgres — measured 17-09-2026 while
+ * verifying this very cron: six invocations in ten minutes and the pooler
+ * answered every new connection, from anywhere, with
+ *
+ *   (ECHECKOUTTIMEOUT) unable to check out connection from the pool
+ *   after 15000ms in Session mode
+ *
+ * including a psql from a laptop. In transaction mode a client connection
+ * is multiplexed onto a server connection per statement, so the cap is in
+ * the hundreds and a frozen instance costs nothing.
+ */
 let pool: Pool | null = null;
 function getPool(): Pool {
   if (pool) return pool;
   const cs = process.env.DATABASE_URL;
   if (!cs) throw new Error("DATABASE_URL not set");
+  // Rewritten with a regex rather than through `new URL`, because parsing
+  // and re-serialising a connection string re-encodes the password — and a
+  // password is exactly the thing that must survive byte for byte. Same
+  // approach as organicPool().
+  const transactionMode = cs.replace(/(pooler\.supabase\.com):5432\b/, "$1:6543");
   pool = new Pool({
-    connectionString: cs,
+    connectionString: transactionMode,
     ssl: { rejectUnauthorized: false },
     max: 8,
-    statement_timeout: 120_000,
-    query_timeout: 120_000,
+    statement_timeout: STATEMENT_TIMEOUT_MS,
+    query_timeout: STATEMENT_TIMEOUT_MS,
+    // Hand a connection back promptly rather than holding it against the
+    // pooler while this instance is doing nothing.
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 15_000,
+  });
+  pool.on("error", (err) => {
+    console.error("[team-activity] idle pool client error:", err.message);
   });
   return pool;
+}
+
+/**
+ * One RPC call in its own transaction.
+ *
+ * The BEGIN is what makes `SET LOCAL` stick: the pooler pins one server
+ * connection for the whole transaction, so the timeout applies to the
+ * statement it was set for. Without the transaction the SET would be
+ * silently dropped and a heavy sweep would run under the pooler's own
+ * default instead of ours.
+ */
+async function queryWithTimeout<T extends Record<string, unknown>>(
+  client: PoolClient,
+  sql: string,
+  params: unknown[]
+): Promise<T[]> {
+  await client.query("BEGIN");
+  try {
+    await client.query(`SET LOCAL statement_timeout = ${STATEMENT_TIMEOUT_MS}`);
+    const { rows } = await client.query<T>(sql, params);
+    await client.query("COMMIT");
+    return rows;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  }
 }
 
 /** Coerce Postgres DATE (JS Date | string) into YYYY-MM-DD. */
@@ -231,19 +291,18 @@ export async function computeTeamActivity(): Promise<TeamActivityResponse> {
   async function worker() {
     const client = await p.connect();
     try {
-      await client.query(`SET statement_timeout = ${STATEMENT_TIMEOUT_MS}`);
       while (true) {
         const i = cursor++;
         if (i >= orgIds.length) return;
         const oid = orgIds[i];
-        const { rows } = await client.query<{
+        const rows = await queryWithTimeout<{
           week_start: Date;
           launched: string;
           paused: string;
           ads_paused: string;
           budget_changed: string;
           active_days: string;
-        }>(`SELECT * FROM team_paid_activity_for_org($1, $2)`, [oid, WEEKS_BACK]);
+        }>(client, `SELECT * FROM team_paid_activity_for_org($1, $2)`, [oid, WEEKS_BACK]);
         for (const r of rows) {
           paidRows.push({
             week_start: isoDate(r.week_start),
@@ -264,13 +323,12 @@ export async function computeTeamActivity(): Promise<TeamActivityResponse> {
   const organicPromise = (async () => {
     const client = await p.connect();
     try {
-      await client.query(`SET statement_timeout = ${STATEMENT_TIMEOUT_MS}`);
-      const { rows } = await client.query<{
+      const rows = await queryWithTimeout<{
         week_start: Date;
         org_id: string;
         boards_created: string;
         pins_added: string;
-      }>(`SELECT * FROM team_organic_activity($1)`, [WEEKS_BACK]);
+      }>(client, `SELECT * FROM team_organic_activity($1)`, [WEEKS_BACK]);
       return rows.map((r) => ({
         week_start: isoDate(r.week_start),
         org_id: r.org_id,

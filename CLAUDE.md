@@ -319,10 +319,23 @@ is in the hundreds.
 
 What must **not** move to transaction mode is a bare `SET` outside a transaction:
 it lands on whichever connection served that one statement and is gone by the
-next. `src/lib/media-buying/team-activity.ts` does exactly that (`SET
-statement_timeout` on a checked-out client), which is why it stays on session
-mode. Explicit `BEGIN`/`COMMIT` on a checked-out client is fine either way — the
-pooler pins the connection for the transaction.
+next. Explicit `BEGIN`/`COMMIT` on a checked-out client is fine either way — the
+pooler pins the connection for the transaction, which is the whole trick.
+
+`src/lib/media-buying/team-activity.ts` used to be the documented exception for
+exactly that reason and **is no longer one**: its bare `SET statement_timeout`
+is now a `SET LOCAL` inside a transaction, and its pool moved to `:6543` on
+17-09-2026. What forced it is worth remembering, because it is the failure that
+takes everything else down with it. Session mode caps *clients* at 15 for the
+whole project and this pool holds 8, while a frozen serverless instance keeps
+its sockets open without ever running the idle timer that would release them.
+Six invocations of the refresh cron inside ten minutes was enough: the pooler
+then answered **every** new connection, from any code path and from a laptop,
+with `(ECHECKOUTTIMEOUT) ... in Session mode`, and it stayed that way until the
+next deploy replaced the instances. Nothing in the app was wrong; it simply
+could not reach Postgres. Treat 8 session-mode connections in a serverless
+function as a loaded gun — if a module needs more than a couple, it belongs in
+transaction mode.
 
 **The viability gate flags its own bad answers (P1.0.1 / P1.0.2).** A `TaskField`
 in `task-fields.ts` can carry a `concern`: which answer is the bad news, what it
