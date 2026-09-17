@@ -14,17 +14,41 @@
  * Unconfigured stores (no department, no break-even ROAS) are excluded
  * unless asked for: they have no zone, and listing them alongside stores
  * that do reads as a book full of stores with no colour.
+ *
+ * TWO MODES, AND THE SECOND ONE IS WHY THIS ENDPOINT EXISTS AT ALL
+ * ---------------------------------------------------------------
+ * Without `start`/`end` you get the bucketed view: a 7/14/30-day window,
+ * four rolling weeks, three calendar months, month-to-date and the last
+ * finished month. With them you get one period, exactly as asked —
+ * `computeStoreZonesForRange()`, the same function behind the custom-range
+ * tab on the Zones page.
+ *
+ * The range mode was added on 17-09-2026 because an agent asked for
+ * 1–13 September, could only get 10–16, and offered to derive the zones
+ * itself from the raw Pinterest figures plus the store's thresholds. That
+ * offer is the thing this whole API is built to make unnecessary: a zone
+ * derived somewhere else is a second opinion that will disagree with the
+ * screen the media buyers are looking at, and nobody will be able to say
+ * which of the two is wrong. Every control on the page is a query; expose
+ * the query.
+ *
+ * The floor for a custom range is the WEEKLY one pro-rated over the period's
+ * own length, never the monthly one — so a 7-day range lands on exactly the
+ * same colour as the weekly bucket covering those days. See scaleFloorFor().
  */
 import { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAgentKey, agentJson, agentError } from "@/lib/agent/auth";
 import {
   computeStoreZones,
+  computeStoreZonesForRange,
   tallyZones,
   zoneWindow,
   monthBucketKeys,
 } from "@/lib/media-buying/zones";
+import { parseZoneRange } from "@/lib/media-buying/range-params";
 import { ZONE_ROAS_WINDOW_DAYS } from "@/lib/media-buying/config";
+import { organicPool } from "@/lib/organic/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -41,6 +65,14 @@ export async function GET(request: NextRequest) {
   const zoneFilter = params.get("zone");
   const buyerFilter = params.get("buyer")?.trim().toLowerCase() || null;
   const includeUnconfigured = params.get("include_unconfigured") === "1";
+  // `from`/`to` are accepted as well, because that is what the dashboard's
+  // own range endpoint calls them and somebody will copy a URL across.
+  const rangeStart = params.get("start") ?? params.get("from");
+  const rangeEnd = params.get("end") ?? params.get("to");
+
+  if (rangeStart || rangeEnd) {
+    return rangeMode(rangeStart, rangeEnd, { zoneFilter, buyerFilter, includeUnconfigured });
+  }
 
   try {
     // Service role: this endpoint has its own key and is not a user session,
@@ -71,6 +103,91 @@ export async function GET(request: NextRequest) {
     console.error("[agent/zones]", err);
     return agentError(
       err instanceof Error ? err.message : "Could not compute zones",
+      500
+    );
+  }
+}
+
+/** Store metadata the range computation does not carry, so the answer can
+ *  still be filtered and read per buyer. One light query, no zone maths. */
+async function storeMeta(): Promise<
+  Map<string, { media_buyer: string | null; department: string | null; niche: string | null; is_active: boolean; configured: boolean }>
+> {
+  const { rows } = await organicPool().query<{
+    org_id: string;
+    media_buyer: string | null;
+    department: string | null;
+    niche: string | null;
+    is_active: boolean | null;
+    breakeven_roas: string | null;
+  }>(
+    `SELECT org_id::text AS org_id, media_buyer, department, niche, is_active, breakeven_roas
+       FROM public.store_settings`
+  );
+  return new Map(
+    rows.map((r) => [
+      r.org_id,
+      {
+        media_buyer: r.media_buyer,
+        department: r.department,
+        niche: r.niche,
+        is_active: r.is_active !== false,
+        configured: !!r.department && r.breakeven_roas !== null,
+      },
+    ])
+  );
+}
+
+/**
+ * One period, exactly as asked for.
+ *
+ * Validation is `parseZoneRange()` — the same parser the dashboard route
+ * uses, so "to cannot be in the future" means the same thing in both places.
+ */
+async function rangeMode(
+  startRaw: string | null,
+  endRaw: string | null,
+  opts: { zoneFilter: string | null; buyerFilter: string | null; includeUnconfigured: boolean }
+) {
+  const parsed = parseZoneRange(startRaw, endRaw, new Date().toISOString().slice(0, 10));
+  if (!parsed.ok) return agentError(parsed.error, 400);
+
+  try {
+    const supabase = createAdminClient();
+    const [rows, meta] = await Promise.all([
+      computeStoreZonesForRange(supabase, parsed.from, parsed.to),
+      storeMeta(),
+    ]);
+
+    const stores = rows
+      .map((r) => ({ ...r, ...(meta.get(r.org_id) ?? { media_buyer: null, department: null, niche: null, is_active: true, configured: false }) }))
+      .filter((s) => opts.includeUnconfigured || (s.configured && s.is_active))
+      .filter((s) => !opts.zoneFilter || s.zone === opts.zoneFilter)
+      .filter((s) => !opts.buyerFilter || s.media_buyer === opts.buyerFilter);
+
+    return agentJson({
+      mode: "range",
+      range: {
+        from: parsed.from,
+        to: parsed.to,
+        days: parsed.days,
+        includes_today: parsed.includes_today,
+      },
+      count: stores.length,
+      tally: tallyZones(stores),
+      stores,
+      note:
+        "One period, not a bucket. The scale floor is the WEEKLY floor pro-rated over these days (never the monthly one), so a 7-day range gives exactly the same colour as the weekly bucket over the same days. " +
+        "`scale_target` is already in the store's currency; `scale_target_eur` is what it was derived from. Amounts are never converted. " +
+        "`days_with_data` is the days the store actually ran inside the period — Pinterest omits a zero-activity day, so fewer days is not missing data. " +
+        (parsed.includes_today
+          ? "This range includes TODAY, which the snapshot crons have only partly filled: treat the last day as incomplete."
+          : "This range ends before today, so every day in it is final."),
+    });
+  } catch (err) {
+    console.error("[agent/zones/range]", err);
+    return agentError(
+      err instanceof Error ? err.message : "Could not compute zones for that range",
       500
     );
   }

@@ -39,10 +39,19 @@ export async function GET(request: NextRequest) {
         what: "Red/orange/green per store with the numbers it was decided on: 7-day window, 4 weekly buckets, 3 monthly buckets, month-to-date and the last completed month.",
         params: {
           window: "7 | 14 | 30 (default 7)",
+          start: "YYYY-MM-DD — with `end`, switches to one custom period instead of the buckets",
+          end: "YYYY-MM-DD — cannot be in the future",
           zone: "red | orange | green — filter",
           buyer: "media buyer's first name, lowercase",
           include_unconfigured: "1 to include stores that have no settings yet",
         },
+        note: "Ask for a period with start+end rather than deriving a zone yourself from spend and thresholds — a zone computed elsewhere will disagree with the dashboard and nobody will be able to say which is right.",
+      },
+      {
+        path: "/api/agent/benchmarks",
+        what: "Per niche, per country and per store against its own history — the Benchmarks page's cohort and maths.",
+        params: { window: "7 | 14 | 30 (default 7)" },
+        note: "A cohort under `min_stores_for_a_benchmark` is not a benchmark. Say 'too few stores to compare' instead of quoting the average.",
       },
       {
         path: "/api/agent/critical",
