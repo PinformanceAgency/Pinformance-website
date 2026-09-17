@@ -1,21 +1,44 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, ArrowUpDown, Rocket, Pause, Layers, DollarSign, CalendarClock, LayoutGrid, ImageIcon } from "lucide-react";
+import { Loader2, ArrowUpDown, Rocket, Pause, Layers, DollarSign, CalendarClock, LayoutGrid, ImageIcon, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
   TeamActivityResponse,
   StoreWeekRow,
 } from "@/lib/media-buying/team-activity";
 
+/** What the API adds on top of the computation itself. */
+type TeamActivityPayload = TeamActivityResponse & { refreshed_at?: string | null };
+
+/**
+ * Two missed runs. The cron recomputes every 6h, so anything past 12 hours
+ * means it has failed rather than merely not run yet.
+ *
+ * This exists because on 13-09-2026 the cron started timing out and stopped
+ * writing, and the page carried on rendering the last good snapshot for four
+ * days — stale numbers look exactly like fresh ones, so nobody doubted them.
+ * The zone pages have the same property and the same defence: say when the
+ * figure is from.
+ */
+const STALE_AFTER_HOURS = 12;
+
+/** Deterministic, locale-free: the server and every viewer read one string. */
+function formatUtc(iso: string): string {
+  const d = new Date(iso);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+}
+
 export default function TeamActivityPage() {
-  const [data, setData] = useState<TeamActivityResponse | null>(null);
+  const [data, setData] = useState<TeamActivityPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/team-activity")
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e.error))))
-      .then((d) => setData(d as TeamActivityResponse))
+      .then((d) => setData(d as TeamActivityPayload))
       .catch((e) => setError(typeof e === "string" ? e : String(e)));
   }, []);
 
@@ -40,12 +63,45 @@ export default function TeamActivityPage() {
         </div>
       )}
 
+      {data && <Freshness refreshedAt={data.refreshed_at ?? null} />}
+
       {data && (
         <>
           <PaidTable data={data} />
           <OrganicTable data={data} />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * When these numbers were last computed.
+ *
+ * Quiet when the cache is current — one line of small print. Loud when it is
+ * not, because the failure mode here is silent: the cron writes nothing and
+ * the page keeps showing whatever it wrote last.
+ */
+function Freshness({ refreshedAt }: { refreshedAt: string | null }) {
+  if (!refreshedAt) return null;
+  const ageHours = (Date.now() - new Date(refreshedAt).getTime()) / 3_600_000;
+  const stale = ageHours > STALE_AFTER_HOURS;
+
+  if (!stale) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Last refreshed {formatUtc(refreshedAt)} · recomputed every 6 hours
+      </p>
+    );
+  }
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>
+        These figures are from <strong>{formatUtc(refreshedAt)}</strong>, about{" "}
+        {Math.round(ageHours)} hours old — the 6-hourly refresh has not run since.
+        Treat them as that week&apos;s state at that moment, not as today&apos;s.
+      </span>
     </div>
   );
 }
