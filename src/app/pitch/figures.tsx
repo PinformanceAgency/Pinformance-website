@@ -66,10 +66,6 @@ function FigScale() {
           <span className="v">300–400 mln</span>
         </div>
       </div>
-      <p className="fig-note">
-        Kleiner, en dat is het punt: minder concurrentie en CPM&apos;s die fors
-        onder Meta liggen.
-      </p>
     </div>
   );
 }
@@ -90,10 +86,6 @@ function FigOnlyPinterest() {
           <span>Pinterest</span>
         </div>
       </div>
-      <p className="fig-note">
-        Geen tweede kanaal om op terug te vallen. Alles wat wij leren komt hier
-        terecht.
-      </p>
     </div>
   );
 }
@@ -127,10 +119,6 @@ function FigExpectations() {
         <text x="70" y="192" className="fig-svg-k">Week 1</text>
         <text x="830" y="192" textAnchor="end" className="fig-svg-k">Week 12</text>
       </svg>
-      <p className="fig-note">
-        Het algoritme leert op tijd, niet op spend. Budget dumpen in week één
-        levert slechte data op waar je de rest van het kwartaal last van houdt.
-      </p>
     </div>
   );
 }
@@ -160,10 +148,6 @@ function FigOnboarding() {
           </div>
         ))}
       </div>
-      <p className="fig-note">
-        Vier stappen, en 15 tot 20 minuten werk aan jouw kant. De rest doen wij,
-        als jij snel schakelt staan de eerste campagnes binnen 48 uur live.
-      </p>
     </div>
   );
 }
@@ -204,10 +188,6 @@ function FigRealistic() {
         <text x="70" y="196" className="fig-svg-k">Maand 1</text>
         <text x="830" y="196" textAnchor="end" className="fig-svg-k">Maand 12</text>
       </svg>
-      <p className="fig-note">
-        Het aandeel van je advertentieomzet, opgebouwd over maanden. Bij het ene
-        merk gaat het binnen weken, bij het andere duurt het langer.
-      </p>
     </div>
   );
 }
@@ -249,10 +229,6 @@ function FigTwoScenarios() {
           </span>
         </div>
       </div>
-      <p className="fig-note">
-        De setup fee en de base fee blijven staan. Alleen de fee over je ad spend
-        vervalt, en dat wordt per periode beoordeeld.
-      </p>
     </div>
   );
 }
@@ -265,8 +241,10 @@ function FigTwoScenarios() {
 function FigGuarantees() {
   const clauses = [
     ["KPI en target", "Vooraf samen vastgelegd. Jij kiest waarop we sturen."],
-    ["Beoordeling", "Per periode, niet per campagne."],
-    ["Niet gehaald", `De spend fee vervalt. Je betaalt ${eur(BASE_FEE)} base fee.`],
+    [
+      "Niet gehaald",
+      `Gemeten over de hele maand, niet per losse campagne. De spend fee vervalt en je betaalt ${eur(BASE_FEE)} base fee.`,
+    ],
     ["Drempel", `Onder ${eur(MIN_ADSPEND_FOR_FEE)} ad spend per maand geen spend fee.`],
     ["Maximum", `De factuur is gemaximeerd op ${eur(INVOICE_CAP)} per maand.`],
     ["Facturatie", "Altijd achteraf, nooit vooraf."],

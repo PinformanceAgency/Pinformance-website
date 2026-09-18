@@ -1774,3 +1774,39 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Ronde 2: beeld zonder bijschrift ------------------------------------ */
+
+/* Een beeld dat nog niet is aangeleverd houdt zijn kader, met daarin wat erin
+   hoort. Dat is de plaatshouder, geen bijschrift. */
+.pitch-visual.is-placeholder {
+  justify-content: center;
+  gap: 6px;
+}
+.pitch-visual.is-placeholder .vn {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.pitch-visual.is-placeholder .vb {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--red-2);
+}
+
+/* De overeenkomst is zelf al een kader. Een tweede rand eromheen zou het een
+   plaatje van een contract maken in plaats van het contract. */
+.pitch-visual.is-bare {
+  border: 0;
+  background: none;
+}
+.pitch-visual.is-bare .fig {
+  padding: 0;
+}
+
+/* Zonder "Wat er staat" begint de inhoud direct onder de beschrijving. */
+.pitch-body:not(:has(.pitch-demo)) .pitch-visual {
+  margin-top: 0;
+}

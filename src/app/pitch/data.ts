@@ -144,6 +144,12 @@ export interface RoadmapNode {
      * een brede tabel. Alles wat staand of vierkant is hoort naast de tekst.
      */
     wide?: boolean;
+    /**
+     * Tijdelijk niet tonen. De tekst loopt dan over de volle breedte; zodra
+     * het beeld er is gaat deze vlag eraf en staat het vanzelf weer naast de
+     * tekst. Geen aparte opmaak die later teruggedraaid moet worden.
+     */
+    parked?: boolean;
   };
   /** Gezet zolang de sectie nog niet af is. Zichtbaar op kaart en in modal. */
   pending?: string;
@@ -222,7 +228,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     ],
     visual: {
       note: "Staande sfeerbeelden in de sfeer van beauty, fashion en home decor, in een grid of strip zoals de feed. Puur decoratief, geen labels of nichenamen: we claimen geen niches.",
-      by: "Nog aan te leveren",
+      by: "Geparkeerd tot besluit B13",
     },
     result: "Vier signalen. Hoe meer je er herkent, hoe sneller het kanaal rendeert.",
   },
@@ -261,7 +267,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Ervaring met DTC merken die maandelijks zes cijfers aan advertentiebudget draaien",
       "Nederlandse projectmanager als vast aanspreekpunt",
     ],
-    visual: { note: "Teamfoto.", by: "Tycho levert aan" },
+    visual: { note: "Teamfoto.", by: "Tycho levert aan", parked: true },
     result:
       "Jouw account wordt gedraaid door iemand die dit dagelijks op schaal doet.",
   },
@@ -472,14 +478,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         logo: "/pitch/brand-may.png",
       },
     ],
-    highlight: {
-      k: "Samen, dit jaar",
-      v: "3,3 mln",
-      s: "omzet op vier accounts",
-      f: "Blended ROAS 2,35",
-    },
     visual: {
-      note: "Elke case draagt zijn eigen merkbeeld hierboven. Voor het anonieme fashion merk een sfeerbeeld zonder logo.",
+      note: "Elke case draagt zijn eigen merkbeeld. Voor het anonieme fashion merk een sfeerbeeld zonder logo.",
       // Breed: de casekaarten dragen hun eigen beeld, hier staat alleen het
       // bijschrift eronder.
       wide: true,
@@ -527,7 +527,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Een lage vaste vergoeding voor het vaste werk",
       "De fee over je ad spend vervalt als de afgesproken KPI niet gehaald wordt",
       "Het target en de KPI leggen we vooraf samen vast",
-      "We beoordelen per periode, niet per campagne",
+      "We meten over de hele maand, niet per losse campagne",
       "Setup fee en base fee blijven staan, alleen de fee over je ad spend vervalt",
     ],
     visual: {
@@ -546,25 +546,13 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     cat: "Pagina 5 · Garanties",
     desc: "Wat er contractueel vastligt.",
     bullets: [],
-    rows: [
-      { k: "KPI en target", v: "Vooraf samen vastgelegd, jij kiest waarop we sturen" },
-      { k: "Beoordeling", v: "Per periode, niet per campagne" },
-      { k: "Niet gehaald", v: `Dan vervalt de spend fee en betaal je ${eur(BASE_FEE)} base fee` },
-      { k: "Spend-drempel", v: `Onder ${eur(MIN_ADSPEND_FOR_FEE)} ad spend per maand rekenen we geen spend fee` },
-      { k: "Maximum", v: `Je factuur is gemaximeerd op ${eur(INVOICE_CAP)} per maand` },
-      { k: "Facturatie", v: "Altijd achteraf, nooit vooraf" },
-      { k: "Looptijd", v: "2 maanden, daarna maandelijks opzegbaar" },
-    ],
     visual: {
       note: "De afspraken zoals ze in de overeenkomst komen te staan.",
       figure: "guarantees",
       // Breed: een contracttabel.
       wide: true,
     },
-    open: [
-      "De regel over KPI en target is teruggehaald uit de geschrapte KPI-sectie (B8). Zonder die regel staat nergens meer dat de KPI vooraf wordt vastgelegd, en daar hangt de hele garantie aan.",
-    ],
-    result: "Zeven afspraken die in het contract staan, niet in een verkooppraatje.",
+    result: "Zes afspraken die in het contract staan, niet in een verkooppraatje.",
   },
 
   // --- Eigen gebied · Prijs en calculator ----------------------------------
@@ -729,7 +717,7 @@ export const PHASE_HUBS: PhaseHub[] = [
     meta: "Pagina 2 · Het bureau",
     title: "Wie wij zijn",
     desc: "Eén kanaal, senior media buyers in Nederland en korte lijnen via Slack.",
-    count: "12 punten",
+    count: "11 punten",
     cats: [
       {
         name: "Pinterest, verder niets",
@@ -875,7 +863,7 @@ export const PHASE_HUBS: PhaseHub[] = [
           "Lage vaste vergoeding",
           "Spend fee vervalt bij gemiste KPI",
           "Target en KPI vooraf vastgelegd",
-          "Beoordeling per periode",
+          "Gemeten over de hele maand",
           "Setup en base fee blijven staan",
         ],
       },
@@ -883,7 +871,6 @@ export const PHASE_HUBS: PhaseHub[] = [
         name: "Garanties",
         systems: [
           "KPI en target vooraf samen vast",
-          "Beoordeling per periode",
           "Niet gehaald: alleen base fee",
           `Onder ${eur(MIN_ADSPEND_FOR_FEE)} geen spend fee`,
           `Maximum ${eur(INVOICE_CAP)} per maand`,

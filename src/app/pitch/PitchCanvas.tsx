@@ -90,17 +90,37 @@ function renderVisual(
   node: RoadmapNode,
   onZoom: (z: { src: string; alt: string }) => void
 ) {
+  // Geparkeerd: tijdelijk niets, en de tekst krijgt de volle breedte.
+  if (node.visual.parked) return null;
+
   const art = node.visual.src;
   const Figure = node.visual.figure ? FIGURES[node.visual.figure] : undefined;
-  // De calculator en de casekaarten dragen hun eigen beeld; een leeg kader
-  // eronder zou om een foto van het ding erboven vragen.
-  const carried =
-    !art && (!!Figure || !!node.calculator || !!node.cases?.some((c) => c.src));
+
+  // De calculator en de casebanners dragen hun beeld zelf. Zonder bijschrift
+  // blijft daar geen kader over om te tekenen.
+  if (!art && !Figure) {
+    if (node.calculator || node.cases?.some((c) => c.src)) return null;
+    // Nog niet aangeleverd: het kader blijft staan met wat erin hoort. Dat is
+    // de plaatshouder zelf, geen bijschrift, en verdwijnt met het beeld.
+    return (
+      <figure
+        className={`pitch-visual is-placeholder${
+          node.visual.wide ? " is-wide" : " is-side"
+        }`}
+      >
+        <span className="vn">{node.visual.note}</span>
+        {node.visual.by && <span className="vb">{node.visual.by}</span>}
+      </figure>
+    );
+  }
+
+  // Geen label, geen uitlegregel, geen "klik om te vergroten": het beeld staat
+  // er, dat is genoeg. Vergroten werkt nog wel, de cursor zegt het.
   return (
     <figure
-      className={`pitch-visual${art || carried ? " is-done" : ""}${
-        node.visual.light ? " on-light" : ""
-      }${node.visual.wide ? " is-wide" : " is-side"}`}
+      className={`pitch-visual is-done${node.visual.light ? " on-light" : ""}${
+        node.visual.wide ? " is-wide" : " is-side"
+      }${node.visual.figure === "guarantees" ? " is-bare" : ""}`}
     >
       {art && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -111,14 +131,22 @@ function renderVisual(
         />
       )}
       {Figure && <Figure />}
-      <figcaption>
-        <span className="vk">
-          {art ? "Visual · klik om te vergroten" : "Visual"}
-        </span>
-        <span className="vn">{node.visual.note}</span>
-        {node.visual.by && !art && <span className="vb">{node.visual.by}</span>}
-      </figcaption>
     </figure>
+  );
+}
+
+/**
+ * Of het blok "Wat er staat" iets te tonen heeft. Bij De cases, de calculator
+ * en Garanties staat alle inhoud buiten dat blok, en een blok met alleen een
+ * kopje en daaronder niets leest als een sectie die vergeten is in te vullen.
+ */
+function hasDemoContent(node: RoadmapNode) {
+  return (
+    node.bullets.length > 0 ||
+    !!node.rows?.length ||
+    !!node.columns?.length ||
+    !!node.question ||
+    !!node.highlight
   );
 }
 
@@ -148,7 +176,9 @@ export default function PitchCanvas() {
 
   // Het beeld hoort naast de tekst, tenzij het van links naar rechts loopt.
   const visual = detail ? renderVisual(detail, setZoom) : null;
-  const sideVisual = !!detail && !detail.visual.wide && !detail.calculator;
+  const sideVisual =
+    !!detail && !!visual && !detail.visual.wide && !detail.calculator;
+  const showDemo = !!detail && hasDemoContent(detail);
 
   // Fit a section and remember which tab is lit.
   const goTo = useCallback((i: number) => {
@@ -644,8 +674,9 @@ export default function PitchCanvas() {
 
             {detail.calculator && <PitchCalculator />}
 
-            {!detail.calculator && (
+            {!detail.calculator && (showDemo || sideVisual) && (
             <div className={`pitch-body${sideVisual ? " has-aside" : ""}`}>
+            {showDemo && (
             <div className="pitch-demo">
               <div className="pitch-demo-left">
                 <div className="pitch-demo-brand">Wat er staat</div>
@@ -710,6 +741,7 @@ export default function PitchCanvas() {
                 </div>
               )}
             </div>
+            )}
             {sideVisual && visual}
             </div>
             )}
