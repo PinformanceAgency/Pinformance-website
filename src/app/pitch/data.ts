@@ -605,8 +605,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
   },
   {
     id: "de-calculator",
-    x: 2852,
-    y: 420,
+    x: 3182,
+    y: 180,
     name: "De calculator",
     cat: "Prijs en calculator",
     desc: "Vul je ad spend in, kies waarop we sturen, en zie wat je betaalt als we het halen en wat je betaalt als we het niet halen.",
@@ -619,22 +619,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Wat weerhoudt ons ervan het budget op te blazen zodra de KPI gehaald is? Wij verdienen meer naarmate de spend stijgt, en de garantie beschermt de prospect alleen tegen zakken onder het target, niet tegen doorschalen tot precies op de grens. Het antwoord hoort in het deck te staan.",
     ],
     result: "De prospect rekent zelf, met zijn eigen cijfers, en ziet beide uitkomsten naast elkaar.",
-  },
-  {
-    id: "waarom-dit-model",
-    x: 3182,
-    y: 180,
-    name: "Waarom dit model",
-    cat: "Prijs en calculator",
-    desc: "Vangt de twijfel op die direct na het getal ontstaat.",
-    bullets: [],
-    pending: "Nog op te bouwen",
-    open: [
-      "De oude tekst verkocht het model door facturatie op ad spend af te branden. Dat kan niet blijven staan nu wij zelf op een spend fee overgaan.",
-      "Deze sectie wordt opnieuw geschreven zodra het nieuwe model vastligt.",
-    ],
-    visual: { note: "Nog te bepalen.", by: "Volgt met de tekst" },
-    result: "Nog te schrijven.",
   },
 ];
 
@@ -893,11 +877,11 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p6",
     n: "06",
     x: 2572,
-    catX: 2607,
+    catX: 2727,
     meta: "Eigen gebied · Het model",
     title: "Prijs en calculator",
-    desc: "Wat er in de fee zit, de calculator zelf, en waarom het model zo werkt.",
-    count: "14 punten",
+    desc: "Wat er in de fee zit, en de calculator zelf.",
+    count: "13 punten",
     cats: [
       {
         name: "Wat zit erin",
@@ -921,10 +905,6 @@ export const PHASE_HUBS: PhaseHub[] = [
           "Uitkomst: opbrengst plus fee",
           "Sluit aan op de 15 tot 30%",
         ],
-      },
-      {
-        name: "Waarom dit model",
-        systems: ["Nog op te bouwen"],
       },
     ],
   },
