@@ -1810,3 +1810,8 @@
 .pitch-body:not(:has(.pitch-demo)) .pitch-visual {
   margin-top: 0;
 }
+
+/* Een tweede beeld onder het eerste: een lijn ertussen, geen tweede kader. */
+.pitch-visual img.pitch-visual-extra {
+  border-top: 1px solid var(--line);
+}

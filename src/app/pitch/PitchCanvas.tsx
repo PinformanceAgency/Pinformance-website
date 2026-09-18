@@ -130,6 +130,16 @@ function renderVisual(
           onClick={() => onZoom({ src: art, alt: node.visual.note })}
         />
       )}
+      {node.visual.extra?.map((src) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={src}
+          className="pitch-visual-extra"
+          src={src}
+          alt={node.visual.note}
+          onClick={() => onZoom({ src, alt: node.visual.note })}
+        />
+      ))}
       {Figure && <Figure />}
     </figure>
   );

@@ -150,6 +150,11 @@ export interface RoadmapNode {
      * tekst. Geen aparte opmaak die later teruggedraaid moet worden.
      */
     parked?: boolean;
+    /**
+     * Beelden die onder het eerste staan, in volgorde. Voor een sectie die
+     * een verloop laat zien: eerst wat we opzetten, dan wat het oplevert.
+     */
+    extra?: string[];
   };
   /** Gezet zolang de sectie nog niet af is. Zichtbaar op kaart en in modal. */
   pending?: string;
@@ -381,10 +386,13 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "Een volledig opgezet Pinterest-profiel: borden per zoekterm, 6 mln maandelijkse weergaven.",
       src: "/pitch/organic-profile.jpg",
+      // Eerst de opzet, dan wat die opzet in 30 dagen opleverde.
+      extra: ["/pitch/organic-results.jpg"],
       // Breed: een lijngrafiek over zes maanden.
       wide: true,
     },
-    result: "Een kanaal dat blijft opleveren op de dagen dat je advertenties uitstaan.",
+    result:
+      "Dit profiel leverde FitCherries in 30 dagen US$ 5.010 omzet op uit organic, 110% meer dan de 30 dagen ervoor. Zonder advertentiebudget.",
   },
   {
     id: "onboarding",
