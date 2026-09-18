@@ -379,8 +379,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Standaard inbegrepen, paid presteert zonder organic slechter",
     ],
     visual: {
-      note: "Lijngrafiek van de organic omzet over minstens zes maanden, met een oplopende lijn. Visueel duidelijk anders dan de Ads Manager-shot bij Paid, zodat het twee aparte motoren blijven. Merknaam anonimiseren.",
-      by: "Nog aan te leveren",
+      note: "Een volledig opgezet Pinterest-profiel: borden per zoekterm, 6 mln maandelijkse weergaven.",
+      src: "/pitch/organic-profile.jpg",
       // Breed: een lijngrafiek over zes maanden.
       wide: true,
     },
