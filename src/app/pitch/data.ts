@@ -386,7 +386,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "Een volledig opgezet Pinterest-profiel: borden per zoekterm, 6 mln maandelijkse weergaven.",
       src: "/pitch/organic-profile.jpg",
-      // Eerst de opzet, dan wat die opzet in 30 dagen opleverde.
+      // Een swipe: eerst de opzet, dan wat die opzet in 30 dagen opleverde.
+      // Beide op 1800 x 1000, zodat er bij het swipen niets verspringt.
       extra: ["/pitch/organic-results.jpg"],
       // Breed: een lijngrafiek over zes maanden.
       wide: true,

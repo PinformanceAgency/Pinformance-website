@@ -20,6 +20,7 @@ import {
 } from "./data";
 import PitchCalculator from "./PitchCalculator";
 import { FIGURES } from "./figures";
+import VisualCarousel from "./VisualCarousel";
 import "./pitch.css";
 
 // ---------------------------------------------------------------------------
@@ -122,24 +123,22 @@ function renderVisual(
         node.visual.wide ? " is-wide" : " is-side"
       }${node.visual.figure === "guarantees" ? " is-bare" : ""}`}
     >
-      {art && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={art}
+      {art && node.visual.extra?.length ? (
+        <VisualCarousel
+          slides={[art, ...node.visual.extra]}
           alt={node.visual.note}
-          onClick={() => onZoom({ src: art, alt: node.visual.note })}
+          onZoom={onZoom}
         />
+      ) : (
+        art && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={art}
+            alt={node.visual.note}
+            onClick={() => onZoom({ src: art, alt: node.visual.note })}
+          />
+        )
       )}
-      {node.visual.extra?.map((src) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={src}
-          className="pitch-visual-extra"
-          src={src}
-          alt={node.visual.note}
-          onClick={() => onZoom({ src, alt: node.visual.note })}
-        />
-      ))}
       {Figure && <Figure />}
     </figure>
   );

@@ -1811,7 +1811,92 @@
   margin-top: 0;
 }
 
-/* Een tweede beeld onder het eerste: een lijn ertussen, geen tweede kader. */
-.pitch-visual img.pitch-visual-extra {
-  border-top: 1px solid var(--line);
+/* --- Swipe tussen beelden (VisualCarousel) ------------------------------- */
+
+.vc {
+  position: relative;
+}
+.vc-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  /* Het canvas zet touch-action op none om zelf te kunnen pannen; hier moet
+     een vinger weer horizontaal mogen vegen. */
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+.vc-track::-webkit-scrollbar {
+  display: none;
+}
+.vc-slide {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+/* Alle slides hebben hetzelfde formaat, dus geen hoogtegrens en geen
+   letterbox: het beeld vult het kader precies. */
+.pitch-visual .vc-slide img {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  display: block;
+  background: #fff;
+  cursor: zoom-in;
+}
+.vc-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(20, 17, 21, 0.78);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+}
+.vc-arrow.prev {
+  left: 12px;
+}
+.vc-arrow.next {
+  right: 12px;
+}
+.vc-arrow:hover:not(:disabled) {
+  background: var(--red);
+}
+.vc-arrow:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+.vc-dots {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 7px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(20, 17, 21, 0.7);
+}
+.vc-dots button {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+}
+.vc-dots button.on {
+  width: 20px;
+  border-radius: 4px;
+  background: var(--red-2);
 }
