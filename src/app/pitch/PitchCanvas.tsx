@@ -774,16 +774,6 @@ export default function PitchCanvas() {
 
             {!sideVisual && visual}
 
-            {detail.open && (
-              <div className="pitch-open">
-                <span className="k">Nog vast te leggen</span>
-                <ul>
-                  {detail.open.map((o) => (
-                    <li key={o}>{o}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             {/* Ronde 3: geen resultaatbalk meer. Komt de zin terug (B14),
                 dan als gewone regel zonder label of vlak. */}

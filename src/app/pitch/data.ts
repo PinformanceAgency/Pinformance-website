@@ -158,8 +158,6 @@ export interface RoadmapNode {
   pending?: string;
   /** Deze sectie draagt de werkende calculator in plaats van een opsomming. */
   calculator?: true;
-  /** Losse punten die nog vastgelegd moeten worden voordat dit naar buiten kan. */
-  open?: string[];
   /**
    * De kernzin van de sectie. Staat sinds ronde 3 niet meer op het scherm (de
    * resultaatbalk leidde af tijdens de oefenpitch); zie SHOW_RESULT_LINE.
@@ -568,9 +566,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "De calculator is de visual. Hij rekent live mee tijdens de call, met de cijfers van de prospect zelf.",
     },
-    open: [
-      "Welke vragen komen in de vragenlijst (B16)? Nu: waarop sturen we, jouw minimale ROAS of maximale CPA, en je ad spend per maand.",
-    ],
   },
 ];
 
