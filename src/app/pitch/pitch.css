@@ -1796,16 +1796,6 @@
   color: var(--red-2);
 }
 
-/* De overeenkomst is zelf al een kader. Een tweede rand eromheen zou het een
-   plaatje van een contract maken in plaats van het contract. */
-.pitch-visual.is-bare {
-  border: 0;
-  background: none;
-}
-.pitch-visual.is-bare .fig {
-  padding: 0;
-}
-
 /* Zonder "Wat er staat" begint de inhoud direct onder de beschrijving. */
 .pitch-body:not(:has(.pitch-demo)) .pitch-visual {
   margin-top: 0;

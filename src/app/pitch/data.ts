@@ -4,9 +4,9 @@
 // op het canvas; elke sectie binnen die pagina is een node in die lane.
 // Daaronder staat per pagina een hub die alle punten uitklapt.
 //
-// Pagina 5 is het aanbod: eerst de werkzaamheden, dan pricing en garanties
-// samen op één kaart. De calculator is een eigen gebied daarnaast, en stelt
-// eerst zijn vragen voordat hij een bedrag laat zien.
+// Pagina 5 is het aanbod: wat we concreet doen. Pricing en garanties staan
+// niet meer als eigen kaart in het deck; de calculator ernaast stelt eerst zijn
+// vragen en laat pas daarna een bedrag zien.
 //
 // Alle coördinaten zijn absoluut in wereldruimte en veranderen nooit; alleen de
 // camera beweegt. De oorsprong (0,0) ligt linksboven in de middelste lane.
@@ -17,14 +17,6 @@
 //   2. Elke sectie heeft een `visual`. Geen enkele kaart gaat zonder beeld
 //      naar buiten, dus een sectie zonder aangeleverd beeld houdt een zichtbare
 //      lege plek in plaats van stilletjes zonder te verschijnen.
-
-import {
-  BASE_FEE,
-  BRACKETS,
-  INVOICE_CAP,
-  SETUP_FEE,
-  eur,
-} from "./pricing";
 
 /**
  * Ronde 3: de resultaatbalk is overal weg. Of de zin zelf als gewone regel
@@ -89,7 +81,7 @@ export const LANES: Lane[] = [
   { n: "Pagina 2", x: -1454, title: "Wie wij zijn", days: "Het bureau" },
   { n: "Pagina 3", x: -470, title: "Hoe wij werken", days: "De uitvoering" },
   { n: "Pagina 4", x: 514, title: "Resultaten", days: "De cijfers" },
-  { n: "Pagina 5", x: 1498, title: "Werkzaamheden en pricing", days: "Het aanbod" },
+  { n: "Pagina 5", x: 1498, title: "Werkzaamheden", days: "Het aanbod" },
   { n: "Eigen gebied", x: 2482, title: "Calculator", days: "Jouw cijfers" },
 ];
 
@@ -513,14 +505,14 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     result: "Eén getal om ons op af te rekenen, en de tijd die het kost om er te komen.",
   },
 
-  // --- Pagina 5 · Werkzaamheden, pricing en garanties ----------------------
+  // --- Pagina 5 · Werkzaamheden --------------------------------------------
   // Eerst wat we doen, dan wat het kost. Organic en paid staan hier nog een
   // keer als werk, zodat de value vlak voor de prijs staat en niet drie
   // pagina's eerder.
   {
     id: "werkzaamheden",
-    x: 1538,
-    y: 660,
+    x: 1868,
+    y: 420,
     name: "Werkzaamheden",
     cat: "Pagina 5 · Het aanbod",
     desc: "Wat wij concreet doen.",
@@ -560,21 +552,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     visual: {
       note: "De opsomming is de pagina. Geen bedrag hier: dat trekt alle aandacht weg van wat er gedaan wordt.",
       parked: true,
-    },
-  },
-  {
-    id: "pricing-en-garanties",
-    x: 2198,
-    y: 180,
-    name: "Pricing en garanties",
-    cat: "Pagina 5 · Het aanbod",
-    desc: "Wat het kost, en wat er vastligt.",
-    bullets: [],
-    visual: {
-      note: "Bovenaan de drie bedragen, daaronder alleen de afspraken die echt een garantie zijn.",
-      figure: "pricingGuarantees",
-      // Breed: drie prijskaarten en een contracttabel.
-      wide: true,
     },
   },
 
@@ -808,11 +785,11 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p5",
     n: "05",
     x: 1588,
-    catX: 1743,
+    catX: 1863,
     meta: "Pagina 5 · Het aanbod",
-    title: "Werkzaamheden en pricing",
-    desc: "Wat we doen, wat het kost en wat er vastligt.",
-    count: "15 punten",
+    title: "Werkzaamheden",
+    desc: "Wat we concreet doen, paid en organic.",
+    count: "8 punten",
     cats: [
       {
         name: "Werkzaamheden",
@@ -825,18 +802,6 @@ export const PHASE_HUBS: PhaseHub[] = [
           "Creative gameplan en kick-off",
           "Wekelijkse rapportage",
           "Maandelijkse call",
-        ],
-      },
-      {
-        name: "Pricing en garanties",
-        systems: [
-          `Setup fee ${eur(SETUP_FEE)}`,
-          `Base fee ${eur(BASE_FEE)} per maand`,
-          `Spend fee ${BRACKETS[0].pct}% tot ${BRACKETS[BRACKETS.length - 1].pct}% van je ad spend`,
-          "KPI en target vooraf samen vast",
-          "Niet gehaald: spend fee vervalt",
-          `Nooit meer dan ${eur(INVOICE_CAP)} per maand`,
-          "2 maanden, daarna maandelijks op",
         ],
       },
     ],
@@ -915,7 +880,7 @@ export const SECTIONS: Section[] = [
   {
     id: "garanties",
     index: "05",
-    label: "Werkzaamheden en pricing",
+    label: "Werkzaamheden",
     bounds: { x: 1498, y: -84, w: 940, h: 904 },
   },
   {

@@ -121,7 +121,7 @@ function renderVisual(
     <figure
       className={`pitch-visual is-done${node.visual.light ? " on-light" : ""}${
         node.visual.wide ? " is-wide" : " is-side"
-      }${node.visual.figure === "pricingGuarantees" ? " is-bare" : ""}`}
+      }`}
     >
       {art && node.visual.extra?.length ? (
         <VisualCarousel

@@ -11,16 +11,6 @@
 // Cijfers komen uit pricing.ts waar ze bestaan, zodat een tarief nooit op twee
 // plekken anders kan staan.
 
-import {
-  BASE_FEE,
-  BRACKETS,
-  INVOICE_CAP,
-  MIN_ADSPEND_FOR_FEE,
-  SETUP_FEE,
-  bracketLabel,
-  eur,
-} from "./pricing";
-
 // ---------------------------------------------------------------------------
 // Pagina 1 · Schaal, eerlijk
 // ---------------------------------------------------------------------------
@@ -192,76 +182,6 @@ function FigRealistic() {
 }
 
 // ---------------------------------------------------------------------------
-// Pagina 5 · Pricing en garanties
-// ---------------------------------------------------------------------------
-// Twee blokken op één kaart, en de scheiding is de hele boodschap: bovenaan
-// wat je betaalt, onderaan wat er vastligt. Een base fee of een spend fee is
-// pricing en staat dus niet bij de garanties, en een garantie noemt geen
-// bedrag. De base fee krijgt geen onderbouwing, alleen het bedrag.
-function FigPricingGuarantees() {
-  const clauses = [
-    ["KPI en target", "Vooraf samen vastgelegd. Jij kiest waarop we sturen: ROAS of CPA."],
-    [
-      "Niet gehaald",
-      "De spend fee vervalt. Gemeten over de hele maand, niet per losse campagne.",
-    ],
-    ["Maximum", `Nooit meer dan ${eur(INVOICE_CAP)} per maand, alles inbegrepen.`],
-    ["Looptijd", "2 maanden, daarna maandelijks opzegbaar."],
-  ];
-  return (
-    <div className="fig">
-      <div className="fig-k">Pricing</div>
-      <div className="fig-three">
-        <div className="ft">
-          <span className="ft-k">Eenmalig</span>
-          <span className="ft-t">Setup fee</span>
-          <span className="ft-v">{eur(SETUP_FEE)}</span>
-        </div>
-        <div className="ft">
-          <span className="ft-k">Per maand</span>
-          <span className="ft-t">Base fee</span>
-          <span className="ft-v">{eur(BASE_FEE)}</span>
-        </div>
-        <div className="ft on">
-          <span className="ft-k">Over je ad spend</span>
-          <span className="ft-t">Spend fee</span>
-          <span className="ft-v">
-            {BRACKETS[0].pct}% → {BRACKETS[BRACKETS.length - 1].pct}%
-          </span>
-          <ul>
-            {BRACKETS.map((b) => (
-              <li key={b.min}>
-                {bracketLabel(b)}: {b.pct}%
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-      <div className="fig-fine">
-        Onder {eur(MIN_ADSPEND_FOR_FEE)} ad spend per maand geen spend fee.
-        Altijd achteraf gefactureerd, nooit vooraf.
-      </div>
-
-      <div className="fig-k fig-k-sep">Garanties</div>
-      <div className="fig-doc">
-        <div className="fig-doc-head">
-          <span>Overeenkomst</span>
-          <span>Pinformance</span>
-        </div>
-        <ol className="fig-doc-body">
-          {clauses.map(([k, v]) => (
-            <li key={k}>
-              <span className="k">{k}</span>
-              <span className="v">{v}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 
 export const FIGURES: Record<string, () => React.JSX.Element> = {
   scale: FigScale,
@@ -269,7 +189,6 @@ export const FIGURES: Record<string, () => React.JSX.Element> = {
   expectations: FigExpectations,
   onboarding: FigOnboarding,
   realistic: FigRealistic,
-  pricingGuarantees: FigPricingGuarantees,
 };
 
 export type FigureKey = keyof typeof FIGURES;
