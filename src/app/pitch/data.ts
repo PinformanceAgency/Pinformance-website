@@ -4,10 +4,9 @@
 // op het canvas; elke sectie binnen die pagina is een node in die lane.
 // Daaronder staat per pagina een hub die alle punten uitklapt.
 //
-// Pagina 5 is gesplitst: het risicoverhaal (niet gehaald, niet betaald plus de
-// garanties) blijft pagina 5, de prijs en de calculator zijn een eigen gebied
-// daarnaast. De prospect hoort eerst dat hij niets betaalt als er niet
-// geleverd wordt, en kijkt pas daarna naar een bedrag.
+// Pagina 5 is het aanbod: eerst de werkzaamheden, dan pricing en garanties
+// samen op één kaart. De calculator is een eigen gebied daarnaast, en stelt
+// eerst zijn vragen voordat hij een bedrag laat zien.
 //
 // Alle coördinaten zijn absoluut in wereldruimte en veranderen nooit; alleen de
 // camera beweegt. De oorsprong (0,0) ligt linksboven in de middelste lane.
@@ -21,10 +20,17 @@
 
 import {
   BASE_FEE,
+  BRACKETS,
   INVOICE_CAP,
-  MIN_ADSPEND_FOR_FEE,
+  SETUP_FEE,
   eur,
 } from "./pricing";
+
+/**
+ * Ronde 3: de resultaatbalk is overal weg. Of de zin zelf als gewone regel
+ * onder de opsomming terugkomt is nog een besluit (B14); dit is de schakelaar.
+ */
+export const SHOW_RESULT_LINE = false;
 
 export type SectionId =
   | "totaal"
@@ -54,7 +60,7 @@ export const HERO = {
   title: "Pinformance",
   line1: "Pinterest, en verder niets",
   line2:
-    "Het kanaal, wie wij zijn, hoe wij werken, de cijfers, de garanties en het model",
+    "Het kanaal, wie wij zijn, hoe wij werken, de cijfers, het aanbod en de calculator",
 };
 
 export const START_NODE = {
@@ -83,8 +89,8 @@ export const LANES: Lane[] = [
   { n: "Pagina 2", x: -1454, title: "Wie wij zijn", days: "Het bureau" },
   { n: "Pagina 3", x: -470, title: "Hoe wij werken", days: "De uitvoering" },
   { n: "Pagina 4", x: 514, title: "Resultaten", days: "De cijfers" },
-  { n: "Pagina 5", x: 1498, title: "Garanties", days: "Het risicoverhaal" },
-  { n: "Eigen gebied", x: 2482, title: "Prijs en calculator", days: "Het model" },
+  { n: "Pagina 5", x: 1498, title: "Werkzaamheden en pricing", days: "Het aanbod" },
+  { n: "Eigen gebied", x: 2482, title: "Calculator", days: "Jouw cijfers" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -162,8 +168,11 @@ export interface RoadmapNode {
   calculator?: true;
   /** Losse punten die nog vastgelegd moeten worden voordat dit naar buiten kan. */
   open?: string[];
-  /** Wat je uit deze sectie meeneemt. */
-  result: string;
+  /**
+   * De kernzin van de sectie. Staat sinds ronde 3 niet meer op het scherm (de
+   * resultaatbalk leidde af tijdens de oefenpitch); zie SHOW_RESULT_LINE.
+   */
+  result?: string;
 }
 
 export const ROADMAP_NODES: RoadmapNode[] = [
@@ -178,7 +187,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     bullets: [
       "Inspiratieplatform, geen doomscroll",
       "Mensen zoeken actief naar ideeën: interieur, outfit, cadeau",
-      "Oriëntatie duurt weken tot maanden voor de aankoop",
       "Vroeger in de funnel dan Meta, veel vroeger dan Google",
     ],
     visual: {
@@ -401,48 +409,29 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     y: 180,
     name: "Onboarding",
     cat: "Pagina 3 · Hoe wij werken",
-    desc: "Van akkoord naar live in vier stappen.",
+    desc: "Van akkoord naar live in drie stappen.",
     bullets: [
-      "Setup fee betaald",
       "Slack en onboarding in Notion, 15 tot 20 minuten van jouw tijd",
       "Kick-off call: tracking, contracten, toegang",
       "Eerste campagnes live binnen 48 uur, als jij snel schakelt",
     ],
     visual: {
-      note: "De vier stappen, met per stap wat het jou aan tijd kost.",
+      note: "De drie stappen, met per stap wat het jou aan tijd kost.",
       figure: "onboarding",
       // Breed: een tijdlijn van links naar rechts.
       wide: true,
     },
-    result: "Vier stappen, en 15 tot 20 minuten werk aan jouw kant.",
+    result: "Drie stappen, en 15 tot 20 minuten werk aan jouw kant.",
   },
 
   // --- Pagina 4 · Resultaten -----------------------------------------------
-  {
-    id: "meten-en-attributie",
-    x: 554,
-    y: 660,
-    name: "Meten en attributie",
-    cat: "Pagina 4 · Resultaten",
-    desc: "Het meten staat vast vóór de eerste euro spend.",
-    bullets: [
-      "Attributievenster en UTM's goed vóór de eerste euro spend",
-      "Bij omnichannel: een third-party tool zoals Triple Whale, Converge of Billy Grace",
-      "Wijkt het platform af van de third-party, dan zoeken we het uit",
-      "Wij kijken verder dan omzet, jouw winst is wat telt",
-    ],
-    visual: {
-      note: "Triple Whale, laatste 30 dagen: Pinterest op ROAS 2,35 naast Meta 1,56, Google 3,23 en TikTok 1,48. Een onafhankelijke tool die Pinterest náást de andere kanalen bevestigt.",
-      src: "/pitch/triple-whale.png",
-      // Breed: Triple Whale, een brede tabel.
-      wide: true,
-    },
-    result: "Geen discussie achteraf over wiens cijfer klopt.",
-  },
+  // Meten en attributie is geschrapt (ronde 3): een Triple Whale dashboard
+  // tonen stuurt erop aan dat we op TW-attributie worden afgerekend, en de
+  // vraag komt mondeling toch wel.
   {
     id: "de-cases",
-    x: 884,
-    y: 420,
+    x: 554,
+    y: 660,
     name: "De cases",
     cat: "Pagina 4 · Resultaten",
     desc: "Vier accounts, grootste eerst. Alle cijfers over dit jaar.",
@@ -524,92 +513,79 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     result: "Eén getal om ons op af te rekenen, en de tijd die het kost om er te komen.",
   },
 
-  // --- Pagina 5 · Garanties (het risicoverhaal) ----------------------------
+  // --- Pagina 5 · Werkzaamheden, pricing en garanties ----------------------
+  // Eerst wat we doen, dan wat het kost. Organic en paid staan hier nog een
+  // keer als werk, zodat de value vlak voor de prijs staat en niet drie
+  // pagina's eerder.
   {
-    id: "niet-gehaald-niet-betaald",
+    id: "werkzaamheden",
     x: 1538,
     y: 660,
-    name: "Niet gehaald, niet betaald",
-    cat: "Pagina 5 · Garanties",
-    desc: "Het vaste werk is laag geprijsd. De rest moeten wij verdienen.",
-    bullets: [
-      "Een lage vaste vergoeding voor het vaste werk",
-      "De fee over je ad spend vervalt als de afgesproken KPI niet gehaald wordt",
-      "Het target en de KPI leggen we vooraf samen vast",
-      "We meten over de hele maand, niet per losse campagne",
-      "Setup fee en base fee blijven staan, alleen de fee over je ad spend vervalt",
-    ],
-    visual: {
-      note: "Wat je betaalt als het target gehaald wordt, en wat je betaalt als dat niet lukt.",
-      figure: "twoScenarios",
-      // Breed: twee scenario's naast elkaar.
-      wide: true,
-    },
-    result: `Als het niet werkt, betaal je alleen de base fee van ${eur(BASE_FEE)}.`,
-  },
-  {
-    id: "garanties",
-    x: 2198,
-    y: 180,
-    name: "Garanties",
-    cat: "Pagina 5 · Garanties",
-    desc: "Wat er contractueel vastligt.",
-    bullets: [],
-    visual: {
-      note: "De afspraken zoals ze in de overeenkomst komen te staan.",
-      figure: "guarantees",
-      // Breed: een contracttabel.
-      wide: true,
-    },
-    result: "Zes afspraken die in het contract staan, niet in een verkooppraatje.",
-  },
-
-  // --- Eigen gebied · Prijs en calculator ----------------------------------
-  {
-    id: "wat-zit-erin",
-    x: 2522,
-    y: 660,
-    name: "Wat zit erin",
-    cat: "Prijs en calculator",
-    desc: "Wat de setup fee dekt, en wat er maandelijks in de base fee zit.",
+    name: "Werkzaamheden",
+    cat: "Pagina 5 · Het aanbod",
+    desc: "Wat wij concreet doen.",
     bullets: [],
     columns: [
       {
-        title: "In de setup fee",
+        title: "Paid",
         items: [
-          "Merk- en concurrentieonderzoek op Pinterest",
-          "Benchmarks uit onze portfolio",
-          "Volledige organic opzet met SEO",
-          "Opzet van het advertentieaccount",
-          "Creative gameplan",
-          "Kick-off call",
+          "Analyse van wat je merk al draait",
+          "Campagnestructuur op jouw merk en catalogus",
+          "Catalog ads bij een brede catalogus",
+          "Creatives kiezen uit je bestaande materiaal",
+          "Media buying en schalen",
         ],
       },
       {
-        title: "In de base fee",
+        title: "Organic",
         items: [
-          "Media buying",
-          "Organic beheer met dagelijkse plaatsingen",
+          "Volledige profielopzet met SEO",
+          "Borden, structuur en zoektermen",
+          "Dagelijkse plaatsingen",
+          "Doorlopend beheer van het profiel",
+        ],
+      },
+      {
+        title: "Start en contact",
+        items: [
+          "Merk- en concurrentieonderzoek",
+          "Benchmarks uit onze portfolio",
+          "Opzet van het advertentieaccount",
+          "Creative gameplan en kick-off call",
           "Wekelijkse rapportage",
           "Maandelijkse call",
         ],
       },
     ],
     visual: {
-      note: "De drie kostenposten los van elkaar: eenmalig, per maand, en op resultaat.",
-      figure: "whatsIncluded",
-      // Breed: drie kostenkaarten naast elkaar.
-      wide: true,
+      note: "De opsomming is de pagina. Geen bedrag hier: dat trekt alle aandacht weg van wat er gedaan wordt.",
+      parked: true,
     },
-    result: "Tien concrete onderdelen, zodat je weet waar je base fee heen gaat.",
   },
   {
-    id: "de-calculator",
-    x: 3182,
+    id: "pricing-en-garanties",
+    x: 2198,
     y: 180,
+    name: "Pricing en garanties",
+    cat: "Pagina 5 · Het aanbod",
+    desc: "Wat het kost, en wat er vastligt.",
+    bullets: [],
+    visual: {
+      note: "Bovenaan de drie bedragen, daaronder alleen de afspraken die echt een garantie zijn.",
+      figure: "pricingGuarantees",
+      // Breed: drie prijskaarten en een contracttabel.
+      wide: true,
+    },
+  },
+
+  // --- Eigen gebied · Calculator -------------------------------------------
+  {
+    id: "de-calculator",
+    x: 2852,
+    y: 420,
     name: "De calculator",
-    cat: "Prijs en calculator",
-    desc: "Vul je ad spend in, kies waarop we sturen, en zie wat je betaalt als we het halen en wat je betaalt als we het niet halen.",
+    cat: "Calculator",
+    desc: "Eerst een paar vragen. Daarna het aanbod, gerekend met jouw eigen cijfers.",
     bullets: [],
     calculator: true,
     visual: {
@@ -617,8 +593,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     },
     open: [
       "Wat weerhoudt ons ervan het budget op te blazen zodra de KPI gehaald is? Wij verdienen meer naarmate de spend stijgt, en de garantie beschermt de prospect alleen tegen zakken onder het target, niet tegen doorschalen tot precies op de grens. Het antwoord hoort in het deck te staan.",
+      "Welke vragen komen in de vragenlijst (B16)? Nu: waarop sturen we, jouw minimale ROAS of maximale CPA, en je ad spend per maand.",
     ],
-    result: "De prospect rekent zelf, met zijn eigen cijfers, en ziet beide uitkomsten naast elkaar.",
   },
 ];
 
@@ -669,14 +645,13 @@ export const PHASE_HUBS: PhaseHub[] = [
     meta: "Pagina 1 · Het kanaal",
     title: "Pinterest",
     desc: "Waarom Pinterest een ander kanaal is dan Meta, hoe groot het is en voor wie het werkt.",
-    count: "14 punten",
+    count: "13 punten",
     cats: [
       {
         name: "Geen tweede Meta",
         systems: [
           "Inspiratieplatform, geen doomscroll",
           "Zoeken actief naar ideeën",
-          "Oriëntatie: weken tot maanden",
           "Vroeger in de funnel dan Meta",
         ],
       },
@@ -749,7 +724,7 @@ export const PHASE_HUBS: PhaseHub[] = [
     meta: "Pagina 3 · De uitvoering",
     title: "Hoe wij werken",
     desc: "Wat je aanlevert, hoe we paid opbouwen en waarom organic standaard meegaat.",
-    count: "23 punten",
+    count: "22 punten",
     cats: [
       {
         name: "Geen eigen content nodig",
@@ -793,7 +768,6 @@ export const PHASE_HUBS: PhaseHub[] = [
       {
         name: "Onboarding",
         systems: [
-          "Setup fee betaald",
           "Slack en Notion, 15 tot 20 min",
           "Kick-off: tracking, contracten, toegang",
           "Eerste campagnes live binnen 48 uur",
@@ -805,21 +779,12 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p4",
     n: "04",
     x: 604,
-    catX: 639,
+    catX: 759,
     meta: "Pagina 4 · De cijfers",
     title: "Resultaten",
-    desc: "Hoe we meten, vier cases met hun cijfers, en wat realistisch is.",
-    count: "12 punten",
+    desc: "Vier cases met hun cijfers, en wat realistisch is.",
+    count: "8 punten",
     cats: [
-      {
-        name: "Meten en attributie",
-        systems: [
-          "Attributievenster en UTM's vooraf",
-          "Bij omnichannel: third-party tool",
-          "Afwijking uitzoeken, niet volhouden",
-          "Verder dan omzet, je winst telt",
-        ],
-      },
       {
         name: "De cases",
         systems: [
@@ -845,29 +810,33 @@ export const PHASE_HUBS: PhaseHub[] = [
     n: "05",
     x: 1588,
     catX: 1743,
-    meta: "Pagina 5 · Het risicoverhaal",
-    title: "Garanties",
-    desc: "Wat je betaalt als het niet werkt, en wat er contractueel vastligt.",
-    count: "12 punten",
+    meta: "Pagina 5 · Het aanbod",
+    title: "Werkzaamheden en pricing",
+    desc: "Wat we doen, wat het kost en wat er vastligt.",
+    count: "15 punten",
     cats: [
       {
-        name: "Niet gehaald, niet betaald",
+        name: "Werkzaamheden",
         systems: [
-          "Lage vaste vergoeding",
-          "Spend fee vervalt bij gemiste KPI",
-          "Target en KPI vooraf vastgelegd",
-          "Gemeten over de hele maand",
-          "Setup en base fee blijven staan",
+          "Paid: analyse, structuur, catalog ads",
+          "Paid: creatives kiezen, media buying",
+          "Organic: profielopzet met SEO",
+          "Organic: dagelijkse plaatsingen",
+          "Onderzoek, benchmarks, accountopzet",
+          "Creative gameplan en kick-off",
+          "Wekelijkse rapportage",
+          "Maandelijkse call",
         ],
       },
       {
-        name: "Garanties",
+        name: "Pricing en garanties",
         systems: [
+          `Setup fee ${eur(SETUP_FEE)}`,
+          `Base fee ${eur(BASE_FEE)} per maand`,
+          `Spend fee ${BRACKETS[0].pct}% tot ${BRACKETS[BRACKETS.length - 1].pct}% van je ad spend`,
           "KPI en target vooraf samen vast",
-          "Niet gehaald: alleen base fee",
-          `Onder ${eur(MIN_ADSPEND_FOR_FEE)} geen spend fee`,
-          `Maximum ${eur(INVOICE_CAP)} per maand`,
-          "Altijd achteraf, nooit vooraf",
+          "Niet gehaald: spend fee vervalt",
+          `Nooit meer dan ${eur(INVOICE_CAP)} per maand`,
           "2 maanden, daarna maandelijks op",
         ],
       },
@@ -877,33 +846,19 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p6",
     n: "06",
     x: 2572,
-    catX: 2727,
-    meta: "Eigen gebied · Het model",
-    title: "Prijs en calculator",
-    desc: "Wat er in de fee zit, en de calculator zelf.",
-    count: "13 punten",
+    catX: 2847,
+    meta: "Eigen gebied · Jouw cijfers",
+    title: "Calculator",
+    desc: "Eerst de vragen, daarna het aanbod met je eigen cijfers.",
+    count: "4 punten",
     cats: [
-      {
-        name: "Wat zit erin",
-        systems: [
-          "Merk- en concurrentieonderzoek",
-          "Benchmarks uit onze portfolio",
-          "Volledige organic opzet met SEO",
-          "Opzet advertentieaccount",
-          "Creative gameplan",
-          "Kick-off call",
-          "Media buying",
-          "Organic beheer, dagelijks",
-          "Wekelijkse rapportage",
-          "Maandelijkse call",
-        ],
-      },
       {
         name: "De calculator",
         systems: [
-          "Invoer: huidige omzet of spend",
-          "Uitkomst: opbrengst plus fee",
-          "Sluit aan op de 15 tot 30%",
+          "Eerst de vragenlijst",
+          "Rekent met jouw eigen ROAS of CPA",
+          "Organic omzet tegenover de base fee",
+          "Spend fee pas vanaf jouw target",
         ],
       },
     ],
@@ -920,7 +875,7 @@ export const CTA = {
   h: 250,
   eyebrow: "Volgende stap",
   title: "Van akkoord naar live.",
-  desc: "Setup fee betaald, Slack en onboarding in Notion (15 tot 20 minuten), kick-off call voor tracking, contracten en toegang. Eerste campagnes live binnen 48 uur.",
+  desc: "Slack en onboarding in Notion (15 tot 20 minuten), kick-off call voor tracking, contracten en toegang. Eerste campagnes live binnen 48 uur.",
   button: "Plan de kick-off →",
 };
 
@@ -961,13 +916,13 @@ export const SECTIONS: Section[] = [
   {
     id: "garanties",
     index: "05",
-    label: "Garanties",
+    label: "Werkzaamheden en pricing",
     bounds: { x: 1498, y: -84, w: 940, h: 904 },
   },
   {
     id: "prijs",
     index: "06",
-    label: "Prijs en calculator",
+    label: "Calculator",
     bounds: { x: 2482, y: -84, w: 940, h: 904 },
   },
 ];

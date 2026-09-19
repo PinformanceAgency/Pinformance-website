@@ -17,8 +17,8 @@ import {
   INVOICE_CAP,
   MIN_ADSPEND_FOR_FEE,
   SETUP_FEE,
+  bracketLabel,
   eur,
-  quote,
 } from "./pricing";
 
 // ---------------------------------------------------------------------------
@@ -128,10 +128,9 @@ function FigExpectations() {
 // ---------------------------------------------------------------------------
 function FigOnboarding() {
   const steps = [
-    { n: "01", t: "Setup fee betaald", time: "Geen tijd" },
-    { n: "02", t: "Slack en Notion", time: "15 tot 20 min" },
-    { n: "03", t: "Kick-off call", time: "30 tot 45 min" },
-    { n: "04", t: "Eerste campagnes live", time: "Binnen 48 uur" },
+    { n: "01", t: "Slack en Notion", time: "15 tot 20 min" },
+    { n: "02", t: "Kick-off call", time: "30 tot 45 min" },
+    { n: "03", t: "Eerste campagnes live", time: "Binnen 48 uur" },
   ];
   return (
     <div className="fig">
@@ -193,65 +192,57 @@ function FigRealistic() {
 }
 
 // ---------------------------------------------------------------------------
-// Pagina 5 · Niet gehaald, niet betaald
+// Pagina 5 · Pricing en garanties
 // ---------------------------------------------------------------------------
-function FigTwoScenarios() {
-  const example = 25_000;
-  const q = quote(example);
-  return (
-    <div className="fig">
-      <div className="fig-k">
-        Voorbeeld bij {eur(example)} ad spend per maand
-      </div>
-      <div className="fig-scen">
-        <div className="fs on">
-          <span className="k">Target gehaald</span>
-          <span className="v">{eur(q.totalOnTarget)}</span>
-          <span className="r">
-            <i>Base fee</i>
-            {eur(BASE_FEE)}
-          </span>
-          <span className="r">
-            <i>Spend fee · {q.bracketPct}%</i>
-            {eur(q.spendFee)}
-          </span>
-        </div>
-        <div className="fs off">
-          <span className="k">Target niet gehaald</span>
-          <span className="v">{eur(q.totalOffTarget)}</span>
-          <span className="r">
-            <i>Base fee</i>
-            {eur(BASE_FEE)}
-          </span>
-          <span className="r struck">
-            <i>Spend fee</i>
-            {eur(q.spendFee)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Pagina 5 · Garanties
-// ---------------------------------------------------------------------------
-// Bewust vormgegeven als een contractblad: de sectie zegt dat dit zwart op wit
-// staat, dus het beeld moet daar niet tegenin werken.
-function FigGuarantees() {
+// Twee blokken op één kaart, en de scheiding is de hele boodschap: bovenaan
+// wat je betaalt, onderaan wat er vastligt. Een base fee of een spend fee is
+// pricing en staat dus niet bij de garanties, en een garantie noemt geen
+// bedrag. De base fee krijgt geen onderbouwing, alleen het bedrag.
+function FigPricingGuarantees() {
   const clauses = [
-    ["KPI en target", "Vooraf samen vastgelegd. Jij kiest waarop we sturen."],
+    ["KPI en target", "Vooraf samen vastgelegd. Jij kiest waarop we sturen: ROAS of CPA."],
     [
       "Niet gehaald",
-      `Gemeten over de hele maand, niet per losse campagne. De spend fee vervalt en je betaalt ${eur(BASE_FEE)} base fee.`,
+      "De spend fee vervalt. Gemeten over de hele maand, niet per losse campagne.",
     ],
-    ["Drempel", `Onder ${eur(MIN_ADSPEND_FOR_FEE)} ad spend per maand geen spend fee.`],
-    ["Maximum", `De factuur is gemaximeerd op ${eur(INVOICE_CAP)} per maand.`],
-    ["Facturatie", "Altijd achteraf, nooit vooraf."],
+    ["Maximum", `Nooit meer dan ${eur(INVOICE_CAP)} per maand, alles inbegrepen.`],
     ["Looptijd", "2 maanden, daarna maandelijks opzegbaar."],
   ];
   return (
     <div className="fig">
+      <div className="fig-k">Pricing</div>
+      <div className="fig-three">
+        <div className="ft">
+          <span className="ft-k">Eenmalig</span>
+          <span className="ft-t">Setup fee</span>
+          <span className="ft-v">{eur(SETUP_FEE)}</span>
+        </div>
+        <div className="ft">
+          <span className="ft-k">Per maand</span>
+          <span className="ft-t">Base fee</span>
+          <span className="ft-v">{eur(BASE_FEE)}</span>
+        </div>
+        <div className="ft on">
+          <span className="ft-k">Over je ad spend</span>
+          <span className="ft-t">Spend fee</span>
+          <span className="ft-v">
+            {BRACKETS[0].pct}% → {BRACKETS[BRACKETS.length - 1].pct}%
+          </span>
+          <ul>
+            {BRACKETS.map((b) => (
+              <li key={b.min}>
+                {bracketLabel(b)}: {b.pct}%
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <div className="fig-fine">
+        Onder {eur(MIN_ADSPEND_FOR_FEE)} ad spend per maand geen spend fee.
+        Altijd achteraf gefactureerd, nooit vooraf.
+      </div>
+
+      <div className="fig-k fig-k-sep">Garanties</div>
       <div className="fig-doc">
         <div className="fig-doc-head">
           <span>Overeenkomst</span>
@@ -271,51 +262,6 @@ function FigGuarantees() {
 }
 
 // ---------------------------------------------------------------------------
-// Prijs en calculator · Wat zit erin
-// ---------------------------------------------------------------------------
-function FigWhatsIncluded() {
-  // Niet de tien onderdelen herhalen: die staan een paar centimeter hoger al.
-  // Wat de sectie mist is de kostenopbouw eronder, en dat is precies wat een
-  // prospect hier wil zien staan.
-  const cards = [
-    {
-      k: "Eenmalig",
-      t: "Setup fee",
-      v: eur(SETUP_FEE),
-      s: "Onderzoek, organic opzet, advertentieaccount, creative gameplan en de kick-off.",
-    },
-    {
-      k: "Per maand",
-      t: "Base fee",
-      v: eur(BASE_FEE),
-      s: "Media buying, organic beheer, wekelijkse rapportage en de maandelijkse call.",
-    },
-    {
-      k: "Op resultaat",
-      t: "Spend fee",
-      v: `${BRACKETS[0].pct}% → ${BRACKETS[BRACKETS.length - 1].pct}%`,
-      s: `Over je ad spend, lager naarmate je schaalt. Vervalt als de KPI niet gehaald wordt, en de factuur stopt bij ${eur(INVOICE_CAP)}.`,
-      accent: true,
-    },
-  ];
-  return (
-    <div className="fig">
-      <div className="fig-k">Waar je geld heen gaat</div>
-      <div className="fig-three">
-        {cards.map((c) => (
-          <div className={`ft${c.accent ? " on" : ""}`} key={c.t}>
-            <span className="ft-k">{c.k}</span>
-            <span className="ft-t">{c.t}</span>
-            <span className="ft-v">{c.v}</span>
-            <span className="ft-s">{c.s}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 
 export const FIGURES: Record<string, () => React.JSX.Element> = {
   scale: FigScale,
@@ -323,9 +269,7 @@ export const FIGURES: Record<string, () => React.JSX.Element> = {
   expectations: FigExpectations,
   onboarding: FigOnboarding,
   realistic: FigRealistic,
-  twoScenarios: FigTwoScenarios,
-  guarantees: FigGuarantees,
-  whatsIncluded: FigWhatsIncluded,
+  pricingGuarantees: FigPricingGuarantees,
 };
 
 export type FigureKey = keyof typeof FIGURES;

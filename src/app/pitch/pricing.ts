@@ -126,9 +126,10 @@ export function targetImplies(
 }
 
 export function bracketLabel(b: Bracket): string {
+  const k = (n: number) => (n / 1000).toLocaleString("nl-NL");
   return b.max === Number.POSITIVE_INFINITY
-    ? `€ ${b.min / 1000}k+`
-    : `€ ${b.min / 1000}k – ${b.max / 1000}k`;
+    ? `€ ${k(b.min)}k+`
+    : `€ ${k(b.min)}k – ${k(b.max)}k`;
 }
 
 /**

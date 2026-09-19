@@ -17,6 +17,7 @@ import {
   SYS_LABEL,
   TOOLBAR_HINT,
   type RoadmapNode,
+  SHOW_RESULT_LINE,
 } from "./data";
 import PitchCalculator from "./PitchCalculator";
 import { FIGURES } from "./figures";
@@ -121,7 +122,7 @@ function renderVisual(
     <figure
       className={`pitch-visual is-done${node.visual.light ? " on-light" : ""}${
         node.visual.wide ? " is-wide" : " is-side"
-      }${node.visual.figure === "guarantees" ? " is-bare" : ""}`}
+      }${node.visual.figure === "pricingGuarantees" ? " is-bare" : ""}`}
     >
       {art && node.visual.extra?.length ? (
         <VisualCarousel
@@ -802,10 +803,11 @@ export default function PitchCanvas() {
               </div>
             )}
 
-            <div className="pitch-result">
-              <span className="k">Resultaat</span>
-              <span className="v">{detail.result}</span>
-            </div>
+            {/* Ronde 3: geen resultaatbalk meer. Komt de zin terug (B14),
+                dan als gewone regel zonder label of vlak. */}
+            {SHOW_RESULT_LINE && detail.result && (
+              <p className="pitch-result-line">{detail.result}</p>
+            )}
           </div>
         </div>
       )}

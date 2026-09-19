@@ -14,7 +14,6 @@ import {
   BRACKETS,
   BASE_FEE,
   INVOICE_CAP,
-  KPI_DEFAULTS,
   MIN_ADSPEND_FOR_FEE,
   bracketLabel,
   eur,
@@ -41,6 +40,11 @@ const PRESETS = [
   { label: "€ 200k", value: "200000" },
 ];
 
+function fmtRoas(n: number): string {
+  // Zoals de prospect het zei: 3,5 blijft 3,5 en 3,25 blijft 3,25.
+  return n.toLocaleString("nl-NL", { maximumFractionDigits: 2 });
+}
+
 function parseAmount(s: string): number {
   // "25.000", "25,000" en "25000" moeten alle drie werken: tijdens een call
   // typt niemand netjes.
@@ -49,13 +53,34 @@ function parseAmount(s: string): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
+// Ronde 3: eerst de vragenlijst, dan pas het aanbod. En er staat nergens een
+// standaard-ROAS: een prospect die net zei dat hij 3,5 nodig heeft en dan een
+// 2 ziet staan, haakt af. Het minimum is leeg tot hij het zelf invult.
+//
+// Welke vragen er precies in komen is nog besluit B16. Nu de drie die de
+// berekening echt nodig heeft: waarop we sturen, het minimum, en de spend.
+
+// Het ene organic-resultaat dat het deck zelf laat zien (pagina 3, Organic).
+// Een voorbeeld, geen voorspelling: er staat bewust geen rekensom naast.
+const ORGANIC_PROOF = {
+  brand: "FitCherries",
+  value: "US$ 5.010",
+  period: "in 30 dagen, zonder advertentiebudget",
+};
+
 export default function PitchCalculator() {
-  const [adspendInput, setAdspendInput] = useState("25000");
+  const [step, setStep] = useState<"vragen" | "aanbod">("vragen");
+  const [adspendInput, setAdspendInput] = useState("");
   const [kpi, setKpi] = useState<KpiKind>("roas");
-  const [minInput, setMinInput] = useState(String(KPI_DEFAULTS.roas));
+  const [minInput, setMinInput] = useState("");
 
   const adspend = parseAmount(adspendInput);
   const minimum = parseFloat(minInput.replace(",", "."));
+  const missing = [
+    !(Number.isFinite(minimum) && minimum > 0) &&
+      (kpi === "roas" ? "je minimale ROAS" : "je maximale CPA"),
+    !(Number.isFinite(adspend) && adspend > 0) && "je ad spend",
+  ].filter(Boolean) as string[];
   const q = useMemo(() => quote(adspend), [adspend]);
   const implies = useMemo(
     () => targetImplies(adspend, kpi, minimum),
@@ -66,13 +91,14 @@ export default function PitchCalculator() {
     if (next === kpi) return;
     setKpi(next);
     // Het minimum van de ene KPI is onzin bij de andere: een CPA van 2 euro of
-    // een ROAS van 30 leest als een fout die wij hebben gemaakt.
-    setMinInput(String(KPI_DEFAULTS[next]));
+    // een ROAS van 30 leest als een fout die wij hebben gemaakt. Leeg dus, en
+    // de prospect vult zijn eigen getal in.
+    setMinInput("");
   }
 
   const kpiLabel = Number.isFinite(minimum)
     ? kpi === "roas"
-      ? `Minimale ROAS ${minimum.toFixed(1).replace(".", ",")}`
+      ? `Minimale ROAS ${fmtRoas(minimum)}`
       : `Maximale CPA ${eur(minimum)}`
     : "Nog in te vullen";
 
@@ -98,6 +124,143 @@ export default function PitchCalculator() {
   return (
     <div className="pitch-calc mt-6 rounded-2xl bg-[#0a0a0d] pitch-calc-dots p-6 sm:p-8">
       <div className="space-y-12">
+        {step === "vragen" ? (
+          <>
+        {/* Vragenlijst ------------------------------------------------ */}
+        <section>
+          <div className="mb-6">
+            <h3 className="text-2xl font-semibold tracking-tight text-[#f2f1f6] sm:text-3xl">
+              Eerst drie vragen
+            </h3>
+            <p className="mt-1 text-sm text-[#a5a0a2]">
+              Het aanbod rekent met jouw antwoorden, niet met een aanname van ons.
+            </p>
+          </div>
+
+          <div className="relative overflow-hidden rounded-2xl border border-[#E30613]/25 pitch-calc-card p-6 shadow-[0_22px_50px_-22px_rgba(227,6,19,0.35)] sm:p-7">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              {/* KPI */}
+              <div>
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
+                  01 · Waarop sturen we
+                </div>
+                <div className="flex gap-1.5 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] p-1.5">
+                  {(["roas", "cpa"] as KpiKind[]).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => switchKpi(k)}
+                      className={
+                        "flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors " +
+                        (kpi === k
+                          ? "bg-[#e30613] text-white"
+                          : "text-[#a5a0a2] hover:text-[#f2f1f6]")
+                      }
+                    >
+                      {k === "roas" ? "ROAS" : "CPA"}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 text-[11px] leading-relaxed text-[#6e6769]">
+                  {kpi === "roas"
+                    ? "Omzet gedeeld door spend. Voor de meeste merken."
+                    : "Kosten per order. Bij abonnementen en hoge LTV."}
+                </div>
+              </div>
+
+              {/* Minimum */}
+              <div>
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
+                  02 · {kpi === "roas" ? "Welke ROAS heb je minimaal nodig?" : "Welke CPA mag het maximaal zijn?"}
+                </div>
+                <div className="flex items-baseline gap-2 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-[rgba(0,0,0,0.5)]">
+                  {kpi === "cpa" && (
+                    <span className="text-lg font-semibold text-[#6e6769]">
+                      €
+                    </span>
+                  )}
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={minInput}
+                    placeholder={kpi === "roas" ? "bijv. 3,5" : "bijv. 30"}
+                    onChange={(e) => setMinInput(e.target.value)}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#f2f1f6] outline-none placeholder:text-[#4a4548] sm:text-3xl"
+                  />
+                </div>
+                <div className="mt-3 text-[11px] leading-relaxed text-[#6e6769]">
+                  {implies
+                    ? `${implies.label} ${implies.value} per maand`
+                    : kpi === "roas"
+                      ? "Het getal waarop jouw merk winstgevend is"
+                      : "De CPA waarop jouw merk winstgevend is"}
+                </div>
+              </div>
+              {/* Ad spend */}
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
+                    03 · Ad spend per maand
+                  </div>
+                </div>
+                <div className="flex items-baseline gap-2 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-[rgba(0,0,0,0.5)]">
+                  <span className="text-lg font-semibold text-[#6e6769]">€</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={adspendInput}
+                    placeholder="bijv. 25.000"
+                    onChange={(e) => setAdspendInput(e.target.value)}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#f2f1f6] outline-none placeholder:text-[#4a4548] sm:text-3xl"
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#6e6769]">
+                    Probeer:
+                  </span>
+                  {PRESETS.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => setAdspendInput(p.value)}
+                      className={
+                        "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors " +
+                        (adspendInput === p.value
+                          ? "border-[#E30613] bg-[rgba(227,6,19,0.14)] text-[#ff5c63]"
+                          : "border-[rgba(200,155,160,0.14)] pitch-calc-card text-[#a5a0a2] hover:border-[rgba(255,92,99,0.45)] hover:text-[#f2f1f6]")
+                      }
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+
+          <div className="mt-5 flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              disabled={missing.length > 0}
+              onClick={() => setStep("aanbod")}
+              className="rounded-xl bg-[#e30613] px-6 py-3 text-sm font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Toon het aanbod →
+            </button>
+            {missing.length > 0 && (
+              <span className="text-xs text-[#6e6769]">
+                Nog in te vullen: {missing.join(" en ")}
+              </span>
+            )}
+          </div>
+        </section>
+          </>
+        ) : (
+          <>
         {/* Garanties -------------------------------------------------- */}
         <section>
           <div className="mb-6">
@@ -143,112 +306,28 @@ export default function PitchCalculator() {
           </div>
         </section>
 
-        {/* Investering ------------------------------------------------ */}
+        {/* Aanbod ----------------------------------------------------- */}
         <section>
-          <div className="mb-6">
-            <h3 className="text-xl font-semibold tracking-tight text-[#f2f1f6]">
-              Jouw investering
-            </h3>
-          </div>
-
-          <div className="relative overflow-hidden rounded-2xl border border-[#E30613]/25 pitch-calc-card p-6 shadow-[0_22px_50px_-22px_rgba(227,6,19,0.35)] sm:p-7">
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              {/* Ad spend */}
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
-                    Ad spend per maand
-                  </div>
-                </div>
-                <div className="flex items-baseline gap-2 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-[rgba(0,0,0,0.5)]">
-                  <span className="text-lg font-semibold text-[#6e6769]">€</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={adspendInput}
-                    onChange={(e) => setAdspendInput(e.target.value)}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#f2f1f6] outline-none placeholder:text-[#4a4548] sm:text-3xl"
-                  />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#6e6769]">
-                    Probeer:
-                  </span>
-                  {PRESETS.map((p) => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      onClick={() => setAdspendInput(p.value)}
-                      className={
-                        "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors " +
-                        (adspendInput === p.value
-                          ? "border-[#E30613] bg-[rgba(227,6,19,0.14)] text-[#ff5c63]"
-                          : "border-[rgba(200,155,160,0.14)] pitch-calc-card text-[#a5a0a2] hover:border-[rgba(255,92,99,0.45)] hover:text-[#f2f1f6]")
-                      }
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* KPI */}
-              <div>
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
-                  Waarop sturen we
-                </div>
-                <div className="flex gap-1.5 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] p-1.5">
-                  {(["roas", "cpa"] as KpiKind[]).map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => switchKpi(k)}
-                      className={
-                        "flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors " +
-                        (kpi === k
-                          ? "bg-[#e30613] text-white"
-                          : "text-[#a5a0a2] hover:text-[#f2f1f6]")
-                      }
-                    >
-                      {k === "roas" ? "ROAS" : "CPA"}
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-3 text-[11px] leading-relaxed text-[#6e6769]">
-                  {kpi === "roas"
-                    ? "Omzet gedeeld door spend. Voor de meeste merken."
-                    : "Kosten per order. Bij abonnementen en hoge LTV."}
-                </div>
-              </div>
-
-              {/* Minimum */}
-              <div>
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
-                  {kpi === "roas" ? "Minimale ROAS" : "Maximale CPA"}
-                </div>
-                <div className="flex items-baseline gap-2 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-[rgba(0,0,0,0.5)]">
-                  {kpi === "cpa" && (
-                    <span className="text-lg font-semibold text-[#6e6769]">
-                      €
-                    </span>
-                  )}
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={minInput}
-                    onChange={(e) => setMinInput(e.target.value)}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#f2f1f6] outline-none placeholder:text-[#4a4548] sm:text-3xl"
-                  />
-                </div>
-                <div className="mt-3 text-[11px] leading-relaxed text-[#6e6769]">
-                  {implies
-                    ? `${implies.label} ${implies.value} per maand`
-                    : "Vul een getal in"}
-                </div>
-              </div>
+          <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-semibold tracking-tight text-[#f2f1f6]">
+                Jouw aanbod
+              </h3>
+              <p className="mt-1 text-sm text-[#a5a0a2]">
+                Bij {eur(adspend)} ad spend per maand,{" "}
+                {kpi === "roas"
+                  ? `met een minimale ROAS van ${fmtRoas(minimum)}`
+                  : `met een maximale CPA van ${eur(minimum)}`}
+                .
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setStep("vragen")}
+              className="rounded-full border border-[rgba(200,155,160,0.14)] px-3.5 py-1.5 text-xs font-medium text-[#a5a0a2] transition-colors hover:border-[rgba(255,92,99,0.45)] hover:text-[#f2f1f6]"
+            >
+              ← Antwoorden aanpassen
+            </button>
           </div>
 
           {note && (
@@ -279,6 +358,45 @@ export default function PitchCalculator() {
               </div>
               <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
                 per maand, de spend fee vervalt volledig
+              </div>
+            </div>
+          </div>
+
+          {/* Win-win ------------------------------------------------ */}
+          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#ff5c63]">
+                Spend fee pas vanaf jouw target
+              </div>
+              <div className="mt-2 text-sm leading-relaxed text-[#f2f1f6]">
+                {kpi === "roas"
+                  ? `Wij rekenen de spend fee pas als je ROAS minimaal ${fmtRoas(minimum)} is, het getal waarop jij winst maakt.`
+                  : `Wij rekenen de spend fee pas als je CPA op of onder ${eur(minimum)} ligt, het getal waarop jij winst maakt.`}{" "}
+                {implies && `${implies.label} ${implies.value} bij deze spend.`}{" "}
+                Daaronder betaal je alleen de base fee.
+              </div>
+            </div>
+            <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#ff5c63]">
+                Organic tegenover de base fee
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xl font-semibold tabular-nums text-[#f2f1f6]">
+                    {eur(BASE_FEE)}
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-[#6e6769]">
+                    base fee per maand, organic zit erin
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xl font-semibold tabular-nums text-[#ff5c63]">
+                    {ORGANIC_PROOF.value}
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-[#6e6769]">
+                    organic omzet bij {ORGANIC_PROOF.brand}, {ORGANIC_PROOF.period}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -464,6 +582,8 @@ export default function PitchCalculator() {
             </div>
           </div>
         </section>
+          </>
+        )}
       </div>
     </div>
   );
