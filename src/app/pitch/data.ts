@@ -592,7 +592,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       note: "De calculator is de visual. Hij rekent live mee tijdens de call, met de cijfers van de prospect zelf.",
     },
     open: [
-      "Wat weerhoudt ons ervan het budget op te blazen zodra de KPI gehaald is? Wij verdienen meer naarmate de spend stijgt, en de garantie beschermt de prospect alleen tegen zakken onder het target, niet tegen doorschalen tot precies op de grens. Het antwoord hoort in het deck te staan.",
       "Welke vragen komen in de vragenlijst (B16)? Nu: waarop sturen we, jouw minimale ROAS of maximale CPA, en je ad spend per maand.",
     ],
   },
