@@ -422,9 +422,7 @@ export default function PitchCanvas() {
               className="n rmlanetitle"
               style={{ left: l.x, top: LANE.titleY, width: LANE.w, height: LANE.titleH }}
             >
-              <span className="n0">{l.n}</span>
               <span className="t0">{l.title}</span>
-              <span className="d0">{l.days}</span>
             </div>
           ))}
 
