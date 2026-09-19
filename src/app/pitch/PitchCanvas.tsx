@@ -15,7 +15,6 @@ import {
   START_NODE,
   SYS,
   SYS_LABEL,
-  TOOLBAR_HINT,
   type RoadmapNode,
   SHOW_RESULT_LINE,
 } from "./data";
@@ -175,7 +174,6 @@ export default function PitchCanvas() {
   /** A visual opened full screen. The dashboards are only worth showing if
       the numbers on them can actually be read from across a call. */
   const [zoom, setZoom] = useState<{ src: string; alt: string } | null>(null);
-  const [hintOpen, setHintOpen] = useState(true);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const drawing = useRef<{ pts: { x: number; y: number }[] } | null>(null);
   const [liveStroke, setLiveStroke] = useState<string>("");
@@ -632,20 +630,6 @@ export default function PitchCanvas() {
         </button>
       </div>
 
-      {/* Hint ---------------------------------------------------------- */}
-      {hintOpen && (
-        <div className="pitch-hint">
-          {TOOLBAR_HINT.map((h, i) => (
-            <span key={h.k}>
-              {i > 0 && <span className="sep">· </span>}
-              <b>{h.k}</b> = {h.v}
-            </span>
-          ))}
-          <button type="button" className="x" onClick={() => setHintOpen(false)}>
-            ✕
-          </button>
-        </div>
-      )}
 
       {/* Zoom ---------------------------------------------------------- */}
       <div className="pitch-zoom">

@@ -925,11 +925,3 @@ export const SECTIONS: Section[] = [
     bounds: { x: 2482, y: -84, w: 940, h: 904 },
   },
 ];
-
-export const TOOLBAR_HINT = [
-  { k: "Slepen", v: "verschuiven" },
-  { k: "Scrollen", v: "zoomen" },
-  { k: "Pen", v: "tekenen" },
-  { k: "←→", v: "pagina's" },
-  { k: "⌘Z", v: "ongedaan maken" },
-];
