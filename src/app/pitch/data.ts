@@ -4,9 +4,9 @@
 // op het canvas; elke sectie binnen die pagina is een node in die lane.
 // Daaronder staat per pagina een hub die alle punten uitklapt.
 //
-// Pagina 5 is het aanbod: wat we concreet doen. Pricing en garanties staan
-// niet meer als eigen kaart in het deck; de calculator ernaast stelt eerst zijn
-// vragen en laat pas daarna een bedrag zien.
+// Het deck telt vier pagina's. De cijfers, de werkzaamheden en de calculator
+// staan samen op pagina 4: eerst wat het opleverde, dan wat we doen, en pas
+// daarna een bedrag. De calculator stelt eerst zijn vragen.
 //
 // Alle coördinaten zijn absoluut in wereldruimte en veranderen nooit; alleen de
 // camera beweegt. De oorsprong (0,0) ligt linksboven in de middelste lane.
@@ -29,9 +29,7 @@ export type SectionId =
   | "pinterest"
   | "wie"
   | "hoe"
-  | "resultaten"
-  | "garanties"
-  | "prijs";
+  | "resultaten";
 
 export interface Section {
   id: SectionId;
@@ -52,7 +50,7 @@ export const HERO = {
   title: "Pinformance",
   line1: "Pinterest, en verder niets",
   line2:
-    "Het kanaal, wie wij zijn, hoe wij werken, de cijfers, het aanbod en de calculator",
+    "Het kanaal, wie wij zijn, hoe wij werken, en de cijfers met het aanbod",
 };
 
 export const START_NODE = {
@@ -80,9 +78,7 @@ export const LANES: Lane[] = [
   { n: "Pagina 1", x: -2438, title: "Pinterest", days: "Het kanaal" },
   { n: "Pagina 2", x: -1454, title: "Wie wij zijn", days: "Het bureau" },
   { n: "Pagina 3", x: -470, title: "Hoe wij werken", days: "De uitvoering" },
-  { n: "Pagina 4", x: 514, title: "Resultaten", days: "De cijfers" },
-  { n: "Pagina 5", x: 1498, title: "Werkzaamheden", days: "Het aanbod" },
-  { n: "Eigen gebied", x: 2482, title: "Calculator", days: "Jouw cijfers" },
+  { n: "Pagina 4", x: 514, title: "Resultaten + pricing", days: "De cijfers en het aanbod" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -319,8 +315,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
   },
   {
     id: "paid",
-    x: -265,
-    y: 540,
+    x: -298,
+    y: 564,
     name: "Paid",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Eerst onderzoeken wat er al werkt, daarna pas bouwen.",
@@ -340,8 +336,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
   },
   {
     id: "verwachtingen",
-    x: -100,
-    y: 420,
+    x: -166,
+    y: 468,
     name: "Verwachtingen",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Wat je in de eerste weken wel en niet moet verwachten.",
@@ -367,8 +363,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
   },
   {
     id: "organic",
-    x: 65,
-    y: 300,
+    x: -34,
+    y: 372,
     name: "Organic",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Pinterest is een zoekmachine. Organic is daarom geen bijzaak.",
@@ -395,8 +391,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
   },
   {
     id: "onboarding",
-    x: 230,
-    y: 180,
+    x: 98,
+    y: 276,
     name: "Onboarding",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Van akkoord naar live in drie stappen.",
@@ -414,16 +410,64 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     result: "Drie stappen, en 15 tot 20 minuten werk aan jouw kant.",
   },
 
-  // --- Pagina 4 · Resultaten -----------------------------------------------
-  // Meten en attributie is geschrapt (ronde 3): een Triple Whale dashboard
-  // tonen stuurt erop aan dat we op TW-attributie worden afgerekend, en de
-  // vraag komt mondeling toch wel.
+  {
+    id: "werkzaamheden",
+    x: 230,
+    y: 180,
+    name: "Werkzaamheden",
+    cat: "Pagina 3 · Hoe wij werken",
+    desc: "Wat wij concreet doen.",
+    bullets: [],
+    columns: [
+      {
+        title: "Paid",
+        items: [
+          "Analyse van wat je merk al draait",
+          "Campagnestructuur op jouw merk en catalogus",
+          "Catalog ads bij een brede catalogus",
+          "Creatives kiezen uit je bestaande materiaal",
+          "Media buying en schalen",
+        ],
+      },
+      {
+        title: "Organic",
+        items: [
+          "Volledige profielopzet met SEO",
+          "Borden, structuur en zoektermen",
+          "Dagelijkse plaatsingen",
+          "Doorlopend beheer van het profiel",
+        ],
+      },
+      {
+        title: "Start en contact",
+        items: [
+          "Merk- en concurrentieonderzoek",
+          "Benchmarks uit onze portfolio",
+          "Opzet van het advertentieaccount",
+          "Creative gameplan en kick-off call",
+          "Wekelijkse rapportage",
+          "Maandelijkse call",
+        ],
+      },
+    ],
+    visual: {
+      note: "De opsomming is de pagina. Geen bedrag hier: dat trekt alle aandacht weg van wat er gedaan wordt.",
+      parked: true,
+    },
+  },
+
+
+  // --- Pagina 4 · Resultaten + pricing -------------------------------------
+  // De cijfers en het aanbod staan op één pagina: eerst wat het opleverde,
+  // dan wat we doen en wat het kost. Meten en attributie is geschrapt (ronde
+  // 3): een Triple Whale dashboard tonen stuurt erop aan dat we op
+  // TW-attributie worden afgerekend, en de vraag komt mondeling toch wel.
   {
     id: "de-cases",
     x: 554,
     y: 660,
     name: "De cases",
-    cat: "Pagina 4 · Resultaten",
+    cat: "Pagina 4 · Resultaten + pricing",
     desc: "Vier accounts, grootste eerst. Alle cijfers over dit jaar.",
     bullets: [],
     cases: [
@@ -477,10 +521,10 @@ export const ROADMAP_NODES: RoadmapNode[] = [
   },
   {
     id: "wat-realistisch-is",
-    x: 1214,
-    y: 180,
+    x: 884,
+    y: 420,
     name: "Wat realistisch is",
-    cat: "Pagina 4 · Resultaten",
+    cat: "Pagina 4 · Resultaten + pricing",
     desc: "Wat je ervan mag verwachten, zonder het mooier te maken dan het is.",
     bullets: [
       "Geen beloftes",
@@ -503,63 +547,15 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     result: "Eén getal om ons op af te rekenen, en de tijd die het kost om er te komen.",
   },
 
-  // --- Pagina 5 · Werkzaamheden --------------------------------------------
   // Eerst wat we doen, dan wat het kost. Organic en paid staan hier nog een
   // keer als werk, zodat de value vlak voor de prijs staat en niet drie
   // pagina's eerder.
   {
-    id: "werkzaamheden",
-    x: 1868,
-    y: 420,
-    name: "Werkzaamheden",
-    cat: "Pagina 5 · Het aanbod",
-    desc: "Wat wij concreet doen.",
-    bullets: [],
-    columns: [
-      {
-        title: "Paid",
-        items: [
-          "Analyse van wat je merk al draait",
-          "Campagnestructuur op jouw merk en catalogus",
-          "Catalog ads bij een brede catalogus",
-          "Creatives kiezen uit je bestaande materiaal",
-          "Media buying en schalen",
-        ],
-      },
-      {
-        title: "Organic",
-        items: [
-          "Volledige profielopzet met SEO",
-          "Borden, structuur en zoektermen",
-          "Dagelijkse plaatsingen",
-          "Doorlopend beheer van het profiel",
-        ],
-      },
-      {
-        title: "Start en contact",
-        items: [
-          "Merk- en concurrentieonderzoek",
-          "Benchmarks uit onze portfolio",
-          "Opzet van het advertentieaccount",
-          "Creative gameplan en kick-off call",
-          "Wekelijkse rapportage",
-          "Maandelijkse call",
-        ],
-      },
-    ],
-    visual: {
-      note: "De opsomming is de pagina. Geen bedrag hier: dat trekt alle aandacht weg van wat er gedaan wordt.",
-      parked: true,
-    },
-  },
-
-  // --- Eigen gebied · Calculator -------------------------------------------
-  {
     id: "de-calculator",
-    x: 2852,
-    y: 420,
+    x: 1214,
+    y: 180,
     name: "De calculator",
-    cat: "Calculator",
+    cat: "Pagina 4 · Resultaten + pricing",
     desc: "Eerst een paar vragen. Daarna het aanbod, gerekend met jouw eigen cijfers.",
     bullets: [],
     calculator: true,
@@ -652,7 +648,7 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p2",
     n: "02",
     x: -1364,
-    catX: -1329,
+    catX: -1439,
     meta: "Pagina 2 · Het bureau",
     title: "Wie wij zijn",
     desc: "Eén kanaal, senior media buyers in Nederland en korte lijnen via Slack.",
@@ -691,11 +687,11 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p3",
     n: "03",
     x: -380,
-    catX: -585,
+    catX: -705,
     meta: "Pagina 3 · De uitvoering",
     title: "Hoe wij werken",
-    desc: "Wat je aanlevert, hoe we paid opbouwen en waarom organic standaard meegaat.",
-    count: "22 punten",
+    desc: "Wat je aanlevert, hoe we paid opbouwen, waarom organic meegaat en wat we concreet doen.",
+    count: "30 punten",
     cats: [
       {
         name: "Geen eigen content nodig",
@@ -744,17 +740,30 @@ export const PHASE_HUBS: PhaseHub[] = [
           "Eerste campagnes live binnen 48 uur",
         ],
       },
+      {
+        name: "Werkzaamheden",
+        systems: [
+          "Paid: analyse, structuur, catalog ads",
+          "Paid: creatives kiezen, media buying",
+          "Organic: profielopzet met SEO",
+          "Organic: dagelijkse plaatsingen",
+          "Onderzoek, benchmarks, accountopzet",
+          "Creative gameplan en kick-off",
+          "Wekelijkse rapportage",
+          "Maandelijkse call",
+        ],
+      },
     ],
   },
   {
     key: "p4",
     n: "04",
     x: 604,
-    catX: 759,
-    meta: "Pagina 4 · De cijfers",
-    title: "Resultaten",
-    desc: "Vier cases met hun cijfers, en wat realistisch is.",
-    count: "8 punten",
+    catX: 749,
+    meta: "Pagina 4 · De cijfers en het aanbod",
+    title: "Resultaten + pricing",
+    desc: "Vier cases, wat realistisch is, en de calculator met jouw eigen cijfers.",
+    count: "12 punten",
     cats: [
       {
         name: "De cases",
@@ -774,43 +783,6 @@ export const PHASE_HUBS: PhaseHub[] = [
           "Maar wat is er mogelijk?",
         ],
       },
-    ],
-  },
-  {
-    key: "p5",
-    n: "05",
-    x: 1588,
-    catX: 1863,
-    meta: "Pagina 5 · Het aanbod",
-    title: "Werkzaamheden",
-    desc: "Wat we concreet doen, paid en organic.",
-    count: "8 punten",
-    cats: [
-      {
-        name: "Werkzaamheden",
-        systems: [
-          "Paid: analyse, structuur, catalog ads",
-          "Paid: creatives kiezen, media buying",
-          "Organic: profielopzet met SEO",
-          "Organic: dagelijkse plaatsingen",
-          "Onderzoek, benchmarks, accountopzet",
-          "Creative gameplan en kick-off",
-          "Wekelijkse rapportage",
-          "Maandelijkse call",
-        ],
-      },
-    ],
-  },
-  {
-    key: "p6",
-    n: "06",
-    x: 2572,
-    catX: 2847,
-    meta: "Eigen gebied · Jouw cijfers",
-    title: "Calculator",
-    desc: "Eerst de vragen, daarna het aanbod met je eigen cijfers.",
-    count: "4 punten",
-    cats: [
       {
         name: "De calculator",
         systems: [
@@ -846,7 +818,7 @@ export const SECTIONS: Section[] = [
     id: "totaal",
     index: "00",
     label: "Totaaloverzicht",
-    bounds: { x: -2758, y: -360, w: 6180, h: 2810 },
+    bounds: { x: -2758, y: -360, w: 4260, h: 2810 },
   },
   {
     id: "pinterest",
@@ -869,19 +841,7 @@ export const SECTIONS: Section[] = [
   {
     id: "resultaten",
     index: "04",
-    label: "Resultaten",
+    label: "Resultaten + pricing",
     bounds: { x: 514, y: -84, w: 940, h: 904 },
-  },
-  {
-    id: "garanties",
-    index: "05",
-    label: "Werkzaamheden",
-    bounds: { x: 1498, y: -84, w: 940, h: 904 },
-  },
-  {
-    id: "prijs",
-    index: "06",
-    label: "Calculator",
-    bounds: { x: 2482, y: -84, w: 940, h: 904 },
   },
 ];
