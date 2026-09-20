@@ -53,15 +53,6 @@ export const HERO = {
     "Het kanaal, wie wij zijn, hoe wij werken, en de cijfers met het aanbod",
 };
 
-export const START_NODE = {
-  x: -2758,
-  y: 560,
-  w: 220,
-  h: 160,
-  eyebrow: "Begin hier",
-  title: "START",
-};
-
 // ---------------------------------------------------------------------------
 // Lanes
 // ---------------------------------------------------------------------------
@@ -369,7 +360,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       parked: true,
     },
   },
-
 
   {
     id: "geen-eigen-content",
@@ -758,7 +748,7 @@ export const SECTIONS: Section[] = [
     id: "totaal",
     index: "00",
     label: "Totaaloverzicht",
-    bounds: { x: -2758, y: -360, w: 4260, h: 2810 },
+    bounds: { x: -2578, y: -360, w: 4100, h: 2810 },
   },
   {
     id: "pinterest",

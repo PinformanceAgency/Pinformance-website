@@ -144,34 +144,6 @@
   font-weight: 700;
 }
 
-/* --- Start node ---------------------------------------------------------- */
-
-.rmstart {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: linear-gradient(160deg, #2b1a1e, #161013);
-  border-color: rgba(255, 92, 99, 0.45);
-  box-shadow:
-    0 0 0 1px rgba(227, 6, 19, 0.12),
-    0 26px 60px -26px var(--rglow);
-}
-.rmstart .lbl {
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 1.8px;
-  text-transform: uppercase;
-  color: var(--red-2);
-}
-.rmstart .ttl {
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 1px;
-}
-
 /* --- Phase lanes --------------------------------------------------------- */
 
 .rmlane {

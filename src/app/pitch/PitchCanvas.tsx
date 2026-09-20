@@ -12,7 +12,6 @@ import {
   PHASE_HUBS,
   ROADMAP_NODES,
   SECTIONS,
-  START_NODE,
   SYS,
   SYS_LABEL,
   type RoadmapNode,
@@ -313,10 +312,7 @@ export default function PitchCanvas() {
 
   // --- Edges ---------------------------------------------------------------
   const edges = useMemo(() => {
-    const chain = spline([
-      { x: START_NODE.x + START_NODE.w / 2, y: START_NODE.y + START_NODE.h / 2 },
-      ...ROADMAP_NODES.map(center),
-    ]);
+    const chain = spline(ROADMAP_NODES.map(center));
     // Each lane drops a feeder line down to the "more systems" label.
     const feeders = LANES.map((l) => {
       const cx = l.x + LANE.w / 2;
@@ -392,20 +388,6 @@ export default function PitchCanvas() {
               <br />
               {HERO.line2}
             </p>
-          </div>
-
-          {/* Start ------------------------------------------------------- */}
-          <div
-            className="n rmstart"
-            style={{
-              left: START_NODE.x,
-              top: START_NODE.y,
-              width: START_NODE.w,
-              height: START_NODE.h,
-            }}
-          >
-            <span className="lbl">{START_NODE.eyebrow}</span>
-            <span className="ttl">{START_NODE.title}</span>
           </div>
 
           {/* Lanes ------------------------------------------------------- */}
