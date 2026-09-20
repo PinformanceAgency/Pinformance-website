@@ -46,11 +46,8 @@ export const HERO = {
   x: -330,
   y: -360,
   w: 660,
-  h: 262,
+  h: 200,
   title: "Pinformance",
-  line1: "Pinterest, en verder niets",
-  line2:
-    "Het kanaal, wie wij zijn, hoe wij werken, en de cijfers met het aanbod",
 };
 
 // ---------------------------------------------------------------------------

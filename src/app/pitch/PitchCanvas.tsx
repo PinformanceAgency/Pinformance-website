@@ -352,11 +352,6 @@ export default function PitchCanvas() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo.png" alt="Pinformance" className="root-logo" />
             <h1>{HERO.title}</h1>
-            <p>
-              <b>{HERO.line1}</b>
-              <br />
-              {HERO.line2}
-            </p>
           </div>
 
           {/* Lanes ------------------------------------------------------- */}
