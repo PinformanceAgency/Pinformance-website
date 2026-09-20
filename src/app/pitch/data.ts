@@ -293,51 +293,9 @@ export const ROADMAP_NODES: RoadmapNode[] = [
 
   // --- Pagina 3 · Hoe wij werken -------------------------------------------
   {
-    id: "geen-eigen-content",
+    id: "verwachtingen",
     x: -430,
     y: 660,
-    name: "Creatives",
-    cat: "Pagina 3 · Hoe wij werken",
-    desc: "Je bestaande materiaal is genoeg om mee te starten. Er zijn geen aparte Pinterest-creatives nodig.",
-    bullets: [
-      "Wij gebruiken je bestaande Meta- en TikTok-materiaal",
-      "Wij bepalen wat er live gaat",
-      "Toegang tot je drive of creative-systeem is genoeg",
-      "Op volume: gericht creative-advies uit onze data",
-    ],
-    visual: {
-      note: "De Meta Ads Library: het materiaal dat je al draait, en waar wij mee starten.",
-      src: "/pitch/meta-ads-library.png",
-      // Breed: Meta Ads Library, een breed raster.
-      wide: true,
-    },
-    result: "Je hoeft niets extra te laten maken om te kunnen starten.",
-  },
-  {
-    id: "paid",
-    x: -298,
-    y: 564,
-    name: "Paid",
-    cat: "Pagina 3 · Hoe wij werken",
-    desc: "Eerst onderzoeken wat er al werkt, daarna pas bouwen.",
-    bullets: [
-      "We analyseren eerst wat je merk al draait: Meta-resultaten, welke creatives presteren en welke landingspagina's in Shopify converteren",
-      "Op basis daarvan bouwen we de campagnestructuur, afgestemd op jouw merk en catalogus",
-      "Bij meerdere sterke producten of een brede catalogus zetten we catalog ads in",
-      "Pas daarna gaan we live, met de sterkste markten en collecties eerst",
-    ],
-    visual: {
-      note: "Pinterest Ads Manager, dit jaar: €721.927 spend, ROAS 2,37, CPA €28,43, €1,7 mln orderwaarde. Campagnenamen staan buiten beeld, dus het account is niet herleidbaar.",
-      src: "/pitch/ads-manager.png",
-      // Breed: Ads Manager, een brede tabel.
-      wide: true,
-    },
-    result: "We starten waar je al wint, niet waar het spannend is.",
-  },
-  {
-    id: "verwachtingen",
-    x: -166,
-    y: 468,
     name: "Verwachtingen",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Wat je in de eerste weken mag verwachten, en waar het over maanden heen gaat.",
@@ -367,58 +325,9 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Rustig starten kost je twee weken, en waar het heen gaat is 15 tot 30% van je advertentieomzet.",
   },
   {
-    id: "organic",
-    x: -34,
-    y: 372,
-    name: "Organic",
-    cat: "Pagina 3 · Hoe wij werken",
-    desc: "Pinterest is een zoekmachine. Organic is daarom geen bijzaak.",
-    bullets: [
-      "Pinterest is een zoekmachine, dus SEO",
-      "Volledige profielopzet: borden, structuur, zoektermen",
-      "Dagelijkse plaatsingen",
-      "Vindbaarheid zonder advertentiebudget",
-      "Een sterker profiel betekent hogere conversie op paid",
-      "Omzet vanaf 3 tot 6 maanden",
-      "Standaard inbegrepen, paid presteert zonder organic slechter",
-    ],
-    visual: {
-      note: "Een volledig opgezet Pinterest-profiel: borden per zoekterm, 6 mln maandelijkse weergaven.",
-      src: "/pitch/organic-profile-1800.jpg",
-      // Een swipe: eerst de opzet, dan wat die opzet in 30 dagen opleverde.
-      // Beide op 1800 x 1000, zodat er bij het swipen niets verspringt.
-      extra: ["/pitch/organic-results-1800.jpg"],
-      // Breed: een lijngrafiek over zes maanden.
-      wide: true,
-    },
-    result:
-      "Dit profiel leverde FitCherries in 30 dagen US$ 5.010 omzet op uit organic, 110% meer dan de 30 dagen ervoor. Zonder advertentiebudget.",
-  },
-  {
-    id: "onboarding",
-    x: 98,
-    y: 276,
-    name: "Onboarding",
-    cat: "Pagina 3 · Hoe wij werken",
-    desc: "Van akkoord naar live in drie stappen.",
-    bullets: [
-      "Slack en onboarding in Notion, 15 tot 20 minuten van jouw tijd",
-      "Kick-off call: tracking, contracten, toegang",
-      "Eerste campagnes live binnen 48 uur, als jij snel schakelt",
-    ],
-    visual: {
-      note: "De drie stappen, met per stap wat het jou aan tijd kost.",
-      figure: "onboarding",
-      // Breed: een tijdlijn van links naar rechts.
-      wide: true,
-    },
-    result: "Drie stappen, en 15 tot 20 minuten werk aan jouw kant.",
-  },
-
-  {
     id: "werkzaamheden",
-    x: 230,
-    y: 180,
+    x: -265,
+    y: 540,
     name: "Werkzaamheden",
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Wat wij concreet doen.",
@@ -462,6 +371,76 @@ export const ROADMAP_NODES: RoadmapNode[] = [
   },
 
 
+  {
+    id: "geen-eigen-content",
+    x: -100,
+    y: 420,
+    name: "Creatives",
+    cat: "Pagina 3 · Hoe wij werken",
+    desc: "Je bestaande materiaal is genoeg om mee te starten. Er zijn geen aparte Pinterest-creatives nodig.",
+    bullets: [
+      "Wij gebruiken je bestaande Meta- en TikTok-materiaal",
+      "Wij bepalen wat er live gaat",
+      "Toegang tot je drive of creative-systeem is genoeg",
+      "Op volume: gericht creative-advies uit onze data",
+    ],
+    visual: {
+      note: "De Meta Ads Library: het materiaal dat je al draait, en waar wij mee starten.",
+      src: "/pitch/meta-ads-library.png",
+      // Breed: Meta Ads Library, een breed raster.
+      wide: true,
+    },
+    result: "Je hoeft niets extra te laten maken om te kunnen starten.",
+  },
+  {
+    id: "organic",
+    x: 65,
+    y: 300,
+    name: "Organic",
+    cat: "Pagina 3 · Hoe wij werken",
+    desc: "Pinterest is een zoekmachine. Organic is daarom geen bijzaak.",
+    bullets: [
+      "Pinterest is een zoekmachine, dus SEO",
+      "Volledige profielopzet: borden, structuur, zoektermen",
+      "Dagelijkse plaatsingen",
+      "Vindbaarheid zonder advertentiebudget",
+      "Een sterker profiel betekent hogere conversie op paid",
+      "Omzet vanaf 3 tot 6 maanden",
+      "Standaard inbegrepen, paid presteert zonder organic slechter",
+    ],
+    visual: {
+      note: "Een volledig opgezet Pinterest-profiel: borden per zoekterm, 6 mln maandelijkse weergaven.",
+      src: "/pitch/organic-profile-1800.jpg",
+      // Een swipe: eerst de opzet, dan wat die opzet in 30 dagen opleverde.
+      // Beide op 1800 x 1000, zodat er bij het swipen niets verspringt.
+      extra: ["/pitch/organic-results-1800.jpg"],
+      // Breed: een lijngrafiek over zes maanden.
+      wide: true,
+    },
+    result:
+      "Dit profiel leverde FitCherries in 30 dagen US$ 5.010 omzet op uit organic, 110% meer dan de 30 dagen ervoor. Zonder advertentiebudget.",
+  },
+  {
+    id: "paid",
+    x: 230,
+    y: 180,
+    name: "Paid",
+    cat: "Pagina 3 · Hoe wij werken",
+    desc: "Eerst onderzoeken wat er al werkt, daarna pas bouwen.",
+    bullets: [
+      "We analyseren eerst wat je merk al draait: Meta-resultaten, welke creatives presteren en welke landingspagina's in Shopify converteren",
+      "Op basis daarvan bouwen we de campagnestructuur, afgestemd op jouw merk en catalogus",
+      "Bij meerdere sterke producten of een brede catalogus zetten we catalog ads in",
+      "Pas daarna gaan we live, met de sterkste markten en collecties eerst",
+    ],
+    visual: {
+      note: "Pinterest Ads Manager, dit jaar: €721.927 spend, ROAS 2,37, CPA €28,43, €1,7 mln orderwaarde. Campagnenamen staan buiten beeld, dus het account is niet herleidbaar.",
+      src: "/pitch/ads-manager.png",
+      // Breed: Ads Manager, een brede tabel.
+      wide: true,
+    },
+    result: "We starten waar je al wint, niet waar het spannend is.",
+  },
   // --- Pagina 4 · Resultaten + pricing -------------------------------------
   // De cijfers en het aanbod staan op één pagina: eerst wat het opleverde,
   // dan wat we doen en wat het kost. Meten en attributie is geschrapt (ronde
@@ -661,30 +640,12 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p3",
     n: "03",
     x: -380,
-    catX: -705,
+    catX: -585,
     meta: "Pagina 3 · De uitvoering",
     title: "Hoe wij werken",
-    desc: "Wat je aanlevert, hoe we paid opbouwen, wat je mag verwachten en wat we concreet doen.",
-    count: "34 punten",
+    desc: "Wat je mag verwachten, wat we concreet doen, en hoe paid en organic in elkaar zitten.",
+    count: "31 punten",
     cats: [
-      {
-        name: "Creatives",
-        systems: [
-          "Bestaand Meta- en TikTok-materiaal",
-          "Wij bepalen wat live gaat",
-          "Toegang tot je drive is genoeg",
-          "Op volume: creative-advies uit data",
-        ],
-      },
-      {
-        name: "Paid",
-        systems: [
-          "Eerst analyseren wat je al draait",
-          "Structuur op jouw merk en catalogus",
-          "Catalog ads bij brede catalogus",
-          "Pas daarna live, sterkste eerst",
-        ],
-      },
       {
         name: "Verwachtingen",
         systems: [
@@ -696,6 +657,28 @@ export const PHASE_HUBS: PhaseHub[] = [
           "15 tot 30%, opgebouwd over maanden",
           "Soms weken, soms langer",
           "Maar wat is er mogelijk?",
+        ],
+      },
+      {
+        name: "Werkzaamheden",
+        systems: [
+          "Paid: analyse, structuur, catalog ads",
+          "Paid: creatives kiezen, media buying",
+          "Organic: profielopzet met SEO",
+          "Organic: dagelijkse plaatsingen",
+          "Onderzoek, benchmarks, accountopzet",
+          "Creative gameplan en kick-off",
+          "Wekelijkse rapportage",
+          "Maandelijkse call",
+        ],
+      },
+      {
+        name: "Creatives",
+        systems: [
+          "Bestaand Meta- en TikTok-materiaal",
+          "Wij bepalen wat live gaat",
+          "Toegang tot je drive is genoeg",
+          "Op volume: creative-advies uit data",
         ],
       },
       {
@@ -711,24 +694,12 @@ export const PHASE_HUBS: PhaseHub[] = [
         ],
       },
       {
-        name: "Onboarding",
+        name: "Paid",
         systems: [
-          "Slack en Notion, 15 tot 20 min",
-          "Kick-off: tracking, contracten, toegang",
-          "Eerste campagnes live binnen 48 uur",
-        ],
-      },
-      {
-        name: "Werkzaamheden",
-        systems: [
-          "Paid: analyse, structuur, catalog ads",
-          "Paid: creatives kiezen, media buying",
-          "Organic: profielopzet met SEO",
-          "Organic: dagelijkse plaatsingen",
-          "Onderzoek, benchmarks, accountopzet",
-          "Creative gameplan en kick-off",
-          "Wekelijkse rapportage",
-          "Maandelijkse call",
+          "Eerst analyseren wat je al draait",
+          "Structuur op jouw merk en catalogus",
+          "Catalog ads bij brede catalogus",
+          "Pas daarna live, sterkste eerst",
         ],
       },
     ],

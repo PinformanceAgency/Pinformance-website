@@ -130,34 +130,6 @@ function FigBudgetCurve() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Pagina 3 · Onboarding
-// ---------------------------------------------------------------------------
-function FigOnboarding() {
-  const steps = [
-    { n: "01", t: "Slack en Notion", time: "15 tot 20 min" },
-    { n: "02", t: "Kick-off call", time: "30 tot 45 min" },
-    { n: "03", t: "Eerste campagnes live", time: "Binnen 48 uur" },
-  ];
-  return (
-    <div className="fig">
-      <div className="fig-time">
-        {steps.map((s, i) => (
-          <div className="fig-step" key={s.n}>
-            <span className="d">
-              <i />
-              {i < steps.length - 1 && <u />}
-            </span>
-            <span className="num">{s.n}</span>
-            <span className="t">{s.t}</span>
-            <span className="h">{s.time}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // Een band in plaats van één lijn, omdat 15 tot 30 procent een bandbreedte is
 // en geen belofte. Eén lijn zou een toezegging tekenen die de sectie juist
 // weigert te doen.
@@ -201,7 +173,6 @@ export const FIGURES: Record<string, () => React.JSX.Element> = {
   scale: FigScale,
   onlyPinterest: FigOnlyPinterest,
   expectations: FigExpectations,
-  onboarding: FigOnboarding,
 };
 
 export type FigureKey = keyof typeof FIGURES;
