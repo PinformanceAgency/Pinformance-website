@@ -83,9 +83,26 @@ function FigOnlyPinterest() {
 // ---------------------------------------------------------------------------
 // Pagina 3 · Verwachtingen
 // ---------------------------------------------------------------------------
+// Twee curves onder elkaar, omdat de sectie twee vragen beantwoordt: wat
+// gebeurt er de eerste weken, en waar gaat het over een jaar heen. Los van
+// elkaar lazen ze als twee beloftes; onder elkaar is het één verhaal met een
+// tijdlijn.
+function FigExpectations() {
+  return (
+    <div className="fig">
+      <div className="fig-k">De eerste twaalf weken, budget</div>
+      <FigBudgetCurve />
+      <div className="fig-k fig-k-sep">
+        Twaalf maanden, aandeel van je advertentieomzet
+      </div>
+      <FigRealisticBand />
+    </div>
+  );
+}
+
 // De vorm is de boodschap: eerst vlak, dan pas omhoog. Precies wat de sectie
 // zegt over een algoritme dat op tijd leert en niet op spend.
-function FigExpectations() {
+function FigBudgetCurve() {
   const pts = [
     [0, 78], [1, 78], [2, 77], [3, 76],
     [4, 70], [5, 62], [6, 53], [7, 44], [8, 35], [9, 27], [10, 20], [11, 14],
@@ -93,7 +110,7 @@ function FigExpectations() {
   const x = (i: number) => 70 + (i / 11) * 760;
   const d = pts.map(([i, y], k) => `${k === 0 ? "M" : "L"} ${x(i)} ${y * 2.1}`).join(" ");
   return (
-    <div className="fig">
+    <div className="fig-plot">
       <svg viewBox="0 0 880 210" className="fig-svg" role="img"
         aria-label="Budget blijft de eerste weken vlak en loopt daarna op">
         <line x1="70" y1="172" x2="830" y2="172" stroke="rgba(200,155,160,0.14)" />
@@ -141,13 +158,10 @@ function FigOnboarding() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Pagina 4 · Wat realistisch is
-// ---------------------------------------------------------------------------
 // Een band in plaats van één lijn, omdat 15 tot 30 procent een bandbreedte is
 // en geen belofte. Eén lijn zou een toezegging tekenen die de sectie juist
 // weigert te doen.
-function FigRealistic() {
+function FigRealisticBand() {
   const x = (m: number) => 70 + (m / 12) * 760;
   const y = (p: number) => 168 - (p / 32) * 140;
   const low = Array.from({ length: 13 }, (_, m) => [x(m), y(15 * (m / 12) ** 1.6)]);
@@ -158,7 +172,7 @@ function FigRealistic() {
     [...low].reverse().map(([a, b]) => `L ${a} ${b}`).join(" ") +
     " Z";
   return (
-    <div className="fig">
+    <div className="fig-plot">
       <svg viewBox="0 0 880 210" className="fig-svg" role="img"
         aria-label="Aandeel van de advertentieomzet loopt over twaalf maanden op naar 15 tot 30 procent">
         {[0, 10, 20, 30].map((p) => (
@@ -188,7 +202,6 @@ export const FIGURES: Record<string, () => React.JSX.Element> = {
   onlyPinterest: FigOnlyPinterest,
   expectations: FigExpectations,
   onboarding: FigOnboarding,
-  realistic: FigRealistic,
 };
 
 export type FigureKey = keyof typeof FIGURES;

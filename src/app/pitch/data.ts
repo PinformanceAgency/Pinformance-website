@@ -340,26 +340,31 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     y: 468,
     name: "Verwachtingen",
     cat: "Pagina 3 · Hoe wij werken",
-    desc: "Wat je in de eerste weken wel en niet moet verwachten.",
+    desc: "Wat je in de eerste weken mag verwachten, en waar het over maanden heen gaat.",
     bullets: [
       "Het algoritme leert op tijd, niet op spend",
       "Budget dumpen levert slechte data op",
       "Start op €100 tot €200 per dag totaal",
       "Schalen zodra de ROAS het toelaat",
+      "Geen beloftes",
+      "15 tot 30% van je advertentieomzet, opgebouwd over maanden",
+      "Bij het ene merk gaat het binnen weken, bij het andere duurt het langer",
     ],
+    question: "Maar wat is er mogelijk?",
     highlight: {
-      k: "Startbudget",
-      v: "€100–200",
-      s: "per dag, totaal",
-      f: "Omhoog zodra de ROAS het toelaat",
+      k: "Waar het heen gaat",
+      v: "15–30%",
+      s: "van je advertentieomzet",
+      f: "Start op €100 tot €200 per dag, omhoog zodra de ROAS het toelaat",
     },
     visual: {
-      note: "Het budget blijft de eerste weken vlak en loopt daarna pas op.",
+      note: "Eerst de eerste twaalf weken budget, daarna het aandeel over twaalf maanden als bandbreedte.",
       figure: "expectations",
-      // Breed: een curve over twaalf weken.
+      // Breed: twee curves onder elkaar, allebei van links naar rechts.
       wide: true,
     },
-    result: "Rustig starten kost je twee weken. Te hard starten kost je het kanaal.",
+    result:
+      "Rustig starten kost je twee weken, en waar het heen gaat is 15 tot 30% van je advertentieomzet.",
   },
   {
     id: "organic",
@@ -520,37 +525,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Vier merken in vier categorieën, ROAS tussen 2,20 en 2,42. De kracht zit in de consistentie, niet in één uitschieter.",
   },
   {
-    id: "wat-realistisch-is",
-    x: 884,
-    y: 420,
-    name: "Wat realistisch is",
-    cat: "Pagina 4 · Resultaten + pricing",
-    desc: "Wat je ervan mag verwachten, zonder het mooier te maken dan het is.",
-    bullets: [
-      "Geen beloftes",
-      "15 tot 30% van je advertentieomzet, opgebouwd over maanden",
-      "Bij het ene merk gaat het binnen weken, bij het andere duurt het langer",
-    ],
-    question: "Maar wat is er mogelijk?",
-    highlight: {
-      k: "Waar het heen gaat",
-      v: "15–30%",
-      s: "van je advertentieomzet",
-      f: "Opgebouwd over maanden",
-    },
-    visual: {
-      note: "De opbouw over twaalf maanden, als bandbreedte en niet als één lijn.",
-      figure: "realistic",
-      // Breed: een curve over twaalf maanden.
-      wide: true,
-    },
-    result: "Eén getal om ons op af te rekenen, en de tijd die het kost om er te komen.",
-  },
-
-  // Eerst wat we doen, dan wat het kost. Organic en paid staan hier nog een
-  // keer als werk, zodat de value vlak voor de prijs staat en niet drie
-  // pagina's eerder.
-  {
     id: "de-calculator",
     x: 1214,
     y: 180,
@@ -690,8 +664,8 @@ export const PHASE_HUBS: PhaseHub[] = [
     catX: -705,
     meta: "Pagina 3 · De uitvoering",
     title: "Hoe wij werken",
-    desc: "Wat je aanlevert, hoe we paid opbouwen, waarom organic meegaat en wat we concreet doen.",
-    count: "30 punten",
+    desc: "Wat je aanlevert, hoe we paid opbouwen, wat je mag verwachten en wat we concreet doen.",
+    count: "34 punten",
     cats: [
       {
         name: "Geen eigen content nodig",
@@ -718,6 +692,10 @@ export const PHASE_HUBS: PhaseHub[] = [
           "Budget dumpen geeft slechte data",
           "Start €100 tot €200 per dag",
           "Schalen zodra de ROAS het toelaat",
+          "Geen beloftes",
+          "15 tot 30%, opgebouwd over maanden",
+          "Soms weken, soms langer",
+          "Maar wat is er mogelijk?",
         ],
       },
       {
@@ -759,11 +737,11 @@ export const PHASE_HUBS: PhaseHub[] = [
     key: "p4",
     n: "04",
     x: 604,
-    catX: 749,
+    catX: 759,
     meta: "Pagina 4 · De cijfers en het aanbod",
     title: "Resultaten + pricing",
-    desc: "Vier cases, wat realistisch is, en de calculator met jouw eigen cijfers.",
-    count: "12 punten",
+    desc: "Vier cases met hun cijfers, en de calculator met die van jou.",
+    count: "8 punten",
     cats: [
       {
         name: "De cases",
@@ -772,15 +750,6 @@ export const PHASE_HUBS: PhaseHub[] = [
           "Celestia: 692k · 2,42 · €33",
           "FitCherries: 420k · 2,20 · €34",
           "May Cosmetics: 389k · 2,31 · €17",
-        ],
-      },
-      {
-        name: "Wat realistisch is",
-        systems: [
-          "Geen beloftes",
-          "15 tot 30%, opgebouwd over maanden",
-          "Soms weken, soms langer",
-          "Maar wat is er mogelijk?",
         ],
       },
       {
