@@ -172,8 +172,8 @@ export const ROADMAP_NODES: RoadmapNode[] = [
   },
   {
     id: "schaal-eerlijk",
-    x: -2068,
-    y: 420,
+    x: -1738,
+    y: 180,
     name: "Schaalbaarheid",
     cat: "Pagina 1 · Pinterest",
     desc: "Kleiner dan Meta, en dat is precies het punt: minder concurrentie en lagere CPM's.",
@@ -199,25 +199,6 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     },
     result:
       "Een tweede kanaal dat 15 tot 30% van je advertentieomzet kan dragen, tegen lagere kosten per duizend.",
-  },
-  {
-    id: "werkt-goed-bij",
-    x: -1738,
-    y: 180,
-    name: "Werkt goed bij",
-    cat: "Pagina 1 · Pinterest",
-    desc: "Waar het kanaal het hardst aanslaat.",
-    bullets: [
-      "Een visueel product",
-      "Een overwegend vrouwelijke doelgroep",
-      "Bewezen resultaat op een ander kanaal",
-      "Meerdere producten of varianten",
-    ],
-    visual: {
-      note: "Staande sfeerbeelden in de sfeer van beauty, fashion en home decor, in een grid of strip zoals de feed. Puur decoratief, geen labels of nichenamen: we claimen geen niches.",
-      by: "Geparkeerd tot besluit B13",
-    },
-    result: "Vier signalen. Hoe meer je er herkent, hoe sneller het kanaal rendeert.",
   },
 
   // --- Pagina 2 · Wie wij zijn ---------------------------------------------
