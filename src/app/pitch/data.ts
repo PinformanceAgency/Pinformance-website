@@ -228,7 +228,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     id: "pinterest-verder-niets",
     x: -1414,
     y: 660,
-    name: "Pinterest, en verder niets",
+    name: "Enkel focus op Pinterest",
     cat: "Pagina 2 · Wie wij zijn",
     desc: "Eén kanaal, volledig. Geen tweede kanaal om op terug te vallen.",
     bullets: [
@@ -598,7 +598,7 @@ export const PHASE_HUBS: PhaseHub[] = [
     count: "11 punten",
     cats: [
       {
-        name: "Pinterest, verder niets",
+        name: "Enkel focus op Pinterest",
         systems: [
           "5 jaar Pinterest",
           "2 jaar volledig op merken",
