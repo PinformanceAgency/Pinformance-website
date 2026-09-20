@@ -12,7 +12,7 @@
 // plekken anders kan staan.
 
 // ---------------------------------------------------------------------------
-// Pagina 1 · Schaal, eerlijk
+// Pagina 1 · Schaalbaarheid
 // ---------------------------------------------------------------------------
 // Eén staafdiagram over alle markten zou niet werken: 7,5 mln naast 600 mln is
 // een streepje van een procent breed. Dus twee blokken, elk met hun eigen

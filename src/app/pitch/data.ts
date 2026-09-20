@@ -177,7 +177,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     id: "schaal-eerlijk",
     x: -2068,
     y: 420,
-    name: "Schaal, eerlijk",
+    name: "Schaalbaarheid",
     cat: "Pagina 1 · Pinterest",
     desc: "Kleiner dan Meta, en dat is precies het punt: minder concurrentie en lagere CPM's.",
     bullets: [
@@ -566,7 +566,7 @@ export const PHASE_HUBS: PhaseHub[] = [
         ],
       },
       {
-        name: "Schaal, eerlijk",
+        name: "Schaalbaarheid",
         systems: [
           "NL + BE: 7 tot 8 mln",
           "Duitsland: ±20 mln",
