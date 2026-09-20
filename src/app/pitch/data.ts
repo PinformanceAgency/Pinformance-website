@@ -296,9 +296,9 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     id: "geen-eigen-content",
     x: -430,
     y: 660,
-    name: "Geen eigen content nodig",
+    name: "Creatives",
     cat: "Pagina 3 · Hoe wij werken",
-    desc: "Je bestaande materiaal is genoeg om mee te starten.",
+    desc: "Je bestaande materiaal is genoeg om mee te starten. Er zijn geen aparte Pinterest-creatives nodig.",
     bullets: [
       "Wij gebruiken je bestaande Meta- en TikTok-materiaal",
       "Wij bepalen wat er live gaat",
@@ -668,7 +668,7 @@ export const PHASE_HUBS: PhaseHub[] = [
     count: "34 punten",
     cats: [
       {
-        name: "Geen eigen content nodig",
+        name: "Creatives",
         systems: [
           "Bestaand Meta- en TikTok-materiaal",
           "Wij bepalen wat live gaat",
