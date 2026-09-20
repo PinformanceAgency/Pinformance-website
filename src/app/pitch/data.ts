@@ -450,7 +450,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     id: "de-cases",
     x: 554,
     y: 660,
-    name: "De cases",
+    name: "Resultaten",
     cat: "Pagina 4 · Resultaten + pricing",
     desc: "Vier accounts, grootste eerst. Alle cijfers over dit jaar.",
     bullets: [],
@@ -507,7 +507,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     id: "de-calculator",
     x: 1214,
     y: 180,
-    name: "De calculator",
+    name: "Pricing",
     cat: "Pagina 4 · Resultaten + pricing",
     desc: "Eerst een paar vragen. Daarna het aanbod, gerekend met jouw eigen cijfers.",
     bullets: [],
@@ -715,7 +715,7 @@ export const PHASE_HUBS: PhaseHub[] = [
     count: "8 punten",
     cats: [
       {
-        name: "De cases",
+        name: "Resultaten",
         systems: [
           "Fashion (anoniem): 1,8 mln · 2,37 · €28",
           "Celestia: 692k · 2,42 · €33",
@@ -724,7 +724,7 @@ export const PHASE_HUBS: PhaseHub[] = [
         ],
       },
       {
-        name: "De calculator",
+        name: "Pricing",
         systems: [
           "Eerst de vragenlijst",
           "Rekent met jouw eigen ROAS of CPA",
