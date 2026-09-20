@@ -2,18 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  CAT,
-  CTA,
   HERO,
-  HUB,
   LANE,
   LANES,
   NODE_SIZE,
-  PHASE_HUBS,
   ROADMAP_NODES,
   SECTIONS,
-  SYS,
-  SYS_LABEL,
   type RoadmapNode,
   SHOW_RESULT_LINE,
 } from "./data";
@@ -168,7 +162,6 @@ export default function PitchCanvas() {
   const [animating, setAnimating] = useState(false);
   const [active, setActive] = useState(0);
   const [tool, setTool] = useState<"pan" | "draw">("pan");
-  const [openPhase, setOpenPhase] = useState<string | null>(null);
   const [detail, setDetail] = useState<RoadmapNode | null>(null);
   /** A visual opened full screen. The dashboards are only worth showing if
       the numbers on them can actually be read from across a call. */
@@ -314,14 +307,7 @@ export default function PitchCanvas() {
   const edges = useMemo(() => {
     const chain = spline(ROADMAP_NODES.map(center));
     // Each lane drops a feeder line down to the "more systems" label.
-    const feeders = LANES.map((l) => {
-      const cx = l.x + LANE.w / 2;
-      return `M ${cx} ${LANE.h} L ${cx} ${SYS_LABEL.y - 40}`;
-    });
-    const spine = `M ${LANES[0].x + LANE.w / 2} ${SYS_LABEL.y - 40} L ${
-      LANES[LANES.length - 1].x + LANE.w / 2
-    } ${SYS_LABEL.y - 40}`;
-    return { chain, feeders, spine };
+    return { chain };
   }, []);
 
   const pct = Math.round(cam.scale * 100);
@@ -355,23 +341,6 @@ export default function PitchCanvas() {
               stroke="rgba(255,92,99,.42)"
               strokeWidth={2}
               strokeLinecap="round"
-            />
-            {edges.feeders.map((d, i) => (
-              <path
-                key={i}
-                d={d}
-                fill="none"
-                stroke="rgba(200,155,160,.18)"
-                strokeWidth={1.5}
-                strokeDasharray="5 7"
-              />
-            ))}
-            <path
-              d={edges.spine}
-              fill="none"
-              stroke="rgba(200,155,160,.18)"
-              strokeWidth={1.5}
-              strokeDasharray="5 7"
             />
           </svg>
 
@@ -428,104 +397,6 @@ export default function PitchCanvas() {
               <span className="rmn-cta">Klik om te openen →</span>
             </button>
           ))}
-
-          {/* More-systems label ------------------------------------------ */}
-          <div
-            className="n syslbl"
-            style={{
-              left: SYS_LABEL.x,
-              top: SYS_LABEL.y,
-              width: SYS_LABEL.w,
-              height: SYS_LABEL.h,
-            }}
-          >
-            <span className="e">{SYS_LABEL.eyebrow}</span>
-            <span className="t">{SYS_LABEL.title}</span>
-            <span className="h">{SYS_LABEL.hint}</span>
-          </div>
-
-          {/* Phase hubs -------------------------------------------------- */}
-          {PHASE_HUBS.map((h) => (
-            <button
-              key={h.key}
-              type="button"
-              className="n fhub"
-              style={{ left: h.x, top: HUB.y, width: HUB.w, height: HUB.h }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => setOpenPhase((p) => (p === h.key ? null : h.key))}
-            >
-              <span className="fhub-top">
-                <span className="fhub-n">{h.n}</span>
-                <span className="fhub-meta">{h.meta}</span>
-              </span>
-              <span className="fhub-title">{h.title}</span>
-              <span className="fhub-desc">{h.desc}</span>
-              <span className="fhub-stats">
-                <span className="fhub-stat">
-                  <span className="k">Wat erop staat</span>
-                  <span className="v">{h.count}</span>
-                </span>
-                <span className="fhub-stat">
-                  <span className="k">Onderdelen</span>
-                  <span className="v">{h.cats.length}</span>
-                </span>
-                <span className="fhub-open">
-                  {openPhase === h.key ? "▾ Sluiten" : "▸ Klik voor alle punten"}
-                </span>
-              </span>
-            </button>
-          ))}
-
-          {/* Expanded phase detail --------------------------------------- */}
-          {PHASE_HUBS.map((h) =>
-            h.cats.map((c, ci) => {
-              const x = h.catX + ci * 240;
-              const on = openPhase === h.key;
-              return (
-                <div key={`${h.key}-${ci}`}>
-                  <div
-                    className={`n cat fdet${on ? " on" : ""}`}
-                    style={{ left: x, top: CAT.y, width: CAT.w, height: CAT.h }}
-                  >
-                    <span className="cn">{c.name}</span>
-                    <span className="cc">{c.systems.length}</span>
-                  </div>
-                  {c.systems.map((s, si) => (
-                    <div
-                      key={s + si}
-                      className={`n sys fdet${on ? " on" : ""}`}
-                      style={{
-                        left: x,
-                        top: SYS.y + si * SYS.stride,
-                        width: SYS.w,
-                        height: SYS.h,
-                        transitionDelay: on ? `${si * 12}ms` : "0ms",
-                      }}
-                    >
-                      {s}
-                    </div>
-                  ))}
-                </div>
-              );
-            })
-          )}
-
-          {/* CTA --------------------------------------------------------- */}
-          <div
-            className="n cta"
-            style={{ left: CTA.x, top: CTA.y, width: CTA.w, minHeight: CTA.h }}
-          >
-            <span className="e">{CTA.eyebrow}</span>
-            <span className="t">{CTA.title}</span>
-            <span className="d">{CTA.desc}</span>
-            <button
-              type="button"
-              className="b"
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              {CTA.button}
-            </button>
-          </div>
 
           {/* Ink layer --------------------------------------------------- */}
           <svg className="pitch-ink" width={1} height={1}>
