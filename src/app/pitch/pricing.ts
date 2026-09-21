@@ -1,8 +1,9 @@
 // Het prijsmodel, op één plek.
 //
-// Er is nog maar één model: een lage vaste vergoeding plus een fee over de ad
-// spend, met een resultaatgarantie eronder. Haalt de afgesproken KPI het niet,
-// dan vervalt de spend fee volledig en betaal je alleen de base fee.
+// Er is nog maar één model: een lage vaste vergoeding plus een performance fee
+// over de ad spend, met een resultaatgarantie eronder. Haalt de afgesproken KPI
+// het niet, dan vervalt de performance fee volledig en betaal je alleen de base
+// fee.
 //
 // Dit model heette intern de "subscription"-variant, maar die naam sloeg op het
 // soort merk en niet op de rekenwijze. Het geldt nu voor iedereen, dus de naam
@@ -13,8 +14,6 @@
 
 export const BASE_FEE = 1_500;
 export const SETUP_FEE = 1_000;
-/** Onder deze maandelijkse ad spend rekenen we geen spend fee. */
-export const MIN_ADSPEND_FOR_FEE = 7_500;
 /** De hele maandfactuur is hierop gemaximeerd, base fee inbegrepen. */
 export const INVOICE_CAP = 10_000;
 
@@ -30,7 +29,8 @@ export interface Bracket {
  * levert een effectief percentage op dat niemand kan narekenen tijdens een call.
  */
 export const BRACKETS: Bracket[] = [
-  { min: 7_500, max: 25_000, pct: 8 },
+  // Geen ondergrens meer (ronde 5): de drempel is uit het hele deck.
+  { min: 0, max: 25_000, pct: 8 },
   { min: 25_000, max: 50_000, pct: 7 },
   { min: 50_000, max: 100_000, pct: 6 },
   { min: 100_000, max: Number.POSITIVE_INFINITY, pct: 5 },
@@ -44,19 +44,17 @@ export const KPI_DEFAULTS: Record<KpiKind, number> = {
 };
 
 export interface Quote {
-  /** In welke staffel de spend valt, of -1 onder de drempel. */
+  /** In welke staffel de spend valt, of -1 als er geen spend is ingevuld. */
   bracketIndex: number;
   bracketPct: number;
-  /** De spend fee als de KPI gehaald wordt. */
+  /** De performance fee als de KPI gehaald wordt. */
   spendFee: number;
-  /** Base fee plus spend fee, na aftopping. */
+  /** Base fee plus performance fee, na aftopping. */
   totalOnTarget: number;
   /** Wat je betaalt als de KPI niet gehaald wordt: alleen de base fee. */
   totalOffTarget: number;
   /** De maandfactuur raakt het maximum. */
   capped: boolean;
-  /** De spend ligt onder de drempel, dus er is sowieso geen spend fee. */
-  belowThreshold: boolean;
   /** De totale factuur als percentage van de spend, als de KPI gehaald wordt. */
   effectivePct: number;
 }
@@ -69,14 +67,10 @@ export function quote(adspend: number): Quote {
     totalOnTarget: BASE_FEE,
     totalOffTarget: BASE_FEE,
     capped: false,
-    belowThreshold: true,
     effectivePct: 0,
   };
 
   if (!Number.isFinite(adspend) || adspend <= 0) return base;
-  if (adspend < MIN_ADSPEND_FOR_FEE) {
-    return { ...base, effectivePct: (BASE_FEE / adspend) * 100 };
-  }
 
   const bracketIndex = BRACKETS.findIndex(
     (b) => adspend >= b.min && adspend < b.max
@@ -96,7 +90,6 @@ export function quote(adspend: number): Quote {
     totalOnTarget,
     totalOffTarget: BASE_FEE,
     capped,
-    belowThreshold: false,
     effectivePct: (totalOnTarget / adspend) * 100,
   };
 }
@@ -127,9 +120,9 @@ export function targetImplies(
 
 export function bracketLabel(b: Bracket): string {
   const k = (n: number) => (n / 1000).toLocaleString("nl-NL");
-  return b.max === Number.POSITIVE_INFINITY
-    ? `€ ${k(b.min)}k+`
-    : `€ ${k(b.min)}k – ${k(b.max)}k`;
+  if (b.max === Number.POSITIVE_INFINITY) return `€ ${k(b.min)}k+`;
+  if (b.min === 0) return `tot € ${k(b.max)}k`;
+  return `€ ${k(b.min)}k – ${k(b.max)}k`;
 }
 
 /**

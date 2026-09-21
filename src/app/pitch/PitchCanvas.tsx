@@ -510,7 +510,9 @@ export default function PitchCanvas() {
             </button>
             <div className="pitch-modal-cat">{detail.cat}</div>
             <h2>{detail.name}</h2>
-            <p className="pitch-modal-desc">{detail.desc}</p>
+            {detail.desc && (
+              <p className="pitch-modal-desc">{detail.desc}</p>
+            )}
 
             {detail.calculator && <PitchCalculator />}
 

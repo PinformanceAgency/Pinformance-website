@@ -11,6 +11,9 @@
 // Cijfers komen uit pricing.ts waar ze bestaan, zodat een tarief nooit op twee
 // plekken anders kan staan.
 
+import { INVOICE_CAP, eur } from "./pricing";
+import { BASE_WERK, SETUP_WERK } from "./data";
+
 // ---------------------------------------------------------------------------
 // Pagina 1 · Schaalbaarheid
 // ---------------------------------------------------------------------------
@@ -168,11 +171,102 @@ function FigRealisticBand() {
 }
 
 // ---------------------------------------------------------------------------
+// Pagina 4 · Pricing
+// ---------------------------------------------------------------------------
+// Drie onderdelen, en bewust geen enkel bedrag (ronde 5): prijzen, percentages
+// en drempels staan alleen in de calculator, één kaart verderop. Wat in de base
+// fee zit komt uit dezelfde lijst als de sectie Werkzaamheden, zodat de twee
+// nooit iets anders kunnen zeggen. Het startwerk staat bij de setup fee en niet
+// bij de base fee: dat gebeurt eenmalig.
+function FigPricingExplainer() {
+  return (
+    <div className="fig">
+      <div className="fig-three">
+        <div className="ft">
+          <span className="ft-k">Eenmalig</span>
+          <span className="ft-t">Setup fee</span>
+          <span className="ft-s">Bij de start, voordat er iets live gaat.</span>
+          <ul>
+            {SETUP_WERK.map((i) => (
+              <li key={i}>{i}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="ft">
+          <span className="ft-k">Vast, per maand</span>
+          <span className="ft-t">Base fee</span>
+          <span className="ft-s">Het werk dat elke maand doorloopt.</span>
+          <ul>
+            {BASE_WERK.map((c) => (
+              <li key={c.title}>
+                <b>{c.title}</b>
+                {c.items.join(" · ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="ft on">
+          <span className="ft-k">Op resultaat</span>
+          <span className="ft-t">Performance fee</span>
+          <span className="ft-s">
+            Gekoppeld aan je ad spend, en alleen als de afgesproken KPI gehaald
+            wordt.
+          </span>
+          <ul>
+            <li>Het target leggen we vooraf samen vast</li>
+            <li>Niet gehaald, dan vervalt de performance fee</li>
+            <li>Altijd achteraf gefactureerd</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pagina 4 · Garanties
+// ---------------------------------------------------------------------------
+// Bewust vormgegeven als een contractblad: de sectie zegt dat dit zwart op wit
+// staat, dus het beeld moet daar niet tegenin werken.
+function FigGuarantees() {
+  const clauses = [
+    ["KPI en target", "Vooraf samen vastgelegd. Jij kiest waarop we sturen: ROAS of CPA."],
+    [
+      "Niet gehaald",
+      "De performance fee vervalt. Gemeten over de hele maand, niet per losse campagne.",
+    ],
+    ["Maximum", `De maandfactuur is gemaximeerd op ${eur(INVOICE_CAP)}.`],
+    ["Facturatie", "Altijd achteraf, nooit vooraf."],
+    ["Looptijd", "2 maanden, daarna maandelijks opzegbaar."],
+  ];
+  return (
+    <div className="fig">
+      <div className="fig-doc">
+        <div className="fig-doc-head">
+          <span>Overeenkomst</span>
+          <span>Pinformance</span>
+        </div>
+        <ol className="fig-doc-body">
+          {clauses.map(([k, v]) => (
+            <li key={k}>
+              <span className="k">{k}</span>
+              <span className="v">{v}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 export const FIGURES: Record<string, () => React.JSX.Element> = {
   scale: FigScale,
   onlyPinterest: FigOnlyPinterest,
   expectations: FigExpectations,
+  pricingExplainer: FigPricingExplainer,
+  guarantees: FigGuarantees,
 };
 
 export type FigureKey = keyof typeof FIGURES;

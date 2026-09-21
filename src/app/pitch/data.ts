@@ -70,6 +70,67 @@ export const LANES: Lane[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Werkzaamheden
+// ---------------------------------------------------------------------------
+// Eén lijst, twee plekken: de sectie Werkzaamheden en de uitleg van de fees bij
+// Pricing. Ronde 5 vraagt daar expliciet om, zodat wat er in de fee zit nooit
+// iets anders kan zeggen dan wat we doen.
+//
+// De groepen staan los van elkaar omdat de knip tussen setup en base fee er
+// dwars doorheen loopt: het startwerk gebeurt eenmalig, paid, organic en het
+// contact lopen elke maand door.
+const PAID = {
+  title: "Paid",
+  items: [
+    "Analyse van wat je merk al draait",
+    "Campagnestructuur op jouw merk en catalogus",
+    "Catalog ads bij een brede catalogus",
+    "Creatives kiezen uit je bestaande materiaal",
+    "Media buying en schalen",
+  ],
+};
+
+const ORGANIC = {
+  title: "Organic",
+  items: [
+    "Volledige profielopzet met SEO",
+    "Borden, structuur en zoektermen",
+    "Dagelijkse plaatsingen",
+    "Doorlopend beheer van het profiel",
+  ],
+};
+
+const START = {
+  title: "Start",
+  items: [
+    "Merk- en concurrentieonderzoek op Pinterest",
+    "Benchmarks uit onze portfolio",
+    "Volledige organic opzet: keyword research, borden, structuur",
+    "Opzet van het advertentieaccount",
+    "Creative gameplan",
+    "Kick-off call",
+  ],
+};
+
+const CONTACT = {
+  title: "Contact",
+  items: ["Wekelijkse rapportage", "Maandelijkse call"],
+};
+
+/** De sectie Werkzaamheden: alles wat we doen, in drie kolommen. */
+export const WERKZAAMHEDEN = [
+  PAID,
+  ORGANIC,
+  { title: "Start en contact", items: [...START.items, ...CONTACT.items] },
+];
+
+/** Wat de setup fee dekt: alles wat eenmalig bij de start gebeurt. */
+export const SETUP_WERK = START.items;
+
+/** Wat de base fee dekt: het werk dat elke maand doorloopt. */
+export const BASE_WERK = [PAID, ORGANIC, CONTACT];
+
+// ---------------------------------------------------------------------------
 // Nodes
 // ---------------------------------------------------------------------------
 export const NODE_SIZE = { w: 200, h: 71 };
@@ -93,7 +154,8 @@ export interface RoadmapNode {
   name: string;
   /** De pagina waar deze sectie bij hoort. Staat boven de titel in de modal. */
   cat: string;
-  desc: string;
+  /** Optioneel: de calculator opent meteen met zijn eigen vragen. */
+  desc?: string;
   bullets: string[];
   /** Optioneel accentblok rechts in de modal. */
   highlight?: { k: string; v: string; s?: string; f?: string };
@@ -301,38 +363,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     cat: "Pagina 3 · Hoe wij werken",
     desc: "Wat wij concreet doen.",
     bullets: [],
-    columns: [
-      {
-        title: "Paid",
-        items: [
-          "Analyse van wat je merk al draait",
-          "Campagnestructuur op jouw merk en catalogus",
-          "Catalog ads bij een brede catalogus",
-          "Creatives kiezen uit je bestaande materiaal",
-          "Media buying en schalen",
-        ],
-      },
-      {
-        title: "Organic",
-        items: [
-          "Volledige profielopzet met SEO",
-          "Borden, structuur en zoektermen",
-          "Dagelijkse plaatsingen",
-          "Doorlopend beheer van het profiel",
-        ],
-      },
-      {
-        title: "Start en contact",
-        items: [
-          "Merk- en concurrentieonderzoek",
-          "Benchmarks uit onze portfolio",
-          "Opzet van het advertentieaccount",
-          "Creative gameplan en kick-off call",
-          "Wekelijkse rapportage",
-          "Maandelijkse call",
-        ],
-      },
-    ],
+    columns: WERKZAAMHEDEN,
     visual: {
       note: "De opsomming is de pagina. Geen bedrag hier: dat trekt alle aandacht weg van wat er gedaan wordt.",
       parked: true,
@@ -472,16 +503,56 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       "Vier merken in vier categorieën, ROAS tussen 2,20 en 2,42. De kracht zit in de consistentie, niet in één uitschieter.",
   },
   {
-    id: "de-calculator",
-    x: 1214,
-    y: 180,
+    id: "pricing-uitleg",
+    x: 719,
+    y: 500,
     name: "Pricing",
     cat: "Pagina 4 · Resultaten + pricing",
-    desc: "Eerst een paar vragen. Daarna het aanbod, gerekend met jouw eigen cijfers.",
+    desc: "Hoe het model werkt, in drie onderdelen.",
+    bullets: [
+      "Setup fee: eenmalig, bij de start",
+      "Base fee: vast, elke maand",
+      "Performance fee: over je ad spend, en alleen als de afgesproken KPI gehaald wordt",
+    ],
+    visual: {
+      // Bewust zonder bedragen (ronde 5). Die staan alleen in de calculator,
+      // een kaart verderop.
+      note: "Per onderdeel wat erbij komt kijken. Geen bedragen: die komen pas bij de calculator.",
+      figure: "pricingExplainer",
+      wide: true,
+    },
+  },
+  {
+    id: "de-calculator",
+    x: 884,
+    y: 340,
+    name: "Calculator",
+    cat: "Pagina 4 · Resultaten + pricing",
     bullets: [],
     calculator: true,
     visual: {
       note: "De calculator is de visual. Hij rekent live mee tijdens de call, met de cijfers van de prospect zelf.",
+    },
+  },
+  {
+    id: "garanties",
+    x: 1049,
+    y: 180,
+    name: "Garanties",
+    cat: "Pagina 4 · Resultaten + pricing",
+    desc: "Wat er contractueel vastligt.",
+    bullets: [
+      "KPI en target leggen we vooraf samen vast",
+      "Niet gehaald: de performance fee vervalt",
+      "We meten over de hele maand, niet per losse campagne",
+      "De maandfactuur is gemaximeerd",
+      "Altijd achteraf gefactureerd, nooit vooraf",
+      "2 maanden, daarna maandelijks opzegbaar",
+    ],
+    visual: {
+      note: "De afspraken zoals ze in de overeenkomst komen te staan.",
+      figure: "guarantees",
+      wide: true,
     },
   },
 ];

@@ -1859,3 +1859,11 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* De base fee somt zijn groepen op: de titel op een eigen regel, daaronder wat
+   er in die groep zit. */
+.ft li b {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text);
+}

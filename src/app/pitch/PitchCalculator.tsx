@@ -14,7 +14,6 @@ import {
   BRACKETS,
   BASE_FEE,
   INVOICE_CAP,
-  MIN_ADSPEND_FOR_FEE,
   bracketLabel,
   eur,
   quote,
@@ -60,14 +59,6 @@ function parseAmount(s: string): number {
 // Welke vragen er precies in komen is nog besluit B16. Nu de drie die de
 // berekening echt nodig heeft: waarop we sturen, het minimum, en de spend.
 
-// Het ene organic-resultaat dat het deck zelf laat zien (pagina 3, Organic).
-// Een voorbeeld, geen voorspelling: er staat bewust geen rekensom naast.
-const ORGANIC_PROOF = {
-  brand: "FitCherries",
-  value: "US$ 5.010",
-  period: "in 30 dagen, zonder advertentiebudget",
-};
-
 export default function PitchCalculator() {
   const [step, setStep] = useState<"vragen" | "aanbod">("vragen");
   const [adspendInput, setAdspendInput] = useState("");
@@ -105,21 +96,16 @@ export default function PitchCalculator() {
   const chartData = useMemo(
     () =>
       BRACKETS.map((b, i) => ({
-        adspend:
-          b.max === Number.POSITIVE_INFINITY
-            ? `€ ${b.min / 1000}k+`
-            : `€ ${(b.min / 1000).toLocaleString("nl-NL")}k`,
+        adspend: bracketLabel(b),
         pct: b.pct,
-        isCurrent: i === q.bracketIndex && !q.belowThreshold,
+        isCurrent: i === q.bracketIndex,
       })),
-    [q.bracketIndex, q.belowThreshold]
+    [q.bracketIndex]
   );
 
-  const note = q.belowThreshold
-    ? `Onder ${eur(MIN_ADSPEND_FOR_FEE)} ad spend. Alleen de base fee.`
-    : q.capped
-      ? `Maximum bereikt. Onze fee blijft op ${eur(INVOICE_CAP)} per maand staan.`
-      : null;
+  const note = q.capped
+    ? `Maximum bereikt. Onze fee blijft op ${eur(INVOICE_CAP)} per maand staan.`
+    : null;
 
   return (
     <div className="pitch-calc mt-6 rounded-2xl bg-[#0a0a0d] pitch-calc-dots p-6 sm:p-8">
@@ -271,13 +257,9 @@ export default function PitchCalculator() {
               Vastgelegd in de overeenkomst.
             </p>
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {[
               { label: "Garantie", headline: kpiLabel },
-              {
-                label: "Drempel",
-                headline: `Pas vanaf ${eur(MIN_ADSPEND_FOR_FEE)} ad spend`,
-              },
               {
                 label: "Maximum",
                 headline: `Gemaximeerd op ${eur(INVOICE_CAP)} per maand`,
@@ -346,7 +328,7 @@ export default function PitchCalculator() {
                 {eur(q.totalOnTarget)}
               </div>
               <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
-                per maand, base fee plus spend fee
+                per maand, base fee plus performance fee
               </div>
             </div>
             <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
@@ -357,46 +339,23 @@ export default function PitchCalculator() {
                 {eur(q.totalOffTarget)}
               </div>
               <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
-                per maand, de spend fee vervalt volledig
+                per maand, de performance fee vervalt volledig
               </div>
             </div>
           </div>
 
           {/* Win-win ------------------------------------------------ */}
-          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <div className="mt-5">
             <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
               <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#ff5c63]">
-                Spend fee pas vanaf jouw target
+                Performance fee pas vanaf jouw target
               </div>
               <div className="mt-2 text-sm leading-relaxed text-[#f2f1f6]">
                 {kpi === "roas"
-                  ? `Wij rekenen de spend fee pas als je ROAS minimaal ${fmtRoas(minimum)} is, het getal waarop jij winst maakt.`
-                  : `Wij rekenen de spend fee pas als je CPA op of onder ${eur(minimum)} ligt, het getal waarop jij winst maakt.`}{" "}
+                  ? `Wij rekenen de performance fee pas als je ROAS minimaal ${fmtRoas(minimum)} is, het getal waarop jij winst maakt.`
+                  : `Wij rekenen de performance fee pas als je CPA op of onder ${eur(minimum)} ligt, het getal waarop jij winst maakt.`}{" "}
                 {implies && `${implies.label} ${implies.value} bij deze spend.`}{" "}
                 Daaronder betaal je alleen de base fee.
-              </div>
-            </div>
-            <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#ff5c63]">
-                Organic tegenover de base fee
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xl font-semibold tabular-nums text-[#f2f1f6]">
-                    {eur(BASE_FEE)}
-                  </div>
-                  <div className="mt-0.5 text-[11px] leading-snug text-[#6e6769]">
-                    base fee per maand, organic zit erin
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xl font-semibold tabular-nums text-[#ff5c63]">
-                    {ORGANIC_PROOF.value}
-                  </div>
-                  <div className="mt-0.5 text-[11px] leading-snug text-[#6e6769]">
-                    organic omzet bij {ORGANIC_PROOF.brand}, {ORGANIC_PROOF.period}
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -410,7 +369,7 @@ export default function PitchCalculator() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {BRACKETS.map((b, i) => {
-                    const active = q.bracketIndex === i && !q.belowThreshold;
+                    const active = q.bracketIndex === i;
                     return (
                       <div
                         key={b.min}
@@ -437,7 +396,7 @@ export default function PitchCalculator() {
                   })}
                 </div>
 
-                {!q.belowThreshold && (
+                {q.bracketIndex >= 0 && (
                   <div className="mt-6 border-t border-[rgba(200,155,160,0.14)] pt-6">
                     <div className="mb-6 text-center text-sm font-bold uppercase tracking-[0.15em] text-[#f2f1f6] sm:text-base">
                       <span>
@@ -478,7 +437,7 @@ export default function PitchCalculator() {
             <div className="lg:col-span-3">
               <div className="rounded-2xl border border-[rgba(200,155,160,0.14)] pitch-calc-card p-6">
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6e6769]">
-                  Spend fee per staffel
+                  Performance fee per staffel
                 </div>
                 <div className="text-base font-semibold text-[#f2f1f6]">
                   Bij een ad spend van{" "}
@@ -518,7 +477,7 @@ export default function PitchCalculator() {
                         domain={[4, 9]}
                         tickFormatter={(v) => Number(v).toFixed(0) + " %"}
                         label={{
-                          value: "SPEND FEE",
+                          value: "PERFORMANCE FEE",
                           angle: -90,
                           position: "insideLeft",
                           offset: 12,
@@ -539,7 +498,7 @@ export default function PitchCalculator() {
                         itemStyle={{ color: "#f2f1f6" }}
                         formatter={(value) => [
                           Number(value).toFixed(1).replace(".", ",") + " %",
-                          "Spend fee",
+                          "Performance fee",
                         ]}
                         labelFormatter={(l) => "Ad spend " + l}
                       />
