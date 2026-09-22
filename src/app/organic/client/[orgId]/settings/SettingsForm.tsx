@@ -14,7 +14,12 @@ const ENGAGEMENT = ["PROSPECT", "ONBOARDING", "ACTIVE", "PAUSED", "CHURNED"];
 // old rows but is not offered — a third option nobody could define was a
 // third answer nobody picked.
 const ACCOUNT_CLASS = ["NEW", "ESTABLISHED"];
-const CURRENCIES = ["EUR", "USD", "GBP", "CHF"];
+/** De valuta waarin een retainer kan staan. Volgt FX_CURRENCIES in
+ *  media-buying/fx.ts plus EUR zelf: wat de ECB-cron dagelijks ophaalt, kan de
+ *  margin omrekenen. Een retainer in een valuta die hier niet staat, is een
+ *  marge die niemand kan uitrekenen. SEK, PLN, DKK en NOK erbij op 22-09-2026,
+ *  toen Zweden en Polen als markt werden toegevoegd. */
+const CURRENCIES = ["EUR", "USD", "GBP", "CHF", "SEK", "PLN", "DKK", "NOK", "CAD", "AUD"];
 
 type Field =
   | { key: keyof StoreSettings; label: string; kind: "text" | "number" | "date" | "textarea"; hint?: string; step?: string }

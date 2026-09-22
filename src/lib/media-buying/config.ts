@@ -150,16 +150,36 @@ export const NICHE_SUGGESTIONS = [
   "tech",
 ] as const;
 
-/** Countries we currently run in. Two-letter ISO codes. Extend as needed. */
+/**
+ * De markten waarin we adverteren. Twee-letterige ISO-3166 codes.
+ *
+ * Gegroepeerd per regio en niet op alfabet: dit is een lijst die iemand
+ * wekelijks afscant bij het instellen van een store, en dan zoek je "Oostenrijk"
+ * naast Duitsland.
+ *
+ * **De code is het LAND, niet de valuta.** Zwitserland is CH (niet CHF) en
+ * Zweden is SE (niet SEK) — de valuta staat los en komt per ad account uit
+ * `pinterest_metrics_snapshots.currency`. Toegevoegd 22-09-2026: PL, IT, ES, AT,
+ * CH en SE. De zone-drempels rekenen daar meteen goed, want `fx_rates` haalt
+ * PLN en SEK al dagelijks op (zie FX_CURRENCIES in fx.ts) — een store die in
+ * SEK factureert wordt dus tegen SEK 11.275 per €1 gemeten en niet tegen een
+ * euro-drempel.
+ */
 export const COUNTRY_OPTIONS: { code: string; label: string }[] = [
-  { code: "US", label: "United States" },
   { code: "NL", label: "Netherlands" },
   { code: "BE", label: "Belgium" },
   { code: "DE", label: "Germany" },
+  { code: "AT", label: "Austria" },
+  { code: "CH", label: "Switzerland" },
   { code: "FR", label: "France" },
+  { code: "ES", label: "Spain" },
+  { code: "IT", label: "Italy" },
+  { code: "PL", label: "Poland" },
+  { code: "SE", label: "Sweden" },
   { code: "GB", label: "United Kingdom" },
-  { code: "AU", label: "Australia" },
+  { code: "US", label: "United States" },
   { code: "CA", label: "Canada" },
+  { code: "AU", label: "Australia" },
 ];
 
 /**
