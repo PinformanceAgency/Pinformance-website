@@ -14,6 +14,7 @@ import {
   BRACKETS,
   BASE_FEE,
   INVOICE_CAP,
+  SETUP_FEE,
   bracketLabel,
   eur,
   quote,
@@ -261,8 +262,8 @@ export default function PitchCalculator() {
             {[
               { label: "Garantie", headline: kpiLabel },
               {
-                label: "Maximum",
-                headline: `Gemaximeerd op ${eur(INVOICE_CAP)} per maand`,
+                label: "Setup fee",
+                headline: `${eur(SETUP_FEE)} eenmalig, bij de start`,
               },
               { label: "Facturatie", headline: "Achteraf, nooit vooraf" },
             ].map((it) => (
@@ -340,22 +341,6 @@ export default function PitchCalculator() {
               </div>
               <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
                 per maand, de performance fee vervalt volledig
-              </div>
-            </div>
-          </div>
-
-          {/* Win-win ------------------------------------------------ */}
-          <div className="mt-5">
-            <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#ff5c63]">
-                Performance fee pas vanaf jouw target
-              </div>
-              <div className="mt-2 text-sm leading-relaxed text-[#f2f1f6]">
-                {kpi === "roas"
-                  ? `Wij rekenen de performance fee pas als je ROAS minimaal ${fmtRoas(minimum)} is, het getal waarop jij winst maakt.`
-                  : `Wij rekenen de performance fee pas als je CPA op of onder ${eur(minimum)} ligt, het getal waarop jij winst maakt.`}{" "}
-                {implies && `${implies.label} ${implies.value} bij deze spend.`}{" "}
-                Daaronder betaal je alleen de base fee.
               </div>
             </div>
           </div>
