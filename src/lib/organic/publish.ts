@@ -30,16 +30,45 @@
 import { organicPool } from "./db";
 import { completeCycleTask } from "./phase4";
 import { ORGANIC_DAILY_CAP } from "./pacing";
+import { MAX_VIDEO_BYTES } from "./video";
 import {
   pinterestClientsForOrgs,
   type PinterestAuthError,
 } from "@/lib/pinterest/for-org";
+import type { PinterestClient } from "@/lib/pinterest/client";
 
 /** The method's absolute ceiling per store, per day — see pacing.ts, which
  *  the CHECK and the check_daily_volume() trigger mirror. A ceiling is not a
  *  target: the store's own daily_pin_target still binds first, and a new
  *  account starts at 1 and ramps. */
 const HARD_DAILY_CAP = ORGANIC_DAILY_CAP;
+
+/* ------------------------------------------------------------------ */
+/* Wat een video kost, en waarom de run zichzelf een budget geeft      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Een image-pin is één API-call van ongeveer anderhalve seconde. Een video is
+ * registreren, het hele bestand ophalen, het naar de S3 van Pinterest duwen en
+ * daarna wachten tot Pinterest klaar is met verwerken — bij elkaar tientallen
+ * seconden, met het bestand als één Buffer in het geheugen.
+ *
+ * `maxDuration = 300` is wat we vragen, niet wat we krijgen: de betaalde
+ * post-pins route is er twee keer op één ochtend uitgegooid met "instance was
+ * killed because it ran out of available memory", en dat was één bestand van
+ * 303 MB. Vandaar de maat-grens in video.ts en vandaar dit budget: een run
+ * begint alleen aan een video als er een hele in past, en stopt netjes in
+ * plaats van halverwege een upload te worden afgekapt. Wat blijft liggen is
+ * over een kwartier gewoon weer aan de beurt — de volgorde is per store en de
+ * pins zijn gedateerd, dus niets raakt achterin de rij.
+ */
+const RUN_BUDGET_MS = 200_000;
+/** Wat één video in het slechtste geval kost: ophalen, uploaden, pollen. */
+const VIDEO_NEEDS_MS = 75_000;
+const MAX_VIDEOS_PER_RUN = 2;
+/** Pinterest is meestal binnen enkele seconden klaar; de eerste blik is dus
+ *  snel en daarna groeit de wachttijd. */
+const MEDIA_POLL_STEPS = 12;
 
 /** A publish attempt that should be retried rather than recorded as a failure. */
 function isTransient(message: string): boolean {
@@ -119,6 +148,8 @@ export async function scheduleWaterfall(
     human_qc_status: string | null;
     validator_status: string | null;
     design_qc: string | null;
+    media_type: string | null;
+    video_path: string | null;
   }>(
     `SELECT p.id::text,
             p.sequence_number,
@@ -131,7 +162,9 @@ export async function scheduleWaterfall(
             cs.description,
             cs.human_qc_status::text      AS human_qc_status,
             cs.validator_status::text     AS validator_status,
-            d.qc_status::text             AS design_qc
+            d.qc_status::text             AS design_qc,
+            d.media_type::text            AS media_type,
+            p.video_path
        FROM organic.pins p
        JOIN organic.waterfalls w ON w.id = p.waterfall_id
        JOIN organic.boards b     ON b.id = p.board_id
@@ -153,6 +186,12 @@ export async function scheduleWaterfall(
   for (const p of rows.rows) {
     const problems: string[] = [];
     if (!p.image_path) problems.push("no image — run P4.2.4 and P4.2.5");
+    // Een video-pin zonder mp4 is niet "bijna goed": hij zou als image-pin van
+    // het posterframe uitgaan, met succes, en dat is het stilste verkeerde
+    // resultaat dat deze cron kan opleveren.
+    if (p.media_type === "VIDEO" && !p.video_path) {
+      problems.push("this is a video pin with no video file — run P4.2.5 after uploading the mp4");
+    }
     if (!p.pinterest_board_id) problems.push(`board "${p.board_name}" does not exist on Pinterest yet`);
     if (!p.title?.trim()) problems.push("no title — run P4.2.8");
     if (p.human_qc_status === "REJECTED") problems.push("copy was rejected in QC");
@@ -231,7 +270,11 @@ interface DuePin {
   pin_id: string;
   org_id: string;
   sequence_number: number;
+  /** Altijd een afbeelding. Bij een video-pin is dit het posterframe, dat
+   *  Pinterest als cover meekrijgt — zie migratie 103. */
   image_path: string;
+  /** Gezet = dit wordt een video-pin. */
+  video_path: string | null;
   pinterest_board_id: string;
   title: string;
   description: string | null;
@@ -243,9 +286,16 @@ interface DuePin {
 export interface PublishRunReport {
   due: number;
   published: number;
+  /** Hoeveel daarvan video-pins waren. Apart, omdat ze de duur van de run
+   *  bepalen en een run die niets anders deed dan één video toch klopt. */
+  videos_published: number;
   failed: number;
   /** Held back by a cap, a gap, or a rate limit. Retried next run. */
   deferred: number;
+  /** De run hield op omdat zijn tijd op was, niet omdat hij klaar was. Wat
+   *  bleef liggen staat in `deferred` en is over een kwartier weer aan de
+   *  beurt; dit is het verschil tussen "niets te doen" en "niet toegekomen". */
+  budget_exhausted: boolean;
   orgs: Array<{
     org_id: string;
     org_name: string;
@@ -263,16 +313,114 @@ export interface PublishRunReport {
   }>;
 }
 
+/**
+ * Een video-pin plaatsen: registreren → uploaden → wachten → pin maken.
+ *
+ * Woord voor woord dezelfde volgorde als de betaalde post-pins route, die dit
+ * al ruim vijfhonderd keer heeft gedaan. Twee dingen die daar geleerd zijn en
+ * hier meekomen:
+ *
+ *   - **de maat wordt gecheckt vóór het bestand in het geheugen komt**, aan de
+ *     content-length. Het bestand is bij ons al aan de deur begrensd, maar een
+ *     object kan vervangen zijn en dit is de laatste plek waar het nog
+ *     goedkoop is om nee te zeggen.
+ *   - **een signed URL om het bestand zelf op te halen**, ook al is de bucket
+ *     publiek: dat is wat de betaalde route doet en het houdt de mp4 buiten
+ *     eventuele caches. Pinterest krijgt wel de publieke URL van het
+ *     posterframe, want dat haalt Pinterest zélf op.
+ */
+async function publishVideoPin(
+  client: PinterestClient,
+  pin: DuePin,
+  deadline: () => number
+): Promise<{ id?: string } | null> {
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const admin = createAdminClient();
+
+  const media = await client.registerMediaUpload();
+
+  let videoUrl = pin.video_path!;
+  const objectPath = videoUrl.split("/object/public/pin-images/")[1];
+  if (objectPath) {
+    const { data } = await admin.storage
+      .from("pin-images")
+      .createSignedUrl(decodeURIComponent(objectPath), 300);
+    if (data?.signedUrl) videoUrl = data.signedUrl;
+  }
+
+  const res = await fetch(videoUrl);
+  if (!res.ok) throw new Error(`Video download: ${res.status}`);
+  const declared = Number(res.headers.get("content-length") || 0);
+  if (declared > MAX_VIDEO_BYTES) {
+    throw new Error(
+      `Video is ${Math.round(declared / 1048576)}MB, over the ${MAX_VIDEO_BYTES / 1048576}MB limit`
+    );
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const contentType = res.headers.get("content-type") || "video/mp4";
+
+  await client.uploadVideoToS3(media.upload_url, media.upload_parameters, buffer, contentType);
+
+  let ready = false;
+  for (let poll = 0; poll < MEDIA_POLL_STEPS; poll++) {
+    await new Promise((r) => setTimeout(r, poll === 0 ? 1500 : 5000));
+    if (deadline() <= 0) break;
+    try {
+      const status = await client.getMediaStatus(media.media_id);
+      if (status.status === "succeeded" || status.status === "registered") { ready = true; break; }
+      if (status.status === "failed") {
+        throw new Error(`Video processing failed for media ${media.media_id}`);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("processing failed")) throw e;
+      // Een mislukte statuscheck is geen mislukte upload — doorpollen.
+    }
+  }
+  if (!ready) {
+    // Bewust een gewone fout en geen retry-melding: de media staat bij
+    // Pinterest, maar wij weten niet of hij goed is. De volgende run begint
+    // schoon opnieuw, wat een nieuwe media_id oplevert en geen dubbele pin.
+    throw new Error(`Video processing timeout for media ${media.media_id}`);
+  }
+
+  return client.createVideoPin({
+    board_id: pin.pinterest_board_id,
+    title: pin.title.slice(0, 100),
+    description: pin.description ?? undefined,
+    link: pin.url,
+    alt_text: pin.alt_text?.slice(0, 500) ?? undefined,
+    media_id: media.media_id,
+    // Het posterframe dat bij de upload uit de video is gehaald. Publieke URL,
+    // want Pinterest haalt deze zelf op.
+    cover_image_url: pin.image_path,
+  });
+}
+
 export async function publishDuePins(
-  opts: { orgId?: string; dryRun?: boolean; limitPerOrg?: number } = {}
+  opts: {
+    orgId?: string;
+    dryRun?: boolean;
+    limitPerOrg?: number;
+    /** Hoeveel video-pins deze run maximaal doet. Meer kost tijd die de run
+     *  niet heeft; `?max_videos=` op de cron zet hem hoger voor een inhaalslag. */
+    maxVideos?: number;
+    budgetMs?: number;
+  } = {}
 ): Promise<PublishRunReport> {
   const pool = organicPool();
+  const startedAt = Date.now();
+  const budgetMs = Math.max(10_000, Math.min(280_000, opts.budgetMs ?? RUN_BUDGET_MS));
+  const elapsed = () => Date.now() - startedAt;
+  const budgetLeft = () => budgetMs - elapsed();
+  const maxVideos = Math.max(0, opts.maxVideos ?? MAX_VIDEOS_PER_RUN);
+  let videosThisRun = 0;
 
   const due = await pool.query<DuePin>(
     `SELECT p.id::text          AS pin_id,
             w.org_id::text      AS org_id,
             p.sequence_number,
             p.image_path,
+            p.video_path,
             b.pinterest_board_id,
             cs.title,
             cs.description,
@@ -283,6 +431,7 @@ export async function publishDuePins(
        JOIN organic.waterfalls w ON w.id = p.waterfall_id
        JOIN organic.urls u       ON u.id = w.url_id
        JOIN organic.boards b     ON b.id = p.board_id
+       JOIN organic.designs d    ON d.id = p.design_id
        JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
        LEFT JOIN organic.client_settings s ON s.org_id = w.org_id
       WHERE p.status = 'SCHEDULED'::organic.pin_status
@@ -290,6 +439,11 @@ export async function publishDuePins(
         AND p.image_path IS NOT NULL
         AND b.pinterest_board_id IS NOT NULL
         AND cs.title IS NOT NULL
+        -- Een pin van een video-design zonder mp4 wordt niet opgepakt: hij zou
+        -- als image-pin van het posterframe uitgaan. loadPublishHealth telt
+        -- hem onder stuck, met dezelfde voorwaarde, zodat die twee niet uit
+        -- elkaar kunnen lopen.
+        AND (d.media_type = 'IMAGE'::organic.media_kind OR p.video_path IS NOT NULL)
         AND ($1::uuid IS NULL OR w.org_id = $1::uuid)
       ORDER BY p.scheduled_date, p.sequence_number`,
     [opts.orgId ?? null]
@@ -298,8 +452,10 @@ export async function publishDuePins(
   const report: PublishRunReport = {
     due: due.rowCount ?? 0,
     published: 0,
+    videos_published: 0,
     failed: 0,
     deferred: 0,
+    budget_exhausted: false,
     orgs: [],
     reconnect_required: [],
   };
@@ -371,20 +527,42 @@ export async function publishDuePins(
     let failed = 0;
     let deferred = 0;
 
+    let outOfTime = false;
+    let videosHeld = 0;
+
     for (const pin of pins) {
       if (room <= 0) { deferred += 1; continue; }
+
+      // Het budget wordt vóór het werk gevraagd, nooit halverwege. Een run die
+      // in een upload wordt afgekapt laat een media_id bij Pinterest achter
+      // waar niemand meer iets mee kan, en een pin die misschien wel en
+      // misschien niet bestaat.
+      if (budgetLeft() <= 0) { deferred += 1; outOfTime = true; continue; }
+
+      const isVideo = !!pin.video_path;
+      if (isVideo && !opts.dryRun) {
+        if (videosThisRun >= maxVideos) { deferred += 1; videosHeld += 1; continue; }
+        // "Past er nog een hele video in" is de vraag, niet "zijn we vroeg in
+        // de run": met die tweede vraag werd in de betaalde route elke video
+        // voor eeuwig uitgesteld.
+        if (budgetLeft() < VIDEO_NEEDS_MS) { deferred += 1; videosHeld += 1; outOfTime = true; continue; }
+      }
 
       if (opts.dryRun) { published += 1; room -= 1; continue; }
 
       try {
-        const created = await entry.client.createPin({
-          board_id: pin.pinterest_board_id,
-          title: pin.title.slice(0, 100),
-          description: pin.description ?? undefined,
-          link: pin.url,
-          alt_text: pin.alt_text?.slice(0, 500) ?? undefined,
-          media_source: { source_type: "image_url", url: pin.image_path },
-        });
+        // Geteld vóór de poging: de tijd is dan al uitgegeven, of hij lukt of niet.
+        if (isVideo) videosThisRun += 1;
+        const created = isVideo
+          ? await publishVideoPin(entry.client, pin, budgetLeft)
+          : await entry.client.createPin({
+              board_id: pin.pinterest_board_id,
+              title: pin.title.slice(0, 100),
+              description: pin.description ?? undefined,
+              link: pin.url,
+              alt_text: pin.alt_text?.slice(0, 500) ?? undefined,
+              media_source: { source_type: "image_url", url: pin.image_path },
+            });
         await pool.query(
           `UPDATE organic.pins
               SET status = 'PUBLISHED'::organic.pin_status,
@@ -395,6 +573,7 @@ export async function publishDuePins(
           [pin.pin_id, created?.id ?? null]
         );
         published += 1;
+        if (isVideo) report.videos_published += 1;
         room -= 1;
       } catch (e) {
         const message = (e as Error).message;
@@ -423,13 +602,19 @@ export async function publishDuePins(
     report.published += published;
     report.failed += failed;
     report.deferred += deferred;
+    if (outOfTime) report.budget_exhausted = true;
     report.orgs.push({
       org_id: orgId,
       org_name: entry.orgName,
       published,
       failed,
       deferred,
-      note: room <= 0 && deferred > 0 ? `daily cap ${target} reached` : undefined,
+      note:
+        room <= 0 && deferred > 0 ? `daily cap ${target} reached`
+        : videosHeld > 0 && outOfTime ? `${videosHeld} video pin(s) did not fit in this run`
+        : videosHeld > 0 ? `${videosHeld} video pin(s) held back, ${maxVideos} per run`
+        : outOfTime ? "the run ran out of time before this store was finished"
+        : undefined,
     });
   }
 
@@ -534,6 +719,8 @@ export interface PublishedPin {
   board: string;
   published_on: string;
   image_url: string | null;
+  /** Dit was een videopin; image_url is dan het posterframe. */
+  is_video: boolean;
   pin_url: string | null;
   title: string | null;
 }
@@ -620,22 +807,27 @@ export async function loadPublishHealth(orgId: string): Promise<PublishHealth> {
   // apart from it silently.
   const stuck = await pool.query<{
     sequence_number: number; scheduled_date: string;
-    has_image: boolean; has_board: boolean; has_title: boolean; board_name: string;
+    has_image: boolean; has_board: boolean; has_title: boolean; has_video: boolean;
+    board_name: string;
   }>(
     `SELECT p.sequence_number,
             p.scheduled_date,
             p.image_path IS NOT NULL          AS has_image,
             b.pinterest_board_id IS NOT NULL  AS has_board,
             cs.title IS NOT NULL              AS has_title,
+            (d.media_type = 'IMAGE'::organic.media_kind
+               OR p.video_path IS NOT NULL)   AS has_video,
             b.name                            AS board_name
        FROM organic.pins p
        JOIN organic.waterfalls w ON w.id = p.waterfall_id
        JOIN organic.boards b     ON b.id = p.board_id
+       JOIN organic.designs d    ON d.id = p.design_id
        LEFT JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
       WHERE w.org_id = $1
         AND p.status = 'SCHEDULED'::organic.pin_status
         AND p.scheduled_date <= CURRENT_DATE
-        AND (p.image_path IS NULL OR b.pinterest_board_id IS NULL OR cs.title IS NULL)
+        AND (p.image_path IS NULL OR b.pinterest_board_id IS NULL OR cs.title IS NULL
+             OR (d.media_type = 'VIDEO'::organic.media_kind AND p.video_path IS NULL))
       ORDER BY p.scheduled_date
       LIMIT 20`,
     [orgId]
@@ -673,11 +865,13 @@ export async function loadPublishHealth(orgId: string): Promise<PublishHealth> {
   const pub = await pool.query<{
     sequence_number: number; url_name: string; design_number: number; intent: string;
     copy_variant: string; board_name: string; published_at: string;
-    image_path: string | null; pinterest_pin_id: string | null; title: string | null;
+    image_path: string | null; video_path: string | null;
+    pinterest_pin_id: string | null; title: string | null;
   }>(
     `SELECT p.sequence_number, u.name AS url_name, d.design_number,
             d.intent::text AS intent, p.copy_variant, b.name AS board_name,
-            p.published_at::text AS published_at, p.image_path, p.pinterest_pin_id,
+            p.published_at::text AS published_at, p.image_path, p.video_path,
+            p.pinterest_pin_id,
             cs.title
        FROM organic.pins p
        JOIN organic.waterfalls w ON w.id = p.waterfall_id
@@ -714,6 +908,7 @@ export async function loadPublishHealth(orgId: string): Promise<PublishHealth> {
       board: r.board_name,
       published_on: (r.published_at ?? "").slice(0, 10),
       image_url: r.image_path,
+      is_video: !!r.video_path,
       pin_url: r.pinterest_pin_id ? `https://www.pinterest.com/pin/${r.pinterest_pin_id}/` : null,
       title: r.title,
     })),
@@ -725,6 +920,7 @@ export async function loadPublishHealth(orgId: string): Promise<PublishHealth> {
         !s.has_image ? "no image (P4.2.4 / P4.2.5)" : null,
         !s.has_board ? `board "${s.board_name}" not on Pinterest yet` : null,
         !s.has_title ? "no copy (P4.2.8)" : null,
+        !s.has_video ? "video pin with no mp4 on it (P4.2.5)" : null,
       ].filter(Boolean).join("; "),
     })),
     next_scheduled: timing.rows[0].next_scheduled,

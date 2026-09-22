@@ -44,8 +44,19 @@ async function run(request: NextRequest) {
   const orgId = request.nextUrl.searchParams.get("org") ?? undefined;
   const dryRun = request.nextUrl.searchParams.get("dry_run") === "1";
 
+  // Een video kost tientallen seconden en houdt het bestand in het geheugen,
+  // dus een run doet er standaard hoogstens twee. `?max_videos=` is de
+  // inhaalslag met de hand; `?budget_ms=` maakt een run korter zodat het
+  // uitstelgedrag op echte data te zien is zonder te wachten.
+  const maxVideosRaw = Number(request.nextUrl.searchParams.get("max_videos"));
+  const maxVideos = Number.isFinite(maxVideosRaw) && maxVideosRaw >= 0
+    ? Math.min(10, Math.floor(maxVideosRaw))
+    : undefined;
+  const budgetRaw = Number(request.nextUrl.searchParams.get("budget_ms"));
+  const budgetMs = Number.isFinite(budgetRaw) && budgetRaw > 0 ? budgetRaw : undefined;
+
   try {
-    const report = await publishDuePins({ orgId, dryRun });
+    const report = await publishDuePins({ orgId, dryRun, maxVideos, budgetMs });
 
     if (report.due === 0) {
       console.log("[organic-post-pins] EINDCONTROLE: niets te doen");
@@ -54,7 +65,10 @@ async function run(request: NextRequest) {
 
     console.log(
       `[organic-post-pins] EINDCONTROLE: ${report.due} due, ` +
-      `${report.published} gepubliceerd, ${report.failed} mislukt, ${report.deferred} uitgesteld` +
+      `${report.published} gepubliceerd` +
+      (report.videos_published > 0 ? ` (waarvan ${report.videos_published} video)` : "") +
+      `, ${report.failed} mislukt, ${report.deferred} uitgesteld` +
+      (report.budget_exhausted ? " — de run had zijn tijd op, de rest volgt automatisch" : "") +
       (dryRun ? " (dry run)" : "")
     );
 

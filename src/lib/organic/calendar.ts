@@ -48,6 +48,7 @@ export interface PinBlocker {
     | "board_pending"   // board is queued for creation, in time for this pin
     | "board_late"      // board is queued for creation AFTER this pin's date
     | "no_image"
+    | "no_video"        // video-pin waar de mp4 niet op staat
     | "no_title"
     | "failed";
   severity: "blocking" | "watch";
@@ -69,6 +70,9 @@ export interface CalendarPin {
   design_number: number;
   /** SAVE (2:3, no overlay) or CLICK (9:16, overlay + CTA). */
   intent: string;
+  /** Deze pin publiceert een mp4. `image_url` is dan het posterframe, dus de
+   *  thumbnail op de kalender blijft een afbeelding. */
+  is_video: boolean;
   copy_variant: string;
   url_id: string;
   url_name: string;
@@ -194,6 +198,8 @@ interface PinRow {
   scheduled_time: string | null;
   status: string;
   image_path: string | null;
+  video_path: string | null;
+  media_type: string;
   title: string | null;
   content_code: string | null;
   board_name: string;
@@ -231,6 +237,11 @@ function blockerFor(r: PinRow): PinBlocker | null {
   // SCHEDULED from here.
   if (!r.image_path) {
     return { kind: "no_image", severity: "blocking", label: "no image on this pin" };
+  }
+  // Apart van no_image, want de handeling is een andere: het posterframe staat
+  // er wel en de video niet, dus dit is niet "de crops zijn niet gesneden".
+  if (r.media_type === "VIDEO" && !r.video_path) {
+    return { kind: "no_video", severity: "blocking", label: "video pin with no mp4 on it" };
   }
   if (!r.title) {
     return { kind: "no_title", severity: "blocking", label: "no copy title" };
@@ -289,6 +300,8 @@ export async function loadPublishCalendar(
               p.scheduled_time::text           AS scheduled_time,
               p.status::text                   AS status,
               p.image_path,
+              p.video_path,
+              d.media_type::text               AS media_type,
               p.content_code,
               cs.title,
               b.name                           AS board_name,
@@ -333,6 +346,7 @@ export async function loadPublishCalendar(
     scheduled_time: r.scheduled_time ? r.scheduled_time.slice(0, 5) : null,
     status: r.status,
     image_url: r.image_path,
+    is_video: r.media_type === "VIDEO",
     title: r.title,
     content_code: r.content_code,
     board: r.board_name,
@@ -545,6 +559,22 @@ function monthIssues(
         `${boards.join(", ")} ${boards.length === 1 ? "is" : "are"} queued and due before the pin needs ${boards.length === 1 ? "it" : "them"}. ` +
         `On course, but board creation is capped at three a day and slips if the queue grows.`,
       fix_href: "boards",
+    });
+  }
+
+  const noVideo = group("no_video");
+  if (noVideo.length > 0) {
+    out.push({
+      kind: "no_video",
+      severity: "blocking",
+      count: noVideo.length,
+      headline: `${noVideo.length} video pin${noVideo.length === 1 ? "" : "s"} without the mp4 on it`,
+      detail:
+        `The design is a video and the file is not on these pins, so the cron leaves them where ` +
+        `they are — publishing them would put out the cover frame as an ordinary image pin. ` +
+        `P4.2.5 hands the video to the pins, the same step that cuts the crops for the other designs.`,
+      fix_href: "phase/4",
+      fix_task: "P4.2.5",
     });
   }
 

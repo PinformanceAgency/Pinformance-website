@@ -82,7 +82,7 @@ async function main() {
       const pins = (await p.query<{
         n: string; geen_beeld: string; geen_board: string; geen_titel: string;
         qc_copy_af: string; qc_design_af: string; gepland: string; ingepland: string; gepubliceerd: string;
-        design_zonder_beeld: string;
+        design_zonder_beeld: string; geen_video: string; video_designs: string;
       }>(
         `SELECT COUNT(*)::text AS n,
                 COUNT(*) FILTER (WHERE p.image_path IS NULL)::text AS geen_beeld,
@@ -93,6 +93,11 @@ async function main() {
                 COUNT(*) FILTER (WHERE p.status = 'PLANNED'::organic.pin_status)::text AS gepland,
                 COUNT(*) FILTER (WHERE p.status = 'SCHEDULED'::organic.pin_status)::text AS ingepland,
                 COUNT(*) FILTER (WHERE p.status = 'PUBLISHED'::organic.pin_status)::text AS gepubliceerd,
+                COUNT(*) FILTER (WHERE d.media_type = 'VIDEO'::organic.media_kind
+                                   AND p.video_path IS NULL)::text AS geen_video,
+                (SELECT COUNT(*) FROM organic.designs
+                  WHERE waterfall_id = $1
+                    AND media_type = 'VIDEO'::organic.media_kind)::text AS video_designs,
                 (SELECT COUNT(*) FROM organic.designs WHERE waterfall_id = $1 AND asset_path IS NULL)::text AS design_zonder_beeld
            FROM organic.pins p
            JOIN organic.boards b ON b.id = p.board_id
@@ -106,6 +111,13 @@ async function main() {
       // Na een regenerate komen de designs mee maar de crops niet: dan is
       // alleen P4.2.5 nog nodig, en "upload de designs" stuurt iemand naar
       // werk dat al gedaan is.
+      // Een video-pin zonder mp4 heeft wél een posterframe in image_path, dus
+      // geen_beeld ziet hem niet en de cron slaat hem over zonder een woord.
+      if (Number(pins.geen_video) > 0) {
+        stop(`${pins.geen_video} video-pins zonder mp4 — snijd/deel de media opnieuw uit (P4.2.5)`);
+      } else if (Number(pins.video_designs) > 0) {
+        console.log(`      ${pins.video_designs} video-design(s) in deze cyclus`);
+      }
       if (Number(pins.geen_beeld) > 0) stop(Number(pins.design_zonder_beeld) > 0
         ? `${pins.geen_beeld} pins zonder beeld — upload of genereer de designs (P4.2.4) en snijd de crops (P4.2.5)`
         : `${pins.geen_beeld} pins zonder beeld — de designs hebben er wel een, alleen de crops ontbreken (P4.2.5)`);

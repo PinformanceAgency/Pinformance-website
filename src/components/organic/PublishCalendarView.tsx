@@ -75,9 +75,19 @@ function Thumb({ pin, size }: { pin: CalendarPin; size: number }) {
       style={{ width: size, height: size }}
     >
       {pin.image_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={pin.image_url} alt="" loading="lazy"
-             className="h-full w-full object-cover" />
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={pin.image_url} alt="" loading="lazy"
+               className="h-full w-full object-cover" />
+          {/* Bij een video is dit het posterframe. De markering staat er zodat
+              de dag niet leest als vier keer hetzelfde plaatje wanneer één
+              creative een video is. */}
+          {pin.is_video && (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/25 text-[8px] font-bold text-white">
+              ▶
+            </span>
+          )}
+        </>
       ) : (
         // No artwork is not a missing thumbnail, it is the reason the pin
         // will not publish — so it reads as a hole, not as a slow image.

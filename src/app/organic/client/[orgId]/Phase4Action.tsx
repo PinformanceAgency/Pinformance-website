@@ -6,6 +6,10 @@ import Link from "next/link";
 import { Loader2, Play, ExternalLink, Check, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CycleView } from "@/lib/organic/phase4";
+// Pure regels, geen database — zie de kop van video.ts. De client en de route
+// checken hetzelfde bestand op dezelfde manier.
+import { MAX_VIDEO_BYTES, VIDEO_ACCEPT, canBeVideo } from "@/lib/organic/video";
+import { formatBytes, formatDuration, putToSignedUrl, readVideoFacts } from "./videoUpload";
 
 /**
  * The control that does the work, per phase-4 task.
@@ -394,6 +398,18 @@ function DesignsPanel({
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [clash, setClash] = useState<string[]>([]);
+  const [videoNotes, setVideoNotes] = useState<string[]>([]);
+  /** 0-1 tijdens het uploaden van een mp4, null als er niets loopt. */
+  const [progress, setProgress] = useState<number | null>(null);
+
+  // Een upload van een minuut mag niet stil verdwijnen als iemand het tabblad
+  // sluit: dan staat de video half in de bucket en zegt geen enkel scherm dat.
+  useEffect(() => {
+    if (progress == null) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [progress]);
 
   const load = useCallback(async () => {
     try {
@@ -428,6 +444,68 @@ function DesignsPanel({
     finally { setBusy(null); }
   }
 
+  /**
+   * Een mp4 op de CLICK-pin. Drie stappen, en de eerste twee raken onze server
+   * niet: hij tekent alleen de plek, de browser zet het bestand rechtstreeks in
+   * de bucket (een body van 120 MB komt niet door een serverless function) en
+   * de laatste call is een paar honderd bytes JSON.
+   */
+  async function uploadVideo(designId: string, file: File) {
+    setErr(null); setNote(null); setClash([]); setVideoNotes([]);
+    setBusy(designId); setProgress(0);
+    try {
+      const facts = await readVideoFacts(file);
+      if (!facts.poster) {
+        throw new Error(
+          "No cover frame could be read out of this file — the browser cannot decode it. " +
+          "Export it as H.264 mp4 and try again."
+        );
+      }
+
+      const signRes = await fetch(`/api/organic/phase4/${orgId}/design-video`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          step: "sign", design_id: designId,
+          name: file.name, type: file.type, size: file.size,
+          duration: facts.duration, width: facts.width, height: facts.height,
+        }),
+      });
+      const sign = await signRes.json() as {
+        video?: { path: string; signed_url: string };
+        poster?: { path: string; signed_url: string };
+        filename?: string; warnings?: string[]; error?: string;
+      };
+      if (!signRes.ok || !sign.video || !sign.poster) {
+        throw new Error(sign.error ?? `HTTP ${signRes.status}`);
+      }
+
+      await putToSignedUrl(sign.video.signed_url, file, file.type || "video/mp4", setProgress);
+      setProgress(1);
+      await putToSignedUrl(sign.poster.signed_url, facts.poster, "image/jpeg");
+
+      const regRes = await fetch(`/api/organic/phase4/${orgId}/design-video`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          step: "register", design_id: designId,
+          video_path: sign.video.path, poster_path: sign.poster.path,
+          duration: facts.duration, width: facts.width, height: facts.height,
+        }),
+      });
+      const reg = await regRes.json() as { filename?: string; warnings?: string[]; error?: string };
+      if (!regRes.ok) throw new Error(reg.error ?? `HTTP ${regRes.status}`);
+
+      const dur = formatDuration(facts.duration);
+      setNote(
+        `Uploaded as ${reg.filename}${dur ? ` (${dur}, ${formatBytes(file.size)})` : ""} — ` +
+        `design QC is back to PENDING.`
+      );
+      setVideoNotes([...(sign.warnings ?? []), ...(reg.warnings ?? [])]);
+      await load();
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); setProgress(null); }
+  }
+
   async function generate() {
     setErr(null); setNote(null); setBusy("all");
     try {
@@ -443,7 +521,12 @@ function DesignsPanel({
     finally { setBusy(null); }
   }
 
-  const missing = (rows ?? []).filter((r) => !r.asset_path).length;
+  // Een video-design heeft een posterframe in asset_path, dus "heeft beeld" is
+  // waar terwijl de mp4 ontbreekt. Hier telt hij als onvolledig, anders staat
+  // er "alle vier hebben een beeld" boven een cyclus die niets publiceert.
+  const missing = (rows ?? []).filter(
+    (r) => !r.asset_path || (r.media_type === "VIDEO" && !r.video_path)
+  ).length;
 
   return (
     <div className="space-y-3">
@@ -458,9 +541,16 @@ function DesignsPanel({
           {rows.map((d) => (
             <div key={d.design_id} className="flex items-center gap-3 rounded-[10px] border border-o-hairline bg-o-surface px-3 py-2">
               {d.asset_path ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={d.asset_path} alt={`Design ${d.design_number}`}
-                  className="w-12 h-16 object-cover rounded border border-o-hairline" />
+                <span className="relative shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={d.asset_path} alt={`Design ${d.design_number}`}
+                    className="w-12 h-16 object-cover rounded border border-o-hairline" />
+                  {d.media_type === "VIDEO" && (
+                    <span className="absolute inset-0 flex items-center justify-center rounded bg-black/25">
+                      <Play className="w-4 h-4 text-white" fill="currentColor" />
+                    </span>
+                  )}
+                </span>
               ) : (
                 <div className="w-12 h-16 rounded border border-dashed border-o-hairline flex items-center justify-center text-[10px] text-muted-foreground">
                   empty
@@ -470,10 +560,27 @@ function DesignsPanel({
                 <div className="text-sm font-medium">
                   D{d.design_number} · {d.intent}
                   <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                    {d.route === "DIRECT" ? "uploaded" : d.asset_path ? "generated" : "no image yet"} · QC {d.design_qc}
+                    {d.media_type === "VIDEO"
+                      ? `video${formatDuration(Number(d.video_duration_s)) ? ` · ${formatDuration(Number(d.video_duration_s))}` : ""}`
+                      : d.route === "DIRECT" ? "uploaded" : d.asset_path ? "generated" : "no image yet"}
+                    {" · QC "}{d.design_qc}
                   </span>
                 </div>
                 <div className="text-[11px] text-muted-foreground truncate">{d.filename ?? "—"}</div>
+                {d.media_type === "VIDEO" && !d.video_path && (
+                  <div className="text-[11px] text-o-neg">The mp4 is missing — upload it again.</div>
+                )}
+                {busy === d.design_id && progress != null && (
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="h-1 flex-1 rounded bg-o-sunk overflow-hidden">
+                      <span className="block h-full bg-foreground transition-[width]"
+                        style={{ width: `${Math.round(progress * 100)}%` }} />
+                    </span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {Math.round(progress * 100)}%
+                    </span>
+                  </div>
+                )}
               </div>
               {/* Uploading is the normal route, not the fallback: the
                   designs are drawn in Canva and generating is not good
@@ -486,7 +593,9 @@ function DesignsPanel({
                   : "bg-foreground text-background hover:opacity-90",
                 busy !== null && "opacity-50 cursor-not-allowed",
               )}>
-                {busy === d.design_id ? "Uploading…" : d.asset_path ? "Replace" : "Upload design"}
+                {busy === d.design_id && progress == null
+                  ? "Uploading…"
+                  : d.asset_path && d.media_type !== "VIDEO" ? "Replace" : "Upload design"}
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                   disabled={busy !== null}
                   onChange={(e) => {
@@ -495,6 +604,28 @@ function DesignsPanel({
                     if (f) void upload(d.design_id, f);
                   }} />
               </label>
+              {/* Alleen op de CLICK-pin. D1-D3 houden hun micro-crops, en dat is
+                  waar de freshness-ladder van de methode op staat — een video
+                  kan niet geknipt worden, dus vier video-designs zouden zestien
+                  pins met vier bestanden opleveren in plaats van zestien
+                  verschillende. Zie video.ts. */}
+              {canBeVideo(d.intent) && (
+                <label className={cn(
+                  "shrink-0 text-[11px] px-2.5 py-1.5 rounded-md cursor-pointer font-semibold border border-o-hairline hover:bg-o-sunk",
+                  busy !== null && "opacity-50 cursor-not-allowed",
+                )}>
+                  {busy === d.design_id && progress != null
+                    ? `${Math.round(progress * 100)}%`
+                    : d.media_type === "VIDEO" ? "Replace video" : "Upload video"}
+                  <input type="file" accept={VIDEO_ACCEPT} className="hidden"
+                    disabled={busy !== null}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void uploadVideo(d.design_id, f);
+                    }} />
+                </label>
+              )}
             </div>
           ))}
         </div>
@@ -504,8 +635,10 @@ function DesignsPanel({
         {rows && rows.length > 0 && (
           <span className="text-[11px] text-muted-foreground">
             {missing === 0
-              ? "All four have an image — cut the micro-crops next (P4.2.5)."
-              : `${missing} of ${rows.length} still without an image.`}
+              ? (rows.some((r) => r.media_type === "VIDEO")
+                  ? "All four are in — run P4.2.5 next: crops for the images, the file itself for the video."
+                  : "All four have an image — cut the micro-crops next (P4.2.5).")
+              : `${missing} of ${rows.length} still without their file.`}
           </span>
         )}
         <span className="flex-1" />
@@ -519,8 +652,22 @@ function DesignsPanel({
         one design. On an AI-generated image, apply the 1% transparent frame in Canva before export —
         it strips the C2PA metadata Pinterest reads to auto-flag AI content.
       </p>
+      <p className="text-[11px] text-muted-foreground">
+        The CLICK pin also takes an <strong>mp4</strong> (up to {MAX_VIDEO_BYTES / 1048576} MB, 4s to
+        15 minutes, portrait). The cover frame is taken from the video itself and becomes the
+        thumbnail everywhere in here. A video cannot be micro-cropped, so its four pins carry the
+        same file on four boards — which is why only the CLICK design offers it.
+      </p>
       {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
       {note && <p className="text-xs text-emerald-700">{note}</p>}
+      {videoNotes.length > 0 && (
+        <div className="rounded-lg bg-o-sunk px-3 py-2.5 ring-1 ring-inset ring-o-hairline">
+          <p className="text-sm font-medium text-foreground">What that video means for this cycle</p>
+          <ul className="mt-1 space-y-1 text-sm text-o-ink-2 list-disc pl-4">
+            {videoNotes.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </div>
+      )}
       {clash.length > 0 && (
         <div className="rounded-lg bg-o-accent/10 ring-1 ring-inset ring-o-accent/30 px-3 py-2.5">
           <p className="text-sm font-medium text-foreground flex items-center gap-2">
@@ -547,6 +694,10 @@ interface CycleAsset {
   intent: string;
   route: string;
   asset_path: string | null;
+  /** Bij een video-design is asset_path het posterframe en dit de mp4. */
+  media_type?: string;
+  video_path?: string | null;
+  video_duration_s?: string | number | null;
   filename: string | null;
   design_qc: string;
   qc_notes: string | null;
@@ -683,7 +834,25 @@ function QcPanel({ orgId, urlId, mode }: { orgId: string; urlId: string; mode: "
             </div>
 
             {mode === "design" ? (
-              r.asset_path ? (
+              // Een video beoordeel je niet op één frame, dus hier staat de
+              // speler en niet het posterframe. Dat is wat design-QC op dit
+              // design betekent: hem uitkijken.
+              r.media_type === "VIDEO" && r.video_path ? (
+                <div className="mt-2.5 space-y-1.5">
+                  <video src={r.video_path} poster={r.asset_path ?? undefined}
+                         controls muted playsInline preload="metadata"
+                         className="rounded-md ring-1 ring-inset ring-o-hairline max-h-56" />
+                  <p className="text-[11px] text-o-ink-3">
+                    Video pin{formatDuration(Number(r.video_duration_s)) ? ` · ${formatDuration(Number(r.video_duration_s))}` : ""}
+                    {" · "}the four pins of this design carry this same file on four boards, with the
+                    same title and description — a video cannot be micro-cropped.
+                  </p>
+                </div>
+              ) : r.media_type === "VIDEO" ? (
+                <p className="mt-2 text-sm text-o-accent">
+                  This is a video design and the mp4 is not on it — upload it again (P4.2.4).
+                </p>
+              ) : r.asset_path ? (
                 <a href={r.asset_path} target="_blank" rel="noreferrer" className="mt-2.5 block">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={r.asset_path} alt={`Design ${r.design_number}`}
@@ -754,7 +923,7 @@ interface PublishHealthView {
   published: Array<{
     sequence: number; cycle: string; design_number: number; intent: string;
     copy_variant: string; board: string; published_on: string;
-    image_url: string | null; pin_url: string | null; title: string | null;
+    image_url: string | null; is_video?: boolean; pin_url: string | null; title: string | null;
   }>;
   duplicate_designs: Array<{ designs: string[] }>;
 }
@@ -878,13 +1047,23 @@ function PublishPanel({ orgId }: { orgId: string }) {
             {h.published.map((p) => (
               <li key={p.sequence + p.cycle} className="flex items-center gap-3 px-3.5 py-2">
                 {p.image_url
-                  // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={p.image_url} alt="" className="w-10 h-14 object-cover rounded shrink-0 bg-o-sunk" />
+                  ? (
+                    <span className="relative shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.image_url} alt="" className="w-10 h-14 object-cover rounded bg-o-sunk" />
+                      {p.is_video && (
+                        <span className="absolute inset-0 flex items-center justify-center rounded bg-black/25 text-white text-[9px] font-bold">
+                          ▶
+                        </span>
+                      )}
+                    </span>
+                  )
                   : <div className="w-10 h-14 rounded shrink-0 bg-o-sunk" />}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-foreground truncate">
                     {p.cycle} · <b>D{p.design_number}{p.copy_variant}</b>{" "}
                     <span className="text-o-ink-3">{p.intent === "CLICK" ? "click" : "save"}</span>
+                    {p.is_video && <span className="text-o-ink-3"> · video</span>}
                   </p>
                   <p className="text-xs text-o-ink-2 truncate">
                     {p.published_on} → {p.board}

@@ -56,13 +56,15 @@ async function main() {
          FROM organic.pins p
          JOIN organic.waterfalls w ON w.id = p.waterfall_id
          JOIN organic.boards b     ON b.id = p.board_id
+         JOIN organic.designs d    ON d.id = p.design_id
          JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
         WHERE w.org_id = $1
           AND p.status = 'SCHEDULED'::organic.pin_status
           AND p.scheduled_date <= CURRENT_DATE
           AND p.image_path IS NOT NULL
           AND b.pinterest_board_id IS NOT NULL
-          AND cs.title IS NOT NULL`,
+          AND cs.title IS NOT NULL
+          AND (d.media_type = 'IMAGE'::organic.media_kind OR p.video_path IS NOT NULL)`,
       [org.id]
     );
     const cronSet = new Set(cron.rows.map((r) => r.pin_id));

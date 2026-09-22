@@ -8,6 +8,10 @@
  *
  * The waterfall math (deliberately verbatim in code so it's provable):
  *   • 16 pins per URL = 4 designs × 4 crops (copy variants A/B/C/D)
+ *     Uitzondering sinds 22-09-2026: D4 (de CLICK-pin) mag een mp4 zijn. Een
+ *     video wordt niet geknipt — sharp doet geen video — dus dragen die vier
+ *     pins hetzelfde bestand op vier boards. De methode zegt over video niets;
+ *     dit is een bewuste uitbreiding, zie video.ts en migratie 103.
  *   • Sequence 1..16 is interleaved by design:
  *       s=1 → D1/A, s=2 → D2/A, s=3 → D3/A, s=4 → D4/A,
  *       s=5 → D1/B, s=6 → D2/B, ...             s=16 → D4/D
@@ -43,6 +47,9 @@ import { adviseBoards, adviseKeywords, adviseUrls, checkBoards, checkKeywords, c
 import type { UrlReadiness } from "./structure";
 import { generateWithValidator, persistDraft } from "./ai";
 import { imageAudienceDirective, languageDirective, languageSummary, writingLanguage, type WritingLanguage } from "./language";
+import {
+  MAX_VIDEO_BYTES, canBeVideo, checkVideoFile, videoExtension, videoFileNameFor,
+} from "./video";
 
 /** The org brief carries the resolved language; a store with no brief row at
  *  all still has to render, and falls back to the same English default. */
@@ -1004,10 +1011,15 @@ export async function generateWaterfall(
           design_number: number; asset_path: string | null; filename: string | null;
           route: string; text_overlay_keyword: string | null;
           qc_status: string; qc_notes: string | null;
+          media_type: string; video_path: string | null;
+          video_duration_s: string | null; video_bytes: string | null;
           title: string | null; description: string | null; tagline: string | null;
         }>(
           `SELECT d.design_number, d.asset_path, d.filename, d.route::text AS route,
                   d.text_overlay_keyword, d.qc_status::text AS qc_status, d.qc_notes,
+                  d.media_type::text AS media_type, d.video_path,
+                  d.video_duration_s::text AS video_duration_s,
+                  d.video_bytes::text AS video_bytes,
                   cs.title, cs.description, cs.tagline
              FROM organic.designs d
              LEFT JOIN organic.copy_sets cs ON cs.design_id = d.id
@@ -1035,6 +1047,12 @@ export async function generateWaterfall(
       const intent = d < 3 ? "SAVE" : "CLICK";
       const prev = carriedByNumber.get(d + 1);
       const route = prev?.asset_path ? prev.route : "DIRECT";
+      // Een video komt net zo mee als een beeld: regenereren gaat over de
+      // datums of een board, niet over het bestand. Alleen op een design dat
+      // video mág zijn — het designnummer is stabiel, maar de intent is wat
+      // erover beslist.
+      const prevVideo = prev?.media_type === "VIDEO" && prev.video_path && canBeVideo(intent)
+        ? prev : null;
       // The SOP name is rebuilt from today's primary keyword; a carried image
       // keeps the name it was stored under, because that name is in its URL.
       const filename = prev?.asset_path ? prev.filename : fileNameFor(primaryKeyword, d + 1);
@@ -1042,16 +1060,22 @@ export async function generateWaterfall(
       const dr = await client.query<{ id: string }>(
         `INSERT INTO organic.designs (
            id, waterfall_id, design_number, intent, route, filename, text_overlay_keyword,
-           asset_path, fresh_technique, qc_status, qc_notes, created_at
+           asset_path, fresh_technique, qc_status, qc_notes, created_at,
+           media_type, video_path, video_duration_s, video_bytes
          ) VALUES (
            gen_random_uuid(), $1, $2, $3::organic.pin_intent, $4::organic.design_route, $5, $6,
-           $7, NULL, $8::organic.qc_status, $9, now()
+           $7, NULL, $8::organic.qc_status, $9, now(),
+           $10::organic.media_kind, $11, $12::numeric, $13::bigint
          ) RETURNING id::text`,
         [waterfallId, d + 1, intent, route, filename,
          d === 3 ? primaryKeyword : (prev?.text_overlay_keyword ?? null),
          prev?.asset_path ?? null,
          prev?.asset_path ? (prev.qc_status ?? "PENDING") : "PENDING",
-         prev?.asset_path ? prev.qc_notes : null]
+         prev?.asset_path ? prev.qc_notes : null,
+         prevVideo ? "VIDEO" : "IMAGE",
+         prevVideo?.video_path ?? null,
+         prevVideo?.video_duration_s ?? null,
+         prevVideo?.video_bytes ?? null]
       );
       designIds.push(dr.rows[0].id);
     }
@@ -1344,6 +1368,8 @@ async function cycleWorkState(orgId: string, urlId: string) {
     designs: string; met_beeld: string; met_titel: string;
     design_qc: string; copy_qc: string; pins: string; pins_met_beeld: string;
     design_ok: string; copy_ok: string; design_nee: string; copy_nee: string;
+    video_designs: string; video_met_bestand: string;
+    video_pins: string; video_pins_met_bestand: string;
   }>(
     `WITH live AS (
        SELECT id FROM organic.waterfalls
@@ -1362,10 +1388,31 @@ async function cycleWorkState(orgId: string, urlId: string) {
             COUNT(*) FILTER (WHERE cs.human_qc_status = 'APPROVED'::organic.qc_status)::text AS copy_ok,
             COUNT(*) FILTER (WHERE d.qc_status = 'REJECTED'::organic.qc_status)::text AS design_nee,
             COUNT(*) FILTER (WHERE cs.human_qc_status = 'REJECTED'::organic.qc_status)::text AS copy_nee,
+            -- Een video-design heeft een posterframe in asset_path (dus het
+            -- telt mee in met_beeld) EN een mp4. Zonder die tweede kolom leest
+            -- "4 of 4 designs have an image" als klaar terwijl de video er niet is.
+            COUNT(*) FILTER (WHERE d.media_type = 'VIDEO'::organic.media_kind)::text AS video_designs,
+            COUNT(*) FILTER (WHERE d.media_type = 'VIDEO'::organic.media_kind
+                               AND d.video_path IS NOT NULL)::text AS video_met_bestand,
             (SELECT COUNT(*)::text FROM organic.pins p JOIN live ON live.id = p.waterfall_id
               WHERE p.status <> 'CANCELLED'::organic.pin_status) AS pins,
             (SELECT COUNT(*)::text FROM organic.pins p JOIN live ON live.id = p.waterfall_id
-              WHERE p.status <> 'CANCELLED'::organic.pin_status AND p.image_path IS NOT NULL) AS pins_met_beeld
+              WHERE p.status <> 'CANCELLED'::organic.pin_status AND p.image_path IS NOT NULL) AS pins_met_beeld,
+            -- De pins van een video-design: hoeveel er zijn en hoeveel de mp4
+            -- al dragen. De cron weigert de rest (zie publishDuePins), want een
+            -- video-pin zonder video zou als image-pin van het posterframe
+            -- uitgaan en dat is stil het verkeerde resultaat.
+            (SELECT COUNT(*)::text FROM organic.pins p
+               JOIN live ON live.id = p.waterfall_id
+               JOIN organic.designs dd ON dd.id = p.design_id
+              WHERE p.status <> 'CANCELLED'::organic.pin_status
+                AND dd.media_type = 'VIDEO'::organic.media_kind) AS video_pins,
+            (SELECT COUNT(*)::text FROM organic.pins p
+               JOIN live ON live.id = p.waterfall_id
+               JOIN organic.designs dd ON dd.id = p.design_id
+              WHERE p.status <> 'CANCELLED'::organic.pin_status
+                AND dd.media_type = 'VIDEO'::organic.media_kind
+                AND p.video_path IS NOT NULL) AS video_pins_met_bestand
        FROM organic.designs d
        JOIN live ON live.id = d.waterfall_id
        LEFT JOIN organic.copy_sets cs ON cs.design_id = d.id`,
@@ -1385,6 +1432,10 @@ async function cycleWorkState(orgId: string, urlId: string) {
     copyRejected: n(row?.copy_nee),
     pins: n(row?.pins),
     pinsWithImage: n(row?.pins_met_beeld),
+    videoDesigns: n(row?.video_designs),
+    videoDesignsWithFile: n(row?.video_met_bestand),
+    videoPins: n(row?.video_pins),
+    videoPinsWithFile: n(row?.video_pins_met_bestand),
   };
 }
 
@@ -1465,10 +1516,20 @@ export async function deriveCycleTaskFacts(orgId: string, urlId: string): Promis
     ["P4.1.6", setup.kws > 0, `${setup.kws} keywords assigned.`],
     ["P4.1.7", setup.boards >= 4, `${setup.boards} boards assigned.`],
     ["P4.1.8", setup.overlay > 0, `${setup.overlay} overlay terms marked.`],
-    ["P4.2.4", st.designs > 0 && st.withImage >= st.designs,
-      `${of(st.withImage, st.designs)} designs have an image.`],
-    ["P4.2.5", st.pins > 0 && st.pinsWithImage >= st.pins,
-      `${of(st.pinsWithImage, st.pins)} pins carry an image.`],
+    // Een video-design heeft een posterframe, dus `withImage` is waar terwijl de
+    // mp4 er niet is. Zonder deze tweede voorwaarde sluit P4.2.4 zichzelf op een
+    // cyclus die niets kan publiceren — en dat is precies de klasse fout die
+    // deze derivatie bestaat om te voorkomen.
+    ["P4.2.4", st.designs > 0 && st.withImage >= st.designs
+      && st.videoDesignsWithFile >= st.videoDesigns,
+      `${of(st.withImage, st.designs)} designs have an image` +
+      (st.videoDesigns > 0
+        ? `, ${of(st.videoDesignsWithFile, st.videoDesigns)} video design(s) have their mp4.`
+        : ".")],
+    ["P4.2.5", st.pins > 0 && st.pinsWithImage >= st.pins
+      && st.videoPinsWithFile >= st.videoPins,
+      `${of(st.pinsWithImage, st.pins)} pins carry an image` +
+      (st.videoPins > 0 ? `, ${of(st.videoPinsWithFile, st.videoPins)} carry the video.` : ".")],
     ["P4.2.7", st.designs > 0 && st.designApproved >= st.designs,
       `${of(st.designApproved, st.designs)} designs approved.`],
     ["P4.2.8", st.designs > 0 && st.withTitle >= st.designs,
@@ -1566,6 +1627,26 @@ function launchReadiness(
   waterfallStatus: string | null
 ): LaunchReadiness {
   const of = (n: number, total: number) => `${n} of ${total}`;
+  // Twee checks die alleen bestaan zodra er een video-design in de cyclus zit.
+  // Ze staan er niet standaard bij: negen checks waarvan er twee "0 of 0"
+  // zeggen op elke beeld-cyclus is precies hoe een paneel ophoudt gelezen te
+  // worden. Een video-design heeft een posterframe, dus het telt mee in
+  // "Designs have an image" — zonder deze twee leest een cyclus zonder mp4
+  // als volledig klaar.
+  const videoChecks: ReadinessCheck[] = st.videoDesigns === 0 ? [] : [
+    {
+      label: "Video design carries its mp4",
+      ok: st.videoDesignsWithFile >= st.videoDesigns,
+      detail: of(st.videoDesignsWithFile, st.videoDesigns),
+      task: "P4.2.4",
+    },
+    {
+      label: "Video pins carry the file",
+      ok: st.videoPins > 0 && st.videoPinsWithFile >= st.videoPins,
+      detail: of(st.videoPinsWithFile, st.videoPins),
+      task: "P4.2.5",
+    },
+  ];
   const checks: ReadinessCheck[] = [
     { label: "Boards assigned", ok: boards >= 4, detail: `${boards} assigned`, task: "P4.1.7" },
     { label: "Keywords assigned", ok: keywords > 0, detail: `${keywords} assigned`, task: "P4.1.6" },
@@ -1581,6 +1662,7 @@ function launchReadiness(
       detail: waterfallStatus === null ? "not generated" : waterfallStatus.toLowerCase(),
       task: waterfallStatus === null ? "P4.3.1" : "P4.3.2",
     },
+    ...videoChecks,
   ];
   return { passed: checks.filter((c) => c.ok).length, total: checks.length, checks };
 }
@@ -1752,6 +1834,9 @@ export interface PlannedPin {
   board_live: boolean;
   status: string;
   image_url: string | null;
+  /** De mp4 die deze pin publiceert. Null = image-pin. `image_url` is bij een
+   *  video het posterframe, dus elke thumbnail blijft werken. */
+  video_url: string | null;
   title: string | null;
   pin_url: string | null;
 }
@@ -1813,12 +1898,13 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
   const planRes = await pool.query<{
     url_id: string; sequence_number: number; scheduled_date: string; design_number: number;
     intent: string; copy_variant: string; board_name: string; board_live: boolean;
-    status: string; image_path: string | null; title: string | null; pinterest_pin_id: string | null;
+    status: string; image_path: string | null; video_path: string | null;
+    title: string | null; pinterest_pin_id: string | null;
   }>(
     `SELECT w.url_id::text, p.sequence_number, p.scheduled_date::text AS scheduled_date,
             d.design_number, d.intent::text AS intent, p.copy_variant,
             b.name AS board_name, b.pinterest_board_id IS NOT NULL AS board_live,
-            p.status::text AS status, p.image_path, cs.title, p.pinterest_pin_id
+            p.status::text AS status, p.image_path, p.video_path, cs.title, p.pinterest_pin_id
        FROM organic.pins p
        JOIN organic.waterfalls w ON w.id = p.waterfall_id
        JOIN organic.designs d    ON d.id = p.design_id
@@ -1837,7 +1923,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
       sequence: r.sequence_number, scheduled_date: r.scheduled_date,
       design_number: r.design_number, intent: r.intent, copy_variant: r.copy_variant,
       board: r.board_name, board_live: r.board_live, status: r.status,
-      image_url: r.image_path, title: r.title,
+      image_url: r.image_path, video_url: r.video_path, title: r.title,
       pin_url: r.pinterest_pin_id ? `https://www.pinterest.com/pin/${r.pinterest_pin_id}/` : null,
     });
     planByUrl.set(r.url_id, arr);
@@ -3115,10 +3201,25 @@ export async function generateDesignImages(
        FROM organic.designs d
       WHERE d.waterfall_id = $1
         AND ($2::boolean IS NOT TRUE OR d.qc_status = 'REJECTED'::organic.qc_status)
+        -- Een video-design wordt hier overgeslagen: Krea maakt beeld, en dat
+        -- beeld zou het posterframe overschrijven terwijl de mp4 blijft staan.
+        -- Wie het design tot beeld wil terugbrengen, uploadt een afbeelding.
+        AND d.media_type = 'IMAGE'::organic.media_kind
       ORDER BY d.design_number`,
     [liveId, opts.onlyRejected ?? false]
   );
   if (designs.rowCount === 0) {
+    const video = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.designs
+        WHERE waterfall_id = $1 AND media_type = 'VIDEO'::organic.media_kind`,
+      [liveId]
+    );
+    if (Number(video.rows[0]?.n ?? 0) > 0) {
+      throw new Error(
+        "Every design left here is a video — generating makes images. Upload an image on a " +
+        "design to take it off the video route."
+      );
+    }
     throw new Error(
       opts.onlyRejected
         ? "No rejected designs to regenerate"
@@ -3239,9 +3340,11 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
   const pins = await pool.query<{
     pin_id: string; design_id: string; design_number: number;
     copy_variant: string; asset_path: string | null; filename: string | null;
+    media_type: string; video_path: string | null;
   }>(
     `SELECT p.id::text AS pin_id, d.id::text AS design_id, d.design_number,
-            p.copy_variant, d.asset_path, d.filename
+            p.copy_variant, d.asset_path, d.filename,
+            d.media_type::text AS media_type, d.video_path
        FROM organic.pins p
        JOIN organic.designs d ON d.id = p.design_id
       WHERE p.waterfall_id = $1
@@ -3254,6 +3357,14 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
   if (missing.length > 0) {
     throw new Error(`${missing.length} pin(s) have no design image yet — run P4.2.4 first`);
   }
+  // Een video-design heeft altijd een posterframe, dus de check hierboven laat
+  // hem door terwijl de mp4 ontbreekt. Apart gemeld, want de handeling is een
+  // andere: niet "maak een design", maar "upload de video op D4".
+  const videoWithoutFile = pins.rows.filter((p) => p.media_type === "VIDEO" && !p.video_path);
+  if (videoWithoutFile.length > 0) {
+    const numbers = [...new Set(videoWithoutFile.map((p) => `D${p.design_number}`))].join(", ");
+    throw new Error(`${numbers} is a video design with no mp4 yet — upload the video first (P4.2.4)`);
+  }
 
   // Four corners, 96% of the frame. Variant A is the untouched original so
   // there is always one pin carrying the design as it was approved.
@@ -3264,10 +3375,31 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
 
   const cache = new Map<string, Buffer>();
   let cropped = 0;
+  let videoPins = 0;
 
   for (const p of pins.rows) {
+    // Een video wordt niet geknipt: sharp doet geen mp4, en ffmpeg op Vercel
+    // is deze winst niet waard. Alle vier de pins van een video-design dragen
+    // dus hetzelfde bestand op vier boards — dat is wat de kalender en het
+    // readiness-paneel ook zeggen, in plaats van het te verbergen. Het
+    // posterframe gaat mee als image_path: dat is de thumbnail op elk scherm
+    // en de cover die Pinterest zelf ophaalt.
+    if (p.media_type === "VIDEO") {
+      await pool.query(
+        `UPDATE organic.pins SET image_path = $2, video_path = $3 WHERE id = $1`,
+        [p.pin_id, p.asset_path, p.video_path]
+      );
+      videoPins += 1;
+      continue;
+    }
     if (p.copy_variant === "A") {
-      await pool.query(`UPDATE organic.pins SET image_path = $2 WHERE id = $1`, [p.pin_id, p.asset_path]);
+      // video_path expliciet leeg: een design dat van video naar beeld is
+      // teruggezet, laat anders zijn mp4 op de pin achter en die zou blijven
+      // uitgaan met een nieuw posterframe eroverheen.
+      await pool.query(
+        `UPDATE organic.pins SET image_path = $2, video_path = NULL WHERE id = $1`,
+        [p.pin_id, p.asset_path]
+      );
       continue;
     }
     let src = cache.get(p.design_id);
@@ -3297,13 +3429,20 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
       .upload(path, out, { contentType: "image/jpeg", upsert: true });
     if (error) throw new Error(`Upload failed for ${p.design_number}${p.copy_variant}: ${error.message}`);
     const { data: pub } = admin.storage.from("pin-images").getPublicUrl(path);
-    await pool.query(`UPDATE organic.pins SET image_path = $2 WHERE id = $1`, [p.pin_id, pub.publicUrl]);
+    await pool.query(
+      `UPDATE organic.pins SET image_path = $2, video_path = NULL WHERE id = $1`,
+      [p.pin_id, pub.publicUrl]
+    );
     cropped += 1;
   }
 
+  // CROP alleen op de designs die ook echt geknipt zijn. Een video-design
+  // heeft geen freshness-techniek die wij toepassen, en 'CROP' erop zetten is
+  // een bewering over het bestand die niet waar is.
   await pool.query(
     `UPDATE organic.designs SET fresh_technique = 'CROP'::organic.fresh_technique
-      WHERE waterfall_id = $1`,
+      WHERE waterfall_id = $1
+        AND media_type = 'IMAGE'::organic.media_kind`,
     [liveId]
   );
   // P4.2.5 is "every pin carries its image". This was computed in
@@ -3311,9 +3450,16 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
   // run and only scripts/reconcile-phase4-tasks.ts ever closed it.
   const st = await cycleWorkState(orgId, urlId);
   await recordCycleWork(orgId, urlId, "P4.2.5",
-    st.pins > 0 && st.pinsWithImage >= st.pins,
-    `${st.pinsWithImage} of ${st.pins} pins carry an image.`);
-  return { ok: true, cropped, originals: (pins.rowCount ?? 0) - cropped };
+    st.pins > 0 && st.pinsWithImage >= st.pins
+      && st.videoPinsWithFile >= st.videoPins,
+    `${st.pinsWithImage} of ${st.pins} pins carry an image` +
+    (st.videoPins > 0 ? `, ${st.videoPinsWithFile} of ${st.videoPins} carry the video.` : "."));
+  return {
+    ok: true,
+    cropped,
+    originals: (pins.rowCount ?? 0) - cropped - videoPins,
+    video_pins: videoPins,
+  };
 }
 
 /** P4.2.7 — design QC. */
@@ -3598,8 +3744,10 @@ export async function saveDesignImage(
   const pool = organicPool();
   const meta = await pool.query<{
     design_number: number; filename: string | null; primary_keyword: string | null;
+    media_type: string;
   }>(
-    `SELECT d.design_number, d.filename, k.term AS primary_keyword
+    `SELECT d.design_number, d.filename, k.term AS primary_keyword,
+            d.media_type::text AS media_type
        FROM organic.designs d
        JOIN organic.waterfalls w ON w.id = d.waterfall_id
        LEFT JOIN organic.url_keywords uk ON uk.url_id = w.url_id AND uk.is_primary
@@ -3609,6 +3757,7 @@ export async function saveDesignImage(
   );
   if (meta.rowCount === 0) throw new Error("Design not found for this org");
   const { design_number, filename, primary_keyword } = meta.rows[0];
+  const wasVideo = meta.rows[0].media_type === "VIDEO";
 
   const wanted = primary_keyword
     ? fileNameFor(primary_keyword, design_number)
@@ -3622,16 +3771,34 @@ export async function saveDesignImage(
   if (error) throw new Error(`Upload failed: ${error.message}`);
   const { data: pub } = admin.storage.from("pin-images").getPublicUrl(path);
 
+  // Een beeld erop zetten maakt het design weer een beeld-design. De mp4-
+  // kolommen moeten daarbij leeg: de CHECK staat video_path alleen toe bij
+  // media_type = VIDEO, en een achtergebleven mp4 zou blijven publiceren met
+  // dit nieuwe bestand als cover eroverheen.
   await pool.query(
     `UPDATE organic.designs
         SET asset_path = $2,
             filename = $3,
             route = 'DIRECT'::organic.design_route,
+            media_type = 'IMAGE'::organic.media_kind,
+            video_path = NULL,
+            video_duration_s = NULL,
+            video_bytes = NULL,
             qc_status = 'PENDING'::organic.qc_status,
             qc_notes = NULL
       WHERE id = $1`,
     [designId, pub.publicUrl, wanted]
   );
+  // Wisselt het mediatype, dan is wat er op de pins staat van het andere soort
+  // en moet P4.2.5 opnieuw. Alleen bij een wisseling: bij het vervangen van
+  // beeld door beeld blijft het gedrag zoals het was.
+  if (wasVideo) {
+    await pool.query(
+      `UPDATE organic.pins SET image_path = NULL, video_path = NULL
+        WHERE design_id = $1 AND status IN ('PLANNED','SCHEDULED','FAILED')`,
+      [designId]
+    );
+  }
 
   // Putting the image in IS P4.2.4, whichever way it got here. The task stays
   // open while designs are still missing, and closes on the last one.
@@ -3648,6 +3815,209 @@ export async function saveDesignImage(
   // live it is not.
   const warnings = await artworkClashes(orgId, designId, file.bytes).catch(() => []);
   return { ok: true, asset_path: pub.publicUrl, filename: wanted, warnings };
+}
+
+/* ------------------------------------------------------------------ */
+/* P4.2.4 — video op de CLICK-pin                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Waar een mp4 komt te staan, en waarom hij niet door de API gaat.
+ *
+ * Een videobestand is 5 tot 120 MB en Vercel kapt een request body af op
+ * 4,5 MB — de bestaande design-image route zou er dus met een 413 op
+ * antwoorden, en dat is geen limiet die je met een instelling wegneemt. Dus
+ * gaat het bestand rechtstreeks van de browser naar Supabase Storage met een
+ * **signed upload URL**: deze functie tekent de plek, de browser zet het
+ * bestand er neer, en `saveDesignVideo()` registreert het daarna in één kleine
+ * JSON-call.
+ *
+ * De organic-app staat achter geen login (zie middleware.ts), dus de browser
+ * heeft geen Supabase-sessie en een schrijfrecht voor anon op de bucket zou
+ * betekenen dat iedereen erin kan schrijven. De token in de signed URL is
+ * precies het tegenovergestelde: één pad, twee uur geldig, verder niets.
+ */
+export async function signDesignVideoUpload(
+  orgId: string,
+  designId: string,
+  file: { name: string; type: string; size: number; duration?: number | null; width?: number | null; height?: number | null }
+): Promise<{
+  video: { path: string; signed_url: string; public_url: string };
+  poster: { path: string; signed_url: string; public_url: string };
+  filename: string;
+  warnings: string[];
+}> {
+  const pool = organicPool();
+  const meta = await pool.query<{
+    design_number: number; intent: string; primary_keyword: string | null;
+  }>(
+    `SELECT d.design_number, d.intent::text AS intent, k.term AS primary_keyword
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+       LEFT JOIN organic.url_keywords uk ON uk.url_id = w.url_id AND uk.is_primary
+       LEFT JOIN organic.keywords k ON k.id = uk.keyword_id
+      WHERE d.id = $1 AND w.org_id = $2`,
+    [designId, orgId]
+  );
+  if (meta.rowCount === 0) throw new Error("Design not found for this org");
+  const { design_number, intent, primary_keyword } = meta.rows[0];
+
+  // Alleen de CLICK-pin. D1-D3 houden hun micro-crops, en dat is de afspraak
+  // waar de hele freshness-ladder van de methode op staat — zie video.ts.
+  if (!canBeVideo(intent)) {
+    throw new Error(
+      `D${design_number} is a ${intent} design. Only the CLICK pin takes video, so that ` +
+      `D1-D3 keep the micro-crops the method is built on — upload an image here.`
+    );
+  }
+
+  const verdict = checkVideoFile({
+    name: file.name, type: file.type, size: file.size,
+    duration: file.duration, width: file.width, height: file.height,
+  });
+  if (verdict.errors.length > 0) throw new Error(verdict.errors.join(" "));
+
+  const ext = videoExtension(file);
+  const wanted = videoFileNameFor(primary_keyword ?? "", design_number, ext);
+  const posterName = wanted.replace(new RegExp(`\\.${ext}$`), "-poster.jpg");
+  const dir = `organic/${orgId}/${designId}`;
+
+  const { createAdminClient } = await import("../supabase/admin");
+  const admin = createAdminClient();
+  const bucket = admin.storage.from("pin-images");
+
+  const sign = async (name: string) => {
+    const path = `${dir}/${name}`;
+    const { data, error } = await bucket.createSignedUploadUrl(path, { upsert: true });
+    if (error || !data) throw new Error(`Could not prepare the upload: ${error?.message ?? "no URL"}`);
+    return { path, signed_url: data.signedUrl, public_url: bucket.getPublicUrl(path).data.publicUrl };
+  };
+  return {
+    video: await sign(wanted),
+    poster: await sign(posterName),
+    filename: wanted,
+    warnings: verdict.warnings,
+  };
+}
+
+/**
+ * P4.2.4, videoroute — de mp4 staat in de bucket, leg hem op het design vast.
+ *
+ * Wat hier NIET gebeurt is de browser op zijn woord geloven: de maat en het
+ * mediatype komen uit de bucket zelf, want dat is wat de publicatie straks
+ * ophaalt en in het geheugen houdt. Een browser die 8 MB meldt bij een bestand
+ * van 300 MB is geen aanval, het is een fout die drie dagen later in een cron
+ * opduikt.
+ *
+ * `asset_path` wordt het posterframe en niet de video. Dat is de afspraak die
+ * elke lezer in deze app overeind houdt — elk scherm rendert asset_path in een
+ * <img>, en Pinterest krijgt hem als cover mee.
+ */
+export async function saveDesignVideo(
+  orgId: string,
+  designId: string,
+  reg: {
+    video_path: string;
+    poster_path: string;
+    duration_s?: number | null;
+    width?: number | null;
+    height?: number | null;
+  }
+): Promise<{ ok: true; asset_path: string; video_path: string; filename: string; warnings: string[] }> {
+  const pool = organicPool();
+  const meta = await pool.query<{ design_number: number; intent: string }>(
+    `SELECT d.design_number, d.intent::text AS intent
+       FROM organic.designs d
+       JOIN organic.waterfalls w ON w.id = d.waterfall_id
+      WHERE d.id = $1 AND w.org_id = $2`,
+    [designId, orgId]
+  );
+  if (meta.rowCount === 0) throw new Error("Design not found for this org");
+  const { design_number, intent } = meta.rows[0];
+  if (!canBeVideo(intent)) {
+    throw new Error(`D${design_number} is a ${intent} design — only the CLICK pin takes video.`);
+  }
+
+  const dir = `organic/${orgId}/${designId}`;
+  for (const objectPath of [reg.video_path, reg.poster_path]) {
+    if (!objectPath.startsWith(`${dir}/`)) {
+      throw new Error("That file was not uploaded for this design");
+    }
+  }
+
+  const { createAdminClient } = await import("../supabase/admin");
+  const admin = createAdminClient();
+  const bucket = admin.storage.from("pin-images");
+
+  const videoName = reg.video_path.slice(dir.length + 1);
+  const posterName = reg.poster_path.slice(dir.length + 1);
+  const { data: listed, error: listErr } = await bucket.list(dir, { limit: 100 });
+  if (listErr) throw new Error(`Could not read the upload back: ${listErr.message}`);
+  const found = new Map((listed ?? []).map((o) => [o.name, o]));
+  const videoObject = found.get(videoName);
+  const posterObject = found.get(posterName);
+  if (!videoObject) throw new Error("The video did not arrive in storage — try the upload again");
+  if (!posterObject) throw new Error("The cover frame did not arrive in storage — try the upload again");
+
+  const bytes = Number(
+    (videoObject.metadata as { size?: number } | null)?.size ?? 0
+  );
+  if (bytes > MAX_VIDEO_BYTES) {
+    // Het bestand gaat weg in plaats van te blijven liggen: het is nergens aan
+    // gekoppeld en de volgende poging schrijft toch op hetzelfde pad. Mislukt
+    // dat opruimen, dan is dat geen reden om de melding niet te geven.
+    await bucket.remove([reg.video_path]).catch(() => {});
+    throw new Error(
+      `The uploaded file is ${Math.round(bytes / 1048576)} MB, over the ` +
+      `${MAX_VIDEO_BYTES / 1048576} MB we publish. Export it smaller.`
+    );
+  }
+
+  const videoUrl = bucket.getPublicUrl(reg.video_path).data.publicUrl;
+  const posterUrl = bucket.getPublicUrl(reg.poster_path).data.publicUrl;
+
+  await pool.query(
+    `UPDATE organic.designs
+        SET media_type = 'VIDEO'::organic.media_kind,
+            video_path = $2,
+            asset_path = $3,
+            filename = $4,
+            video_duration_s = $5,
+            video_bytes = $6,
+            route = 'DIRECT'::organic.design_route,
+            fresh_technique = NULL,
+            qc_status = 'PENDING'::organic.qc_status,
+            qc_notes = NULL
+      WHERE id = $1`,
+    [designId, videoUrl, posterUrl, videoName,
+     reg.duration_s && reg.duration_s > 0 ? reg.duration_s : null,
+     bytes > 0 ? bytes : null]
+  );
+
+  // De pins van dit design dragen nu het verkeerde soort bestand (of nog het
+  // beeld van ervoor). Leeggemaakt, zodat P4.2.5 opnieuw moet en het scherm
+  // dat ook zegt, in plaats van een beeld-pin die stil de oude crop blijft
+  // publiceren.
+  await pool.query(
+    `UPDATE organic.pins SET image_path = NULL, video_path = NULL
+      WHERE design_id = $1 AND status IN ('PLANNED','SCHEDULED','FAILED')`,
+    [designId]
+  );
+
+  const urlId = await urlIdForDesign(orgId, designId);
+  if (urlId) {
+    const st = await cycleWorkState(orgId, urlId);
+    await recordCycleWork(orgId, urlId, "P4.2.4",
+      st.designs > 0 && st.withImage >= st.designs && st.videoDesignsWithFile >= st.videoDesigns,
+      `${st.withImage} of ${st.designs} designs have an image; D${design_number} is video.`);
+  }
+
+  const warnings = [
+    `The four pins of D${design_number} carry this same video on four boards, with the same ` +
+    `title and description — a video cannot be micro-cropped, so that difference is gone.`,
+    "Run P4.2.5 again so the video reaches the sixteen pins.",
+  ];
+  return { ok: true, asset_path: posterUrl, video_path: videoUrl, filename: videoName, warnings };
 }
 
 /** P4.2.10 — copy QC. */
@@ -3704,6 +4074,7 @@ export async function loadCycleAssets(orgId: string, urlId: string) {
      )
      SELECT d.id::text AS design_id, d.design_number, d.intent::text AS intent,
             d.route::text AS route, d.asset_path, d.filename,
+            d.media_type::text AS media_type, d.video_path, d.video_duration_s,
             d.qc_status::text AS design_qc, d.qc_notes,
             cs.id::text AS copy_set_id, cs.tagline, cs.title, cs.description,
             cs.validator_status::text AS validator_status,

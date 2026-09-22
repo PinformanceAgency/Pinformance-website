@@ -1209,6 +1209,9 @@ function PlanCalendar({ plan }: { plan: CycleView["plan"] }) {
   const live = plan.filter((p) => p.status === "PUBLISHED").length;
   const noImage = plan.filter((p) => !p.image_url).length;
   const noBoard = plan.filter((p) => !p.board_live).length;
+  // Een video-pin heeft het posterframe als image_url, dus "zonder artwork"
+  // ziet hem niet. Zonder mp4 wordt hij door de cron overgeslagen.
+  const videoPins = plan.filter((p) => p.video_url).length;
 
   return (
     <div className="rounded-lg border border-neutral-200 bg-white overflow-hidden">
@@ -1219,6 +1222,7 @@ function PlanCalendar({ plan }: { plan: CycleView["plan"] }) {
         </span>
         <span className="flex-1" />
         {noImage > 0 && <span className="text-[11px] text-red-600">{noImage} without artwork</span>}
+        {videoPins > 0 && <span className="text-[11px] text-neutral-500">{videoPins} video</span>}
         {noBoard > 0 && <span className="text-[11px] text-amber-700">{noBoard} on a board not yet on Pinterest</span>}
         {clashes.size > 0 && <span className="text-[11px] text-red-600">{clashes.size} same image, same board</span>}
         <span className="text-[11px] text-neutral-400">{open ? "hide" : "show"}</span>
@@ -1233,8 +1237,17 @@ function PlanCalendar({ plan }: { plan: CycleView["plan"] }) {
                     clashes.has(p.sequence) && "bg-red-50")}>
                 <span className="text-[11px] tabular-nums text-neutral-400 w-5 shrink-0">{p.sequence}</span>
                 {p.image_url
-                  // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={p.image_url} alt="" className="w-9 h-12 object-cover rounded shrink-0 bg-neutral-100" />
+                  ? (
+                    <span className="relative shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.image_url} alt="" className="w-9 h-12 object-cover rounded bg-neutral-100" />
+                      {p.video_url && (
+                        <span className="absolute inset-0 flex items-center justify-center rounded bg-black/25 text-white text-[9px] font-bold">
+                          ▶
+                        </span>
+                      )}
+                    </span>
+                  )
                   : <div className="w-9 h-12 rounded shrink-0 bg-red-50 border border-dashed border-red-300" />}
                 <div className="min-w-0 flex-1">
                   <p className="text-[11px] text-neutral-800 truncate">
@@ -1243,7 +1256,9 @@ function PlanCalendar({ plan }: { plan: CycleView["plan"] }) {
                     <b>D{p.design_number}{p.copy_variant}</b>
                     {" "}
                     <span className="text-neutral-400">{p.intent === "CLICK" ? "click" : "save"}</span>
-                    {p.copy_variant !== "A" && <span className="text-neutral-400"> · crop</span>}
+                    {p.video_url
+                      ? <span className="text-neutral-400"> · video</span>
+                      : p.copy_variant !== "A" && <span className="text-neutral-400"> · crop</span>}
                   </p>
                   <p className="text-[11px] text-neutral-500 truncate">
                     {p.board}

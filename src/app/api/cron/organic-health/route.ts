@@ -86,12 +86,15 @@ async function run(request: NextRequest) {
     //    on, so this cannot drift apart from it silently.
     const stuck = await pool.query<{
       store: string; n: string; oldest: string;
-      no_image: string; no_board: string; no_title: string; boards: string[];
+      no_image: string; no_board: string; no_title: string; no_video: string;
+      boards: string[];
     }>(
       `SELECT o.name AS store, COUNT(*)::text AS n, MIN(p.scheduled_date)::text AS oldest,
               COUNT(*) FILTER (WHERE p.image_path IS NULL)::text         AS no_image,
               COUNT(*) FILTER (WHERE b.pinterest_board_id IS NULL)::text AS no_board,
               COUNT(*) FILTER (WHERE cs.title IS NULL)::text             AS no_title,
+              COUNT(*) FILTER (WHERE d.media_type = 'VIDEO'::organic.media_kind
+                                 AND p.video_path IS NULL)::text          AS no_video,
               COALESCE(ARRAY(SELECT DISTINCT b2.name
                  FROM organic.pins p2
                  JOIN organic.boards b2 ON b2.id = p2.board_id
@@ -105,11 +108,13 @@ async function run(request: NextRequest) {
          JOIN organic.client_settings cl ON cl.org_id = w.org_id
          JOIN organizations o ON o.id = w.org_id
          JOIN organic.boards b ON b.id = p.board_id
+         JOIN organic.designs d ON d.id = p.design_id
          LEFT JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
         WHERE p.status = 'SCHEDULED'::organic.pin_status
           AND p.scheduled_date <= CURRENT_DATE
           AND w.org_id <> $1::uuid
-          AND (p.image_path IS NULL OR b.pinterest_board_id IS NULL OR cs.title IS NULL)
+          AND (p.image_path IS NULL OR b.pinterest_board_id IS NULL OR cs.title IS NULL
+               OR (d.media_type = 'VIDEO'::organic.media_kind AND p.video_path IS NULL))
         GROUP BY o.id, o.name
         ORDER BY o.name`,
       [DEMO_ORG]
@@ -121,6 +126,7 @@ async function run(request: NextRequest) {
           ? `${r.no_board} onto a board not on Pinterest yet${r.boards.length ? ` (${r.boards.slice(0, 3).join(", ")})` : ""}`
           : null,
         Number(r.no_title) > 0 ? `${r.no_title} without copy (P4.2.8)` : null,
+        Number(r.no_video) > 0 ? `${r.no_video} video pin(s) without their mp4 (P4.2.5)` : null,
       ].filter(Boolean);
       findings.push({
         store: r.store, kind: "stuck",
@@ -139,6 +145,7 @@ async function run(request: NextRequest) {
          JOIN organizations o ON o.id = w.org_id
          JOIN organic.urls u ON u.id = w.url_id
          JOIN organic.boards b ON b.id = p.board_id
+         JOIN organic.designs d ON d.id = p.design_id
          LEFT JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
         WHERE w.status = 'PLANNING'::organic.waterfall_status
           AND p.status = 'PLANNED'::organic.pin_status
@@ -148,6 +155,7 @@ async function run(request: NextRequest) {
           AND p.image_path IS NOT NULL
           AND cs.title IS NOT NULL
           AND b.pinterest_board_id IS NOT NULL
+          AND (d.media_type = 'IMAGE'::organic.media_kind OR p.video_path IS NOT NULL)
           AND w.org_id <> $1::uuid
         GROUP BY o.name, u.name
        HAVING COUNT(*) >= 16
