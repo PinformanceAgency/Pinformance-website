@@ -857,9 +857,13 @@ async function seed(c: Client) {
   ];
   for (const [task, field, b, t, n, ev] of ANSWERS) {
     await c.query(
-      `INSERT INTO organic.task_answers (org_id, task_id, field_key, answer_bool, answer_text, answer_number, evidence)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (org_id, task_id, field_key) DO UPDATE
+      // De sleutel is (org_id, task_id, cycle, field_key) sinds migratie 096;
+      // de lege string is "deze taak bestaat een keer per store". Met de oude
+      // drie kolommen vond Postgres geen bijbehorende unieke index en viel het
+      // hele zaaien om — nadat het de store al had verwijderd.
+      `INSERT INTO organic.task_answers (org_id, task_id, cycle, field_key, answer_bool, answer_text, answer_number, evidence)
+       VALUES ($1,$2,'',$3,$4,$5,$6,$7)
+       ON CONFLICT (org_id, task_id, cycle, field_key) DO UPDATE
          SET answer_bool=EXCLUDED.answer_bool, answer_text=EXCLUDED.answer_text,
              answer_number=EXCLUDED.answer_number, evidence=EXCLUDED.evidence`,
       [ORG_ID, task, field, b, t, n, ev || null]);
