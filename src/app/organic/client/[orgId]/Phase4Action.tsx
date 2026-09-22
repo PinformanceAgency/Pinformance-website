@@ -9,6 +9,7 @@ import type { CycleView } from "@/lib/organic/phase4";
 // Pure regels, geen database — zie de kop van video.ts. De client en de route
 // checken hetzelfde bestand op dezelfde manier.
 import { MAX_VIDEO_BYTES, VIDEO_ACCEPT, canBeVideo } from "@/lib/organic/video";
+import { CREATIVE_FORMATS, FORMAT_HINT, FORMAT_LABEL, type CreativeFormat } from "@/lib/organic/formats";
 import { formatBytes, formatDuration, putToSignedUrl, readVideoFacts } from "./videoUpload";
 
 /**
@@ -34,6 +35,11 @@ export type ActionKind =
   // designs.route has carried DIRECT since the first migration, and the build
   // reference sends accounts with usable lifestyle material down it.
   | { kind: "designs"; label: string; action: string; describe: string }
+  /** De brief, plus waar hij op gebaseerd hoort te zijn: welk soort pin elk
+   *  van de vier wordt, en wat de concurrentie voor dit keyword doet. Die drie
+   *  horen op één scherm — de brief los van de referenties is precies hoe je
+   *  vier kale productfoto's krijgt. */
+  | { kind: "brief"; label: string; action: string; describe: string }
   /** The system already did it; this shows the result. */
   | { kind: "readout"; describe: string; href?: string; hrefLabel?: string }
   /** Done in the cycle panel above, which already has the control. */
@@ -80,8 +86,8 @@ export const PHASE4_ACTIONS: Record<string, ActionKind> = {
     describe: "Search the primary keyword and record what page one rewards. Without a grid row the design brief falls back to the 80/20 default." },
   "P4.2.2": { kind: "panel", section: "2 · Design brief",
     describe: "Direct where the client has usable lifestyle material, AI where they do not. The brief and the image prompt both branch on it." },
-  "P4.2.3": { kind: "run", label: "Generate the brief", action: "brief",
-    describe: "Builds from the grid, the brand book, the taste graph and what has already won on this account." },
+  "P4.2.3": { kind: "brief", label: "Generate the brief", action: "brief",
+    describe: "Builds from the grid, the brand book, the taste graph and what has already won on this account. Underneath it: which format each of the four designs should be, and what the competition is doing for this keyword." },
   "P4.2.4": { kind: "designs", label: "Generate the four designs", action: "generate_designs",
     describe: "Four visually distinct designs: three SAVE at 2:3 and one CLICK at 9:16. Upload them per design — Canva, a shoot, the client\u2019s own material — and the file is renamed to the SOP name on the way in, because Pinterest reads it out of the URL. Generating is the fallback for an account with no usable material: one image per design, each from its own prompt built from the visual worlds, the palette and the grid, and it takes a couple of minutes." },
   "P4.2.5": { kind: "run", label: "Cut the micro-crops", action: "generate_crops",
@@ -147,6 +153,10 @@ export function Phase4Action({
 
         {spec.kind === "designs" && (
           <DesignsPanel orgId={orgId} urlId={cycle.url_id} action={spec.action} label={spec.label} />
+        )}
+
+        {spec.kind === "brief" && (
+          <BriefPanel orgId={orgId} urlId={cycle.url_id} action={spec.action} label={spec.label} />
         )}
 
         {spec.kind === "panel" && (
@@ -374,6 +384,236 @@ function QueueButton({
           Could not queue: {err}
         </p>
       )}
+    </div>
+  );
+}
+
+interface FormatRow {
+  design_id: string;
+  design_number: number;
+  intent: string;
+  media_type: string;
+  format: CreativeFormat | null;
+  width: number | null;
+  height: number | null;
+  warnings: string[];
+}
+
+interface FormatsPayload {
+  designs: FormatRow[];
+  mix: {
+    suggestions: Array<{ design_number: number; intent: string; format: CreativeFormat; reason: string }>;
+    basis: string;
+    is_fallback: boolean;
+  };
+  chosen: number;
+}
+
+interface RefsPayload {
+  keyword: string | null;
+  match: "phrase" | "words" | "none";
+  matched_words: string[];
+  references: Array<{
+    competitor: string | null; profile_url: string | null; pin_url: string;
+    title: string | null; board_name: string | null;
+    saves: number | null; outbound_clicks: number | null;
+  }>;
+}
+
+/**
+ * P4.2.3 — the brief, and the two things it should be built on.
+ *
+ * The brief was a button that produced text. What the review of 22-09-2026
+ * found is that the creatives coming out the other end were plain product
+ * shots: no variety of format, no relation to what the niche actually
+ * rewards. Both of those were knowable — the grid reading says what page one
+ * rewards, and 18,875 competitor pins say what the competition puts out — and
+ * neither reached the person making the design.
+ *
+ * So the format mix and the competitor references sit under the brief button,
+ * on the screen where the design gets decided. The mix proposes and never
+ * decides: applying only fills the designs that have no format yet, and every
+ * suggestion carries its reason.
+ */
+function BriefPanel({
+  orgId, urlId, action, label,
+}: { orgId: string; urlId: string; action: string; label: string }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [formats, setFormats] = useState<FormatsPayload | null>(null);
+  const [refs, setRefs] = useState<RefsPayload | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [f, r] = await Promise.all([
+        fetch(`/api/organic/phase4/${orgId}`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "formats", url_id: urlId }), redirect: "error",
+        }).then((x) => x.json()),
+        fetch(`/api/organic/phase4/${orgId}`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "competitor_refs", url_id: urlId }), redirect: "error",
+        }).then((x) => x.json()),
+      ]);
+      if (f?.formats) setFormats(f.formats as FormatsPayload);
+      if (r && !r.error) setRefs(r as RefsPayload);
+    } catch (e) { setErr((e as Error).message); }
+  }, [orgId, urlId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function call(body: Record<string, unknown>, busyKey: string) {
+    setErr(null); setNote(null); setBusy(busyKey);
+    try {
+      const res = await fetch(`/api/organic/phase4/${orgId}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body), redirect: "error",
+      });
+      const data = await res.json() as { error?: string; applied?: number; kept?: number };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (typeof data.applied === "number") {
+        setNote(
+          `${data.applied} design(s) took the suggestion` +
+          (data.kept ? `, ${data.kept} kept the format you already chose.` : ".")
+        );
+      }
+      await load();
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  const suggestionFor = (n: number) => formats?.mix.suggestions.find((s) => s.design_number === n);
+  const unset = (formats?.designs ?? []).filter((d) => !d.format).length;
+
+  return (
+    <div className="space-y-4">
+      <RunButton orgId={orgId} urlId={urlId} action={action} label={label} />
+
+      {/* ---- format mix ---- */}
+      <div className="rounded-lg bg-o-surface ring-1 ring-inset ring-o-hairline p-3.5">
+        <p className="text-sm font-medium text-foreground">What kind of pin each design should be</p>
+        {formats == null ? (
+          <p className="mt-1 text-sm text-muted-foreground">Loading…</p>
+        ) : formats.designs.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">
+            No designs yet — generate the waterfall first (P4.3.1). It creates the four.
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 text-[length:var(--text-o-label)] text-o-ink-3">
+              Based on {formats.mix.basis}.
+              {formats.mix.is_fallback && " Read the grid for this keyword (P4.2.1) and this gets sharper."}
+            </p>
+            <div className="mt-2.5 space-y-2">
+              {formats.designs.map((d) => {
+                const s = suggestionFor(d.design_number);
+                return (
+                  <div key={d.design_id} className="rounded-[10px] border border-o-hairline px-3 py-2">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="text-sm font-medium">
+                        D{d.design_number} · {d.intent === "CLICK" ? "click" : "save"}
+                      </span>
+                      <select
+                        value={d.format ?? ""}
+                        disabled={busy !== null}
+                        onChange={(e) => void call(
+                          { action: "set_format", design_id: d.design_id, format: e.target.value },
+                          d.design_id
+                        )}
+                        className="rounded-md border border-o-hairline bg-background px-2 py-1 text-[length:var(--text-o-label)]"
+                      >
+                        <option value="">— not chosen —</option>
+                        {CREATIVE_FORMATS.map((f) => (
+                          <option key={f} value={f}>{FORMAT_LABEL[f]}</option>
+                        ))}
+                      </select>
+                      {d.width && d.height && (
+                        <span className="text-[length:var(--text-o-label)] text-o-ink-3 tabular-nums">
+                          {d.width}×{d.height}
+                        </span>
+                      )}
+                    </div>
+                    {!d.format && s && (
+                      <p className="mt-1 text-[length:var(--text-o-label)] text-o-ink-3">
+                        Suggested: <span className="font-medium text-o-ink-2">{FORMAT_LABEL[s.format]}</span> — {s.reason}
+                      </p>
+                    )}
+                    {d.format && (
+                      <p className="mt-1 text-[length:var(--text-o-label)] text-o-ink-3">
+                        {FORMAT_HINT[d.format]}
+                      </p>
+                    )}
+                    {d.warnings.map((w, i) => (
+                      <p key={i} className="mt-1 text-[length:var(--text-o-label)] text-o-clay">{w}</p>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            {unset > 0 && (
+              <button type="button" disabled={busy !== null}
+                onClick={() => void call({ action: "apply_format_mix", url_id: urlId }, "apply")}
+                className="mt-2.5 text-[length:var(--text-o-label)] font-semibold px-2.5 py-1.5 rounded-md
+                           bg-foreground text-background hover:opacity-90 disabled:opacity-50">
+                {busy === "apply" ? "Applying…" : `Take the suggestion for the ${unset} still unset`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ---- wat de concurrentie doet ---- */}
+      <div className="rounded-lg bg-o-surface ring-1 ring-inset ring-o-hairline p-3.5">
+        <p className="text-sm font-medium text-foreground">
+          What the competition posts for this keyword
+        </p>
+        {refs == null ? (
+          <p className="mt-1 text-sm text-muted-foreground">Loading…</p>
+        ) : !refs.keyword ? (
+          <p className="mt-1 text-sm text-muted-foreground">
+            This URL has no primary keyword yet — set one in section 1 and the references follow.
+          </p>
+        ) : refs.references.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">
+            Nothing in the competitor bank mentions &ldquo;{refs.keyword}&rdquo;. Their exports are
+            imported in P2.1.6, and the full list of accounts is in Library → Competitors.
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 text-[length:var(--text-o-label)] text-o-ink-3">
+              {refs.match === "phrase"
+                ? <>Their pins mentioning &ldquo;{refs.keyword}&rdquo;, best first. Open one to see how it is built.</>
+                : <>
+                    Nothing of theirs says &ldquo;{refs.keyword}&rdquo; exactly, so these are their pins around{" "}
+                    {refs.matched_words.join(", ")} — the ones matching most of those words first, then by
+                    saves. Weigh them as near misses rather than as the same search.
+                  </>}
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {refs.references.map((r) => (
+                <li key={r.pin_url} className="text-[length:var(--text-o-label)]">
+                  <a href={r.pin_url} target="_blank" rel="noreferrer noopener"
+                     className="font-medium text-foreground hover:text-o-accent">
+                    {r.title?.trim() || r.pin_url}
+                  </a>
+                  <span className="text-o-ink-3">
+                    {r.competitor ? ` · ${r.competitor}` : ""}
+                    {r.board_name ? ` · ${r.board_name}` : ""}
+                    {r.saves ? ` · ${r.saves.toLocaleString("en-US")} saves` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+
+      {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
+      {note && <p className="text-xs text-emerald-700">{note}</p>}
     </div>
   );
 }

@@ -304,6 +304,9 @@ export interface PublishRunReport {
     deferred: number;
     note?: string;
   }>;
+  /** Stilgezet door een mens, met de reden. Apart van `deferred`: dat is werk
+   *  dat straks alsnog gaat, dit is werk dat wacht op een besluit. */
+  paused: Array<{ org_id: string; org_name: string; scope: "store" | "cycle"; reason: string | null; pins: number }>;
   /** Stores that need a human to reconnect. These never fix themselves. */
   reconnect_required: Array<{
     org_id: string;
@@ -444,6 +447,12 @@ export async function publishDuePins(
         -- hem onder stuck, met dezelfde voorwaarde, zodat die twee niet uit
         -- elkaar kunnen lopen.
         AND (d.media_type = 'IMAGE'::organic.media_kind OR p.video_path IS NOT NULL)
+        -- Stilgezet door een mens: de store in zijn geheel, of deze ene cyclus.
+        -- De pin blijft staan waar hij staat en gaat uit zodra de pauze eraf
+        -- is — de cron neemt alles met scheduled_date <= vandaag, dus er raakt
+        -- niets kwijt. Zie migratie 104.
+        AND s.publishing_paused_at IS NULL
+        AND w.paused_at IS NULL
         AND ($1::uuid IS NULL OR w.org_id = $1::uuid)
       ORDER BY p.scheduled_date, p.sequence_number`,
     [opts.orgId ?? null]
@@ -456,9 +465,38 @@ export async function publishDuePins(
     failed: 0,
     deferred: 0,
     budget_exhausted: false,
+    paused: [],
     orgs: [],
     reconnect_required: [],
   };
+  // Wat er stilstaat, en hoeveel pins daardoor wachten. De due-query filtert
+  // gepauzeerde stores en cycli eruit, dus zonder deze query zou een
+  // stilgezette store als "niets te doen" uit de run komen — en dat is precies
+  // het verschil dat iemand wil zien.
+  const held = await pool.query<{
+    org_id: string; org_name: string; scope: "store" | "cycle"; reason: string | null; pins: string;
+  }>(
+    `SELECT w.org_id::text AS org_id, o.name AS org_name,
+            CASE WHEN s.publishing_paused_at IS NOT NULL THEN 'store' ELSE 'cycle' END AS scope,
+            COALESCE(s.publishing_pause_reason, w.pause_reason) AS reason,
+            COUNT(*)::text AS pins
+       FROM organic.pins p
+       JOIN organic.waterfalls w ON w.id = p.waterfall_id
+       JOIN organizations o ON o.id = w.org_id
+       LEFT JOIN organic.client_settings s ON s.org_id = w.org_id
+      WHERE p.status = 'SCHEDULED'::organic.pin_status
+        AND p.scheduled_date <= CURRENT_DATE
+        AND (s.publishing_paused_at IS NOT NULL OR w.paused_at IS NOT NULL)
+        AND ($1::uuid IS NULL OR w.org_id = $1::uuid)
+      GROUP BY 1, 2, 3, 4
+      ORDER BY 2`,
+    [opts.orgId ?? null]
+  );
+  report.paused = held.rows.map((r) => ({
+    org_id: r.org_id, org_name: r.org_name, scope: r.scope,
+    reason: r.reason, pins: Number(r.pins),
+  }));
+
   if (report.due === 0) return report;
 
   const byOrg = new Map<string, DuePin[]>();
@@ -701,6 +739,10 @@ export interface PublishHealth {
   }>;
   /** Present when the store cannot publish at all until somebody acts. */
   blocker: { kind: "token"; message: string } | null;
+  /** Stilgezet door een mens. Geen blokkade en geen fout: een besluit, met de
+   *  reden erbij, en het staat bovenaan zodat niemand een uur zoekt naar
+   *  waarom er niets uitgaat. */
+  paused: { scope: "store" | "cycle"; reason: string | null; since: string; cycles?: string[] } | null;
   /** What actually went out: which design, onto which board, on which day,
    *  with a link to the pin on Pinterest. Newest first. */
   published: PublishedPin[];
@@ -848,6 +890,35 @@ export async function loadPublishHealth(orgId: string): Promise<PublishHealth> {
     [orgId]
   );
 
+  const pauseRes = await pool.query<{
+    store_at: string | null; store_reason: string | null;
+    cycle_names: string[] | null; cycle_at: string | null; cycle_reason: string | null;
+  }>(
+    `SELECT s.publishing_paused_at::text AS store_at,
+            s.publishing_pause_reason     AS store_reason,
+            (SELECT COALESCE(array_agg(u.name ORDER BY u.name), ARRAY[]::text[])
+               FROM organic.waterfalls w2 JOIN organic.urls u ON u.id = w2.url_id
+              WHERE w2.org_id = $1 AND w2.paused_at IS NOT NULL
+                AND w2.status <> 'ABANDONED'::organic.waterfall_status) AS cycle_names,
+            (SELECT MIN(w3.paused_at)::text FROM organic.waterfalls w3
+              WHERE w3.org_id = $1 AND w3.paused_at IS NOT NULL) AS cycle_at,
+            (SELECT w4.pause_reason FROM organic.waterfalls w4
+              WHERE w4.org_id = $1 AND w4.paused_at IS NOT NULL
+              ORDER BY w4.paused_at LIMIT 1) AS cycle_reason
+       FROM organic.client_settings s WHERE s.org_id = $1`,
+    [orgId]
+  );
+  const pr = pauseRes.rows[0];
+  let paused: PublishHealth["paused"] = null;
+  if (pr?.store_at) {
+    paused = { scope: "store", reason: pr.store_reason, since: pr.store_at.slice(0, 10) };
+  } else if ((pr?.cycle_names?.length ?? 0) > 0 && pr?.cycle_at) {
+    paused = {
+      scope: "cycle", reason: pr.cycle_reason, since: pr.cycle_at.slice(0, 10),
+      cycles: pr.cycle_names ?? [],
+    };
+  }
+
   // The token is only reported as a blocker when there is something waiting
   // on it. A store between cycles with an expired token is not an incident.
   let blocker: PublishHealth["blocker"] = null;
@@ -923,6 +994,7 @@ export async function loadPublishHealth(orgId: string): Promise<PublishHealth> {
         !s.has_video ? "video pin with no mp4 on it (P4.2.5)" : null,
       ].filter(Boolean).join("; "),
     })),
+    paused,
     next_scheduled: timing.rows[0].next_scheduled,
     last_published: timing.rows[0].last_published,
     failures: fails.rows.map((f) => ({

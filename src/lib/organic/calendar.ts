@@ -50,6 +50,7 @@ export interface PinBlocker {
     | "no_image"
     | "no_video"        // video-pin waar de mp4 niet op staat
     | "no_title"
+    | "paused"          // stilgezet door een mens, met een reden
     | "failed";
   severity: "blocking" | "watch";
   label: string;
@@ -200,6 +201,9 @@ interface PinRow {
   image_path: string | null;
   video_path: string | null;
   media_type: string;
+  store_paused: boolean;
+  cycle_paused: boolean;
+  pause_reason: string | null;
   title: string | null;
   content_code: string | null;
   board_name: string;
@@ -235,6 +239,19 @@ function blockerFor(r: PinRow): PinBlocker | null {
     };
   }
   // SCHEDULED from here.
+  //
+  // De pauze staat vóór de artefact-checks, want dat is het antwoord. Een
+  // gepauzeerde store met een pin zonder beeld stuurt iemand anders naar
+  // P4.2.5, terwijl er niets uitgaat omdat wij dat zo besloten hebben. En het
+  // is een `watch` en geen blokkade: er is niets stuk.
+  if (r.store_paused || r.cycle_paused) {
+    return {
+      kind: "paused", severity: "watch",
+      label: r.store_paused
+        ? `publishing is paused for this store${r.pause_reason ? ` — ${r.pause_reason}` : ""}`
+        : `this cycle is paused${r.pause_reason ? ` — ${r.pause_reason}` : ""}`,
+    };
+  }
   if (!r.image_path) {
     return { kind: "no_image", severity: "blocking", label: "no image on this pin" };
   }
@@ -302,6 +319,9 @@ export async function loadPublishCalendar(
               p.image_path,
               p.video_path,
               d.media_type::text               AS media_type,
+              st.publishing_paused_at IS NOT NULL AS store_paused,
+              w.paused_at IS NOT NULL              AS cycle_paused,
+              COALESCE(st.publishing_pause_reason, w.pause_reason) AS pause_reason,
               p.content_code,
               cs.title,
               b.name                           AS board_name,
@@ -322,6 +342,7 @@ export async function loadPublishCalendar(
          JOIN organic.boards b     ON b.id = p.board_id
          JOIN organic.designs d    ON d.id = p.design_id
          LEFT JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
+         LEFT JOIN organic.client_settings st ON st.org_id = w.org_id
         WHERE w.org_id = $1
           AND w.status <> 'ABANDONED'::organic.waterfall_status
           AND p.status <> 'CANCELLED'::organic.pin_status
@@ -559,6 +580,21 @@ function monthIssues(
         `${boards.join(", ")} ${boards.length === 1 ? "is" : "are"} queued and due before the pin needs ${boards.length === 1 ? "it" : "them"}. ` +
         `On course, but board creation is capped at three a day and slips if the queue grows.`,
       fix_href: "boards",
+    });
+  }
+
+  const heldByPause = group("paused");
+  if (heldByPause.length > 0) {
+    const reason = heldByPause.find((p) => p.blocker?.label)?.blocker?.label ?? "";
+    out.push({
+      kind: "paused",
+      severity: "watch",
+      count: heldByPause.length,
+      headline: `${heldByPause.length} queued pin${heldByPause.length === 1 ? " is" : "s are"} held — publishing is paused`,
+      detail:
+        `${reason}. The plan is untouched: the dates, the boards and the spread over weeks all stay, ` +
+        `and each pin goes out on its own date once the pause comes off. Nothing is lost by waiting.`,
+      fix_href: "phase/4",
     });
   }
 

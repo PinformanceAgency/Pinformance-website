@@ -934,6 +934,21 @@ export async function loadAudienceAffinities(orgId: string): Promise<AudienceAff
 /* LIBRARY — de concurrenten om naar te kijken                         */
 /* ------------------------------------------------------------------ */
 
+export interface CompetitorLibrarySummary {
+  competitors: number;
+  /** Unieke pin-URL's over de hele store. NIET de som van de kolom per
+   *  competitor: dezelfde pin staat bij meerdere accounts, zie `shared_pins`. */
+  unique_pins: number;
+  /** Rijen in totaal. Het verschil met unique_pins is de dubbeling. */
+  total_rows: number;
+  /** Pin-URL's die onder meer dan één concurrent staan. Bij Fit Cherries is
+   *  dat de meerderheid: 10.840 rijen over 1.896 unieke pins, tien
+   *  concurrenten — één export is tegen alle tien ingelezen. Dat is geen
+   *  weergavefout maar research die overnieuw moet, dus het staat op het
+   *  scherm in plaats van in een som die te groot is. */
+  shared_pins: number;
+}
+
 export interface CompetitorLibraryRow {
   id: string;
   name: string | null;
@@ -968,7 +983,10 @@ export interface CompetitorLibraryRow {
  * winnaars dragen is precies het board-signaal dat `loadAccountBrief()` ook
  * gebruikt.
  */
-export async function loadCompetitorLibrary(orgId: string): Promise<CompetitorLibraryRow[]> {
+export async function loadCompetitorLibrary(orgId: string): Promise<{
+  rows: CompetitorLibraryRow[];
+  summary: CompetitorLibrarySummary;
+}> {
   const r = await organicPool().query<{
     id: string; name: string | null; handle: string | null; profile_url: string;
     niche_fit: string | null; pins_per_day_4mo: string | null;
@@ -1000,16 +1018,38 @@ export async function loadCompetitorLibrary(orgId: string): Promise<CompetitorLi
                  WHERE cp.competitor_id = c.id) DESC, c.name`,
     [orgId]
   );
-  return r.rows.map((x) => ({
-    id: x.id,
-    name: x.name,
-    handle: x.handle,
-    profile_url: x.profile_url,
-    niche_fit: x.niche_fit,
-    pins_per_day_4mo: x.pins_per_day_4mo == null ? null : Number(x.pins_per_day_4mo),
-    activity_status: x.activity_status,
-    analyzed_at: x.analyzed_at ? x.analyzed_at.slice(0, 10) : null,
-    pins_imported: Number(x.pins_imported),
-    top_boards: x.top_boards ?? [],
-  }));
+  const sum = await organicPool().query<{
+    unique_pins: string; total_rows: string; shared_pins: string;
+  }>(
+    `SELECT COUNT(DISTINCT pin_url)::text AS unique_pins,
+            COUNT(*)::text               AS total_rows,
+            (SELECT COUNT(*)::text FROM (
+               SELECT pin_url FROM organic.competitor_pins
+                WHERE org_id = $1
+                GROUP BY pin_url
+               HAVING COUNT(DISTINCT competitor_id) > 1) q) AS shared_pins
+       FROM organic.competitor_pins WHERE org_id = $1`,
+    [orgId]
+  );
+
+  return {
+    rows: r.rows.map((x) => ({
+      id: x.id,
+      name: x.name,
+      handle: x.handle,
+      profile_url: x.profile_url,
+      niche_fit: x.niche_fit,
+      pins_per_day_4mo: x.pins_per_day_4mo == null ? null : Number(x.pins_per_day_4mo),
+      activity_status: x.activity_status,
+      analyzed_at: x.analyzed_at ? x.analyzed_at.slice(0, 10) : null,
+      pins_imported: Number(x.pins_imported),
+      top_boards: x.top_boards ?? [],
+    })),
+    summary: {
+      competitors: r.rowCount ?? 0,
+      unique_pins: Number(sum.rows[0]?.unique_pins ?? 0),
+      total_rows: Number(sum.rows[0]?.total_rows ?? 0),
+      shared_pins: Number(sum.rows[0]?.shared_pins ?? 0),
+    },
+  };
 }

@@ -41,12 +41,16 @@ export default async function CompetitorsPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
-  const [header, rows] = await Promise.all([
+  const [header, library] = await Promise.all([
     loadClientHeader(orgId),
     loadCompetitorLibrary(orgId),
   ]);
+  const { rows, summary } = library;
 
-  const pinsHeld = rows.reduce((t, r) => t + r.pins_imported, 0);
+  // Unieke pin-URL's, niet de som van de kolom: dezelfde pin staat bij
+  // meerdere concurrenten in de bank, en een te grote som is precies het soort
+  // getal waar later beleid op wordt gemaakt.
+  const pinsHeld = summary.unique_pins;
   const withPins = rows.filter((r) => r.pins_imported > 0).length;
 
   return (
@@ -87,7 +91,11 @@ export default async function CompetitorsPage({
               <Metric
                 label="Their pins we hold"
                 value={pinsHeld.toLocaleString("en-US")}
-                hint={`from ${withPins} of the ${rows.length} accounts`}
+                hint={
+                  summary.shared_pins > 0
+                    ? `unique pins, across ${withPins} of the ${rows.length} accounts`
+                    : `across ${withPins} of the ${rows.length} accounts`
+                }
               />
               <Metric
                 label="Not imported yet"
@@ -159,6 +167,26 @@ export default async function CompetitorsPage({
                 </tbody>
               </Table>
             </Panel>
+
+            {/* De dubbeling wordt genoemd en niet weggerekend: het is research
+                die overnieuw moet, en de som zou anders precies zo groot
+                blijven als hij nu onterecht is. */}
+            {summary.shared_pins > 0 && (
+              <div className="mt-4 rounded-lg bg-o-accent/[0.07] ring-1 ring-inset ring-o-clay/25 px-3.5 py-3">
+                <p className="text-sm font-medium text-foreground">
+                  The same pins are filed under more than one account
+                </p>
+                <p className="mt-1 text-sm text-o-ink-2">
+                  {summary.total_rows.toLocaleString("en-US")} rows hold{" "}
+                  {summary.unique_pins.toLocaleString("en-US")} different pins, and{" "}
+                  {summary.shared_pins.toLocaleString("en-US")} of those sit under several competitors
+                  at once. That is what an import looks like when one export was read in against more
+                  than one account. The per-account counts below are therefore not each account&rsquo;s
+                  own pins, and the volume this niche appears to have is overstated. Re-importing per
+                  competitor (P2.1.6) is what fixes it.
+                </p>
+              </div>
+            )}
 
             <p className="mt-3 text-[length:var(--text-o-label)] text-o-ink-3">
               The boards come out of the {pinsHeld.toLocaleString("en-US")} pins read in with the

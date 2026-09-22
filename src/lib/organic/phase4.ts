@@ -50,6 +50,10 @@ import { imageAudienceDirective, languageDirective, languageSummary, writingLang
 import {
   MAX_VIDEO_BYTES, canBeVideo, checkVideoFile, videoExtension, videoFileNameFor,
 } from "./video";
+import {
+  CREATIVE_FORMATS, FORMAT_LABEL, checkDimensions, formatsFromGrid, proposeFormatMix,
+  type CreativeFormat, type FormatMix,
+} from "./formats";
 
 /** The org brief carries the resolved language; a store with no brief row at
  *  all still has to render, and falls back to the same English default. */
@@ -1807,7 +1811,13 @@ export interface CycleView {
    *  text overlay on the click pin. The setup form has to render it, or
    *  saving there silently clears whatever the prefill proposed. */
   assigned_keywords: Array<{ keyword_id: string; term: string; is_primary: boolean; is_overlay: boolean; volume: number | null }>;
-  waterfall: { id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number } | null;
+  waterfall: {
+    id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number;
+    /** Stilgezet door een mens, met de reden. De cron slaat deze cyclus dan
+     *  over en laat de datums staan — zie migratie 104. */
+    paused_at: string | null;
+    pause_reason: string | null;
+  } | null;
   tasks: CycleTaskRow[];
   progress: { total: number; done: number; blocked: number; pct: number };
   /** Where this cycle's selection departs from the method or from the
@@ -1893,14 +1903,25 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
       WHERE uk.url_id IN (SELECT id FROM organic.urls WHERE org_id = $1)`,
     [orgId]
   );
-  const wfRes = await pool.query<{ id: string; url_id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number }>(
-    `SELECT id::text, url_id::text, status::text, start_date::text, end_date::text, spacing_hours
+  const wfRes = await pool.query<{
+    id: string; url_id: string; status: string; start_date: string; end_date: string | null;
+    spacing_hours: number; paused_at: string | null; pause_reason: string | null;
+  }>(
+    `SELECT id::text, url_id::text, status::text, start_date::text, end_date::text, spacing_hours,
+            paused_at::text AS paused_at, pause_reason
        FROM organic.waterfalls WHERE org_id = $1
       ORDER BY created_at DESC`,
     [orgId]
   );
-  const wfLatestByUrl = new Map<string, { id: string; status: string; start_date: string; end_date: string | null; spacing_hours: number }>();
-  for (const w of wfRes.rows) if (!wfLatestByUrl.has(w.url_id)) wfLatestByUrl.set(w.url_id, { id: w.id, status: w.status, start_date: w.start_date, end_date: w.end_date, spacing_hours: w.spacing_hours });
+  const wfLatestByUrl = new Map<string, NonNullable<CycleView["waterfall"]>>();
+  for (const w of wfRes.rows) {
+    if (!wfLatestByUrl.has(w.url_id)) {
+      wfLatestByUrl.set(w.url_id, {
+        id: w.id, status: w.status, start_date: w.start_date, end_date: w.end_date,
+        spacing_hours: w.spacing_hours, paused_at: w.paused_at, pause_reason: w.pause_reason,
+      });
+    }
+  }
 
   // The plan, with its artwork. One query for every live waterfall in the
   // store rather than one per cycle.
@@ -3773,10 +3794,10 @@ export async function saveDesignImage(
   const pool = organicPool();
   const meta = await pool.query<{
     design_number: number; filename: string | null; primary_keyword: string | null;
-    media_type: string;
+    media_type: string; intent: string;
   }>(
     `SELECT d.design_number, d.filename, k.term AS primary_keyword,
-            d.media_type::text AS media_type
+            d.media_type::text AS media_type, d.intent::text AS intent
        FROM organic.designs d
        JOIN organic.waterfalls w ON w.id = d.waterfall_id
        LEFT JOIN organic.url_keywords uk ON uk.url_id = w.url_id AND uk.is_primary
@@ -3791,6 +3812,20 @@ export async function saveDesignImage(
   const wanted = primary_keyword
     ? fileNameFor(primary_keyword, design_number)
     : filename ?? `design-${design_number}.jpg`;
+
+  // De maten komen uit het bestand zelf. Een resolutiewaarschuwing die op een
+  // ingevuld formulierveld staat, is een waarschuwing over wat iemand dacht te
+  // uploaden en niet over wat er staat.
+  let measured: { width: number | null; height: number | null } = { width: null, height: null };
+  try {
+    const sharp = (await import("sharp")).default;
+    const meta2 = await sharp(file.bytes).metadata();
+    measured = { width: meta2.width ?? null, height: meta2.height ?? null };
+  } catch {
+    // Een bestand dat sharp niet leest, mag de upload niet kosten: Pinterest
+    // beslist uiteindelijk, en de kolommen mogen leeg blijven (null = niet
+    // gemeten, en dat is iets anders dan nul).
+  }
 
   const { createAdminClient } = await import("../supabase/admin");
   const admin = createAdminClient();
@@ -3813,10 +3848,12 @@ export async function saveDesignImage(
             video_path = NULL,
             video_duration_s = NULL,
             video_bytes = NULL,
+            width = $4,
+            height = $5,
             qc_status = 'PENDING'::organic.qc_status,
             qc_notes = NULL
       WHERE id = $1`,
-    [designId, pub.publicUrl, wanted]
+    [designId, pub.publicUrl, wanted, measured.width, measured.height]
   );
   // Wisselt het mediatype, dan is wat er op de pins staat van het andere soort
   // en moet P4.2.5 opnieuw. Alleen bij een wisseling: bij het vervangen van
@@ -3843,7 +3880,16 @@ export async function saveDesignImage(
   // It is said here because here it is cheap to fix; after four pins are
   // live it is not.
   const warnings = await artworkClashes(orgId, designId, file.bytes).catch(() => []);
-  return { ok: true, asset_path: pub.publicUrl, filename: wanted, warnings };
+  // Resolutie en verhouding: ook een waarschuwing, om dezelfde reden. Een pin
+  // van 800 breed gaat uit en ziet er zacht uit; dat is een keuze van een mens
+  // en geen fout van het systeem.
+  const dims = checkDimensions({
+    intent: meta.rows[0].intent, width: measured.width, height: measured.height,
+  });
+  return {
+    ok: true, asset_path: pub.publicUrl, filename: wanted,
+    warnings: [...warnings, ...dims.warnings],
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -4013,6 +4059,8 @@ export async function saveDesignVideo(
             filename = $4,
             video_duration_s = $5,
             video_bytes = $6,
+            width = $7,
+            height = $8,
             route = 'DIRECT'::organic.design_route,
             fresh_technique = NULL,
             qc_status = 'PENDING'::organic.qc_status,
@@ -4020,7 +4068,9 @@ export async function saveDesignVideo(
       WHERE id = $1`,
     [designId, videoUrl, posterUrl, videoName,
      reg.duration_s && reg.duration_s > 0 ? reg.duration_s : null,
-     bytes > 0 ? bytes : null]
+     bytes > 0 ? bytes : null,
+     reg.width && reg.width > 0 ? reg.width : null,
+     reg.height && reg.height > 0 ? reg.height : null]
   );
 
   // De pins van dit design dragen nu het verkeerde soort bestand (of nog het
@@ -4047,6 +4097,347 @@ export async function saveDesignVideo(
     "Run P4.2.5 again so the video reaches the sixteen pins.",
   ];
   return { ok: true, asset_path: posterUrl, video_path: videoUrl, filename: videoName, warnings };
+}
+
+/* ------------------------------------------------------------------ */
+/* B — welk soort creative, en waar dat op gebaseerd is                 */
+/* ------------------------------------------------------------------ */
+
+export interface CycleFormats {
+  /** Wat er nu op de designs staat. */
+  designs: Array<{
+    design_id: string;
+    design_number: number;
+    intent: string;
+    media_type: string;
+    format: CreativeFormat | null;
+    width: number | null;
+    height: number | null;
+    /** Waarschuwingen over resolutie en verhouding. Nooit blokkerend. */
+    warnings: string[];
+  }>;
+  /** Het voorstel, met per design de reden. */
+  mix: FormatMix;
+  /** Hoeveel van de vier al een format hebben. */
+  chosen: number;
+}
+
+/**
+ * P4.2.3 — welk soort pin elk van de vier moet worden.
+ *
+ * Voorstellen, niet beslissen: `applyFormatMix()` is een aparte handeling en
+ * overschrijft nooit een format dat iemand zelf koos. Dat is dezelfde regel
+ * als bij `applyCyclePrefill` en om dezelfde reden — een voorstel dat over
+ * handwerk heen loopt, is een voorstel waar niemand meer op vertrouwt.
+ *
+ * Het grid wordt case- en whitespace-ongevoelig gematcht op het primaire
+ * keyword: `grid_analyses.target_keyword` en `keywords.term` worden door
+ * verschillende mensen op verschillende momenten getypt, en een exacte match
+ * laat de research stil naar de terugval zakken.
+ */
+export async function loadCycleFormats(orgId: string, urlId: string): Promise<CycleFormats> {
+  const pool = organicPool();
+  const liveId = await liveWaterfallId(orgId, urlId);
+  if (!liveId) {
+    throw new Error("No waterfall for this URL yet — generate it first (P4.3.1)");
+  }
+
+  const [designsRes, gridRes] = await Promise.all([
+    pool.query<{
+      design_id: string; design_number: number; intent: string; media_type: string;
+      format: string | null; width: number | null; height: number | null;
+    }>(
+      `SELECT id::text AS design_id, design_number, intent::text AS intent,
+              media_type::text AS media_type, format::text AS format, width, height
+         FROM organic.designs WHERE waterfall_id = $1 ORDER BY design_number`,
+      [liveId]
+    ),
+    pool.query<{
+      target_keyword: string;
+      fmt_simple_pins: boolean | null; fmt_infographics: boolean | null;
+      fmt_video_916: boolean | null; fmt_pure_aesthetic: boolean | null;
+      fmt_text_heavy: boolean | null;
+    }>(
+      `SELECT g.target_keyword, g.fmt_simple_pins, g.fmt_infographics,
+              g.fmt_video_916, g.fmt_pure_aesthetic, g.fmt_text_heavy
+         FROM organic.url_keywords uk
+         JOIN organic.keywords k ON k.id = uk.keyword_id
+         JOIN organic.grid_analyses g
+           ON g.org_id = $1
+          AND lower(btrim(g.target_keyword)) = lower(btrim(k.term))
+        WHERE uk.url_id = $2 AND uk.is_primary
+        ORDER BY g.analyzed_at DESC NULLS LAST
+        LIMIT 1`,
+      [orgId, urlId]
+    ),
+  ]);
+
+  const grid = gridRes.rows[0] ?? null;
+  const videoDesign = designsRes.rows.find((d) => d.media_type === "VIDEO");
+  const mix = proposeFormatMix({
+    gridFormats: formatsFromGrid(grid),
+    gridKeyword: grid?.target_keyword ?? null,
+    videoDesignNumber: videoDesign?.design_number ?? null,
+  });
+
+  const designs = designsRes.rows.map((d) => ({
+    design_id: d.design_id,
+    design_number: d.design_number,
+    intent: d.intent,
+    media_type: d.media_type,
+    format: (d.format as CreativeFormat | null) ?? null,
+    width: d.width,
+    height: d.height,
+    warnings: checkDimensions({ intent: d.intent, width: d.width, height: d.height }).warnings,
+  }));
+
+  return { designs, mix, chosen: designs.filter((d) => d.format).length };
+}
+
+/** Eén design een format geven. Vrij te kiezen — het voorstel is een voorstel. */
+export async function setDesignFormat(
+  orgId: string, designId: string, format: CreativeFormat | null
+): Promise<{ ok: true }> {
+  if (format !== null && !CREATIVE_FORMATS.includes(format)) {
+    throw new Error(`Unknown format "${format}"`);
+  }
+  const r = await organicPool().query(
+    `UPDATE organic.designs d
+        SET format = $3::organic.creative_format
+      FROM organic.waterfalls w
+      WHERE w.id = d.waterfall_id AND d.id = $1 AND w.org_id = $2`,
+    [designId, orgId, format]
+  );
+  if (r.rowCount === 0) throw new Error("Design not found for this org");
+  return { ok: true };
+}
+
+/**
+ * Het voorstel toepassen op de designs die nog geen format hebben.
+ *
+ * Alleen de lege: een format dat iemand zelf koos blijft staan, ook als het
+ * voorstel iets anders zegt. Wie het voorstel er toch over wil, kiest het per
+ * design — dan is het een besluit en geen bijwerking.
+ */
+export async function applyFormatMix(
+  orgId: string, urlId: string
+): Promise<{ applied: number; kept: number }> {
+  const state = await loadCycleFormats(orgId, urlId);
+  const pool = organicPool();
+  let applied = 0;
+  let kept = 0;
+  for (const d of state.designs) {
+    if (d.format) { kept += 1; continue; }
+    const s = state.mix.suggestions.find((x) => x.design_number === d.design_number);
+    if (!s) continue;
+    await pool.query(
+      `UPDATE organic.designs SET format = $2::organic.creative_format WHERE id = $1`,
+      [d.design_id, s.format]
+    );
+    applied += 1;
+  }
+  return { applied, kept };
+}
+
+export interface CompetitorReference {
+  competitor: string | null;
+  profile_url: string | null;
+  pin_url: string;
+  title: string | null;
+  board_name: string | null;
+  saves: number | null;
+  outbound_clicks: number | null;
+}
+
+/**
+ * De concurrentie-pins die voor dít keyword iets doen, naast de design brief.
+ *
+ * Geen afbeeldingen en geen kenmerken die wij hebben overgenomen (besloten
+ * 22-09-2026) — wat hier staat is de pin zelf, met een link erheen, het board
+ * waar hij op stond en wat hij deed. Uit de 18.875 pins die de
+ * concurrentie-import al heeft ingelezen, dus dit kost geen nieuwe research.
+ *
+ * Gematcht op het primaire keyword in titel of beschrijving. Ruim, bewust: een
+ * te strakke match geeft nul rijen en dan lijkt het alsof er geen research is.
+ */
+export async function loadCompetitorReferences(
+  orgId: string, urlId: string, limit = 8
+): Promise<{
+  keyword: string | null;
+  /** Waarop gematcht is. Dat hoort op het scherm: "hun pins over small bust
+   *  swimwear" en "hun pins waar swimwear in staat" zijn niet hetzelfde, en
+   *  het verschil bepaalt hoe zwaar je ze weegt. */
+  match: "phrase" | "words" | "none";
+  matched_words: string[];
+  references: CompetitorReference[];
+}> {
+  const pool = organicPool();
+  const kw = await pool.query<{ term: string }>(
+    `SELECT k.term FROM organic.url_keywords uk
+       JOIN organic.keywords k ON k.id = uk.keyword_id
+      WHERE uk.url_id = $1 AND uk.is_primary LIMIT 1`,
+    [urlId]
+  );
+  const keyword = kw.rows[0]?.term ?? null;
+  if (!keyword) return { keyword: null, match: "none", matched_words: [], references: [] };
+
+  // Kolommen en FROM apart, want de woordenvariant zet er nog een
+  // berekende kolom bij — en die moet vóór de FROM staan, niet erachter.
+  const COLS = `c.name AS competitor, c.profile_url, cp.pin_url, cp.title,
+                cp.board_name, cp.saves, cp.outbound_clicks`;
+  const FROM = `FROM organic.competitor_pins cp
+                LEFT JOIN organic.competitors c ON c.id = cp.competitor_id`;
+
+  // 1. De hele zin. Als die iets vindt, is dat het beste antwoord.
+  const phrase = await pool.query<CompetitorReference>(
+    `SELECT DISTINCT ON (cp.pin_url) ${COLS}
+       ${FROM}
+      WHERE cp.org_id = $1
+        AND (lower(cp.title) LIKE '%' || lower($2) || '%'
+          OR lower(cp.description) LIKE '%' || lower($2) || '%'
+          OR lower(cp.board_name) LIKE '%' || lower($2) || '%')
+      -- DISTINCT ON eist dat pin_url vooraan in de ORDER BY staat; de
+      -- rangschikking op saves gebeurt daarna in JS. Eén rij per pin, want
+      -- dezelfde pin staat bij meerdere concurrenten in de bank.
+      ORDER BY cp.pin_url, COALESCE(cp.saves, 0) DESC
+      LIMIT $3`,
+    [orgId, keyword, limit]
+  );
+  if ((phrase.rowCount ?? 0) > 0) {
+    const ranked = [...phrase.rows].sort((a, b) => (b.saves ?? 0) - (a.saves ?? 0));
+    return { keyword, match: "phrase", matched_words: [keyword], references: ranked };
+  }
+
+  // 2. Anders op de betekenisdragende woorden, gerangschikt op hoeveel er
+  //    raken. "small bust swimwear" komt bij Fit Cherries nul keer letterlijk
+  //    voor in 18.875 pins, en een paneel dat dan leeg blijft is een paneel
+  //    dat niemand meer opent — terwijl de research er wél is.
+  const STOP = new Set([
+    "the", "and", "for", "with", "your", "you", "our", "from", "that", "this",
+    "best", "top", "how", "what", "are", "not", "can", "all", "new", "more",
+  ]);
+  const words = keyword
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !STOP.has(w));
+  if (words.length === 0) {
+    return { keyword, match: "none", matched_words: [], references: [] };
+  }
+
+  const byWords = await pool.query<CompetitorReference & { hits: string }>(
+    `SELECT DISTINCT ON (cp.pin_url) ${COLS},
+            (SELECT COUNT(*) FROM unnest($2::text[]) w
+              WHERE lower(COALESCE(cp.title, '')) LIKE '%' || w || '%'
+                 OR lower(COALESCE(cp.description, '')) LIKE '%' || w || '%'
+                 OR lower(COALESCE(cp.board_name, '')) LIKE '%' || w || '%') AS hits
+       ${FROM}
+      WHERE cp.org_id = $1
+        AND EXISTS (SELECT 1 FROM unnest($2::text[]) w
+                     WHERE lower(COALESCE(cp.title, '')) LIKE '%' || w || '%'
+                        OR lower(COALESCE(cp.description, '')) LIKE '%' || w || '%'
+                        OR lower(COALESCE(cp.board_name, '')) LIKE '%' || w || '%')
+      ORDER BY cp.pin_url, COALESCE(cp.saves, 0) DESC
+      LIMIT $3`,
+    [orgId, words, limit]
+  );
+  const ranked = [...byWords.rows].sort(
+    (a, b) => Number(b.hits) - Number(a.hits) || (b.saves ?? 0) - (a.saves ?? 0)
+  );
+  return {
+    keyword,
+    match: byWords.rowCount === 0 ? "none" : "words",
+    matched_words: words,
+    references: ranked,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* B — publiceren stilzetten zonder de planning te verliezen            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * De hele store stil, of weer aan.
+ *
+ * De planning blijft staan: de datums, de boardrotatie en de spreiding over
+ * weken zijn het werk van een hele cyclus, en die weggooien om vier plaatjes
+ * te vervangen is de reden dat deze knop bestaat. `publishDuePins` slaat een
+ * gepauzeerde store over; de pins gaan uit op hun eigen datum zodra de pauze
+ * eraf is, of later — de cron neemt alles met `scheduled_date <= vandaag`, dus
+ * er raakt niets kwijt.
+ */
+export async function setStorePublishingPause(
+  orgId: string, paused: boolean, reason?: string | null
+): Promise<{ ok: true; paused: boolean }> {
+  if (paused && !reason?.trim()) {
+    // Zonder reden staat er morgen een stille store en weet niemand waarom.
+    throw new Error("Pausing needs a reason — it is what the next person reads");
+  }
+  const r = await organicPool().query(
+    `UPDATE organic.client_settings
+        SET publishing_paused_at = CASE WHEN $2 THEN now() ELSE NULL END,
+            publishing_pause_reason = CASE WHEN $2 THEN $3 ELSE NULL END
+      WHERE org_id = $1`,
+    [orgId, paused, reason?.trim() ?? null]
+  );
+  if (r.rowCount === 0) throw new Error("This store has no organic settings row");
+  return { ok: true, paused };
+}
+
+/**
+ * Eén cyclus stil, en de andere door.
+ *
+ * Dit is het geval dat zich echt voordoet: een store publiceert uit twee cycli
+ * tegelijk en de creatives van één ervan zijn slecht. Een pauze op
+ * store-niveau zet dan ook de goede stil.
+ */
+export async function setCyclePause(
+  orgId: string, urlId: string, paused: boolean, reason?: string | null
+): Promise<{ ok: true; paused: boolean; waterfall_id: string }> {
+  if (paused && !reason?.trim()) {
+    throw new Error("Pausing needs a reason — it is what the next person reads");
+  }
+  const liveId = await liveWaterfallId(orgId, urlId);
+  if (!liveId) throw new Error("No waterfall for this URL yet");
+  await organicPool().query(
+    `UPDATE organic.waterfalls
+        SET paused_at = CASE WHEN $2 THEN now() ELSE NULL END,
+            pause_reason = CASE WHEN $2 THEN $3 ELSE NULL END
+      WHERE id = $1`,
+    [liveId, paused, reason?.trim() ?? null]
+  );
+  return { ok: true, paused, waterfall_id: liveId };
+}
+
+export interface PauseState {
+  store_paused_at: string | null;
+  store_pause_reason: string | null;
+  cycles_paused: Array<{ url_id: string; url_name: string; paused_at: string; reason: string | null }>;
+}
+
+/** Wat er stilstaat op deze store, voor de banners. */
+export async function loadPauseState(orgId: string): Promise<PauseState> {
+  const pool = organicPool();
+  const [store, cycles] = await Promise.all([
+    pool.query<{ at: string | null; reason: string | null }>(
+      `SELECT publishing_paused_at::text AS at, publishing_pause_reason AS reason
+         FROM organic.client_settings WHERE org_id = $1`,
+      [orgId]
+    ),
+    pool.query<{ url_id: string; url_name: string; paused_at: string; reason: string | null }>(
+      `SELECT w.url_id::text, u.name AS url_name, w.paused_at::text AS paused_at, w.pause_reason AS reason
+         FROM organic.waterfalls w
+         JOIN organic.urls u ON u.id = w.url_id
+        WHERE w.org_id = $1 AND w.paused_at IS NOT NULL
+          AND w.status <> 'ABANDONED'::organic.waterfall_status
+        ORDER BY u.name`,
+      [orgId]
+    ),
+  ]);
+  return {
+    store_paused_at: store.rows[0]?.at ?? null,
+    store_pause_reason: store.rows[0]?.reason ?? null,
+    cycles_paused: cycles.rows,
+  };
 }
 
 /** P4.2.10 — copy QC. */

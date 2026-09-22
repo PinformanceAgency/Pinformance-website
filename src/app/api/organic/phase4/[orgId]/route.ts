@@ -129,6 +129,30 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
     case "copy_qc":
       return await P4.setCopyQc(orgId, String(body.copy_set_id),
         body.status as "APPROVED" | "REJECTED", body.reason as string | null);
+    // ---- B: formats, referenties en de pauzeknop ----
+    case "formats":
+      return { formats: await P4.loadCycleFormats(orgId, String(body.url_id)) };
+    case "set_format":
+      return P4.setDesignFormat(
+        orgId, String(body.design_id),
+        body.format == null || body.format === "" ? null : (String(body.format) as never)
+      );
+    case "apply_format_mix":
+      return P4.applyFormatMix(orgId, String(body.url_id));
+    case "competitor_refs":
+      return P4.loadCompetitorReferences(orgId, String(body.url_id));
+    case "pause_store":
+      return P4.setStorePublishingPause(
+        orgId, body.paused === true,
+        body.reason == null ? null : String(body.reason)
+      );
+    case "pause_cycle":
+      return P4.setCyclePause(
+        orgId, String(body.url_id), body.paused === true,
+        body.reason == null ? null : String(body.reason)
+      );
+    case "pause_state":
+      return { pause: await P4.loadPauseState(orgId) };
     case "cycle_assets":
       return { assets: await P4.loadCycleAssets(orgId, String(body.url_id)) };
     case "validate_copy":
