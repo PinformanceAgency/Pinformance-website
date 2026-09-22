@@ -483,13 +483,13 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         brand: "Fashion merk (anoniem)",
         paid: {
           label: "Dit jaar",
-          value: "1,8 mln",
+          value: "€ 1,8 mln",
           unit: "Revenue",
           metric: "ROAS 2,37 · CPA €28",
         },
         organic: {
           label: "Laatste 30 dagen",
-          value: "2.530",
+          value: "€ 2.530",
           unit: "Organic revenue",
           metric: "Zonder advertentiebudget",
         },
@@ -503,13 +503,13 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         brand: "Celestia",
         paid: {
           label: "Dit jaar",
-          value: "692k",
+          value: "€ 692k",
           unit: "Revenue",
           metric: "ROAS 2,42 · CPA €33",
         },
         organic: {
           label: "Laatste 30 dagen",
-          value: "3.740",
+          value: "€ 3.740",
           unit: "Organic revenue",
           metric: "Zonder advertentiebudget",
         },
@@ -521,13 +521,13 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         brand: "FitCherries",
         paid: {
           label: "Dit jaar",
-          value: "420k",
+          value: "€ 420k",
           unit: "Revenue",
           metric: "ROAS 2,20 · CPA €34",
         },
         organic: {
           label: "Laatste 30 dagen",
-          value: "3.320",
+          value: "€ 3.320",
           unit: "Organic revenue",
           metric: "Zonder advertentiebudget",
         },
@@ -539,13 +539,13 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         brand: "May Cosmetics",
         paid: {
           label: "Dit jaar",
-          value: "389k",
+          value: "€ 389k",
           unit: "Revenue",
           metric: "ROAS 2,31 · CPA €17",
         },
         organic: {
           label: "Laatste 30 dagen",
-          value: "3.270",
+          value: "€ 3.270",
           unit: "Organic revenue",
           metric: "Zonder advertentiebudget",
         },
