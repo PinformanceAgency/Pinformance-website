@@ -471,7 +471,12 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     // De volgorde blijft in beide modi gelijk, zodat er bij het omschakelen
     // geen banner van plek wisselt. Daarom noemt de organic-subtitel geen
     // volgorde.
-    descOrganic: "Organic omzet over de laatste 30 dagen, in USD.",
+    //
+    // De organic-cijfers komen in dollars uit Pinterest en staan hier in
+    // euro's, tegen de ECB-koers van 17-09-2026 (1 euro = 1,146 dollar):
+    // $2,9k, $4,29k, $3,8k en $3,75k. Beide modi staan nu in dezelfde munt,
+    // dus er staat geen valutateken meer bij.
+    descOrganic: "Organic omzet over de laatste 30 dagen, in euro's.",
     bullets: [],
     cases: [
       {
@@ -484,7 +489,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         },
         organic: {
           label: "Laatste 30 dagen",
-          value: "$2,9k",
+          value: "2.530",
           unit: "Organic revenue",
           metric: "Zonder advertentiebudget",
         },
@@ -504,7 +509,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         },
         organic: {
           label: "Laatste 30 dagen",
-          value: "$4,29k",
+          value: "3.740",
           unit: "Organic revenue",
           metric: "Zonder advertentiebudget",
         },
@@ -522,7 +527,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         },
         organic: {
           label: "Laatste 30 dagen",
-          value: "$3,8k",
+          value: "3.320",
           unit: "Organic revenue",
           metric: "Zonder advertentiebudget",
         },
@@ -540,7 +545,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         },
         organic: {
           label: "Laatste 30 dagen",
-          value: "$3,75k",
+          value: "3.270",
           unit: "Organic revenue",
           metric: "Zonder advertentiebudget",
         },
