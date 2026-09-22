@@ -135,11 +135,25 @@ export const BASE_WERK = [PAID, ORGANIC, CONTACT];
 // ---------------------------------------------------------------------------
 export const NODE_SIZE = { w: 200, h: 71 };
 
+/** Wat er op een banner staat. Per modus dezelfde vier regels, zodat het
+ *  omschakelen niets laat verspringen. */
+export interface CaseFigures {
+  /** De periode waar de cijfers over gaan. */
+  label: string;
+  value: string;
+  /** Wat het getal is. */
+  unit: string;
+  /** De regel eronder. Bij organic bestaan ROAS en CPA niet, dus staat daar
+   *  waar de omzet vandaan komt. */
+  metric: string;
+}
+
+export type CaseMode = "paid" | "organic";
+
 export interface CaseRow {
   brand: string;
-  revenue: string;
-  roas: string;
-  cpa: string;
+  paid: CaseFigures;
+  organic: CaseFigures;
   /** Wat er bij de cijfers komt te staan, en het beeld zodra het er is. */
   visual: string;
   src?: string;
@@ -165,6 +179,8 @@ export interface RoadmapNode {
   rows?: { k: string; v: string }[];
   /** Kaartenrij met cases, in plaats van een opsomming. */
   cases?: CaseRow[];
+  /** De subtitel zodra de cases op organic staan. */
+  descOrganic?: string;
   /**
    * Een vraag die bewust geen statement is. Staat los onder de opsomming,
    * zonder vinkje, als cue om hem mondeling te beantwoorden.
@@ -452,13 +468,26 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     name: "Resultaten",
     cat: "Pagina 4 · Resultaten + pricing",
     desc: "Vier accounts, grootste eerst. Alle cijfers over dit jaar.",
+    // De volgorde blijft in beide modi gelijk, zodat er bij het omschakelen
+    // geen banner van plek wisselt. Daarom noemt de organic-subtitel geen
+    // volgorde.
+    descOrganic: "Organic omzet over de laatste 30 dagen, in USD.",
     bullets: [],
     cases: [
       {
         brand: "Fashion merk (anoniem)",
-        revenue: "1,8 mln",
-        roas: "2,37",
-        cpa: "€28",
+        paid: {
+          label: "Dit jaar",
+          value: "1,8 mln",
+          unit: "Revenue",
+          metric: "ROAS 2,37 · CPA €28",
+        },
+        organic: {
+          label: "Laatste 30 dagen",
+          value: "$2,9k",
+          unit: "Organic revenue",
+          metric: "Zonder advertentiebudget",
+        },
         // Sfeerbeeld zonder logo, en het bestand is naar de niche genoemd en
         // niet naar het merk: een bestandsnaam staat in de broncode van de
         // pagina, en daarmee zou de anonimisering niets meer waard zijn.
@@ -467,27 +496,54 @@ export const ROADMAP_NODES: RoadmapNode[] = [
       },
       {
         brand: "Celestia",
-        revenue: "692k",
-        roas: "2,42",
-        cpa: "€33",
+        paid: {
+          label: "Dit jaar",
+          value: "692k",
+          unit: "Revenue",
+          metric: "ROAS 2,42 · CPA €33",
+        },
+        organic: {
+          label: "Laatste 30 dagen",
+          value: "$4,29k",
+          unit: "Organic revenue",
+          metric: "Zonder advertentiebudget",
+        },
         visual: "Merkbanner",
         src: "/pitch/case-celestia.jpg",
         logo: "/pitch/brand-celestia.png",
       },
       {
         brand: "FitCherries",
-        revenue: "420k",
-        roas: "2,20",
-        cpa: "€34",
+        paid: {
+          label: "Dit jaar",
+          value: "420k",
+          unit: "Revenue",
+          metric: "ROAS 2,20 · CPA €34",
+        },
+        organic: {
+          label: "Laatste 30 dagen",
+          value: "$3,8k",
+          unit: "Organic revenue",
+          metric: "Zonder advertentiebudget",
+        },
         visual: "Merkbanner",
         src: "/pitch/case-fitcherries.jpg",
         logo: "/pitch/brand-fitcherries.png",
       },
       {
         brand: "May Cosmetics",
-        revenue: "389k",
-        roas: "2,31",
-        cpa: "€17",
+        paid: {
+          label: "Dit jaar",
+          value: "389k",
+          unit: "Revenue",
+          metric: "ROAS 2,31 · CPA €17",
+        },
+        organic: {
+          label: "Laatste 30 dagen",
+          value: "$3,75k",
+          unit: "Organic revenue",
+          metric: "Zonder advertentiebudget",
+        },
         visual: "Merkbanner",
         src: "/pitch/case-may-cosmetics.jpg",
         logo: "/pitch/brand-may.png",

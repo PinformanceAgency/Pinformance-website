@@ -1867,3 +1867,49 @@
   margin-bottom: 2px;
   color: var(--text);
 }
+
+/* --- Paid of organic op de casebanners ----------------------------------- */
+
+/* De banners blijven identiek; alleen de tekst erin wisselt. De switch staat
+   daarom tussen de subtitel en de eerste banner, niet erboven. */
+.pcase-switch {
+  margin-top: 18px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.32);
+}
+.pcase-switch button {
+  padding: 7px 20px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  transition: background 0.16s, color 0.16s;
+}
+.pcase-switch button:hover {
+  color: var(--text);
+}
+.pcase-switch button.on {
+  background: var(--red);
+  color: #fff;
+}
+
+/* Alleen de tekst komt op, het beeld eronder beweegt niet. */
+.pcase-body {
+  animation: pcase-fade 0.18s ease-out;
+}
+@keyframes pcase-fade {
+  from {
+    opacity: 0.25;
+  }
+  to {
+    opacity: 1;
+  }
+}

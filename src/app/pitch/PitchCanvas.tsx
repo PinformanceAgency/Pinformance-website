@@ -8,6 +8,7 @@ import {
   NODE_SIZE,
   ROADMAP_NODES,
   SECTIONS,
+  type CaseMode,
   type RoadmapNode,
   SHOW_RESULT_LINE,
 } from "./data";
@@ -163,6 +164,9 @@ export default function PitchCanvas() {
   const [active, setActive] = useState(0);
   const [tool, setTool] = useState<"pan" | "draw">("pan");
   const [detail, setDetail] = useState<RoadmapNode | null>(null);
+  // De casebanners staan op paid tot iemand omschakelt, en beginnen weer op
+  // paid zodra de sectie opnieuw opengaat.
+  const [caseMode, setCaseMode] = useState<CaseMode>("paid");
   /** A visual opened full screen. The dashboards are only worth showing if
       the numbers on them can actually be read from across a call. */
   const [zoom, setZoom] = useState<{ src: string; alt: string } | null>(null);
@@ -382,7 +386,10 @@ export default function PitchCanvas() {
               // card taller instead of clipping the "klik om te openen" line.
               style={{ left: n.x, top: n.y, width: NODE_SIZE.w, minHeight: NODE_SIZE.h }}
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => setDetail(n)}
+              onClick={() => {
+                setCaseMode("paid");
+                setDetail(n);
+              }}
             >
               <span className="rmn-lbl">
                 <i className="rmn-dot" />
@@ -510,8 +517,14 @@ export default function PitchCanvas() {
             </button>
             <div className="pitch-modal-cat">{detail.cat}</div>
             <h2>{detail.name}</h2>
-            {detail.desc && (
-              <p className="pitch-modal-desc">{detail.desc}</p>
+            {(detail.cases && caseMode === "organic"
+              ? detail.descOrganic
+              : detail.desc) && (
+              <p className="pitch-modal-desc">
+                {detail.cases && caseMode === "organic"
+                  ? detail.descOrganic
+                  : detail.desc}
+              </p>
             )}
 
             {detail.calculator && <PitchCalculator />}
@@ -591,35 +604,55 @@ export default function PitchCanvas() {
             {/* Casebanners over de volle breedte: merkbeeld rechts, cijfers
                 links op een verloop eroverheen. */}
             {detail.cases && (
-              <div className="pitch-cases">
-                {detail.cases.map((c) => (
-                  <div className="pcase" key={c.brand}>
-                    {c.src ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img className="pcase-art" src={c.src} alt="" />
-                    ) : (
-                      <span className="pcase-art pcase-art-empty" title={c.visual}>
-                        Merkbeeld
-                      </span>
-                    )}
-                    <span className="pcase-veil" />
-                    <span className="pcase-body">
-                      <span className="e">Dit jaar</span>
-                      <span className="v">{c.revenue}</span>
-                      <span className="r">Revenue</span>
-                      <span className="m">
-                        ROAS {c.roas} · CPA {c.cpa}
-                      </span>
-                      {c.logo ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img className="pcase-logo" src={c.logo} alt={c.brand} />
-                      ) : (
-                        <span className="pcase-name">{c.brand}</span>
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <>
+                {/* Zelfde banners, andere cijfers: alleen de tekst wisselt,
+                    de beelden bewegen niet. */}
+                <div className="pcase-switch" role="group" aria-label="Paid of organic">
+                  {(["paid", "organic"] as CaseMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      className={m === caseMode ? "on" : undefined}
+                      aria-pressed={m === caseMode}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => setCaseMode(m)}
+                    >
+                      {m === "paid" ? "Paid" : "Organic"}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pitch-cases">
+                  {detail.cases.map((c) => {
+                    const f = caseMode === "organic" ? c.organic : c.paid;
+                    return (
+                      <div className="pcase" key={c.brand}>
+                        {c.src ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img className="pcase-art" src={c.src} alt="" />
+                        ) : (
+                          <span className="pcase-art pcase-art-empty" title={c.visual}>
+                            Merkbeeld
+                          </span>
+                        )}
+                        <span className="pcase-veil" />
+                        <span className="pcase-body" key={caseMode}>
+                          <span className="e">{f.label}</span>
+                          <span className="v">{f.value}</span>
+                          <span className="r">{f.unit}</span>
+                          <span className="m">{f.metric}</span>
+                          {c.logo ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img className="pcase-logo" src={c.logo} alt={c.brand} />
+                          ) : (
+                            <span className="pcase-name">{c.brand}</span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
 
             {!sideVisual && visual}
