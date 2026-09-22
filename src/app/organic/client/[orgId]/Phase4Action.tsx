@@ -414,8 +414,8 @@ interface RefsPayload {
   match: "phrase" | "words" | "none";
   matched_words: string[];
   references: Array<{
-    competitor: string | null; profile_url: string | null; pin_url: string;
-    title: string | null; board_name: string | null;
+    competitor: string | null; pinner: string | null; profile_url: string | null;
+    pin_url: string; title: string | null; board_name: string | null;
     saves: number | null; outbound_clicks: number | null;
   }>;
 }
@@ -601,7 +601,10 @@ function BriefPanel({
                     {r.title?.trim() || r.pin_url}
                   </a>
                   <span className="text-o-ink-3">
-                    {r.competitor ? ` · ${r.competitor}` : ""}
+                    {/* De pinner en niet de concurrent onder wiens bestand hij
+                        staat: bij een keyword-export is dat zelden dezelfde, en
+                        wie het gepind heeft bepaalt hoe zwaar je hem weegt. */}
+                    {r.pinner ? ` · @${r.pinner}` : r.competitor ? ` · ${r.competitor}` : ""}
                     {r.board_name ? ` · ${r.board_name}` : ""}
                     {r.saves ? ` · ${r.saves.toLocaleString("en-US")} saves` : ""}
                   </span>

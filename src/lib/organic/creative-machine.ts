@@ -50,6 +50,34 @@ type ImageBlock = { type: "image"; source: { type: "url"; url: string } };
 const imageBlocks = (urls: string[]): ImageBlock[] =>
   urls.map((url) => ({ type: "image", source: { type: "url", url } }));
 
+/**
+ * Het formaat van elke Pinterest-pin, en de enige toevoeging aan Johanne's
+ * prompts die niet van haar is.
+ *
+ * Tristan, 22-09-2026: **altijd 2:3, 1000×1500 px, nooit vierkant.** Pinterest
+ * geeft een staande pin veel meer hoogte in de feed; een vierkant beeld wordt
+ * kleiner weergegeven en presteert daardoor slechter, en een liggend beeld nog
+ * slechter. De hele methode rekent er ook op: save-pins zijn 2:3 en click-pins
+ * 9:16, en `checkDimensions()` waarschuwt onder 1000×1500.
+ *
+ * Google Flow krijgt deze prompt met de hand van een mens, dus het staat er
+ * letterlijk in plaats van als een parameter — er is geen API-call om een ratio
+ * aan mee te geven. Het staat in de scenario-prompt én in de eindprompt: een
+ * scenario dat voor een vierkant kader is bedacht ("centered flatlay, equal
+ * margins") komt er staand niet goed uit, hoe duidelijk de eindprompt ook is.
+ */
+const PIN_FORMAT = {
+  ratio: "2:3",
+  width: 1000,
+  height: 1500,
+} as const;
+
+/** Dezelfde regels in beide prompts, uit één plek. */
+const FORMAT_RULES = `OUTPUT FORMAT (NON-NEGOTIABLE)
+- Aspect ratio: ${PIN_FORMAT.ratio} PORTRAIT (${PIN_FORMAT.width}×${PIN_FORMAT.height} px or larger at the same ratio)
+- NEVER square (1:1) and NEVER landscape — Pinterest shows a vertical pin far larger in the feed, and a square one is a smaller pin for the same work
+- Compose for a tall frame: the subject reads top to bottom, with room above and below rather than at the sides`;
+
 function buildPrompt0(brief: CreativeBrief, images: string[]) {
   const briefText = `
 BRAND BRIEF:
@@ -145,7 +173,10 @@ PRESENCE DISTRIBUTION (MANDATORY):
 ADDITIONAL DIRECTIVES:
 ${config.directives || "None"}
 
+${FORMAT_RULES}
+
 RULES:
+- Every scenario must be composed for that tall ${PIN_FORMAT.ratio} frame — never describe a square or landscape composition
 - No two scenarios may share the same Action + Setting combination
 - Avoid influencer or overly staged vibes
 - Favor natural, believable moments
@@ -182,6 +213,8 @@ ${scenario}
 RECENTLY USED SCENARIOS (DO NOT REPLICATE MOOD/COMPOSITION):
 ${usedIds.length > 0 ? usedIds.join(", ") : "None"}
 
+${FORMAT_RULES}
+
 IMAGE GENERATION RULES
 - Generate ONE image only
 - Follow EXACTLY the provided scenario
@@ -207,8 +240,9 @@ REALISM / STYLIZATION
 - Do NOT add cinematic or studio effects unless explicitly compatible
 
 FINAL COMMAND
-Generate ONE photograph that perfectly matches the scenario and the BRAND_STYLE_LOCK.
-No text. No layout. No graphic elements. Just the image.`;
+Generate ONE photograph in ${PIN_FORMAT.ratio} portrait (${PIN_FORMAT.width}×${PIN_FORMAT.height} or larger)
+that perfectly matches the scenario and the BRAND_STYLE_LOCK.
+No text. No layout. No graphic elements. Not square. Just the image.`;
 }
 
 // ─── Claude ──────────────────────────────────────────────────────────────────

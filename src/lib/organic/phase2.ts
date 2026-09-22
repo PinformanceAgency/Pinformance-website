@@ -343,12 +343,35 @@ export async function importCompetitorPinsCsv(
   for (let i = 0; i < records.length; i += IMPORT_BATCH) {
     const batch = records.slice(i, i + IMPORT_BATCH);
     const res = await pool.query(
+      // Twee dingen sinds 22-09-2026 (migratie 108):
+      //
+      //   - **De echte pinner gaat mee.** Deze exports zijn keyword-exports:
+      //     PinClicks geeft wie er bovenaan staat voor een zoekterm, en dat is
+      //     zelden het account waar de operator het bestand naast legde. Bij
+      //     Fit Cherries was 93% van de rijen van iemand anders — poshmark,
+      //     zalando, mercarius. Zonder deze kolom is "pins van deze concurrent"
+      //     een aanname, en die aanname stond op het scherm.
+      //   - **Eén rij per pin per store.** De unieke index stond op
+      //     (competitor_id, pin_url), dus dezelfde populaire pin kon tien keer
+      //     landen: één keer per export waarin hij voorkwam. 10.840 rijen over
+      //     1.896 pins. Nu (org_id, pin_url), en een tweede export die dezelfde
+      //     pin aandraagt vult alleen aan wat nog leeg was.
       `INSERT INTO organic.competitor_pins
-              (org_id, competitor_id, pin_url, title, description, board_name, saves, outbound_clicks, impressions, raw)
-       SELECT $1, $2, u.pin_url, u.title, u.description, u.board_name, u.saves, u.outbound_clicks, u.impressions, u.raw
+              (org_id, competitor_id, pin_url, title, description, board_name,
+               saves, outbound_clicks, impressions, raw, pinner_username, pinner_name)
+       SELECT $1, $2, u.pin_url, u.title, u.description, u.board_name,
+              u.saves, u.outbound_clicks, u.impressions, u.raw,
+              NULLIF(btrim(COALESCE(u.raw->>'pinner username', u.raw->>'creator username')), ''),
+              NULLIF(btrim(COALESCE(u.raw->>'pinner name',     u.raw->>'creator name')), '')
          FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::int[], $9::int[], $10::jsonb[])
               AS u(pin_url, title, description, board_name, saves, outbound_clicks, impressions, raw)
-       ON CONFLICT (competitor_id, pin_url) WHERE pin_url IS NOT NULL DO NOTHING`,
+       ON CONFLICT (org_id, pin_url) DO UPDATE SET
+         saves           = COALESCE(organic.competitor_pins.saves, EXCLUDED.saves),
+         outbound_clicks = COALESCE(organic.competitor_pins.outbound_clicks, EXCLUDED.outbound_clicks),
+         impressions     = COALESCE(organic.competitor_pins.impressions, EXCLUDED.impressions),
+         board_name      = COALESCE(organic.competitor_pins.board_name, EXCLUDED.board_name),
+         pinner_username = COALESCE(organic.competitor_pins.pinner_username, EXCLUDED.pinner_username),
+         pinner_name     = COALESCE(organic.competitor_pins.pinner_name, EXCLUDED.pinner_name)`,
       [
         orgId, competitor_id,
         batch.map((b) => b.url),
@@ -370,6 +393,9 @@ export async function importCompetitorPinsCsv(
     [fileName?.trim() || `csv-${imported}-rows`, competitor_id]
   );
 
+  // Dekking = heeft elke concurrent een export gehad. Dat is iets anders dan
+  // "hoeveel pins zijn van hem": dat tweede staat in de bibliotheek en matcht op
+  // pinner_username. Hier gaat het om welk bestand er is ingelezen.
   const coverage = await pool.query<{ pins: number }>(
     `SELECT (SELECT COUNT(*) FROM organic.competitor_pins p WHERE p.competitor_id = c.id)::int AS pins
        FROM organic.competitors c WHERE c.org_id = $1`,
@@ -936,17 +962,18 @@ export async function loadAudienceAffinities(orgId: string): Promise<AudienceAff
 
 export interface CompetitorLibrarySummary {
   competitors: number;
-  /** Unieke pin-URL's over de hele store. NIET de som van de kolom per
-   *  competitor: dezelfde pin staat bij meerdere accounts, zie `shared_pins`. */
-  unique_pins: number;
-  /** Rijen in totaal. Het verschil met unique_pins is de dubbeling. */
-  total_rows: number;
-  /** Pin-URL's die onder meer dan één concurrent staan. Bij Fit Cherries is
-   *  dat de meerderheid: 10.840 rijen over 1.896 unieke pins, tien
-   *  concurrenten — één export is tegen alle tien ingelezen. Dat is geen
-   *  weergavefout maar research die overnieuw moet, dus het staat op het
-   *  scherm in plaats van in een som die te groot is. */
-  shared_pins: number;
+  /** Alle pins die de concurrentie-import heeft opgeleverd. Dat is
+   *  niche-research: de pins die voor deze zoektermen bovenaan staan, van wie
+   *  dan ook. */
+  niche_pins: number;
+  /** Daarvan: gepind door een van ónze concurrenten. Gemeten 22-09-2026 op Fit
+   *  Cherries was dat 743 van 10.840 — de exports zijn keyword-exports, en de
+   *  grootste "pinners" erin waren poshmark, zalando en mercarius. Het verschil
+   *  tussen deze twee getallen is precies wat je moet weten voordat je "wij
+   *  hebben tienduizend pins van onze concurrenten" zegt. */
+  own_competitor_pins: number;
+  /** Hoeveel verschillende accounts er in die research zitten. */
+  distinct_pinners: number;
 }
 
 export interface CompetitorLibraryRow {
@@ -960,11 +987,12 @@ export interface CompetitorLibraryRow {
   pins_per_day_4mo: number | null;
   activity_status: string | null;
   analyzed_at: string | null;
-  /** Hoeveel van hun pins wij al geïmporteerd hebben (P2.1.6). Dat is de
-   *  research die onder de hele niche-analyse ligt. */
+  /** Pins die dit account ZELF heeft gepind, uit de import. Gematcht op
+   *  `pinner_username` en niet op het bestand waar ze in zaten — zie migratie
+   *  108 voor waarom dat verschil groot is. */
   pins_imported: number;
-  /** De boards waar hun geïmporteerde pins het vaakst op staan — de
-   *  snelste manier om te zien hoe zij hun account indelen. */
+  /** De boards waar hun eigen pins het vaakst op staan — de snelste manier om
+   *  te zien hoe zij hun account indelen. */
   top_boards: string[];
 }
 
@@ -1001,12 +1029,19 @@ export async function loadCompetitorLibrary(orgId: string): Promise<{
             c.pins_per_day_4mo::text            AS pins_per_day_4mo,
             c.activity_status::text             AS activity_status,
             c.analyzed_at::text                 AS analyzed_at,
+            -- Pins die deze concurrent ZELF heeft gepind, niet "pins uit het
+            -- bestand dat naast hem lag". Dat tweede was 93% van de tijd iemand
+            -- anders; zie de kop van scripts/fix-competitor-pin-owners.ts.
             (SELECT COUNT(*)::text FROM organic.competitor_pins cp
-              WHERE cp.competitor_id = c.id)    AS pins_imported,
+              WHERE cp.org_id = c.org_id
+                AND lower(replace(COALESCE(cp.pinner_username, ''), '@', ''))
+                  = lower(replace(COALESCE(c.handle, '~none~'), '@', ''))) AS pins_imported,
             (SELECT COALESCE(array_agg(b.board_name ORDER BY b.n DESC), ARRAY[]::text[])
                FROM (SELECT cp.board_name, COUNT(*) AS n
                        FROM organic.competitor_pins cp
-                      WHERE cp.competitor_id = c.id
+                      WHERE cp.org_id = c.org_id
+                        AND lower(replace(COALESCE(cp.pinner_username, ''), '@', ''))
+                          = lower(replace(COALESCE(c.handle, '~none~'), '@', ''))
                         AND cp.board_name IS NOT NULL
                         AND btrim(cp.board_name) <> ''
                       GROUP BY cp.board_name
@@ -1015,20 +1050,23 @@ export async function loadCompetitorLibrary(orgId: string): Promise<{
        FROM organic.competitors c
       WHERE c.org_id = $1
       ORDER BY (SELECT COUNT(*) FROM organic.competitor_pins cp
-                 WHERE cp.competitor_id = c.id) DESC, c.name`,
+                 WHERE cp.org_id = c.org_id
+                   AND lower(replace(COALESCE(cp.pinner_username, ''), '@', ''))
+                     = lower(replace(COALESCE(c.handle, '~none~'), '@', ''))) DESC, c.name`,
     [orgId]
   );
   const sum = await organicPool().query<{
-    unique_pins: string; total_rows: string; shared_pins: string;
+    niche_pins: string; own_pins: string; pinners: string;
   }>(
-    `SELECT COUNT(DISTINCT pin_url)::text AS unique_pins,
-            COUNT(*)::text               AS total_rows,
-            (SELECT COUNT(*)::text FROM (
-               SELECT pin_url FROM organic.competitor_pins
-                WHERE org_id = $1
-                GROUP BY pin_url
-               HAVING COUNT(DISTINCT competitor_id) > 1) q) AS shared_pins
-       FROM organic.competitor_pins WHERE org_id = $1`,
+    `SELECT COUNT(DISTINCT pin_url)::text AS niche_pins,
+            COUNT(*) FILTER (WHERE EXISTS (
+              SELECT 1 FROM organic.competitors co
+               WHERE co.org_id = cp.org_id
+                 AND lower(replace(COALESCE(co.handle, ''), '@', ''))
+                   = lower(replace(COALESCE(cp.pinner_username, '~none~'), '@', ''))
+            ))::text AS own_pins,
+            COUNT(DISTINCT lower(cp.pinner_username))::text AS pinners
+       FROM organic.competitor_pins cp WHERE cp.org_id = $1`,
     [orgId]
   );
 
@@ -1047,9 +1085,9 @@ export async function loadCompetitorLibrary(orgId: string): Promise<{
     })),
     summary: {
       competitors: r.rowCount ?? 0,
-      unique_pins: Number(sum.rows[0]?.unique_pins ?? 0),
-      total_rows: Number(sum.rows[0]?.total_rows ?? 0),
-      shared_pins: Number(sum.rows[0]?.shared_pins ?? 0),
+      niche_pins: Number(sum.rows[0]?.niche_pins ?? 0),
+      own_competitor_pins: Number(sum.rows[0]?.own_pins ?? 0),
+      distinct_pinners: Number(sum.rows[0]?.pinners ?? 0),
     },
   };
 }

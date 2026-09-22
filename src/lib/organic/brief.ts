@@ -123,8 +123,14 @@ export interface AccountBrief {
   /** P3.1 — the classified clusters. */
   clusters: Known<Array<{ name: string; axis: string | null }>>;
   /** P2.1.6 — the competitor export, summarised. Six hundred rows do not
-   *  belong in a brief; what the brief needs is which boards their winners
-   *  sat on, because that is a board-naming and board-choice signal. */
+   *  belong in a brief; what the brief needs is which boards the winners in
+   *  this niche sat on, because that is a board-naming and board-choice signal.
+   *
+   *  "In this niche" and niet "van deze concurrenten": deze exports zijn
+   *  keyword-exports, dus het merendeel van de pins is van iemand anders (bij
+   *  Fit Cherries 93%). Als signaal over boardnamen is dat even bruikbaar — het
+   *  is nog steeds wat er in deze niche wérkt — maar het is geen uitspraak over
+   *  de concurrenten zelf. Zie migratie 108. */
   competitor_pins: Known<{ total: number; top_boards: Array<{ board: string; pins: number; saves: number }> }>;
 }
 

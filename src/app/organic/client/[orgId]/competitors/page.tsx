@@ -47,10 +47,11 @@ export default async function CompetitorsPage({
   ]);
   const { rows, summary } = library;
 
-  // Unieke pin-URL's, niet de som van de kolom: dezelfde pin staat bij
-  // meerdere concurrenten in de bank, en een te grote som is precies het soort
-  // getal waar later beleid op wordt gemaakt.
-  const pinsHeld = summary.unique_pins;
+  // Twee getallen die niet hetzelfde zijn en dat ook zo moeten blijven: alle
+  // pins die de import opleverde (niche-research, van wie dan ook) en de pins
+  // die onze eigen concurrenten hebben gepind. Zie migratie 108.
+  const nichePins = summary.niche_pins;
+  const ownPins = summary.own_competitor_pins;
   const withPins = rows.filter((r) => r.pins_imported > 0).length;
 
   return (
@@ -89,23 +90,14 @@ export default async function CompetitorsPage({
                 }
               />
               <Metric
-                label="Their pins we hold"
-                value={pinsHeld.toLocaleString("en-US")}
-                hint={
-                  summary.shared_pins > 0
-                    ? `unique pins, across ${withPins} of the ${rows.length} accounts`
-                    : `across ${withPins} of the ${rows.length} accounts`
-                }
+                label="Their own pins"
+                value={ownPins.toLocaleString("en-US")}
+                hint={`pinned by ${withPins} of the ${rows.length} accounts themselves`}
               />
               <Metric
-                label="Not imported yet"
-                value={rows.length - withPins}
-                tone={rows.length - withPins > 0 ? "warn" : undefined}
-                hint={
-                  rows.length - withPins > 0
-                    ? "their export is not in the bank yet (P2.1.6)"
-                    : "an export has been read in for every account"
-                }
+                label="Niche pins held"
+                value={nichePins.toLocaleString("en-US")}
+                hint={`from ${summary.distinct_pinners.toLocaleString("en-US")} different accounts in total`}
               />
             </div>
 
@@ -168,30 +160,31 @@ export default async function CompetitorsPage({
               </Table>
             </Panel>
 
-            {/* De dubbeling wordt genoemd en niet weggerekend: het is research
-                die overnieuw moet, en de som zou anders precies zo groot
-                blijven als hij nu onterecht is. */}
-            {summary.shared_pins > 0 && (
-              <div className="mt-4 rounded-lg bg-o-accent/[0.07] ring-1 ring-inset ring-o-clay/25 px-3.5 py-3">
+            {/* Het verschil tussen de twee getallen hierboven is de kern, en het
+                staat er met de reden: de exports zijn keyword-exports, dus het
+                grootste deel van die pins is van iemand anders. Dat is bruikbare
+                niche-research zolang niemand het "onze concurrenten" noemt. */}
+            {nichePins > ownPins && (
+              <div className="mt-4 rounded-lg bg-o-sunk px-3.5 py-3 ring-1 ring-inset ring-o-hairline">
                 <p className="text-sm font-medium text-foreground">
-                  The same pins are filed under more than one account
+                  Most of that research is not theirs — and that is fine
                 </p>
                 <p className="mt-1 text-sm text-o-ink-2">
-                  {summary.total_rows.toLocaleString("en-US")} rows hold{" "}
-                  {summary.unique_pins.toLocaleString("en-US")} different pins, and{" "}
-                  {summary.shared_pins.toLocaleString("en-US")} of those sit under several competitors
-                  at once. That is what an import looks like when one export was read in against more
-                  than one account. The per-account counts below are therefore not each account&rsquo;s
-                  own pins, and the volume this niche appears to have is overstated. Re-importing per
-                  competitor (P2.1.6) is what fixes it.
+                  The competitor exports are keyword exports: they hold the pins that rank for a
+                  search, whoever posted them. Of the {nichePins.toLocaleString("en-US")} pins in this
+                  store&rsquo;s bank, {ownPins.toLocaleString("en-US")} were pinned by one of the
+                  accounts below and the rest by{" "}
+                  {(summary.distinct_pinners - withPins).toLocaleString("en-US")} others. That is real
+                  niche research — which pins win here, on which boards, with how many saves, and it
+                  is what the design brief reads. It is just not a measure of these competitors.
                 </p>
               </div>
             )}
 
             <p className="mt-3 text-[length:var(--text-o-label)] text-o-ink-3">
-              The boards come out of the {pinsHeld.toLocaleString("en-US")} pins read in with the
-              competitor import, not from a separate measurement. They say where their volume sits,
-              not which of their pins performed best.
+              The boards in the last column are the boards each account&rsquo;s own pins sit on, from
+              the import rather than a separate measurement. They say where that account&rsquo;s
+              volume is, not which of their pins performed best.
               {header?.name ? ` Store: ${header.name}.` : ""}
             </p>
           </>

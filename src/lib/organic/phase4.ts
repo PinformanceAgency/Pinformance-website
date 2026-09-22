@@ -4341,7 +4341,12 @@ export async function applyFormatMix(
 }
 
 export interface CompetitorReference {
+  /** Onder welke concurrent dit bestand is ingelezen. Zelden de eigenaar — zie
+   *  `pinner`, en migratie 108 voor waarom. */
   competitor: string | null;
+  /** Wie de pin werkelijk heeft gepind. Dat is wat je wil weten als je hem
+   *  opent: een pin van Cosabella weegt anders dan een pin van poshmark. */
+  pinner: string | null;
   profile_url: string | null;
   pin_url: string;
   title: string | null;
@@ -4384,7 +4389,8 @@ export async function loadCompetitorReferences(
 
   // Kolommen en FROM apart, want de woordenvariant zet er nog een
   // berekende kolom bij — en die moet vóór de FROM staan, niet erachter.
-  const COLS = `c.name AS competitor, c.profile_url, cp.pin_url, cp.title,
+  const COLS = `c.name AS competitor, cp.pinner_username AS pinner,
+                c.profile_url, cp.pin_url, cp.title,
                 cp.board_name, cp.saves, cp.outbound_clicks`;
   const FROM = `FROM organic.competitor_pins cp
                 LEFT JOIN organic.competitors c ON c.id = cp.competitor_id`;
