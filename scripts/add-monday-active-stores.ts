@@ -51,11 +51,45 @@ const DEFAULT_SETTINGS = {
 };
 
 /**
+ * Namen die het bord niet kan opleveren, dus met de hand.
+ *
+ * `displayName()` haalt protocol, www en de TLD eraf en splitst op streepjes.
+ * Dat werkt voor "little-rowan.com" (-> Little Rowan) en niet voor een domein
+ * dat uit één woord bestaat of een TLD heeft die niet in de lijst staat:
+ *
+ *   www.soosatelier.com  -> "Soosatelier"      moet "Soos Atelier"
+ *   www.moonhaven.store  -> "Moonhaven.store"  .store staat niet in de TLD-lijst
+ *
+ * Een woordsplitser die dit raadt is een woordsplitser die er op de volgende
+ * store naast zit, en de naam is toch een keuze: dit is wat de head of media
+ * buying hem noemt. Dus staan ze hier, met het bord-item als sleutel.
+ *
+ * "Vionnera" volgt de spelling op het bord en van het domein (vionnera.com,
+ * dubbele n) — Tristan schreef "Vionera" in de opdracht, en als het écht zo
+ * moet heten is dat één regel hier.
+ */
+const NAME_OVERRIDES: Record<string, string> = {
+  'www.soosatelier.com': 'Soos Atelier',
+  'www.moonhaven.store': 'Moonhaven',
+};
+
+/** Alleen deze bord-items toevoegen. Leeg = alles wat ontbreekt.
+ *  Gezet via ADD_STORES_ONLY, als puntkomma-gescheiden bordnamen: het bord
+ *  krijgt ook prospects en losse ideeën, en die horen niet als org in het
+ *  dashboard te belanden omdat ze in de actieve groep zijn gezet. */
+const ONLY = (process.env.ADD_STORES_ONLY ?? '')
+  .split(';')
+  .map((x) => x.trim())
+  .filter(Boolean);
+
+/**
  * Bordnaam -> dashboardnaam. Op het bord staan URL's ("otrium.nl",
  * "http://valerie-mason.com/"); in het dashboard staat de storenaam. Dit volgt
  * wat er voor de bestaande stores met de hand is gedaan.
  */
 function displayName(boardName: string): string {
+  const override = NAME_OVERRIDES[boardName.trim().toLowerCase()];
+  if (override) return override;
   const bare = boardName
     .trim()
     .replace(/^https?:\/\//i, '')
@@ -137,6 +171,20 @@ async function main() {
     if (!hit) missing.push(r);
   }
 
+  // Met ADD_STORES_ONLY alleen de genoemde stores. Wat er verder ontbreekt
+  // wordt wél gemeld, want dat is de vraag "wat staat er nog open" en die hoort
+  // niet stil te blijven.
+  const selected = ONLY.length === 0
+    ? missing
+    : missing.filter((r) => ONLY.some((o) => norm(o) === norm(r.storeName)));
+  if (ONLY.length > 0) {
+    const rest = missing.filter((r) => !selected.includes(r));
+    console.log(`ADD_STORES_ONLY: ${selected.length} van de ${missing.length} ontbrekende stores`);
+    if (rest.length > 0) {
+      console.log(`Niet meegenomen: ${rest.map((r) => r.storeName).join(', ')}\n`);
+    }
+  }
+
   console.log(
     `Monday actief: ${rows.length} | orgs in dashboard: ${orgs.rows.length} | ontbrekend: ${missing.length}`,
   );
@@ -148,7 +196,7 @@ async function main() {
 
   let created = 0;
   let skipped = 0;
-  for (const r of missing.sort((a, b) => a.storeName.localeCompare(b.storeName))) {
+  for (const r of selected.sort((a, b) => a.storeName.localeCompare(b.storeName))) {
     const name = displayName(r.storeName);
     const slug = slugify(name);
 
