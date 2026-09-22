@@ -451,6 +451,16 @@ export interface DesignBrief {
   /** Layouts marked proven in P5.2.3. Starting from these is how a client
    *  converges on a handful that work instead of redesigning monthly. */
   proven_templates: string[];
+  /** P5.2.1 — de pins die iemand als winnaar aanwees, met de reden erbij.
+   *  Dit is de helft van de feedbacklus die tot 22-09-2026 ontbrak: de cijfers
+   *  kwamen nooit binnen, dus er was ook nooit iets om aan te wijzen. Het
+   *  verschil met `proven` is dat daar een view op cijfers rangschikt en dit
+   *  een besluit van een mens is, inclusief waarom. */
+  winners: string[];
+  /** Stijgende zoektermen uit Pinterest Trends, met de hand ingevoerd. Staat
+   *  op de brief zodat de volgende ronde ze meeneemt in plaats van dat ze in
+   *  een chat blijven hangen. */
+  trends: string[];
   save_split_pct: number;   // 80, fixed by the method
   click_split_pct: number;  // 20, fixed by the method
   /** Whether the click pins on this URL carry a text overlay. Decided by
@@ -546,6 +556,16 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
     proven: (brief.proven.value ?? []).slice(0, 6).map(
       (p) => `${p.intent ?? "?"} pin, ${p.route === "AI_GENERATED" ? "AI route" : "direct"}, on "${p.board_name}" — ` +
              `${p.clicks.toLocaleString("en-US")} clicks / ${p.saves.toLocaleString("en-US")} saves`
+    ),
+    winners: (brief.winners.value ?? []).slice(0, 6).map(
+      (w) => `${w.cycle ?? "?"} D${w.design_number}` +
+             `${w.format ? ` (${w.format.toLowerCase().replace("_", " ")})` : ""} — ` +
+             `${w.clicks.toLocaleString("en-US")} clicks / ${w.saves.toLocaleString("en-US")} saves` +
+             `${w.note ? `: ${w.note}` : ""}`
+    ),
+    trends: (brief.trends.value ?? []).slice(0, 8).map(
+      (t) => `${t.term} — ${t.direction.toLowerCase().replace("_", " ")}` +
+             `, noted ${t.month.slice(0, 7)}${t.note ? ` (${t.note})` : ""}`
     ),
     save_split_pct: split.save_split_pct,
     click_split_pct: split.click_split_pct,
@@ -2651,6 +2671,10 @@ export async function generateCopyForDesign(orgId: string, designId: string) {
     `What page one rewards here: ${brief.format_notes}`,
     brief.proven.length ? `What has already worked on this account:\n${brief.proven.map((p) => `  - ${p}`).join("\n")}` : null,
     brief.proven_templates.length ? `Layouts already proven here:\n${brief.proven_templates.map((t) => `  - ${t}`).join("\n")}` : null,
+    // De winnaars staan ná `proven` en met hun reden erbij: dat is wat een
+    // mens erover zei, en dat weegt zwaarder dan een ranglijst op cijfers.
+    brief.winners.length ? `Pins somebody marked as winners here, and why:\n${brief.winners.map((w) => `  - ${w}`).join("\n")}` : null,
+    brief.trends.length ? `Search terms moving on Pinterest Trends right now:\n${brief.trends.map((t) => `  - ${t}`).join("\n")}` : null,
     brief.gaps.length ? `\nResearch gaps you are working around:\n${brief.gaps.map((g) => `  - ${g}`).join("\n")}` : null,
   ].filter((l) => l !== null).join("\n");
 

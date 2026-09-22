@@ -46,20 +46,38 @@ const ACCOUNT_METRICS = [
 ];
 
 /**
- * Conversion metrics, requested in a second call on purpose.
+ * Conversiemetrics worden NIET aan dit endpoint gevraagd, en dat is geen
+ * voorzichtigheid maar een feit: `/v5/user_account/analytics` kent ze niet.
+ * Gemeten 22-09-2026 op een live store:
  *
- * They need the Pinterest tag installed and conversion access on the
- * account, and Pinterest answers 400 for the whole request when one metric
- * name is not available — which would take the core pull down with it. Asked
- * separately, a store without conversion access simply leaves those columns
- * null, which is what the provenance contract requires: a figure that could
- * not be measured is absent with a reason, never zero.
+ *     metric_types=TOTAL_PAGE_VISIT
+ *     → 400 code 1: "Parameter 'metric_types' (value TOTAL_PAGE_VISIT) is not
+ *       one of ENGAGEMENT, ENGAGEMENT_RATE, IMPRESSION, OUTBOUND_CLICK,
+ *       OUTBOUND_CLICK_RATE, PIN_CLICK, PIN_CLICK_RATE, SAVE, SAVE_RATE."
+ *
+ * Die vier namen stonden hier sinds het begin en konden nooit werken. De
+ * kolommen page_visits, add_to_cart, checkouts, conversions en revenue komen
+ * dus uit handmatige invoer, en de pull laat ze met rust — de COALESCE in de
+ * upsert hieronder is precies daarvoor.
  */
-const CONVERSION_METRICS = [
-  "TOTAL_PAGE_VISIT", "TOTAL_ADD_TO_CART", "TOTAL_CHECKOUT", "TOTAL_CONVERSIONS",
-];
 
-const BATCH = 100;
+/**
+ * Pinterest geeft op dit endpoint niets ouder dan 90 dagen:
+ *
+ *     400 code 1: "You can only get data from the last 90 days."
+ *
+ * Dat is geen instelling en geen access tier — het is de grens. Een maand die
+ * daarbuiten valt wordt dus overgeslagen en niet opgehaald, en de historie
+ * vult van vandaag vooruit. Wat er al staat blijft staan: de upsert raakt een
+ * maand die hij niet opnieuw kan meten niet aan.
+ */
+const API_WINDOW_DAYS = 90;
+
+/** Wat de cron aan tijd heeft. `maxDuration = 300` is wat we vragen, niet wat
+ *  we krijgen, en een run die halverwege wordt afgekapt laat een store zonder
+ *  cijfers achter zonder dat iemand dat ziet. Dus stopt hij zelf, op tijd, en
+ *  zegt wie hij niet meer gehaald heeft. */
+const RUN_BUDGET_MS = 240_000;
 
 function yesterdayISO(): string {
   const d = new Date();
@@ -91,7 +109,9 @@ export interface PullReport {
     pins_measured: number;
     days_written: number;
     months_written: number;
-    conversions_available: boolean;
+    /** Of Pinterest de OTHER-kant gaf: wat anderen op het geclaimde domein
+     *  pinnen. Niets te maken met conversies — die bestaan hier niet. */
+    other_pins_available: boolean;
     note?: string;
   }>;
   reconnect_required: Array<{
@@ -99,6 +119,10 @@ export interface PullReport {
     reason: PinterestAuthError["reason"]; message: string;
   }>;
   errors: Array<{ org_id: string; message: string }>;
+  /** Stores waar de run niet meer aan toe kwam. Leeg is het normale geval; een
+   *  naam hier betekent dat de volgende run ze meeneemt en niet dat er iets
+   *  stuk is. Zonder dit veld leest een afgekapte run als een lege. */
+  not_reached: string[];
 }
 
 /**
@@ -125,28 +149,59 @@ export async function pullOrganicAnalytics(
     [opts.orgId ?? null]
   );
 
-  const report: PullReport = { orgs: [], reconnect_required: [], errors: [] };
+  const report: PullReport = { orgs: [], reconnect_required: [], errors: [], not_reached: [] };
+  const startedAt = Date.now();
   if (orgs.rowCount === 0) return report;
 
   const { clients, failed } = await pinterestClientsForOrgs(orgs.rows.map((r) => r.org_id));
   report.reconnect_required.push(...failed);
 
   for (const [orgId, entry] of clients) {
-    try {
-      const pins = await pullPinPerformance(orgId, entry.client, days);
-      const kpis = await pullAccountKpis(orgId, entry.client, months);
-      report.orgs.push({
-        org_id: orgId,
-        org_name: entry.orgName,
-        pins_measured: pins.pins,
-        days_written: pins.rows,
-        months_written: kpis.months,
-        conversions_available: kpis.conversions,
-        note: kpis.conversions ? undefined : "no conversion access — those KPIs stay blank",
-      });
-    } catch (e) {
-      report.errors.push({ org_id: orgId, message: (e as Error).message });
+    // Op tijd stoppen in plaats van halverwege een store worden afgekapt. Een
+    // niet-bereikte store is over 24 uur gewoon weer aan de beurt; een
+    // afgekapte run laat niemand weten waar hij bleef.
+    if (Date.now() - startedAt > RUN_BUDGET_MS) {
+      report.not_reached.push(entry.orgName);
+      continue;
     }
+    // De twee pulls vallen LOS van elkaar. Dat is niet netjes-doen: precies
+    // hier ging het mis. De pin-pull wierp een 401 op de bulk-endpoint, en
+    // omdat beide in één try stonden, werden de maandcijfers van elke store
+    // maanden achtereen overgeslagen zonder dat één scherm dat kon zeggen.
+    const notes: string[] = [];
+    let pins = { pins: 0, rows: 0, failed: [] as string[] };
+    try {
+      pins = await pullPinPerformance(orgId, entry.client, days);
+      if (pins.failed.length > 0) {
+        notes.push(`${pins.failed.length} pin(s) gave an error: ${pins.failed[0]}`);
+      }
+    } catch (e) {
+      report.errors.push({ org_id: orgId, message: `pin performance: ${(e as Error).message}` });
+    }
+
+    let kpis = { months: 0, other_pins: false, skipped_too_old: 0, failed: [] as string[] };
+    try {
+      kpis = await pullAccountKpis(orgId, entry.client, months);
+      if (!kpis.other_pins) {
+        notes.push("no claimed-domain split from Pinterest; other_impressions/other_saves stay blank");
+      }
+      if (kpis.skipped_too_old > 0) {
+        notes.push(`${kpis.skipped_too_old} month(s) skipped — Pinterest only gives the last 90 days`);
+      }
+      if (kpis.failed.length > 0) notes.push(`month(s) refused: ${kpis.failed.join("; ").slice(0, 120)}`);
+    } catch (e) {
+      report.errors.push({ org_id: orgId, message: `account KPIs: ${(e as Error).message}` });
+    }
+
+    report.orgs.push({
+      org_id: orgId,
+      org_name: entry.orgName,
+      pins_measured: pins.pins,
+      days_written: pins.rows,
+      months_written: kpis.months,
+      other_pins_available: kpis.other_pins,
+      note: notes.length > 0 ? notes.join(" · ") : undefined,
+    });
   }
   return report;
 }
@@ -157,7 +212,7 @@ export async function pullPinPerformance(
   orgId: string,
   client: PinterestClient,
   days: number
-): Promise<{ pins: number; rows: number }> {
+): Promise<{ pins: number; rows: number; failed: string[] }> {
   const pool = organicPool();
   const end = yesterdayISO();
   const start = new Date(Date.parse(end) - (days - 1) * 86_400_000).toISOString().slice(0, 10);
@@ -173,40 +228,56 @@ export async function pullPinPerformance(
         AND (p.published_at IS NULL OR p.published_at >= $2::date - interval '1 day')`,
     [orgId, start]
   );
-  if (published.rowCount === 0) return { pins: 0, rows: 0 };
+  if (published.rowCount === 0) return { pins: 0, rows: 0, failed: [] };
 
-  const byPinterestId = new Map(published.rows.map((r) => [r.pinterest_pin_id, r.id]));
   let written = 0;
+  let measured = 0;
+  const failures: string[] = [];
 
-  for (let i = 0; i < published.rows.length; i += BATCH) {
-    const slice = published.rows.slice(i, i + BATCH);
-    const data = await client.getMultiPinAnalytics(
-      slice.map((r) => r.pinterest_pin_id), start, end, PIN_METRICS
-    );
+  // Per pin, in kleine groepjes parallel. De bulk-endpoint (/v5/pins/analytics)
+  // is bij Pinterest een restricted feature en antwoordt met 401 code 3 — dat
+  // was de enige reden dat hier jarenlang niets uitkwam. Vier tegelijk: genoeg
+  // om zestien pins in een oogwenk te doen, weinig genoeg om niet tegen de
+  // rate limit te lopen bij een store met honderden pins.
+  const CONCURRENCY = 4;
+  for (let i = 0; i < published.rows.length; i += CONCURRENCY) {
+    const slice = published.rows.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(slice.map(async (row) => {
+      try {
+        const payload = await client.getPinAnalytics(
+          row.pinterest_pin_id, start, end, PIN_METRICS
+        );
+        return { row, payload, error: null as string | null };
+      } catch (e) {
+        // Eén pin die weigert (verwijderd op Pinterest, of een pin van een
+        // board dat niet meer gedeeld is) mag de rest van de store niet kosten.
+        return { row, payload: null, error: (e as Error).message };
+      }
+    }));
 
-    for (const [pinterestId, payload] of Object.entries(data ?? {})) {
-      const ourId = byPinterestId.get(pinterestId);
-      if (!ourId) continue;
+    for (const r of results) {
+      if (r.error) { failures.push(`${r.row.pinterest_pin_id}: ${r.error.slice(0, 80)}`); continue; }
+      measured += 1;
 
       // Prefer the daily breakdown: pin_performance is keyed on
       // (pin_id, measured_on) and lifetime totals written against one date
       // would read as a single enormous day and wreck every trend on top.
-      const daily = payload?.daily_metrics ?? [];
-      const rows = daily.length > 0
-        ? daily
-            // Pinterest marks a day READY once it has settled. Anything else
-            // is still moving and must not be frozen into the record.
-            .filter((d) => !d.data_status || d.data_status === "READY")
-            .map((d) => ({
-              on: d.date,
-              impressions: metric(d.metrics, "IMPRESSION"),
-              saves: metric(d.metrics, "SAVE"),
-              clicks: metric(d.metrics, "OUTBOUND_CLICK"),
-            }))
-        : [];
+      const daily = (r.payload as { all?: { daily_metrics?: Array<{
+        date: string; data_status?: string; metrics: Record<string, number>;
+      }> } } | null)?.all?.daily_metrics ?? [];
+      const rows = daily
+        // Pinterest marks a day READY once it has settled. Anything else
+        // is still moving and must not be frozen into the record.
+        .filter((d) => !d.data_status || d.data_status === "READY")
+        .map((d) => ({
+          on: d.date,
+          impressions: metric(d.metrics, "IMPRESSION"),
+          saves: metric(d.metrics, "SAVE"),
+          clicks: metric(d.metrics, "OUTBOUND_CLICK"),
+        }));
 
-      for (const r of rows) {
-        if (!r.on) continue;
+      for (const day of rows) {
+        if (!day.on) continue;
         await pool.query(
           `INSERT INTO organic.pin_performance (pin_id, measured_on, impressions, saves, outbound_clicks)
            VALUES ($1, $2::date, $3, $4, $5)
@@ -214,14 +285,14 @@ export async function pullPinPerformance(
              impressions     = EXCLUDED.impressions,
              saves           = EXCLUDED.saves,
              outbound_clicks = EXCLUDED.outbound_clicks`,
-          [ourId, r.on, r.impressions, r.saves, r.clicks]
+          [r.row.id, day.on, day.impressions, day.saves, day.clicks]
         );
         written += 1;
       }
     }
   }
 
-  return { pins: published.rowCount ?? 0, rows: written };
+  return { pins: measured, rows: written, failed: failures };
 }
 
 /* ------------------------------------------------------------------ */
@@ -230,11 +301,16 @@ export async function pullAccountKpis(
   orgId: string,
   client: PinterestClient,
   months: number
-): Promise<{ months: number; conversions: boolean }> {
+): Promise<{ months: number; other_pins: boolean; skipped_too_old: number; failed: string[] }> {
   const pool = organicPool();
   const end = yesterdayISO();
-  let conversionsAvailable = false;
+  let otherPinsSeen = false;
   let written = 0;
+  const failures: string[] = [];
+
+  const oldestAllowed = new Date(Date.now() - (API_WINDOW_DAYS - 1) * 86_400_000)
+    .toISOString().slice(0, 10);
+  let skippedTooOld = 0;
 
   for (let back = 0; back < months; back++) {
     const monthStart = monthStartISO(back);
@@ -244,7 +320,19 @@ export async function pullAccountKpis(
     const monthEnd = monthEndFull > end ? end : monthEndFull;
     if (monthEnd < monthStart) continue;
 
-    const core = await client.getUserAccountAnalytics(monthStart, monthEnd, ACCOUNT_METRICS);
+    // Buiten het venster van 90 dagen: niet vragen. Vroeger wierp de eerste
+    // te oude maand een 400 die de hele lus meenam, dus alles ervóór ging ook
+    // verloren — en dat was elke maand behalve de laatste twee.
+    if (monthStart < oldestAllowed && monthEnd < oldestAllowed) { skippedTooOld += 1; continue; }
+    const windowStart = monthStart < oldestAllowed ? oldestAllowed : monthStart;
+
+    try {
+
+    // CLAIMED: onze eigen pins. Zonder deze parameter antwoordt Pinterest met
+    // BOTH en staat andermans bereik in ons eigen cijfer.
+    const core = await client.getUserAccountAnalytics(
+      windowStart, monthEnd, ACCOUNT_METRICS, "CLAIMED"
+    );
     const daily = core?.all?.daily_metrics ?? [];
     const ready = daily.filter((d) => !d.data_status || d.data_status === "READY");
 
@@ -254,38 +342,43 @@ export async function pullAccountKpis(
       return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
     };
 
-    // Asked separately so a 400 here cannot take the core numbers down.
-    let conv: Record<string, number> | null = null;
+    // Wat anderen op het geclaimde domein pinnen. Apart opgehaald en apart
+    // opgeslagen: het is bereik dat wij niet gemaakt hebben, dus het mag nooit
+    // bij onze cijfers worden geteld. Een fout hier kost alleen deze twee
+    // kolommen — de maand zelf staat er dan nog.
+    let other: { impressions: number; saves: number } | null = null;
     try {
-      const r = await client.getUserAccountAnalytics(monthStart, monthEnd, CONVERSION_METRICS);
-      const cd = (r?.all?.daily_metrics ?? []).filter((d) => !d.data_status || d.data_status === "READY");
-      if (cd.length > 0) {
-        conv = {};
-        for (const name of CONVERSION_METRICS) {
-          conv[name] = cd.reduce((t, d) => t + metric(d.metrics, name), 0);
-        }
-        conversionsAvailable = true;
-      }
+      const r = await client.getUserAccountAnalytics(
+        windowStart, monthEnd, ["IMPRESSION", "SAVE"], "OTHER"
+      );
+      const od = (r?.all?.daily_metrics ?? []).filter((d) => !d.data_status || d.data_status === "READY");
+      other = {
+        impressions: od.reduce((t, d) => t + metric(d.metrics, "IMPRESSION"), 0),
+        saves: od.reduce((t, d) => t + metric(d.metrics, "SAVE"), 0),
+      };
+      otherPinsSeen = true;
     } catch {
-      // No conversion access on this account. Columns stay null — see the
-      // note on CONVERSION_METRICS for why that is the correct outcome.
+      // Niet beschikbaar op dit account: null blijft null, wat iets anders is
+      // dan nul (provenance.ts).
     }
 
     // The month in progress is marked partial so nothing downstream
-    // compares half a month against a whole one.
-    const isPartial = back === 0 && monthEnd < monthEndFull;
+    // compares half a month against a whole one. Een maand die door de
+    // 90-dagengrens maar gedeeltelijk gemeten kon worden is óók partieel —
+    // anders wordt een halve juli straks vergeleken met een hele augustus.
+    const isPartial = (back === 0 && monthEnd < monthEndFull) || windowStart > monthStart;
 
     await pool.query(
       `INSERT INTO organic.monthly_kpis (
          org_id, month, impressions, pin_saves, pin_clicks, outbound_clicks,
          engagements, engagement_rate, save_rate,
-         page_visits, add_to_cart, checkouts, conversions,
+         other_impressions, other_saves,
          pins_published, is_partial, measured_at
        ) VALUES (
          $1, $2::date, $3, $4, $5, $6,
          $7, $8, $9,
-         $10, $11, $12, $13,
-         $14, $15, now()
+         $10, $11,
+         $12, $13, now()
        )
        ON CONFLICT (org_id, month) DO UPDATE SET
          impressions     = EXCLUDED.impressions,
@@ -295,12 +388,11 @@ export async function pullAccountKpis(
          engagements     = EXCLUDED.engagements,
          engagement_rate = EXCLUDED.engagement_rate,
          save_rate       = EXCLUDED.save_rate,
-         -- COALESCE, not overwrite: a month whose conversion access lapsed
-         -- must keep the figures it had rather than blanking a sent report.
-         page_visits     = COALESCE(EXCLUDED.page_visits, organic.monthly_kpis.page_visits),
-         add_to_cart     = COALESCE(EXCLUDED.add_to_cart, organic.monthly_kpis.add_to_cart),
-         checkouts       = COALESCE(EXCLUDED.checkouts,   organic.monthly_kpis.checkouts),
-         conversions     = COALESCE(EXCLUDED.conversions, organic.monthly_kpis.conversions),
+         -- COALESCE en niet overschrijven: wat er met de hand is ingevuld
+         -- (omzet, conversies, GA4) hoort niet door een nachtelijke pull te
+         -- worden leeggemaakt, en wat Pinterest deze keer niet gaf ook niet.
+         other_impressions = COALESCE(EXCLUDED.other_impressions, organic.monthly_kpis.other_impressions),
+         other_saves       = COALESCE(EXCLUDED.other_saves,       organic.monthly_kpis.other_saves),
          pins_published  = EXCLUDED.pins_published,
          is_partial      = EXCLUDED.is_partial,
          measured_at     = now()`,
@@ -308,18 +400,21 @@ export async function pullAccountKpis(
         orgId, monthStart,
         sum("IMPRESSION"), sum("SAVE"), sum("PIN_CLICK"), sum("OUTBOUND_CLICK"),
         sum("ENGAGEMENT"), avg("ENGAGEMENT_RATE"), avg("SAVE_RATE"),
-        conv ? conv.TOTAL_PAGE_VISIT : null,
-        conv ? conv.TOTAL_ADD_TO_CART : null,
-        conv ? conv.TOTAL_CHECKOUT : null,
-        conv ? conv.TOTAL_CONVERSIONS : null,
+        other ? other.impressions : null,
+        other ? other.saves : null,
         await pinsPublishedIn(orgId, monthStart, monthEnd),
         isPartial,
       ]
     );
     written += 1;
+    } catch (e) {
+      // Eén maand die weigert kost die maand, niet de rest. Dit was het
+      // mechanisme waardoor `monthly_kpis` voor elke echte store leeg bleef.
+      failures.push(`${monthStart.slice(0, 7)}: ${(e as Error).message.slice(0, 90)}`);
+    }
   }
 
-  return { months: written, conversions: conversionsAvailable };
+  return { months: written, other_pins: otherPinsSeen, skipped_too_old: skippedTooOld, failed: failures };
 }
 
 async function pinsPublishedIn(orgId: string, from: string, to: string): Promise<number> {

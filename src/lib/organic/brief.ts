@@ -100,6 +100,15 @@ export interface AccountBrief {
    *  these instead of from scratch, which is the convergence the method
    *  describes. */
   templates: Known<Array<{ name: string; intent: string; aspect_ratio: string | null; has_text_overlay: boolean | null; times_used: number }>>;
+  /** P5.2.1 — de pins die een mens heeft aangewezen als winnaar, met de reden
+   *  die hij erbij schreef. Dat laatste is het enige stuk dat opnieuw gebruikt
+   *  kan worden: `winning_combinations` rangschikt op cijfers en is een
+   *  ranglijst, dit is een besluit. */
+  winners: Known<Array<{ cycle: string | null; design_number: number; format: string | null; note: string | null; clicks: number; saves: number }>>;
+  /** C3 — stijgende zoektermen uit Pinterest Trends, met de hand ingevoerd
+   *  omdat die tool niet via de API te lezen is. Alleen de laatste drie
+   *  maanden: "stijgt" van een half jaar terug is geschiedenis. */
+  trends: Known<Array<{ term: string; direction: string; month: string; note: string | null }>>;
   /** P3.1 — the classified clusters. */
   clusters: Known<Array<{ name: string; axis: string | null }>>;
   /** P2.1.6 — the competitor export, summarised. Six hundred rows do not
@@ -154,7 +163,7 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
   const pool = organicPool();
 
   const [org, settings, viability, intake, brand, taste, grid, comps, market, proven,
-         templates, clusters, compBoards, compTotal] =
+         templates, clusters, compBoards, compTotal, winners, trends] =
     await Promise.all([
       pool.query<{ name: string }>(`SELECT name FROM public.organizations WHERE id = $1`, [orgId]),
       pool.query(
@@ -210,6 +219,31 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
           LIMIT 10`, [orgId]),
       pool.query<{ n: string }>(
         `SELECT COUNT(*)::text AS n FROM organic.competitor_pins WHERE org_id = $1`, [orgId]),
+      // De winnaars, met hun eigen cijfers erbij zodat de brief kan zeggen
+      // hóe goed en niet alleen dát iemand hem aanwees.
+      pool.query<{
+        cycle: string | null; design_number: number; format: string | null;
+        note: string | null; clicks: string; saves: string;
+      }>(
+        `SELECT u.name AS cycle, d.design_number, d.format::text AS format,
+                p.winner_note AS note,
+                COALESCE(SUM(pp.outbound_clicks), 0)::text AS clicks,
+                COALESCE(SUM(pp.saves), 0)::text           AS saves
+           FROM organic.pins p
+           JOIN organic.waterfalls w ON w.id = p.waterfall_id
+           JOIN organic.designs d    ON d.id = p.design_id
+           JOIN organic.urls u       ON u.id = w.url_id
+           LEFT JOIN organic.pin_performance pp ON pp.pin_id = p.id
+          WHERE w.org_id = $1 AND p.is_winner
+          GROUP BY u.name, d.design_number, d.format, p.winner_note, p.winner_marked_at
+          ORDER BY p.winner_marked_at DESC
+          LIMIT 12`, [orgId]),
+      pool.query<{ term: string; direction: string; month: string; note: string | null }>(
+        `SELECT term, direction, month::text AS month, note
+           FROM organic.trend_inputs
+          WHERE org_id = $1
+            AND month >= (date_trunc('month', current_date) - interval '2 months')::date
+          ORDER BY month DESC, term`, [orgId]),
     ]);
 
   if (org.rowCount === 0) return null;
@@ -287,6 +321,19 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
         })
       : absent("P2.2.2 has no approved items — the AI analysis was not run or nothing was approved"),
 
+    winners: winners.rowCount
+      ? known(winners.rows.map((x) => ({
+          cycle: x.cycle,
+          design_number: x.design_number,
+          format: x.format,
+          note: x.note,
+          clicks: Number(x.clicks),
+          saves: Number(x.saves),
+        })))
+      : absent("nobody has marked a winner yet (P5.2.1) — this month starts without that signal"),
+    trends: trends.rowCount
+      ? known(trends.rows)
+      : absent("no Pinterest Trends terms recorded in the last three months"),
     proven: proven.rowCount
       ? known(proven.rows.map((p) => ({
           board_name: p.board_name ?? null,

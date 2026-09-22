@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { loadClientHeader } from "@/lib/organic/queries";
 import * as P5 from "@/lib/organic/phase5";
 import { AnalyticsPanel } from "./AnalyticsPanel";
+import { MonthlyPanel } from "./MonthlyPanel";
+import { loadMonthlyDashboard } from "@/lib/organic/monthly";
 import { InternalAnalytics } from "@/components/organic/InternalAnalytics";
 import { loadStoreCost, loadCycleEfficiency, loadDraftEditStats, loadCacheContribution } from "@/lib/organic/internal-analytics";
 
@@ -19,7 +21,7 @@ export default async function AnalyticsPage({
   const from = sp.from ?? new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
 
   const [header, pinterest, baseline, byReason, byKeyword, byBreadth, ads, setup,
-         cost, cycleEff, drafts, cache] = await Promise.all([
+         cost, cycleEff, drafts, cache, monthly] = await Promise.all([
     loadClientHeader(orgId),
     P5.fetchOrganicAnalytics(orgId, from, to),
     P5.loadBaseline(orgId),
@@ -32,6 +34,7 @@ export default async function AnalyticsPage({
     loadCycleEfficiency(orgId),
     loadDraftEditStats(orgId),
     loadCacheContribution(orgId),
+    loadMonthlyDashboard(orgId),
   ]);
   if (!header) notFound();
 
@@ -39,6 +42,18 @@ export default async function AnalyticsPage({
 
   return (
     <div>
+      {/* De maandcijfers staan bovenaan en de live-uitsnede eronder. Dat is de
+          volgorde waarin de vragen komen: eerst "hoe ging deze maand tegenover
+          de vorige", dan pas een zelfgekozen periode. Tot 22-09-2026 was de
+          bovenste helft onmogelijk, omdat er geen opgeslagen historie was. */}
+      <MonthlyPanel orgId={orgId} data={monthly} />
+
+      <div className="mt-12 pt-8 border-t border-o-hairline-firm">
+        <p className="text-[length:var(--text-o-label)] uppercase tracking-[0.08em] text-o-ink-3 font-medium mb-5">
+          Live from Pinterest — a period you choose
+        </p>
+      </div>
+
       <AnalyticsPanel
         orgId={orgId} from={from} to={to}
         pinterest={pinterest}
