@@ -36,6 +36,8 @@ export const BRACKETS: Bracket[] = [
   { min: 100_000, max: Number.POSITIVE_INFINITY, pct: 5 },
 ];
 
+import type { Lang } from "./i18n";
+
 export type KpiKind = "roas" | "cpa";
 
 export const KPI_DEFAULTS: Record<KpiKind, number> = {
@@ -103,36 +105,35 @@ export function targetImplies(
   adspend: number,
   kind: KpiKind,
   value: number
-): { label: string; value: string } | null {
+): { kind: KpiKind; amount: number } | null {
   if (!Number.isFinite(adspend) || adspend <= 0) return null;
   if (!Number.isFinite(value) || value <= 0) return null;
-  if (kind === "roas") {
-    return {
-      label: "Dat is minimaal",
-      value: eur(adspend * value) + " omzet",
-    };
-  }
-  return {
-    label: "Dat is minimaal",
-    value: Math.floor(adspend / value).toLocaleString("nl-NL") + " orders",
-  };
+  if (kind === "roas") return { kind, amount: adspend * value };
+  return { kind, amount: Math.floor(adspend / value) };
 }
 
-export function bracketLabel(b: Bracket): string {
-  const k = (n: number) => (n / 1000).toLocaleString("nl-NL");
+export function bracketLabel(b: Bracket, lang: Lang = "nl"): string {
+  const k = (n: number) =>
+    (n / 1000).toLocaleString(lang === "en" ? "en-US" : "nl-NL");
   if (b.max === Number.POSITIVE_INFINITY) return `€ ${k(b.min)}k+`;
-  if (b.min === 0) return `tot € ${k(b.max)}k`;
+  if (b.min === 0) return `${lang === "en" ? "up to" : "tot"} € ${k(b.max)}k`;
   return `€ ${k(b.min)}k – ${k(b.max)}k`;
 }
 
 /**
- * Altijd met expliciete locale, en altijd nl-NL: het deck is Nederlands, en
- * "€ 2,750" leest hier als twee euro vijftig. Expliciet meegeven houdt server
- * en browser bovendien op hetzelfde antwoord.
+ * Altijd met expliciete locale, nooit met de locale van de machine: server en
+ * browser moeten hetzelfde antwoord geven. Welke het is hangt aan het deck,
+ * want "€ 2.750" leest in het Engels als twee euro vijfenzeventig.
  */
-export function eur(n: number): string {
+export function eur(n: number, lang: Lang = "nl"): string {
   if (!Number.isFinite(n)) return "—";
-  return "€ " + Math.round(n).toLocaleString("nl-NL");
+  return "€ " + Math.round(n).toLocaleString(lang === "en" ? "en-US" : "nl-NL");
+}
+
+/** Hetzelfde voor een getal zonder munt, zoals een aantal orders. */
+export function num(n: number, lang: Lang = "nl"): string {
+  if (!Number.isFinite(n)) return "—";
+  return Math.round(n).toLocaleString(lang === "en" ? "en-US" : "nl-NL");
 }
 
 export function pct(n: number): string {

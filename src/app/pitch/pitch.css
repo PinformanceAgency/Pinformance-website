@@ -1913,3 +1913,22 @@
     opacity: 1;
   }
 }
+
+/* De taalschakelaar in de tabbalk. Klein en rustig: hij hoort bij de
+   navigatie, niet bij de inhoud. */
+.pitch-lang {
+  margin-left: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background 0.16s, color 0.16s;
+}
+.pitch-lang:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}

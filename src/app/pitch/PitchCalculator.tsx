@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { STRINGS, type Lang } from "./i18n";
 import {
   BRACKETS,
   BASE_FEE,
@@ -17,6 +18,7 @@ import {
   SETUP_FEE,
   bracketLabel,
   eur,
+  num,
   quote,
   targetImplies,
   type KpiKind,
@@ -40,9 +42,12 @@ const PRESETS = [
   { label: "€ 200k", value: "200000" },
 ];
 
-function fmtRoas(n: number): string {
-  // Zoals de prospect het zei: 3,5 blijft 3,5 en 3,25 blijft 3,25.
-  return n.toLocaleString("nl-NL", { maximumFractionDigits: 2 });
+function fmtRoas(n: number, lang: Lang): string {
+  // Zoals de prospect het zei: 3,5 blijft 3,5 en 3,25 blijft 3,25. In het
+  // Engels met een punt, want daar leest 3,5 als vijfendertig.
+  return n.toLocaleString(lang === "en" ? "en-US" : "nl-NL", {
+    maximumFractionDigits: 2,
+  });
 }
 
 function parseAmount(s: string): number {
@@ -60,7 +65,8 @@ function parseAmount(s: string): number {
 // Welke vragen er precies in komen is nog besluit B16. Nu de drie die de
 // berekening echt nodig heeft: waarop we sturen, het minimum, en de spend.
 
-export default function PitchCalculator() {
+export default function PitchCalculator({ lang = "nl" }: { lang?: Lang }) {
+  const t = STRINGS[lang].calc;
   const [step, setStep] = useState<"vragen" | "aanbod">("vragen");
   const [adspendInput, setAdspendInput] = useState("");
   const [kpi, setKpi] = useState<KpiKind>("roas");
@@ -70,8 +76,8 @@ export default function PitchCalculator() {
   const minimum = parseFloat(minInput.replace(",", "."));
   const missing = [
     !(Number.isFinite(minimum) && minimum > 0) &&
-      (kpi === "roas" ? "je minimale ROAS" : "je maximale CPA"),
-    !(Number.isFinite(adspend) && adspend > 0) && "je ad spend",
+      (kpi === "roas" ? t.missingRoas : t.missingCpa),
+    !(Number.isFinite(adspend) && adspend > 0) && t.missingAdspend,
   ].filter(Boolean) as string[];
   const q = useMemo(() => quote(adspend), [adspend]);
   const implies = useMemo(
@@ -90,14 +96,14 @@ export default function PitchCalculator() {
 
   const kpiLabel = Number.isFinite(minimum)
     ? kpi === "roas"
-      ? `Minimale ROAS ${fmtRoas(minimum)}`
-      : `Maximale CPA ${eur(minimum)}`
-    : "Nog in te vullen";
+      ? t.minRoas(fmtRoas(minimum, lang))
+      : t.maxCpa(eur(minimum, lang))
+    : t.notFilledIn;
 
   const chartData = useMemo(
     () =>
       BRACKETS.map((b, i) => ({
-        adspend: bracketLabel(b),
+        adspend: bracketLabel(b, lang),
         pct: b.pct,
         isCurrent: i === q.bracketIndex,
       })),
@@ -105,7 +111,7 @@ export default function PitchCalculator() {
   );
 
   const note = q.capped
-    ? `Maximum bereikt. Onze fee blijft op ${eur(INVOICE_CAP)} per maand staan.`
+    ? t.capNote(eur(INVOICE_CAP, lang))
     : null;
 
   return (
@@ -117,10 +123,10 @@ export default function PitchCalculator() {
         <section>
           <div className="mb-6">
             <h3 className="text-2xl font-semibold tracking-tight text-[#f2f1f6] sm:text-3xl">
-              Eerst drie vragen
+              {t.questionsTitle}
             </h3>
             <p className="mt-1 text-sm text-[#a5a0a2]">
-              Het aanbod rekent met jouw antwoorden, niet met een aanname van ons.
+              {t.questionsLead}
             </p>
           </div>
 
@@ -129,7 +135,7 @@ export default function PitchCalculator() {
               {/* KPI */}
               <div>
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
-                  01 · Waarop sturen we
+                  {t.q1}
                 </div>
                 <div className="flex gap-1.5 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] p-1.5">
                   {(["roas", "cpa"] as KpiKind[]).map((k) => (
@@ -150,15 +156,15 @@ export default function PitchCalculator() {
                 </div>
                 <div className="mt-3 text-[11px] leading-relaxed text-[#6e6769]">
                   {kpi === "roas"
-                    ? "Omzet gedeeld door spend. Voor de meeste merken."
-                    : "Kosten per order. Bij abonnementen en hoge LTV."}
+                    ? t.roasHint
+                    : t.cpaHint}
                 </div>
               </div>
 
               {/* Minimum */}
               <div>
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
-                  02 · {kpi === "roas" ? "Welke ROAS heb je minimaal nodig?" : "Welke CPA mag het maximaal zijn?"}
+                  {kpi === "roas" ? t.q2Roas : t.q2Cpa}
                 </div>
                 <div className="flex items-baseline gap-2 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-[rgba(0,0,0,0.5)]">
                   {kpi === "cpa" && (
@@ -170,7 +176,9 @@ export default function PitchCalculator() {
                     type="text"
                     inputMode="decimal"
                     value={minInput}
-                    placeholder={kpi === "roas" ? "bijv. 3,5" : "bijv. 30"}
+                    placeholder={
+                      kpi === "roas" ? t.minPlaceholderRoas : t.minPlaceholderCpa
+                    }
                     onChange={(e) => setMinInput(e.target.value)}
                     onPointerDown={(e) => e.stopPropagation()}
                     className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#f2f1f6] outline-none placeholder:text-[#4a4548] sm:text-3xl"
@@ -178,17 +186,19 @@ export default function PitchCalculator() {
                 </div>
                 <div className="mt-3 text-[11px] leading-relaxed text-[#6e6769]">
                   {implies
-                    ? `${implies.label} ${implies.value} per maand`
+                    ? implies.kind === "roas"
+                      ? t.impliesRevenue(eur(implies.amount, lang))
+                      : t.impliesOrders(num(implies.amount, lang))
                     : kpi === "roas"
-                      ? "Het getal waarop jouw merk winstgevend is"
-                      : "De CPA waarop jouw merk winstgevend is"}
+                      ? t.minHintRoas
+                      : t.minHintCpa}
                 </div>
               </div>
               {/* Ad spend */}
               <div>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#a5a0a2]">
-                    03 · Ad spend per maand
+                    {t.q3}
                   </div>
                 </div>
                 <div className="flex items-baseline gap-2 rounded-xl border border-[rgba(200,155,160,0.14)] bg-[rgba(0,0,0,0.32)] px-4 py-3 transition-colors focus-within:border-[#E30613] focus-within:bg-[rgba(0,0,0,0.5)]">
@@ -197,7 +207,7 @@ export default function PitchCalculator() {
                     type="text"
                     inputMode="numeric"
                     value={adspendInput}
-                    placeholder="bijv. 25.000"
+                    placeholder={t.adspendPlaceholder}
                     onChange={(e) => setAdspendInput(e.target.value)}
                     onPointerDown={(e) => e.stopPropagation()}
                     className="w-full bg-transparent text-2xl font-bold tabular-nums text-[#f2f1f6] outline-none placeholder:text-[#4a4548] sm:text-3xl"
@@ -205,7 +215,7 @@ export default function PitchCalculator() {
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#6e6769]">
-                    Probeer:
+                    {t.try}
                   </span>
                   {PRESETS.map((p) => (
                     <button
@@ -236,11 +246,11 @@ export default function PitchCalculator() {
               onClick={() => setStep("aanbod")}
               className="rounded-xl bg-[#e30613] px-6 py-3 text-sm font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Toon het aanbod →
+              {t.show}
             </button>
             {missing.length > 0 && (
               <span className="text-xs text-[#6e6769]">
-                Nog in te vullen: {missing.join(" en ")}
+                {t.missing(missing)}
               </span>
             )}
           </div>
@@ -252,20 +262,20 @@ export default function PitchCalculator() {
         <section>
           <div className="mb-6">
             <h3 className="text-2xl font-semibold tracking-tight text-[#f2f1f6] sm:text-3xl">
-              Garanties en voorwaarden
+              {t.guaranteesTitle}
             </h3>
             <p className="mt-1 text-sm text-[#a5a0a2]">
-              Vastgelegd in de overeenkomst.
+              {t.guaranteesLead}
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {[
-              { label: "Garantie", headline: kpiLabel },
+              { label: t.labelGuarantee, headline: kpiLabel },
               {
-                label: "Setup fee",
-                headline: `${eur(SETUP_FEE)} eenmalig, bij de start`,
+                label: t.labelSetup,
+                headline: t.setupHeadline(eur(SETUP_FEE, lang)),
               },
-              { label: "Facturatie", headline: "Achteraf, nooit vooraf" },
+              { label: t.labelInvoicing, headline: t.invoicingHeadline },
             ].map((it) => (
               <div
                 key={it.label}
@@ -294,14 +304,12 @@ export default function PitchCalculator() {
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
             <div>
               <h3 className="text-xl font-semibold tracking-tight text-[#f2f1f6]">
-                Jouw aanbod
+                {t.offerTitle}
               </h3>
               <p className="mt-1 text-sm text-[#a5a0a2]">
-                Bij {eur(adspend)} ad spend per maand,{" "}
                 {kpi === "roas"
-                  ? `met een minimale ROAS van ${fmtRoas(minimum)}`
-                  : `met een maximale CPA van ${eur(minimum)}`}
-                .
+                  ? t.offerLeadRoas(eur(adspend, lang), fmtRoas(minimum, lang))
+                  : t.offerLeadCpa(eur(adspend, lang), eur(minimum, lang))}
               </p>
             </div>
             <button
@@ -309,7 +317,7 @@ export default function PitchCalculator() {
               onClick={() => setStep("vragen")}
               className="rounded-full border border-[rgba(200,155,160,0.14)] px-3.5 py-1.5 text-xs font-medium text-[#a5a0a2] transition-colors hover:border-[rgba(255,92,99,0.45)] hover:text-[#f2f1f6]"
             >
-              ← Antwoorden aanpassen
+              {t.editAnswers}
             </button>
           </div>
 
@@ -323,24 +331,24 @@ export default function PitchCalculator() {
           <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
             <div className="rounded-xl border border-[#E30613]/25 pitch-calc-card px-5 py-4 shadow-[0_22px_50px_-22px_rgba(227,6,19,0.35)]">
               <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#ff5c63]">
-                {kpi === "roas" ? "ROAS gehaald" : "CPA gehaald"}
+                {kpi === "roas" ? t.hitRoas : t.hitCpa}
               </div>
               <div className="mt-1.5 text-xl font-semibold tabular-nums text-[#f2f1f6] sm:text-2xl">
-                {eur(q.totalOnTarget)}
+                {eur(q.totalOnTarget, lang)}
               </div>
               <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
-                per maand, base fee plus performance fee
+                {t.hitSub}
               </div>
             </div>
             <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
               <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6e6769]">
-                Niet gehaald
+                {t.missed}
               </div>
               <div className="mt-1.5 text-xl font-semibold tabular-nums text-[#f2f1f6] sm:text-2xl">
-                {eur(q.totalOffTarget)}
+                {eur(q.totalOffTarget, lang)}
               </div>
               <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
-                per maand, de performance fee vervalt volledig
+                {t.missedSub}
               </div>
             </div>
           </div>
@@ -350,7 +358,7 @@ export default function PitchCalculator() {
             <div className="space-y-4 lg:col-span-2">
               <div className="rounded-2xl border border-[rgba(200,155,160,0.14)] pitch-calc-card p-5 shadow-[0_16px_40px_-22px_rgba(0,0,0,0.9)]">
                 <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-[#6e6769]">
-                  Staffel over de ad spend
+                  {t.brackets}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {BRACKETS.map((b, i) => {
@@ -366,7 +374,7 @@ export default function PitchCalculator() {
                         }
                       >
                         <div className="text-[9px] uppercase tracking-[0.2em] text-[#6e6769]">
-                          {bracketLabel(b)}
+                          {bracketLabel(b, lang)}
                         </div>
                         <div
                           className={
@@ -384,33 +392,29 @@ export default function PitchCalculator() {
                 {q.bracketIndex >= 0 && (
                   <div className="mt-6 border-t border-[rgba(200,155,160,0.14)] pt-6">
                     <div className="mb-6 text-center text-sm font-bold uppercase tracking-[0.15em] text-[#f2f1f6] sm:text-base">
-                      <span>
-                        Bij{" "}
-                        <span className="text-[#ff5c63]">{eur(adspend)}</span> ad
-                        spend
-                      </span>
+                      <span>{t.atSpend(eur(adspend, lang))}</span>
                     </div>
                     <div className="space-y-3.5 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-[#a5a0a2]">Base fee</span>
+                        <span className="text-[#a5a0a2]">{t.baseFee}</span>
                         <span className="font-medium tabular-nums text-[#f2f1f6]">
-                          {eur(BASE_FEE)}
+                          {eur(BASE_FEE, lang)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-[#a5a0a2]">
-                          {eur(adspend)} × {q.bracketPct}%
+                          {eur(adspend, lang)} × {q.bracketPct}%
                         </span>
                         <span className="font-medium tabular-nums text-[#f2f1f6]">
-                          {eur(q.spendFee)}
+                          {eur(q.spendFee, lang)}
                         </span>
                       </div>
                       <div className="mt-5 flex items-baseline justify-between border-t border-[rgba(200,155,160,0.14)] pt-5">
                         <span className="font-semibold text-[#f2f1f6]">
-                          Totaal{q.capped ? " (maximum)" : ""}
+                          {q.capped ? t.totalCapped : t.total}
                         </span>
                         <span className="font-semibold tabular-nums text-[#ff5c63]">
-                          {eur(q.totalOnTarget)}
+                          {eur(q.totalOnTarget, lang)}
                         </span>
                       </div>
                     </div>
@@ -422,11 +426,10 @@ export default function PitchCalculator() {
             <div className="lg:col-span-3">
               <div className="rounded-2xl border border-[rgba(200,155,160,0.14)] pitch-calc-card p-6">
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6e6769]">
-                  Performance fee per staffel
+                  {t.chartTitle}
                 </div>
                 <div className="text-base font-semibold text-[#f2f1f6]">
-                  Bij een ad spend van{" "}
-                  <span className="text-[#ff5c63]">{eur(adspend)}</span>
+                  {t.chartLead(eur(adspend, lang))}
                 </div>
                 <div className="mt-5 h-64 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -445,7 +448,7 @@ export default function PitchCalculator() {
                         axisLine={{ stroke: "rgba(200,155,160,0.14)" }}
                         tickLine={false}
                         label={{
-                          value: "AD SPEND",
+                          value: t.axisSpend,
                           position: "insideBottom",
                           offset: -12,
                           fontSize: 10,
@@ -462,7 +465,7 @@ export default function PitchCalculator() {
                         domain={[4, 9]}
                         tickFormatter={(v) => Number(v).toFixed(0) + " %"}
                         label={{
-                          value: "PERFORMANCE FEE",
+                          value: t.axisFee,
                           angle: -90,
                           position: "insideLeft",
                           offset: 12,
@@ -483,9 +486,9 @@ export default function PitchCalculator() {
                         itemStyle={{ color: "#f2f1f6" }}
                         formatter={(value) => [
                           Number(value).toFixed(1).replace(".", ",") + " %",
-                          "Performance fee",
+                          t.tooltipFee,
                         ]}
-                        labelFormatter={(l) => "Ad spend " + l}
+                        labelFormatter={(l) => `${t.tooltipSpend} ${l}`}
                       />
                       <Line
                         type="monotone"

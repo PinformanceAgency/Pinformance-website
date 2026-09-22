@@ -8,6 +8,9 @@ import {
   NODE_SIZE,
   ROADMAP_NODES,
   SECTIONS,
+  lanesFor,
+  nodesFor,
+  sectionsFor,
   type CaseMode,
   type RoadmapNode,
   SHOW_RESULT_LINE,
@@ -15,6 +18,7 @@ import {
 import PitchCalculator from "./PitchCalculator";
 import { FIGURES } from "./figures";
 import VisualCarousel from "./VisualCarousel";
+import { STRINGS, type Lang } from "./i18n";
 import "./pitch.css";
 
 // ---------------------------------------------------------------------------
@@ -83,7 +87,8 @@ const center = (n: { x: number; y: number }) => ({
  */
 function renderVisual(
   node: RoadmapNode,
-  onZoom: (z: { src: string; alt: string }) => void
+  onZoom: (z: { src: string; alt: string }) => void,
+  lang: Lang
 ) {
   // Geparkeerd: tijdelijk niets, en de tekst krijgt de volle breedte.
   if (node.visual.parked) return null;
@@ -122,6 +127,7 @@ function renderVisual(
           slides={[art, ...node.visual.extra]}
           alt={node.visual.note}
           onZoom={onZoom}
+          lang={lang}
         />
       ) : (
         art && (
@@ -133,7 +139,7 @@ function renderVisual(
           />
         )
       )}
-      {Figure && <Figure />}
+      {Figure && <Figure lang={lang} />}
     </figure>
   );
 }
@@ -157,7 +163,11 @@ interface Stroke {
   d: string;
 }
 
-export default function PitchCanvas() {
+export default function PitchCanvas({ lang = "nl" }: { lang?: Lang }) {
+  const t = STRINGS[lang];
+  const NODES = nodesFor(lang);
+  const LANE_LIST = lanesFor(lang);
+  const SECTION_LIST = sectionsFor(lang);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [cam, setCam] = useState<Cam>({ x: 0, y: 0, scale: 0.44 });
   const [animating, setAnimating] = useState(false);
@@ -179,7 +189,7 @@ export default function PitchCanvas() {
   camRef.current = cam;
 
   // Het beeld hoort naast de tekst, tenzij het van links naar rechts loopt.
-  const visual = detail ? renderVisual(detail, setZoom) : null;
+  const visual = detail ? renderVisual(detail, setZoom, lang) : null;
   const sideVisual =
     !!detail && !!visual && !detail.visual.wide && !detail.calculator;
   const showDemo = !!detail && hasDemoContent(detail);
@@ -188,7 +198,7 @@ export default function PitchCanvas() {
   const goTo = useCallback((i: number) => {
     const el = surfaceRef.current;
     if (!el) return;
-    const next = fitBounds(SECTIONS[i].bounds, el.clientWidth, el.clientHeight);
+    const next = fitBounds(SECTION_LIST[i].bounds, el.clientWidth, el.clientHeight);
     setActive(i);
     setAnimating(true);
     setCam(next);
@@ -199,7 +209,7 @@ export default function PitchCanvas() {
   useEffect(() => {
     const el = surfaceRef.current;
     if (!el) return;
-    setCam(fitBounds(SECTIONS[0].bounds, el.clientWidth, el.clientHeight));
+    setCam(fitBounds(SECTION_LIST[0].bounds, el.clientWidth, el.clientHeight));
   }, []);
 
   // --- Wheel zoom, anchored on the cursor ---------------------------------
@@ -241,7 +251,7 @@ export default function PitchCanvas() {
       }
       const t = e.target as HTMLElement | null;
       if (t && /input|textarea/i.test(t.tagName)) return;
-      if (e.key === "ArrowRight") goTo(Math.min(SECTIONS.length - 1, active + 1));
+      if (e.key === "ArrowRight") goTo(Math.min(SECTION_LIST.length - 1, active + 1));
       if (e.key === "ArrowLeft") goTo(Math.max(0, active - 1));
     };
     window.addEventListener("keydown", onKey);
@@ -309,7 +319,7 @@ export default function PitchCanvas() {
 
   // --- Edges ---------------------------------------------------------------
   const edges = useMemo(() => {
-    const chain = spline(ROADMAP_NODES.map(center));
+    const chain = spline(NODES.map(center));
     // Each lane drops a feeder line down to the "more systems" label.
     return { chain };
   }, []);
@@ -359,14 +369,14 @@ export default function PitchCanvas() {
           </div>
 
           {/* Lanes ------------------------------------------------------- */}
-          {LANES.map((l) => (
+          {LANE_LIST.map((l) => (
             <div
               key={l.n}
               className="n rmlane"
               style={{ left: l.x, top: LANE.y, width: LANE.w, height: LANE.h }}
             />
           ))}
-          {LANES.map((l) => (
+          {LANE_LIST.map((l) => (
             <div
               key={`t-${l.n}`}
               className="n rmlanetitle"
@@ -377,7 +387,7 @@ export default function PitchCanvas() {
           ))}
 
           {/* Roadmap nodes ----------------------------------------------- */}
-          {ROADMAP_NODES.map((n) => (
+          {NODES.map((n) => (
             <button
               key={n.id}
               type="button"
@@ -393,10 +403,10 @@ export default function PitchCanvas() {
             >
               <span className="rmn-lbl">
                 <i className="rmn-dot" />
-                {n.pending ?? "Sectie"}
+                {n.pending ?? t.card.eyebrow}
               </span>
               <span className="rmn-name">{n.name}</span>
-              <span className="rmn-cta">Klik om te openen →</span>
+              <span className="rmn-cta">{t.card.cta}</span>
             </button>
           ))}
 
@@ -429,7 +439,7 @@ export default function PitchCanvas() {
 
       {/* Tab bar ------------------------------------------------------- */}
       <nav className="pitch-tabs">
-        {SECTIONS.map((s, i) => (
+        {SECTION_LIST.map((s, i) => (
           <button
             key={s.id}
             type="button"
@@ -440,12 +450,17 @@ export default function PitchCanvas() {
             {s.label}
           </button>
         ))}
+        {/* Dezelfde kaart in de andere taal. Een link en geen knop, zodat het
+            adres deelbaar is: /pitch is Nederlands, /pitch/en is Engels. */}
+        <a className="pitch-lang" href={lang === "en" ? "/pitch" : "/pitch/en"}>
+          {t.toolbar.otherLanguage}
+        </a>
       </nav>
 
       <button
         type="button"
         className="pitch-arrow left"
-        aria-label="Vorige"
+        aria-label={t.toolbar.prev}
         onClick={() => goTo(Math.max(0, active - 1))}
       >
         ‹
@@ -453,8 +468,8 @@ export default function PitchCanvas() {
       <button
         type="button"
         className="pitch-arrow right"
-        aria-label="Volgende"
-        onClick={() => goTo(Math.min(SECTIONS.length - 1, active + 1))}
+        aria-label={t.toolbar.next}
+        onClick={() => goTo(Math.min(SECTION_LIST.length - 1, active + 1))}
       >
         ›
       </button>
@@ -464,7 +479,7 @@ export default function PitchCanvas() {
         <button
           type="button"
           className={`pitch-tool${tool === "pan" ? " on" : ""}`}
-          aria-label="Presenteren / navigeren"
+          aria-label={t.toolbar.present}
           onClick={() => setTool("pan")}
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -474,7 +489,7 @@ export default function PitchCanvas() {
         <button
           type="button"
           className={`pitch-tool${tool === "draw" ? " on" : ""}`}
-          aria-label="Tekenen"
+          aria-label={t.toolbar.draw}
           onClick={() => setTool("draw")}
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -486,14 +501,14 @@ export default function PitchCanvas() {
 
       {/* Zoom ---------------------------------------------------------- */}
       <div className="pitch-zoom">
-        <button type="button" aria-label="Uitzoomen" onClick={() => zoomBy(1 / 1.25)}>
+        <button type="button" aria-label={t.toolbar.zoomOut} onClick={() => zoomBy(1 / 1.25)}>
           −
         </button>
         <span className="pct">{pct}%</span>
-        <button type="button" aria-label="Inzoomen" onClick={() => zoomBy(1.25)}>
+        <button type="button" aria-label={t.toolbar.zoomIn} onClick={() => zoomBy(1.25)}>
           +
         </button>
-        <button type="button" aria-label="Alles in beeld" onClick={() => goTo(0)}>
+        <button type="button" aria-label={t.toolbar.fit} onClick={() => goTo(0)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
           </svg>
@@ -510,7 +525,7 @@ export default function PitchCanvas() {
             <button
               type="button"
               className="pitch-modal-close"
-              aria-label="Sluiten"
+              aria-label={t.modal.close}
               onClick={() => setDetail(null)}
             >
               ✕
@@ -527,14 +542,14 @@ export default function PitchCanvas() {
               </p>
             )}
 
-            {detail.calculator && <PitchCalculator />}
+            {detail.calculator && <PitchCalculator lang={lang} />}
 
             {!detail.calculator && (showDemo || sideVisual) && (
             <div className={`pitch-body${sideVisual ? " has-aside" : ""}`}>
             {showDemo && (
             <div className="pitch-demo">
               <div className="pitch-demo-left">
-                <div className="pitch-demo-brand">Wat er staat</div>
+                <div className="pitch-demo-brand">{t.modal.whatsThere}</div>
 
                 {detail.bullets.length > 0 && (
                   <ul className="pitch-demo-list">
@@ -607,7 +622,7 @@ export default function PitchCanvas() {
               <>
                 {/* Zelfde banners, andere cijfers: alleen de tekst wisselt,
                     de beelden bewegen niet. */}
-                <div className="pcase-switch" role="group" aria-label="Paid of organic">
+                <div className="pcase-switch" role="group" aria-label={t.cases.group}>
                   {(["paid", "organic"] as CaseMode[]).map((m) => (
                     <button
                       key={m}
@@ -617,7 +632,7 @@ export default function PitchCanvas() {
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => setCaseMode(m)}
                     >
-                      {m === "paid" ? "Paid" : "Organic"}
+                      {m === "paid" ? t.cases.paid : t.cases.organic}
                     </button>
                   ))}
                 </div>
@@ -632,7 +647,7 @@ export default function PitchCanvas() {
                           <img className="pcase-art" src={c.src} alt="" />
                         ) : (
                           <span className="pcase-art pcase-art-empty" title={c.visual}>
-                            Merkbeeld
+                            {t.modal.brandArt}
                           </span>
                         )}
                         <span className="pcase-veil" />
@@ -672,7 +687,7 @@ export default function PitchCanvas() {
         <div className="pitch-lightbox" onClick={() => setZoom(null)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={zoom.src} alt={zoom.alt} />
-          <button type="button" className="x" aria-label="Sluiten">
+          <button type="button" className="x" aria-label={t.modal.close}>
             ✕
           </button>
         </div>

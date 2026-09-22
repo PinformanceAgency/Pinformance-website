@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { STRINGS, type Lang } from "./i18n";
+
 /**
  * Meerdere beelden bij één sectie, als swipe: eerst wat we opzetten, dan wat
  * het oplevert. Alle slides hebben hetzelfde formaat, zodat er bij het
@@ -15,11 +17,14 @@ export default function VisualCarousel({
   slides,
   alt,
   onZoom,
+  lang = "nl",
 }: {
   slides: string[];
   alt: string;
   onZoom: (z: { src: string; alt: string }) => void;
+  lang?: Lang;
 }) {
+  const t = STRINGS[lang].carousel;
   const track = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
 
@@ -53,7 +58,7 @@ export default function VisualCarousel({
       <button
         type="button"
         className="vc-arrow prev"
-        aria-label="Vorige"
+        aria-label={t.prev}
         disabled={active === 0}
         onClick={() => go(active - 1)}
       >
@@ -62,7 +67,7 @@ export default function VisualCarousel({
       <button
         type="button"
         className="vc-arrow next"
-        aria-label="Volgende"
+        aria-label={t.next}
         disabled={active === slides.length - 1}
         onClick={() => go(active + 1)}
       >
@@ -74,7 +79,7 @@ export default function VisualCarousel({
           <button
             key={src}
             type="button"
-            aria-label={`Beeld ${i + 1} van ${slides.length}`}
+            aria-label={t.slide(i + 1, slides.length)}
             className={i === active ? "on" : ""}
             onClick={() => go(i)}
           />

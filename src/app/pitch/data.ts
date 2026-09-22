@@ -18,6 +18,16 @@
 //      naar buiten, dus een sectie zonder aangeleverd beeld houdt een zichtbare
 //      lege plek in plaats van stilletjes zonder te verschijnen.
 
+import {
+  EN_BASE_WERK,
+  EN_LANES,
+  EN_NODES,
+  EN_SECTIONS,
+  EN_SETUP_WERK,
+  EN_WERKZAAMHEDEN,
+} from "./en";
+import type { Lang } from "./i18n";
+
 /**
  * Ronde 3: de resultaatbalk is overal weg. Of de zin zelf als gewone regel
  * onder de opsomming terugkomt is nog een besluit (B14); dit is de schakelaar.
@@ -653,3 +663,54 @@ export const SECTIONS: Section[] = [
     bounds: { x: 514, y: -84, w: 940, h: 904 },
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Twee talen, één opmaak
+// ---------------------------------------------------------------------------
+// De Engelse pitch is dezelfde kaart met andere woorden. Coördinaten, beelden
+// en figuren komen daarom uit de lijsten hierboven; en.ts levert alleen tekst.
+// Ontbreekt daar een sleutel, dan blijft het Nederlands staan: zichtbaar, en
+// dus op te merken.
+
+export function lanesFor(lang: Lang): Lane[] {
+  if (lang === "nl") return LANES;
+  return LANES.map((l) => ({ ...l, ...(EN_LANES[l.n] ?? {}) }));
+}
+
+export function sectionsFor(lang: Lang): Section[] {
+  if (lang === "nl") return SECTIONS;
+  return SECTIONS.map((s) => ({ ...s, label: EN_SECTIONS[s.id] ?? s.label }));
+}
+
+export function werkFor(lang: Lang) {
+  if (lang === "nl") {
+    return { werk: WERKZAAMHEDEN, setup: SETUP_WERK, base: BASE_WERK };
+  }
+  return { werk: EN_WERKZAAMHEDEN, setup: EN_SETUP_WERK, base: EN_BASE_WERK };
+}
+
+export function nodesFor(lang: Lang): RoadmapNode[] {
+  if (lang === "nl") return ROADMAP_NODES;
+  return ROADMAP_NODES.map((n) => {
+    const t = EN_NODES[n.id];
+    if (!t) return n;
+    return {
+      ...n,
+      name: t.name ?? n.name,
+      cat: t.cat ?? n.cat,
+      desc: t.desc ?? n.desc,
+      descOrganic: t.descOrganic ?? n.descOrganic,
+      bullets: t.bullets ?? n.bullets,
+      question: t.question ?? n.question,
+      highlight: t.highlight ?? n.highlight,
+      columns: t.columns ?? n.columns,
+      cases: n.cases?.map((c) => {
+        const tc = t.cases?.[c.brand];
+        if (!tc) return c;
+        // De merknaam op de banner mag mee vertalen (het anonieme merk heet
+        // in het Engels anders), het beeld en het logo blijven hetzelfde.
+        return { ...c, brand: tc.brand ?? c.brand, paid: tc.paid, organic: tc.organic };
+      }),
+    };
+  });
+}

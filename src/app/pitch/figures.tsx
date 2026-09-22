@@ -12,7 +12,9 @@
 // plekken anders kan staan.
 
 import { INVOICE_CAP, eur } from "./pricing";
-import { BASE_WERK, SETUP_WERK } from "./data";
+import { werkFor } from "./data";
+import { EN_CLAUSES } from "./en";
+import { STRINGS, type Lang } from "./i18n";
 
 // ---------------------------------------------------------------------------
 // Pagina 1 · Schaalbaarheid
@@ -20,16 +22,17 @@ import { BASE_WERK, SETUP_WERK } from "./data";
 // Eén staafdiagram over alle markten zou niet werken: 7,5 mln naast 600 mln is
 // een streepje van een procent breed. Dus twee blokken, elk met hun eigen
 // vraag: hoe groot is het per markt, en hoe verhoudt het zich tot Meta.
-function FigScale() {
+function FigScale({ lang }: { lang: Lang }) {
+  const t = STRINGS[lang].fig;
   const markets = [
-    { m: "NL + BE", v: "7–8", u: "mln" },
-    { m: "Duitsland", v: "±20", u: "mln" },
-    { m: "Verenigde Staten", v: "±100", u: "mln" },
-    { m: "Wereldwijd", v: "±600", u: "mln" },
+    { m: t.markets.nlbe, v: "7–8", u: t.millions },
+    { m: t.markets.de, v: "±20", u: t.millions },
+    { m: t.markets.us, v: "±100", u: t.millions },
+    { m: t.markets.world, v: "±600", u: t.millions },
   ];
   return (
     <div className="fig">
-      <div className="fig-k">Gebruikers per markt</div>
+      <div className="fig-k">{t.usersPerMarket}</div>
       <div className="fig-stats">
         {markets.map((m) => (
           <div className="fig-stat" key={m.m}>
@@ -42,21 +45,21 @@ function FigScale() {
         ))}
       </div>
 
-      <div className="fig-k fig-k-sep">In de Verenigde Staten, naast Meta</div>
+      <div className="fig-k fig-k-sep">{t.vsMeta}</div>
       <div className="fig-bars">
         <div className="fig-bar">
           <span className="nm">Pinterest</span>
           <span className="t">
             <i style={{ width: "29%" }} className="on" />
           </span>
-          <span className="v">±100 mln</span>
+          <span className="v">±100 {t.millions}</span>
         </div>
         <div className="fig-bar">
           <span className="nm">Meta</span>
           <span className="t">
             <i style={{ width: "100%" }} />
           </span>
-          <span className="v">300–400 mln</span>
+          <span className="v">300–400 {t.millions}</span>
         </div>
       </div>
     </div>
@@ -90,22 +93,22 @@ function FigOnlyPinterest() {
 // gebeurt er de eerste weken, en waar gaat het over een jaar heen. Los van
 // elkaar lazen ze als twee beloftes; onder elkaar is het één verhaal met een
 // tijdlijn.
-function FigExpectations() {
+function FigExpectations({ lang }: { lang: Lang }) {
+  const t = STRINGS[lang].fig;
   return (
     <div className="fig">
-      <div className="fig-k">De eerste twaalf weken, budget</div>
-      <FigBudgetCurve />
-      <div className="fig-k fig-k-sep">
-        Twaalf maanden, aandeel van je advertentieomzet
-      </div>
-      <FigRealisticBand />
+      <div className="fig-k">{t.firstWeeks}</div>
+      <FigBudgetCurve lang={lang} />
+      <div className="fig-k fig-k-sep">{t.twelveMonths}</div>
+      <FigRealisticBand lang={lang} />
     </div>
   );
 }
 
 // De vorm is de boodschap: eerst vlak, dan pas omhoog. Precies wat de sectie
 // zegt over een algoritme dat op tijd leert en niet op spend.
-function FigBudgetCurve() {
+function FigBudgetCurve({ lang }: { lang: Lang }) {
+  const t = STRINGS[lang].fig;
   const pts = [
     [0, 78], [1, 78], [2, 77], [3, 76],
     [4, 70], [5, 62], [6, 53], [7, 44], [8, 35], [9, 27], [10, 20], [11, 14],
@@ -115,19 +118,19 @@ function FigBudgetCurve() {
   return (
     <div className="fig-plot">
       <svg viewBox="0 0 880 210" className="fig-svg" role="img"
-        aria-label="Budget blijft de eerste weken vlak en loopt daarna op">
+        aria-label={t.budgetAria}>
         <line x1="70" y1="172" x2="830" y2="172" stroke="rgba(200,155,160,0.14)" />
         {/* De leerperiode, waar het budget bewust niet beweegt. */}
         <rect x="70" y="18" width={x(3) - 70} height="154" fill="rgba(227,6,19,0.07)" />
-        <text x="76" y="34" className="fig-svg-k">Leerperiode</text>
+        <text x="76" y="34" className="fig-svg-k">{t.learning}</text>
         <path d={d} fill="none" stroke="#ff5c63" strokeWidth="2.5" strokeLinecap="round" />
         <circle cx={x(0)} cy={78 * 2.1} r="5" fill="#ff5c63" />
-        <text x={x(0) + 12} y={78 * 2.1 + 5} className="fig-svg-l">€ 100–200 per dag</text>
+        <text x={x(0) + 12} y={78 * 2.1 + 5} className="fig-svg-l">{t.perDay}</text>
         <text x={x(11)} y={14 * 2.1 - 12} textAnchor="end" className="fig-svg-l">
-          Schalen zodra de ROAS het toelaat
+          {t.scaleWhenRoas}
         </text>
-        <text x="70" y="192" className="fig-svg-k">Week 1</text>
-        <text x="830" y="192" textAnchor="end" className="fig-svg-k">Week 12</text>
+        <text x="70" y="192" className="fig-svg-k">{t.week(1)}</text>
+        <text x="830" y="192" textAnchor="end" className="fig-svg-k">{t.week(12)}</text>
       </svg>
     </div>
   );
@@ -136,7 +139,8 @@ function FigBudgetCurve() {
 // Een band in plaats van één lijn, omdat 15 tot 30 procent een bandbreedte is
 // en geen belofte. Eén lijn zou een toezegging tekenen die de sectie juist
 // weigert te doen.
-function FigRealisticBand() {
+function FigRealisticBand({ lang }: { lang: Lang }) {
+  const t = STRINGS[lang].fig;
   const x = (m: number) => 70 + (m / 12) * 760;
   const y = (p: number) => 168 - (p / 32) * 140;
   const low = Array.from({ length: 13 }, (_, m) => [x(m), y(15 * (m / 12) ** 1.6)]);
@@ -149,7 +153,7 @@ function FigRealisticBand() {
   return (
     <div className="fig-plot">
       <svg viewBox="0 0 880 210" className="fig-svg" role="img"
-        aria-label="Aandeel van de advertentieomzet loopt over twaalf maanden op naar 15 tot 30 procent">
+        aria-label={t.bandAria}>
         {[0, 10, 20, 30].map((p) => (
           <g key={p}>
             <line x1="70" y1={y(p)} x2="830" y2={y(p)} stroke="rgba(200,155,160,0.1)" />
@@ -163,8 +167,8 @@ function FigRealisticBand() {
           fill="none" stroke="#ff5c63" strokeWidth="2" strokeDasharray="4 4" />
         <text x="830" y={y(30) - 10} textAnchor="end" className="fig-svg-l">30%</text>
         <text x="830" y={y(15) + 18} textAnchor="end" className="fig-svg-l">15%</text>
-        <text x="70" y="196" className="fig-svg-k">Maand 1</text>
-        <text x="830" y="196" textAnchor="end" className="fig-svg-k">Maand 12</text>
+        <text x="70" y="196" className="fig-svg-k">{t.month(1)}</text>
+        <text x="830" y="196" textAnchor="end" className="fig-svg-k">{t.month(12)}</text>
       </svg>
     </div>
   );
@@ -178,26 +182,28 @@ function FigRealisticBand() {
 // fee zit komt uit dezelfde lijst als de sectie Werkzaamheden, zodat de twee
 // nooit iets anders kunnen zeggen. Het startwerk staat bij de setup fee en niet
 // bij de base fee: dat gebeurt eenmalig.
-function FigPricingExplainer() {
+function FigPricingExplainer({ lang }: { lang: Lang }) {
+  const t = STRINGS[lang].fig.pricing;
+  const { setup, base } = werkFor(lang);
   return (
     <div className="fig">
       <div className="fig-three">
         <div className="ft">
-          <span className="ft-k">Eenmalig</span>
-          <span className="ft-t">Setup fee</span>
-          <span className="ft-s">Bij de start, voordat er iets live gaat.</span>
+          <span className="ft-k">{t.once}</span>
+          <span className="ft-t">{t.setup}</span>
+          <span className="ft-s">{t.setupLead}</span>
           <ul>
-            {SETUP_WERK.map((i) => (
+            {setup.map((i) => (
               <li key={i}>{i}</li>
             ))}
           </ul>
         </div>
         <div className="ft">
-          <span className="ft-k">Vast, per maand</span>
-          <span className="ft-t">Base fee</span>
-          <span className="ft-s">Het werk dat elke maand doorloopt.</span>
+          <span className="ft-k">{t.monthly}</span>
+          <span className="ft-t">{t.base}</span>
+          <span className="ft-s">{t.baseLead}</span>
           <ul>
-            {BASE_WERK.map((c) => (
+            {base.map((c) => (
               <li key={c.title}>
                 <b>{c.title}</b>
                 {c.items.join(" · ")}
@@ -206,16 +212,13 @@ function FigPricingExplainer() {
           </ul>
         </div>
         <div className="ft on">
-          <span className="ft-k">Op resultaat</span>
-          <span className="ft-t">Performance fee</span>
-          <span className="ft-s">
-            Gekoppeld aan je ad spend, en alleen als de afgesproken KPI gehaald
-            wordt.
-          </span>
+          <span className="ft-k">{t.onResult}</span>
+          <span className="ft-t">{t.performance}</span>
+          <span className="ft-s">{t.performanceLead}</span>
           <ul>
-            <li>Het target leggen we vooraf samen vast</li>
-            <li>Niet gehaald, dan vervalt de performance fee</li>
-            <li>Altijd achteraf gefactureerd</li>
+            {t.performanceItems.map((i) => (
+              <li key={i}>{i}</li>
+            ))}
           </ul>
         </div>
       </div>
@@ -228,23 +231,30 @@ function FigPricingExplainer() {
 // ---------------------------------------------------------------------------
 // Bewust vormgegeven als een contractblad: de sectie zegt dat dit zwart op wit
 // staat, dus het beeld moet daar niet tegenin werken.
-function FigGuarantees() {
-  const clauses = [
-    ["KPI en target", "Vooraf samen vastgelegd. Jij kiest waarop we sturen: ROAS of CPA."],
-    [
-      "Niet gehaald",
-      "De performance fee vervalt. Gemeten over de hele maand, niet per losse campagne.",
-    ],
-    ["Maximum", `De maandfactuur is gemaximeerd op ${eur(INVOICE_CAP)}.`],
-    ["Facturatie", "Altijd achteraf, nooit vooraf."],
-    ["Looptijd", "2 maanden, daarna maandelijks opzegbaar."],
-  ];
+function FigGuarantees({ lang }: { lang: Lang }) {
+  const t = STRINGS[lang].fig;
+  const clauses: [string, string][] =
+    lang === "en"
+      ? EN_CLAUSES(eur(INVOICE_CAP, lang))
+      : [
+          [
+            "KPI en target",
+            "Vooraf samen vastgelegd. Jij kiest waarop we sturen: ROAS of CPA.",
+          ],
+          [
+            "Niet gehaald",
+            "De performance fee vervalt. Gemeten over de hele maand, niet per losse campagne.",
+          ],
+          ["Maximum", `De maandfactuur is gemaximeerd op ${eur(INVOICE_CAP)}.`],
+          ["Facturatie", "Altijd achteraf, nooit vooraf."],
+          ["Looptijd", "2 maanden, daarna maandelijks opzegbaar."],
+        ];
   return (
     <div className="fig">
       <div className="fig-doc">
         <div className="fig-doc-head">
-          <span>Overeenkomst</span>
-          <span>Pinformance</span>
+          <span>{t.doc.head}</span>
+          <span>{t.doc.brand}</span>
         </div>
         <ol className="fig-doc-body">
           {clauses.map(([k, v]) => (
@@ -261,7 +271,10 @@ function FigGuarantees() {
 
 // ---------------------------------------------------------------------------
 
-export const FIGURES: Record<string, () => React.JSX.Element> = {
+export const FIGURES: Record<
+  string,
+  (props: { lang: Lang }) => React.JSX.Element
+> = {
   scale: FigScale,
   onlyPinterest: FigOnlyPinterest,
   expectations: FigExpectations,
