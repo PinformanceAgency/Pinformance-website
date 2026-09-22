@@ -220,6 +220,15 @@ const add = (from: string, to: string, state: State, note = "") =>
   add("design_templates (P5.2.3)", "brief.templates + designBrief.proven_templates",
     brief.templates.known ? "OK" : "NO DATA",
     brief.templates.known ? `${brief.templates.value!.length} proven` : brief.templates.why);
+  // De lus die op 22-09-2026 pas gesloten kon worden: tot die dag stond er
+  // voor geen enkele echte store één cijfer in pin_performance, dus was er
+  // ook nooit een winnaar om aan te wijzen.
+  add("pins.is_winner (P5.2.1)", "brief.winners + designBrief.winners",
+    brief.winners.known ? "OK" : "NO DATA",
+    brief.winners.known ? `${brief.winners.value!.length} marked` : brief.winners.why);
+  add("trend_inputs (Pinterest Trends, by hand)", "brief.trends + designBrief.trends",
+    brief.trends.known ? "OK" : "NO DATA",
+    brief.trends.known ? `${brief.trends.value!.length} term(s)` : brief.trends.why);
 
   flow(2, "P1.1.6 brand book", "P4.2.3 design brief",
     brief.brand.known, brief.brand.known ? "colours, tone, typography, CTAs, banned words" : brief.brand.why);

@@ -417,6 +417,21 @@ export class PinterestClient {
     return this.request(`/boards/${boardId}/pins?${params}`);
   }
 
+  /**
+   * Organic account analytics.
+   *
+   * `fromClaimedContent` is Pinterest's own filter and the difference between
+   * "our pins" and "other people's pins of our claimed domain": CLAIMED, OTHER
+   * or BOTH. Measured on Fit Cherries over seven days (22-09-2026): CLAIMED
+   * 10.720 impressies, OTHER 0 — het filter doet echt iets. Zonder deze
+   * parameter antwoordt Pinterest met BOTH, en dan staat andermans bereik in
+   * ons eigen cijfer.
+   *
+   * Let op welke metrics dit endpoint aanneemt; de API noemt ze zelf in zijn
+   * 400: ENGAGEMENT, ENGAGEMENT_RATE, IMPRESSION, OUTBOUND_CLICK,
+   * OUTBOUND_CLICK_RATE, PIN_CLICK, PIN_CLICK_RATE, SAVE, SAVE_RATE. Géén
+   * conversie- of omzetmetrics — die bestaan hier niet.
+   */
   async getUserAccountAnalytics(
     startDate: string,
     endDate: string,
@@ -428,7 +443,8 @@ export class PinterestClient {
       "ENGAGEMENT",
       "ENGAGEMENT_RATE",
       "SAVE_RATE",
-    ]
+    ],
+    fromClaimedContent?: "CLAIMED" | "OTHER" | "BOTH"
   ) {
     const params = new URLSearchParams({
       start_date: startDate,
@@ -436,6 +452,7 @@ export class PinterestClient {
       metric_types: metricTypes.join(","),
       content_type: "ORGANIC",
     });
+    if (fromClaimedContent) params.set("from_claimed_content", fromClaimedContent);
     return this.request<{
       all: {
         daily_metrics: Array<{

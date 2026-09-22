@@ -85,6 +85,17 @@ export interface AccountBrief {
     approved_ctas: string[];
     dominant_colors: string[];
     typography: string | null;
+    /** Sinds migratie 107: wat er van het merk is aangeleverd. De brief noemt
+     *  ze bij naam, zodat de ontwerper kiest in plaats van zoekt. */
+    logos: Array<{ variant: string; url: string }>;
+    fonts: Array<{ name: string; usage?: string | null }>;
+    banned_topics: string[];
+    guidelines_url: string | null;
+    content_drive_url: string | null;
+    /** Mag er van het merkboek worden afgeweken? Verandert wat een
+     *  waarschuwing verderop betekent. Null = niet gevraagd. */
+    guidelines_strict: boolean | null;
+    brand_notes: string | null;
   }>;
   /** P2.3.3 — the three-by-three the whole content plan hangs off. */
   taste: Known<{ content_angles: string[]; visual_worlds: string[]; key_moments: string[] }>;
@@ -100,6 +111,15 @@ export interface AccountBrief {
    *  these instead of from scratch, which is the convergence the method
    *  describes. */
   templates: Known<Array<{ name: string; intent: string; aspect_ratio: string | null; has_text_overlay: boolean | null; times_used: number }>>;
+  /** P5.2.1 — de pins die een mens heeft aangewezen als winnaar, met de reden
+   *  die hij erbij schreef. Dat laatste is het enige stuk dat opnieuw gebruikt
+   *  kan worden: `winning_combinations` rangschikt op cijfers en is een
+   *  ranglijst, dit is een besluit. */
+  winners: Known<Array<{ cycle: string | null; design_number: number; format: string | null; note: string | null; clicks: number; saves: number }>>;
+  /** C3 — stijgende zoektermen uit Pinterest Trends, met de hand ingevoerd
+   *  omdat die tool niet via de API te lezen is. Alleen de laatste drie
+   *  maanden: "stijgt" van een half jaar terug is geschiedenis. */
+  trends: Known<Array<{ term: string; direction: string; month: string; note: string | null }>>;
   /** P3.1 — the classified clusters. */
   clusters: Known<Array<{ name: string; axis: string | null }>>;
   /** P2.1.6 — the competitor export, summarised. Six hundred rows do not
@@ -154,7 +174,7 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
   const pool = organicPool();
 
   const [org, settings, viability, intake, brand, taste, grid, comps, market, proven,
-         templates, clusters, compBoards, compTotal] =
+         templates, clusters, compBoards, compTotal, winners, trends] =
     await Promise.all([
       pool.query<{ name: string }>(`SELECT name FROM public.organizations WHERE id = $1`, [orgId]),
       pool.query(
@@ -170,7 +190,9 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
            FROM organic.client_intake WHERE org_id = $1`, [orgId]),
       pool.query(
         `SELECT positioning, tone_descriptors, brand_pillars, never_include,
-                banned_words, approved_ctas, dominant_colors, asset_locations
+                banned_words, approved_ctas, dominant_colors, asset_locations,
+                logos, fonts, banned_topics, guidelines_url, content_drive_url,
+                guidelines_strict, brand_notes
            FROM organic.brand_rules WHERE org_id = $1`, [orgId]),
       pool.query(
         `SELECT content_angles, visual_worlds, key_moments
@@ -210,6 +232,31 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
           LIMIT 10`, [orgId]),
       pool.query<{ n: string }>(
         `SELECT COUNT(*)::text AS n FROM organic.competitor_pins WHERE org_id = $1`, [orgId]),
+      // De winnaars, met hun eigen cijfers erbij zodat de brief kan zeggen
+      // hóe goed en niet alleen dát iemand hem aanwees.
+      pool.query<{
+        cycle: string | null; design_number: number; format: string | null;
+        note: string | null; clicks: string; saves: string;
+      }>(
+        `SELECT u.name AS cycle, d.design_number, d.format::text AS format,
+                p.winner_note AS note,
+                COALESCE(SUM(pp.outbound_clicks), 0)::text AS clicks,
+                COALESCE(SUM(pp.saves), 0)::text           AS saves
+           FROM organic.pins p
+           JOIN organic.waterfalls w ON w.id = p.waterfall_id
+           JOIN organic.designs d    ON d.id = p.design_id
+           JOIN organic.urls u       ON u.id = w.url_id
+           LEFT JOIN organic.pin_performance pp ON pp.pin_id = p.id
+          WHERE w.org_id = $1 AND p.is_winner
+          GROUP BY u.name, d.design_number, d.format, p.winner_note, p.winner_marked_at
+          ORDER BY p.winner_marked_at DESC
+          LIMIT 12`, [orgId]),
+      pool.query<{ term: string; direction: string; month: string; note: string | null }>(
+        `SELECT term, direction, month::text AS month, note
+           FROM organic.trend_inputs
+          WHERE org_id = $1
+            AND month >= (date_trunc('month', current_date) - interval '2 months')::date
+          ORDER BY month DESC, term`, [orgId]),
     ]);
 
   if (org.rowCount === 0) return null;
@@ -254,7 +301,20 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
           banned_words: arr(b.banned_words),
           approved_ctas: arr(b.approved_ctas),
           dominant_colors: arr(b.dominant_colors),
-          typography: (b.asset_locations as { typography?: string } | null)?.typography ?? null,
+          // Het font komt nu uit `fonts`; `asset_locations.typography` blijft
+          // de terugval voor wat er vóór migratie 107 in die vrije zak stond.
+          typography:
+            (Array.isArray(b.fonts) && b.fonts.length > 0
+              ? (b.fonts as Array<{ name: string }>).map((f) => f.name).join(", ")
+              : null)
+            ?? (b.asset_locations as { typography?: string } | null)?.typography ?? null,
+          logos: Array.isArray(b.logos) ? (b.logos as Array<{ variant: string; url: string }>) : [],
+          fonts: Array.isArray(b.fonts) ? (b.fonts as Array<{ name: string; usage?: string | null }>) : [],
+          banned_topics: arr(b.banned_topics),
+          guidelines_url: (b.guidelines_url as string | null) ?? null,
+          content_drive_url: (b.content_drive_url as string | null) ?? null,
+          guidelines_strict: (b.guidelines_strict as boolean | null) ?? null,
+          brand_notes: (b.brand_notes as string | null) ?? null,
         })
       : absent("P1.1.6 not collected — no brand book, so nothing constrains colour or tone"),
 
@@ -287,6 +347,19 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
         })
       : absent("P2.2.2 has no approved items — the AI analysis was not run or nothing was approved"),
 
+    winners: winners.rowCount
+      ? known(winners.rows.map((x) => ({
+          cycle: x.cycle,
+          design_number: x.design_number,
+          format: x.format,
+          note: x.note,
+          clicks: Number(x.clicks),
+          saves: Number(x.saves),
+        })))
+      : absent("nobody has marked a winner yet (P5.2.1) — this month starts without that signal"),
+    trends: trends.rowCount
+      ? known(trends.rows)
+      : absent("no Pinterest Trends terms recorded in the last three months"),
     proven: proven.rowCount
       ? known(proven.rows.map((p) => ({
           board_name: p.board_name ?? null,

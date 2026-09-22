@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation";
 import { AlertTriangle, BookOpen, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PublishingPause } from "@/components/organic/PublishingPause";
+
+/** Vandaag als ISO-datum, voor "hoeveel pins staan er te wachten". */
+const today = () => new Date().toISOString().slice(0, 10);
 import { TaskCard } from "./phase/[phase]/PhaseBoard";
 import { phaseMeta } from "@/lib/organic/phase-meta";
 import { useFormDraft } from "./useFormDraft";
@@ -904,6 +908,20 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
           status <span className="font-medium">{cycle.waterfall.status}</span> ·
           start {cycle.waterfall.start_date} · spacing {cycle.waterfall.spacing_hours}h
         </div>
+      )}
+
+      {/* Stilzetten hoort hier, naast de knop die het plan opnieuw bouwt: dit
+          is het alternatief voor die knop als de reden "de creatives moeten
+          beter" is. Regenereren gooit de datums weg, pauzeren niet. */}
+      {cycle.waterfall && (
+        <PublishingPause
+          orgId={orgId}
+          scope="cycle"
+          urlId={cycle.url_id}
+          pausedAt={cycle.waterfall.paused_at}
+          reason={cycle.waterfall.pause_reason}
+          heldPins={cycle.plan.filter((p) => p.status === "SCHEDULED" && p.scheduled_date <= today()).length}
+        />
       )}
 
       <PlanCalendar plan={cycle.plan} />

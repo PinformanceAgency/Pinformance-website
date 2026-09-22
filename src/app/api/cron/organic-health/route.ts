@@ -113,6 +113,10 @@ async function run(request: NextRequest) {
         WHERE p.status = 'SCHEDULED'::organic.pin_status
           AND p.scheduled_date <= CURRENT_DATE
           AND w.org_id <> $1::uuid
+          -- Stilgezet door een mens is geen bevinding. Een wachtdienst die elke
+          -- ochtend meldt wat wij zelf besloten hebben, wordt niet meer gelezen.
+          AND cl.publishing_paused_at IS NULL
+          AND w.paused_at IS NULL
           AND (p.image_path IS NULL OR b.pinterest_board_id IS NULL OR cs.title IS NULL
                OR (d.media_type = 'VIDEO'::organic.media_kind AND p.video_path IS NULL))
         GROUP BY o.id, o.name
@@ -156,6 +160,8 @@ async function run(request: NextRequest) {
           AND cs.title IS NOT NULL
           AND b.pinterest_board_id IS NOT NULL
           AND (d.media_type = 'IMAGE'::organic.media_kind OR p.video_path IS NOT NULL)
+          AND cl.publishing_paused_at IS NULL
+          AND w.paused_at IS NULL
           AND w.org_id <> $1::uuid
         GROUP BY o.name, u.name
        HAVING COUNT(*) >= 16
@@ -192,6 +198,8 @@ async function run(request: NextRequest) {
          LEFT JOIN organic.copy_sets cs ON cs.id = p.copy_set_id
         WHERE w.status = 'PLANNING'::organic.waterfall_status
           AND p.status = 'PLANNED'::organic.pin_status
+          AND cl.publishing_paused_at IS NULL
+          AND w.paused_at IS NULL
           AND w.org_id <> $1::uuid
         GROUP BY o.name, u.name, w.id
        HAVING MIN(p.scheduled_date) < CURRENT_DATE

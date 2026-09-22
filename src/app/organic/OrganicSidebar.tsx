@@ -7,7 +7,7 @@ import {
   Users, LayoutDashboard, ChevronRight, ChevronDown,
   FileText, Sun, LayoutGrid, Search, Link2, FolderOpen,
   BarChart3, Settings, LineChart, Gauge, Scale, AlertTriangle, Radar,
-  Share2, BookOpen, Sparkles, CalendarDays
+  Share2, BookOpen, Sparkles, CalendarDays, Eye
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ClientSwitcher } from "./ClientSwitcher";
@@ -247,6 +247,10 @@ export function OrganicSidebar({
     { href: `${base}/keywords`, label: "Keywords", icon: Search },
     { href: `${base}/urls`,     label: "URLs",     icon: Link2 },
     { href: `${base}/assets`,   label: "Assets",   icon: FolderOpen },
+    // De concurrenten om naar te kijken (22-09-2026). Hier en niet in fase 2,
+    // omdat ze één keer worden verzameld en daarna maandenlang geraadpleegd —
+    // midden in fase 4, bij de vraag hoe een goede pin in deze niche eruitziet.
+    { href: `${base}/competitors`, label: "Competitors", icon: Eye },
     // Johanne's Creative Machine (module 3) — a test, 11-09-2026.
     { href: `${base}/creative`, label: "Creative machine", icon: Sparkles },
   ] : [];

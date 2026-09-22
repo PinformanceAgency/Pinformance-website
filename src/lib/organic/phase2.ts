@@ -929,3 +929,127 @@ export async function loadAudienceAffinities(orgId: string): Promise<AudienceAff
     affinity_index: x.affinity_index == null ? null : Number(x.affinity_index),
   }));
 }
+
+/* ------------------------------------------------------------------ */
+/* LIBRARY — de concurrenten om naar te kijken                         */
+/* ------------------------------------------------------------------ */
+
+export interface CompetitorLibrarySummary {
+  competitors: number;
+  /** Unieke pin-URL's over de hele store. NIET de som van de kolom per
+   *  competitor: dezelfde pin staat bij meerdere accounts, zie `shared_pins`. */
+  unique_pins: number;
+  /** Rijen in totaal. Het verschil met unique_pins is de dubbeling. */
+  total_rows: number;
+  /** Pin-URL's die onder meer dan één concurrent staan. Bij Fit Cherries is
+   *  dat de meerderheid: 10.840 rijen over 1.896 unieke pins, tien
+   *  concurrenten — één export is tegen alle tien ingelezen. Dat is geen
+   *  weergavefout maar research die overnieuw moet, dus het staat op het
+   *  scherm in plaats van in een som die te groot is. */
+  shared_pins: number;
+}
+
+export interface CompetitorLibraryRow {
+  id: string;
+  name: string | null;
+  handle: string | null;
+  profile_url: string;
+  niche_fit: string | null;
+  /** Pins per dag over vier maanden, zoals in P2.1 gemeten. Null = nooit
+   *  gemeten; 0 is een gemeten nul en betekent iets anders. */
+  pins_per_day_4mo: number | null;
+  activity_status: string | null;
+  analyzed_at: string | null;
+  /** Hoeveel van hun pins wij al geïmporteerd hebben (P2.1.6). Dat is de
+   *  research die onder de hele niche-analyse ligt. */
+  pins_imported: number;
+  /** De boards waar hun geïmporteerde pins het vaakst op staan — de
+   *  snelste manier om te zien hoe zij hun account indelen. */
+  top_boards: string[];
+}
+
+/**
+ * De concurrentenbibliotheek: wie het zijn en waar je ze kunt bekijken.
+ *
+ * Bewust alleen wat er al gemeten is. Besloten 22-09-2026 (Tristan): geen
+ * screenshots en geen visuele kenmerken per pin overnemen — wat Clarisse
+ * nodig heeft is een lijst waar ze doorheen kan klikken om te kijken hoe een
+ * goede concurrent zijn Pinterest inricht. De 57 competitors in de database
+ * hebben alle drie een naam, een handle en een profiel-URL, dus daar was
+ * geen migratie voor nodig.
+ *
+ * De top-boards komen uit de geïmporteerde pins en niet uit een nieuwe
+ * meting: 18.875 pins met hun boardnaam liggen er al, en welke boards hun
+ * winnaars dragen is precies het board-signaal dat `loadAccountBrief()` ook
+ * gebruikt.
+ */
+export async function loadCompetitorLibrary(orgId: string): Promise<{
+  rows: CompetitorLibraryRow[];
+  summary: CompetitorLibrarySummary;
+}> {
+  const r = await organicPool().query<{
+    id: string; name: string | null; handle: string | null; profile_url: string;
+    niche_fit: string | null; pins_per_day_4mo: string | null;
+    activity_status: string | null; analyzed_at: string | null;
+    pins_imported: string; top_boards: string[] | null;
+  }>(
+    `SELECT c.id::text,
+            c.name,
+            c.handle,
+            c.profile_url,
+            c.niche_fit,
+            c.pins_per_day_4mo::text            AS pins_per_day_4mo,
+            c.activity_status::text             AS activity_status,
+            c.analyzed_at::text                 AS analyzed_at,
+            (SELECT COUNT(*)::text FROM organic.competitor_pins cp
+              WHERE cp.competitor_id = c.id)    AS pins_imported,
+            (SELECT COALESCE(array_agg(b.board_name ORDER BY b.n DESC), ARRAY[]::text[])
+               FROM (SELECT cp.board_name, COUNT(*) AS n
+                       FROM organic.competitor_pins cp
+                      WHERE cp.competitor_id = c.id
+                        AND cp.board_name IS NOT NULL
+                        AND btrim(cp.board_name) <> ''
+                      GROUP BY cp.board_name
+                      ORDER BY COUNT(*) DESC
+                      LIMIT 4) b)               AS top_boards
+       FROM organic.competitors c
+      WHERE c.org_id = $1
+      ORDER BY (SELECT COUNT(*) FROM organic.competitor_pins cp
+                 WHERE cp.competitor_id = c.id) DESC, c.name`,
+    [orgId]
+  );
+  const sum = await organicPool().query<{
+    unique_pins: string; total_rows: string; shared_pins: string;
+  }>(
+    `SELECT COUNT(DISTINCT pin_url)::text AS unique_pins,
+            COUNT(*)::text               AS total_rows,
+            (SELECT COUNT(*)::text FROM (
+               SELECT pin_url FROM organic.competitor_pins
+                WHERE org_id = $1
+                GROUP BY pin_url
+               HAVING COUNT(DISTINCT competitor_id) > 1) q) AS shared_pins
+       FROM organic.competitor_pins WHERE org_id = $1`,
+    [orgId]
+  );
+
+  return {
+    rows: r.rows.map((x) => ({
+      id: x.id,
+      name: x.name,
+      handle: x.handle,
+      profile_url: x.profile_url,
+      niche_fit: x.niche_fit,
+      pins_per_day_4mo: x.pins_per_day_4mo == null ? null : Number(x.pins_per_day_4mo),
+      activity_status: x.activity_status,
+      analyzed_at: x.analyzed_at ? x.analyzed_at.slice(0, 10) : null,
+      pins_imported: Number(x.pins_imported),
+      top_boards: x.top_boards ?? [],
+    })),
+    summary: {
+      competitors: r.rowCount ?? 0,
+      unique_pins: Number(sum.rows[0]?.unique_pins ?? 0),
+      total_rows: Number(sum.rows[0]?.total_rows ?? 0),
+      shared_pins: Number(sum.rows[0]?.shared_pins ?? 0),
+    },
+  };
+}
