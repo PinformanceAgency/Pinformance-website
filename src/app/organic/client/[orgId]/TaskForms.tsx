@@ -42,7 +42,275 @@ export function TaskFormFor(props: FormBaseProps): React.ReactNode {
   if (id === "P1.0.3") return <SitemapCountForm {...props} />;
   if (id === "P1.0.4") return <VerdictForm {...props} />;
   if (id === "P1.2.13") return <AnalyticsBaselineForm {...props} />;
+  if (id === "P1.1.6") return <BrandAssetsForm {...props} />;
   return null;
+}
+
+// --- P1.1.6 -----------------------------------------------------------------
+
+interface BrandState {
+  positioning: string;
+  tone: string;
+  colors: string;
+  banned_words: string;
+  banned_topics: string;
+  ctas: string;
+  fonts: string;
+  guidelines_url: string;
+  content_drive_url: string;
+  strict: "" | "yes" | "no";
+  notes: string;
+}
+
+/**
+ * Het merkboek — het formulier dat er niet was.
+ *
+ * P1.1.6 vraagt sinds het begin om de merkregels, en er was alleen een
+ * notitieveld. Gevolg: `organic.brand_rules` stond op elke store leeg, de
+ * audit meldt FLOW 2 BROKEN ("no brand book, so nothing constrains colour or
+ * tone"), en elke gegenereerde pin kreeg een generiek font en een palet uit het
+ * niche-grid in plaats van van het merk.
+ *
+ * Het logo en het merkboek gaan buiten dit formulier om naar storage: een PDF
+ * van tien megabyte komt niet door een API-route heen (Vercel kapt een body af
+ * op 4,5 MB). De rest is bewust vrije tekst — "logo altijd rechtsonder" past in
+ * geen veld dat wij zouden bedenken.
+ */
+function BrandAssetsForm({ orgId, task, onDone }: FormBaseProps) {
+  const [state, setState] = useState<BrandState>({
+    positioning: "", tone: "", colors: "", banned_words: "", banned_topics: "",
+    ctas: "", fonts: "", guidelines_url: "", content_drive_url: "", strict: "", notes: "",
+  });
+  const [logos, setLogos] = useState<Array<{ variant: string; url: string; filename: string }>>([]);
+  const [missing, setMissing] = useState<string[]>([]);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [upErr, setUpErr] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  // `enabled: loaded` is niet optioneel: dit formulier haalt zijn eigen rijen
+  // op, en een restore die vóór die load landt wordt er stil door
+  // overschreven — precies de fout die useFormDraft zelf documenteert.
+  const draft = useFormDraft(
+    orgId, "P1.1.6", state,
+    (d) => setState((c) => ({ ...c, ...d })),
+    { enabled: loaded }
+  );
+
+  // Laden op mount: een formulier dat leeg opent terwijl er iets vastligt,
+  // leest als verlies — dat is hier al twee keer eerder gebeurd.
+  if (!loaded) {
+    void (async () => {
+      try {
+        const res = await fetch(`/api/organic/brand/${orgId}`);
+        const d = await res.json() as { brand?: Record<string, unknown> };
+        const b = d.brand ?? {};
+        setState({
+          positioning: String(b.positioning ?? ""),
+          tone: (b.tone_descriptors as string[] ?? []).join(", "),
+          colors: (b.dominant_colors as string[] ?? []).join(", "),
+          banned_words: (b.banned_words as string[] ?? []).join(", "),
+          banned_topics: (b.banned_topics as string[] ?? []).join(", "),
+          ctas: (b.approved_ctas as string[] ?? []).join(", "),
+          fonts: ((b.fonts as Array<{ name: string }> ?? []).map((f) => f.name)).join(", "),
+          guidelines_url: String(b.guidelines_url ?? ""),
+          content_drive_url: String(b.content_drive_url ?? ""),
+          strict: b.guidelines_strict === true ? "yes" : b.guidelines_strict === false ? "no" : "",
+          notes: String(b.brand_notes ?? ""),
+        });
+        setLogos((b.logos as Array<{ variant: string; url: string; filename: string }>) ?? []);
+        setMissing((b.missing as string[]) ?? []);
+      } catch { /* een mislukte load mag het formulier niet blokkeren */ }
+      finally { setLoaded(true); }
+    })();
+  }
+
+  const list = (v: string): string[] =>
+    v.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+
+  async function upload(kind: "logo" | "guidelines", file: File, variant?: string) {
+    setUpErr(null); setUploading(kind);
+    try {
+      const signRes = await fetch(`/api/organic/brand/${orgId}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "sign", kind, name: file.name, type: file.type, size: file.size }),
+      });
+      const sign = await signRes.json() as
+        { path?: string; signed_url?: string; public_url?: string; filename?: string; error?: string };
+      if (!signRes.ok || !sign.signed_url) throw new Error(sign.error ?? `HTTP ${signRes.status}`);
+
+      const put = await fetch(sign.signed_url, {
+        method: "PUT", body: file,
+        headers: { "content-type": file.type || "application/octet-stream" },
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+
+      if (kind === "logo") {
+        setLogos((cur) => [...cur, {
+          variant: variant?.trim() || `variant ${cur.length + 1}`,
+          url: sign.public_url!, filename: sign.filename!,
+        }]);
+      } else {
+        await fetch(`/api/organic/brand/${orgId}`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "register_guidelines", path: sign.path }),
+        });
+        setState((c) => ({ ...c, guidelines_url: sign.public_url! }));
+      }
+    } catch (e) { setUpErr((e as Error).message); }
+    finally { setUploading(null); }
+  }
+
+  const field = (label: string, key: keyof BrandState, hint?: string, rows = 1) => (
+    <label className="block">
+      <span className="block text-[11px] font-medium text-neutral-700">{label}</span>
+      {rows > 1 ? (
+        <textarea value={state[key]} rows={rows}
+          onChange={(e) => setState({ ...state, [key]: e.target.value })}
+          className="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs" />
+      ) : (
+        <input value={state[key]}
+          onChange={(e) => setState({ ...state, [key]: e.target.value })}
+          className="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs" />
+      )}
+      {hint && <span className="mt-0.5 block text-[10px] text-neutral-500">{hint}</span>}
+    </label>
+  );
+
+  return (
+    <FormShell
+      title="Brand book"
+      draft={draft}
+      submitLabel={task.status === "DONE" ? "Update" : "Save & mark done"}
+      body={
+        <div className="space-y-3">
+          {missing.length > 0 && (
+            <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-2">
+              <p className="text-[11px] font-medium text-amber-900">
+                What phase 4 is missing for this store
+              </p>
+              <ul className="mt-1 space-y-0.5 text-[11px] text-amber-900 list-disc pl-4">
+                {missing.map((m, i) => <li key={i}>{m}</li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {field("Positioning", "positioning", "one line: who this is for and why them", 2)}
+            {field("Tone of voice", "tone", "comma separated — warm, direct, never salesy")}
+            {field("Brand colours", "colors", "hex only (#1E3A5F), because this goes into image prompts as it stands")}
+            {field("Fonts", "fonts", "names, comma separated. Canva has most of them")}
+            {field("Approved CTAs", "ctas", "the phrases the client has signed off")}
+            {field("Banned words", "banned_words", "matched on word boundaries, so \"sale\" does not trip on \"wholesale\"")}
+            {field("Banned topics", "banned_topics", "subjects the AI avoids entirely, in keywords and copy")}
+            {field("Content drive", "content_drive_url", "where the client puts their own imagery")}
+          </div>
+
+          <label className="block">
+            <span className="block text-[11px] font-medium text-neutral-700">Are the guidelines strict?</span>
+            <select value={state.strict}
+              onChange={(e) => setState({ ...state, strict: e.target.value as BrandState["strict"] })}
+              className="mt-1 rounded border border-neutral-300 px-2 py-1 text-xs">
+              <option value="">not asked</option>
+              <option value="yes">strict — no deviation without asking</option>
+              <option value="no">loose — the designer may interpret</option>
+            </select>
+            <span className="mt-0.5 block text-[10px] text-neutral-500">
+              Changes what a warning means later: on a strict brand an off-palette design is a stop,
+              on a loose one it is a remark.
+            </span>
+          </label>
+
+          {field("Notes", "notes", "the rules that fit nowhere else — \"logo bottom right\", \"no models under 25\"", 3)}
+
+          {/* ---- bestanden ---- */}
+          <div className="rounded border border-neutral-200 bg-white p-2.5">
+            <p className="text-[11px] font-medium text-neutral-700">Logo</p>
+            {logos.length > 0 && (
+              <ul className="mt-1 space-y-1">
+                {logos.map((l, i) => (
+                  <li key={i} className="flex items-center gap-2 text-[11px]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={l.url} alt="" className="w-8 h-8 object-contain bg-neutral-100 rounded" />
+                    <input value={l.variant}
+                      onChange={(e) => setLogos((cur) => cur.map((x, j) => j === i ? { ...x, variant: e.target.value } : x))}
+                      className="rounded border border-neutral-300 px-1.5 py-0.5 text-[11px]" />
+                    <button type="button" onClick={() => setLogos((cur) => cur.filter((_, j) => j !== i))}
+                      className="text-neutral-400 hover:text-red-600">remove</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <label className="mt-1.5 inline-block text-[11px] px-2 py-1 rounded border border-neutral-300 cursor-pointer hover:bg-neutral-50">
+              {uploading === "logo" ? "Uploading…" : "Add a logo"}
+              <input type="file" className="hidden" accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                disabled={uploading !== null}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]; e.target.value = "";
+                  if (f) void upload("logo", f);
+                }} />
+            </label>
+            <span className="ml-2 text-[10px] text-neutral-500">
+              one per variant — on light, on dark, mark only
+            </span>
+          </div>
+
+          <div className="rounded border border-neutral-200 bg-white p-2.5">
+            <p className="text-[11px] font-medium text-neutral-700">Brand book</p>
+            {state.guidelines_url && (
+              <a href={state.guidelines_url} target="_blank" rel="noreferrer"
+                 className="mt-1 block text-[11px] text-blue-700 hover:underline break-all">
+                {state.guidelines_url}
+              </a>
+            )}
+            <div className="mt-1.5 flex items-center gap-2">
+              <label className="inline-block text-[11px] px-2 py-1 rounded border border-neutral-300 cursor-pointer hover:bg-neutral-50">
+                {uploading === "guidelines" ? "Uploading…" : "Upload a PDF"}
+                <input type="file" className="hidden" accept="application/pdf"
+                  disabled={uploading !== null}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]; e.target.value = "";
+                    if (f) void upload("guidelines", f);
+                  }} />
+              </label>
+              <span className="text-[10px] text-neutral-500">or paste a link:</span>
+              <input value={state.guidelines_url}
+                onChange={(e) => setState({ ...state, guidelines_url: e.target.value })}
+                placeholder="https://…"
+                className="grow rounded border border-neutral-300 px-2 py-1 text-[11px]" />
+            </div>
+          </div>
+
+          {upErr && <p className="text-[11px] text-red-600 break-words">{upErr}</p>}
+        </div>
+      }
+      onSubmit={async () => {
+        const res = await fetch(`/api/organic/brand/${orgId}`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "save",
+            brand: {
+              positioning: state.positioning.trim() || null,
+              tone_descriptors: list(state.tone),
+              dominant_colors: list(state.colors),
+              banned_words: list(state.banned_words),
+              banned_topics: list(state.banned_topics),
+              approved_ctas: list(state.ctas),
+              fonts: list(state.fonts).map((name) => ({ name })),
+              logos,
+              guidelines_url: state.guidelines_url.trim() || null,
+              content_drive_url: state.content_drive_url.trim() || null,
+              guidelines_strict: state.strict === "" ? null : state.strict === "yes",
+              brand_notes: state.notes.trim() || null,
+            },
+          }),
+        });
+        const d = await res.json() as { error?: string; missing?: string[] };
+        if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
+        setMissing(d.missing ?? []);
+        draft.clear();
+        onDone();
+      }}
+    />
+  );
 }
 
 // --- P1.0.1 -----------------------------------------------------------------

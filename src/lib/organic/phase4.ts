@@ -43,6 +43,7 @@ import type { PoolClient } from "pg";
 import { organicPool } from "./db";
 import { completeTaskByDefinition, recomputeAfter } from "./complete";
 import { loadAccountBrief, productionSplit, formatNotesFromGrid } from "./brief";
+import type { AccountBrief } from "./brief";
 import { adviseBoards, adviseKeywords, adviseUrls, checkBoards, checkKeywords, checkUrlReadiness } from "./structure";
 import type { UrlReadiness } from "./structure";
 import { generateWithValidator, persistDraft } from "./ai";
@@ -586,6 +587,23 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
       ...(brief.language.is_default
         ? ["No copy language set for this store — everything is written in English by default (Settings → Primary language)"]
         : []),
+      // Per stuk, niet als één "geen merkboek". Een store met kleuren en tone
+      // of voice maar zonder logo werkt anders dan een store zonder alles, en
+      // het verschil bepaalt wat de ontwerper nu moet doen. P1.1.6 is het
+      // formulier waar ze vandaan komen.
+      ...(brand?.logos.length ? [] : ["No logo on file (P1.1.6) — the designs are drawn without one"]),
+      ...(brand?.fonts.length || brand?.typography
+        ? []
+        : ["No brand font recorded (P1.1.6) — a generated design falls back to a generic one"]),
+      ...(brand && !brand.dominant_colors.length
+        ? ["No brand colours (P1.1.6) — the palette below comes from the niche grid, not from the brand"]
+        : []),
+      ...(brand && !brand.guidelines_url
+        ? ["No brand book (P1.1.6) — there is nothing to check a finished design against"]
+        : []),
+      ...(brand && !brand.content_drive_url
+        ? ["No content drive (P1.1.6) — no source for the client's own imagery, so the AI route is the only one left"]
+        : []),
     ],
     constraints: [
       "Sans-serif fonts only — Pinterest OCR fails on cursive and script.",
@@ -594,6 +612,21 @@ export async function generateDesignBrief(orgId: string, urlId: string): Promise
       "AI route: apply a 1% transparent frame before export to strip C2PA metadata, and never enable \"Mark as AI-Modified\" in the Pin Builder.",
       "Four visually distinct designs, then three micro-crops each.",
       ...(brand?.never_include ?? []).map((n) => `Brand rule — never include: ${n}`),
+      ...(brand?.banned_topics ?? []).map((t) => `Brand rule — never about: ${t}`),
+      ...(brand?.logos.length
+        ? [`Logo available: ${brand.logos.map((l) => l.variant).join(", ")}`]
+        : []),
+      ...(brand?.fonts.length
+        ? [`Brand font: ${brand.fonts.map((f) => f.name + (f.usage ? ` (${f.usage})` : "")).join(", ")}`]
+        : []),
+      // Strikt of los verandert wat een afwijking betekent, dus het staat bij
+      // de constraints en niet in een notitie onderaan.
+      ...(brand?.guidelines_strict === true
+        ? ["The brand guidelines are strict — do not deviate from palette, logo placement or type without asking."]
+        : brand?.guidelines_strict === false
+          ? ["The brand guidelines are loose — interpretation is allowed where the brief is silent."]
+          : []),
+      ...(brand?.brand_notes ? [`Brand notes: ${brand.brand_notes}`] : []),
     ],
   };
 
@@ -2119,6 +2152,10 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
             })),
             cycleKws.find((k) => k.is_primary)?.keyword_id ?? null
           ),
+          // Het merk staat hier en niet alleen in de gegenereerde brief: die
+          // wordt vaak pas gemaakt als de designs al besteld zijn, en dan is
+          // "er is geen logo" te laat.
+          ...brandDeviations(brief),
         ]
       : [];
 
@@ -2238,9 +2275,48 @@ export async function hasGridAnalysisForKeyword(orgId: string, keyword: string):
 
 // ---------- deviations (the manager may overrule, visibly) -------------------
 
+/**
+ * Wat er van het merk ontbreekt, als één afwijking.
+ *
+ * Eén en niet vijf: het is één probleem met vijf onderdelen, en het wordt op
+ * één plek opgelost (P1.1.6). Vijf losse waarschuwingen op een kaart lezen als
+ * vijf problemen en dan wordt het paneel weggeklikt.
+ *
+ * Staat hier zodat de cycluskaart en `loadCycleDeviations` dezelfde afleiding
+ * gebruiken — twee plekken die dit los afleiden, lopen uit elkaar.
+ */
+function brandDeviations(brief: AccountBrief): Deviation[] {
+  const b = brief.brand.value;
+  const missing: string[] = !brief.brand.known
+    ? ["nothing at all — P1.1.6 has never been filled in"]
+    : [
+        ...(b!.logos.length ? [] : ["no logo"]),
+        ...(b!.fonts.length || b!.typography ? [] : ["no brand font"]),
+        ...(b!.dominant_colors.length ? [] : ["no brand colours"]),
+        ...(b!.tone_descriptors.length ? [] : ["no tone of voice"]),
+        ...(b!.guidelines_url ? [] : ["no brand book"]),
+        ...(b!.content_drive_url ? [] : ["no content drive"]),
+      ];
+  if (missing.length === 0) return [];
+  return [{
+    what: `The brand is ${brief.brand.known ? "half " : "not "}recorded`,
+    why:
+      "Designs made without it come back generic: a stock font, a palette borrowed from the niche " +
+      "grid, and no logo. That is the difference between a pin that looks like this brand and one " +
+      "that looks like the category.",
+    kind: "research",
+    detail: missing,
+    fix: { label: "Brand book (P1.1.6)", href: "phase/1/1", task: "P1.1.6" },
+  }];
+}
+
 export interface CycleDeviations {
   boards: Deviation[];
   keywords: Deviation[];
+  /** Wat er van het merk ontbreekt. Op de cyclus en niet alleen in de
+   *  gegenereerde brief, want de brief wordt vaak pas gemaakt als de designs
+   *  al besteld zijn — en dan is "er is geen logo" te laat. */
+  brand: Deviation[];
 }
 
 /**
@@ -2255,7 +2331,7 @@ export interface CycleDeviations {
 export async function loadCycleDeviations(orgId: string, urlId: string): Promise<CycleDeviations> {
   const pool = organicPool();
   const brief = await loadAccountBrief(orgId);
-  if (!brief) return { boards: [], keywords: [] };
+  if (!brief) return { boards: [], keywords: [], brand: [] };
 
   const [urlRow, boards, kws] = await Promise.all([
     pool.query<{ topic_id: string | null }>(
@@ -2287,6 +2363,7 @@ export async function loadCycleDeviations(orgId: string, urlId: string): Promise
   return {
     boards: checkBoards(brief, chosenBoards, topicId),
     keywords: checkKeywords(brief, chosenKws, primaryId),
+    brand: brandDeviations(brief),
   };
 }
 

@@ -85,6 +85,17 @@ export interface AccountBrief {
     approved_ctas: string[];
     dominant_colors: string[];
     typography: string | null;
+    /** Sinds migratie 107: wat er van het merk is aangeleverd. De brief noemt
+     *  ze bij naam, zodat de ontwerper kiest in plaats van zoekt. */
+    logos: Array<{ variant: string; url: string }>;
+    fonts: Array<{ name: string; usage?: string | null }>;
+    banned_topics: string[];
+    guidelines_url: string | null;
+    content_drive_url: string | null;
+    /** Mag er van het merkboek worden afgeweken? Verandert wat een
+     *  waarschuwing verderop betekent. Null = niet gevraagd. */
+    guidelines_strict: boolean | null;
+    brand_notes: string | null;
   }>;
   /** P2.3.3 — the three-by-three the whole content plan hangs off. */
   taste: Known<{ content_angles: string[]; visual_worlds: string[]; key_moments: string[] }>;
@@ -179,7 +190,9 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
            FROM organic.client_intake WHERE org_id = $1`, [orgId]),
       pool.query(
         `SELECT positioning, tone_descriptors, brand_pillars, never_include,
-                banned_words, approved_ctas, dominant_colors, asset_locations
+                banned_words, approved_ctas, dominant_colors, asset_locations,
+                logos, fonts, banned_topics, guidelines_url, content_drive_url,
+                guidelines_strict, brand_notes
            FROM organic.brand_rules WHERE org_id = $1`, [orgId]),
       pool.query(
         `SELECT content_angles, visual_worlds, key_moments
@@ -288,7 +301,20 @@ export async function loadAccountBrief(orgId: string): Promise<AccountBrief | nu
           banned_words: arr(b.banned_words),
           approved_ctas: arr(b.approved_ctas),
           dominant_colors: arr(b.dominant_colors),
-          typography: (b.asset_locations as { typography?: string } | null)?.typography ?? null,
+          // Het font komt nu uit `fonts`; `asset_locations.typography` blijft
+          // de terugval voor wat er vóór migratie 107 in die vrije zak stond.
+          typography:
+            (Array.isArray(b.fonts) && b.fonts.length > 0
+              ? (b.fonts as Array<{ name: string }>).map((f) => f.name).join(", ")
+              : null)
+            ?? (b.asset_locations as { typography?: string } | null)?.typography ?? null,
+          logos: Array.isArray(b.logos) ? (b.logos as Array<{ variant: string; url: string }>) : [],
+          fonts: Array.isArray(b.fonts) ? (b.fonts as Array<{ name: string; usage?: string | null }>) : [],
+          banned_topics: arr(b.banned_topics),
+          guidelines_url: (b.guidelines_url as string | null) ?? null,
+          content_drive_url: (b.content_drive_url as string | null) ?? null,
+          guidelines_strict: (b.guidelines_strict as boolean | null) ?? null,
+          brand_notes: (b.brand_notes as string | null) ?? null,
         })
       : absent("P1.1.6 not collected — no brand book, so nothing constrains colour or tone"),
 
