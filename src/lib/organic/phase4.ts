@@ -967,11 +967,20 @@ export async function generateWaterfall(
     // pins were all cancelled is a plan, not a publication.
     const live = prior.rows.find((w) => w.live_pins > 0);
     if (live) {
+      // Deze melding wees naar "abandon that waterfall first", en zo'n knop
+      // bestaat niet — en zou ook niet helpen: de pins die al gepubliceerd zijn
+      // blijven staan (die zijn geschiedenis), dus check_board_url_history
+      // weigert een nieuw plan op dezelfde boards alsnog. Wat wél werkt staat
+      // er nu in, met de reden erbij. Dit is de vierde keer dat een phase-4
+      // tekst naar een niet-bestaande handeling wees; zie CLAUDE.md.
       throw new Error(
-        `This URL already has a waterfall that is live (${live.id.slice(0, 8)}, ${live.status}` +
-        `${live.live_pins > 0 ? `, ${live.live_pins} pin(s) scheduled or published` : ""}). ` +
-        `Regenerating would plan the same boards again inside the 180-day board-URL rule. ` +
-        `Abandon that waterfall first, or run this cycle on another URL.`
+        `This URL already has a live waterfall (${live.id.slice(0, 8)}, ${live.status}, ` +
+        `${live.live_pins} pin(s) scheduled or published), so it cannot be regenerated: the new ` +
+        `plan would put the same URL on the same boards again, inside the 180-day board-URL rule. ` +
+        `To get better artwork out, replace the design on this cycle (P4.2.4 — the CLICK pin also ` +
+        `takes an mp4) and run P4.2.5 again: every pin that has not gone out yet picks up the new ` +
+        `file, and the pins already on Pinterest keep what went out with them. To plan something ` +
+        `genuinely new, run a cycle on another URL.`
       );
     }
     let superseded: WaterfallReport["superseded"];
@@ -3348,11 +3357,31 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
        FROM organic.pins p
        JOIN organic.designs d ON d.id = p.design_id
       WHERE p.waterfall_id = $1
-        AND p.status <> 'CANCELLED'::organic.pin_status
+        AND p.status NOT IN ('CANCELLED','PUBLISHED')
       ORDER BY d.design_number, p.copy_variant`,
     [liveId]
   );
-  if (pins.rowCount === 0) throw new Error("No pins yet — generate the waterfall first (P4.3.1)");
+  // Een GEPUBLICEERDE pin wordt niet aangeraakt. Dat is geen detail: het
+  // vervangen van een design op een lopende cyclus is precies hoe je betere
+  // creatives op de pins krijgt die nog niet uit zijn — en zou tot nu toe ook
+  // het beeld van de pins hebben overschreven die al op Pinterest staan. Daar
+  // verandert op Pinterest niets van, maar P4.4.2 en het klantrapport lezen
+  // `image_path` als "dit is wat er live is gegaan", en dat zou dan het nieuwe
+  // bestand tonen bij een pin die met het oude is vertrokken.
+  if (pins.rowCount === 0) {
+    const live = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.pins
+        WHERE waterfall_id = $1 AND status = 'PUBLISHED'::organic.pin_status`,
+      [liveId]
+    );
+    if (Number(live.rows[0]?.n ?? 0) > 0) {
+      throw new Error(
+        `Every pin in this cycle is already published (${live.rows[0].n}). There is nothing left to ` +
+        `cut artwork for — a published pin keeps what went out with it.`
+      );
+    }
+    throw new Error("No pins yet — generate the waterfall first (P4.3.1)");
+  }
   const missing = pins.rows.filter((p) => !p.asset_path);
   if (missing.length > 0) {
     throw new Error(`${missing.length} pin(s) have no design image yet — run P4.2.4 first`);
