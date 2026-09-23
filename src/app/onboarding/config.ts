@@ -82,6 +82,17 @@ export const ONBOARDING_CONFIG = {
       { id: "tracking", label: "What Tracking Provider are you using?",                           type: "select", entryId: "entry.1587285175", required: true,
         options: ["Wetracked", "Trackbee", "Elevar", "Triplewhale", "Its a new store, its not installed yet"],
         allowOther: true, otherPlaceholder: "Which tracking provider?" },
+      // Deze twee voeden de merkkant van organic (brand_rules, migratie 107):
+      // de content drive en het merkboek stonden daar als losse velden en
+      // moesten tot nu toe achteraf bij de klant worden opgehaald.
+      { id: "contentdrive", label: "Can you give us the link to your content drive for your brand?", type: "url",
+        entryId: "entry.1057609342", required: true,
+        helper: "This is what we build the organic profile from.",
+        placeholder: "Google Drive, Dropbox, WeTransfer…" },
+      { id: "brandbook", label: "If you have a brand book, can you give us the details? (logos, fonts, style, etc.)", type: "textarea",
+        entryId: "entry.1631963486", required: false,
+        helper: "No brand book yet? Leave this empty — we'll pick it up on the kickoff call.",
+        placeholder: "A link works too" },
     ] as IntakeQuestion[],
   },
 
