@@ -406,12 +406,28 @@ export class PinterestClient {
    * board comes from the organic top-pins endpoint instead (the inline
    * pin_metrics here include paid/ads impressions, which we don't want in the
    * organic board-health view).
+   *
+   * The response carries the whole pin, so title, link and media are declared
+   * too: the seed proposal reads the account's pins through here, because
+   * `GET /pins` does not list catalogue or ads-created pins and returns an
+   * empty list for a store whose boards are demonstrably full of them.
    */
   async getBoardPins(
     boardId: string,
     pageSize = 25,
     bookmark?: string
-  ): Promise<{ items: Array<{ id: string; created_at?: string }>; bookmark?: string }> {
+  ): Promise<{
+    items: Array<{
+      id: string;
+      created_at?: string;
+      title?: string | null;
+      description?: string | null;
+      alt_text?: string | null;
+      link?: string | null;
+      media?: { url?: string; images?: Record<string, { url: string }> } | null;
+    }>;
+    bookmark?: string;
+  }> {
     const params = new URLSearchParams({ page_size: String(pageSize) });
     if (bookmark) params.set("bookmark", bookmark);
     return this.request(`/boards/${boardId}/pins?${params}`);

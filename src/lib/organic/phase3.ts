@@ -23,6 +23,31 @@ function normalizeTerm(t: string): string {
   return t.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/**
+ * De sleutel waarop een board uit onze bibliotheek en een board op het account
+ * dezelfde heten.
+ *
+ * Dit blijft een EXACTE match — geen gelijkenis, geen score, de regel uit 095
+ * staat overeind — alleen op een genormaliseerde vorm: een typografische
+ * apostrof wordt een rechte en herhaalde spaties worden er een. Dat is geen
+ * versoepeling maar de uitvoering ervan, want "Men's Sneakers" en
+ * "Men\u2019s Sneakers" zijn dezelfde naam anders getypt, en Pinterest vindt dat
+ * ook: die weigert de tweede met `400 code 58`.
+ *
+ * Zonder deze normalisatie liep Morenzio (23-09-2026) op precies het geval
+ * vast dat 095 wilde voorkomen. De klant had zes boards met een krulapostrof,
+ * onze bibliotheek had ze met een rechte: aanmaken werd geweigerd als
+ * duplicaat, koppelen-op-naam vond niets, en de rij faalde elke run opnieuw.
+ */
+function boardNameKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u02BC\u00B4`]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\s+/g, " ");
+}
+
 function chunks<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -1097,9 +1122,9 @@ export async function adoptExistingBoards(
   // up with two boards they did not ask for. A board with that name IS that
   // board, so it is adopted.
   //
-  // Match is exact on the trimmed, lower-cased name — deliberately not
-  // fuzzy. A wrong adoption pins a cycle onto a board nobody chose, which is
-  // far more expensive than a board that has to be linked by hand.
+  // Match is exact on `boardNameKey()` — deliberately not fuzzy. A wrong
+  // adoption pins a cycle onto a board nobody chose, which is far more
+  // expensive than a board that has to be linked by hand.
   const orphaned = await pool.query<{ id: string; name: string; origin: string | null }>(
     `SELECT id::text, name, origin::text
        FROM organic.boards
@@ -1135,7 +1160,7 @@ export async function adoptExistingBoards(
     const client = new PinterestClient(decrypt(enc), false);
     const remote = await client.getBoards();
     live = new Map(remote.items.map((b) => [b.id, { privacy: b.privacy, pins: b.pin_count ?? 0 }]));
-    byName = new Map(remote.items.map((b) => [b.name.trim().toLowerCase(), b.id]));
+    byName = new Map(remote.items.map((b) => [boardNameKey(b.name), b.id]));
   } catch (e) {
     return { adopted: 0, vanished: 0, unreachable: (e as Error).message, linked_by_name: [] };
   }
@@ -1143,7 +1168,7 @@ export async function adoptExistingBoards(
   const rows = [...claimed.rows];
   const linkedByName: string[] = [];
   for (const o of orphaned.rows) {
-    const id = byName.get(o.name.trim().toLowerCase());
+    const id = byName.get(boardNameKey(o.name));
     if (!id) continue;
     await pool.query(`UPDATE organic.boards SET pinterest_board_id = $2 WHERE id = $1`, [o.id, id]);
     rows.push({ id: o.id, pinterest_board_id: id, name: o.name });
@@ -1614,7 +1639,7 @@ export async function loadBoardCreationPlan(orgId: string): Promise<BoardCreatio
 
   const account = await listAccountBoards(orgId);
   const byName = new Map(
-    account.boards.map((b) => [b.name.trim().toLowerCase(), b])
+    account.boards.map((b) => [boardNameKey(b.name), b])
   );
 
   return {
@@ -1627,7 +1652,7 @@ export async function loadBoardCreationPlan(orgId: string): Promise<BoardCreatio
     remaining: queue.rowCount ?? 0,
     account_unreachable: account.unreachable,
     rows: queue.rows.map((r) => {
-      const hit = byName.get(r.name.trim().toLowerCase());
+      const hit = byName.get(boardNameKey(r.name));
       return {
         board_id: r.id,
         name: r.name,
@@ -1649,8 +1674,8 @@ export async function loadBoardCreationPlan(orgId: string): Promise<BoardCreatio
  *
  * Re-reads the account rather than trusting the list we fetched before the
  * loop started: the clash can be caused by a board created seconds ago, by
- * another run, or by the client. Matched on the trimmed lower-cased name, the
- * same comparison `adoptExistingBoards` makes, and it returns false rather
+ * another run, or by the client. Matched with `boardNameKey()`, the same
+ * comparison `adoptExistingBoards` makes, and it returns false rather
  * than guessing when there is no match — a wrong link puts a whole cycle onto
  * a board nobody chose.
  */
@@ -1667,7 +1692,7 @@ async function linkByNameAfterClash(
   } catch {
     return false;
   }
-  const found = remote.items.find((b) => b.name.trim().toLowerCase() === name.trim().toLowerCase());
+  const found = remote.items.find((b) => boardNameKey(b.name) === boardNameKey(name));
   if (!found) return false;
 
   // Already held by another row: linking would point two library rows at one
@@ -1859,6 +1884,94 @@ function hostOf(u: string | null | undefined): string | null {
   catch { return null; }
 }
 
+type AccountPin = {
+  id: string;
+  title?: string | null;
+  description?: string | null;
+  alt_text?: string | null;
+  board_id?: string | null;
+  link?: string | null;
+  media?: { images?: Record<string, { url: string }> } | null;
+};
+
+/** Hoeveel pins we per board van het account lezen, en hoeveel in totaal.
+ *  Morenzio's catalogusboard heeft er 61.274 — we hebben er vijftien per board
+ *  nodig, dus doorbladeren tot het eind is werk waar niemand iets aan heeft. */
+const SEED_SCAN_PER_BOARD = 50;
+const SEED_SCAN_TOTAL = 600;
+
+/**
+ * Elke pin op het account die we kunnen lezen — uit BEIDE bronnen.
+ *
+ * `GET /v5/pins` geeft alleen de pins die de gebruiker zelf organisch heeft
+ * gemaakt. Pins die uit een catalogus komen of door de ads-kant zijn
+ * aangemaakt staan er niet in, en voor een nieuw merk is dat precies alles wat
+ * er is. Gemeten op 23-09-2026: `GET /pins` gaf bij Envoise en Morenzio allebei
+ * **nul**, terwijl Envoise 52 pins op "Advertentiepins" had en Morenzio 61.274
+ * op "Products" — allemaal met een link naar hun eigen domein, allemaal
+ * bruikbaar om een board mee op te warmen.
+ *
+ * Het scherm zei toen "None of the account's 0 pins link to envoise.com", en
+ * dat las als een feit over het account terwijl het een feit was over één
+ * endpoint. Dat is dezelfde fout als "gemeten en leeg" tegenover "nog nooit
+ * gekeken", een slag erger: er was wél gekeken, alleen op de verkeerde plek.
+ *
+ * Daarom wordt er nu ook per board gelezen. Wat er terugkomt wordt geteld per
+ * bron, zodat de melding kan zeggen wat er is gezien en waar.
+ */
+async function collectAccountPins(client: PinterestClient): Promise<{
+  pins: AccountPin[];
+  total: number;
+  from_feed: number;
+  from_boards: number;
+  boards_read: number;
+}> {
+  const seen = new Map<string, AccountPin>();
+
+  let bookmark: string | undefined;
+  do {
+    const page = await client.getAccountPins(bookmark);
+    for (const p of page.items) seen.set(p.id, p);
+    bookmark = page.bookmark ?? undefined;
+  } while (bookmark && seen.size < SEED_SCAN_TOTAL);
+  const fromFeed = seen.size;
+
+  // Een board dat Pinterest als leeg opgeeft wordt overgeslagen, en een board
+  // dat weigert kost dat board en niet de hele voorstelronde: een catalogus
+  // wordt lang niet altijd uitgeleverd (Envoise' "Products" meldt 4.558 pins
+  // en geeft er nul terug).
+  let boardsRead = 0;
+  try {
+    const remote = await client.getBoards();
+    for (const b of remote.items) {
+      if (seen.size >= SEED_SCAN_TOTAL) break;
+      if ((b.pin_count ?? 0) === 0) continue;
+      let mark: string | undefined;
+      let taken = 0;
+      boardsRead++;
+      try {
+        do {
+          const page = await client.getBoardPins(b.id, 25, mark);
+          for (const p of page.items) {
+            if (!seen.has(p.id)) seen.set(p.id, { ...p, board_id: b.id });
+            taken++;
+          }
+          mark = page.bookmark ?? undefined;
+        } while (mark && taken < SEED_SCAN_PER_BOARD && seen.size < SEED_SCAN_TOTAL);
+      } catch { /* dit board niet, de rest wel */ }
+    }
+  } catch { /* geen boardlijst: dan is de feed wat we hebben */ }
+
+  const pins = [...seen.values()];
+  return {
+    pins,
+    total: pins.length,
+    from_feed: fromFeed,
+    from_boards: pins.length - fromFeed,
+    boards_read: boardsRead,
+  };
+}
+
 /**
  * P3.3.6 — propose which of the store's own pins go on which new board.
  *
@@ -1900,20 +2013,22 @@ export async function proposeSeedPins(orgId: string, timeSpentMin: number) {
 
   const { pinterestClientForOrg } = await import("@/lib/pinterest/for-org");
   const { client } = await pinterestClientForOrg(orgId);
-  const all: Array<{ id: string; title?: string | null; description?: string | null; alt_text?: string | null; board_id?: string | null; link?: string | null; media?: { images?: Record<string, { url: string }> } | null }> = [];
-  let bookmark: string | undefined;
-  do {
-    const page = await client.getAccountPins(bookmark);
-    all.push(...page.items);
-    bookmark = page.bookmark ?? undefined;
-  } while (bookmark && all.length < 2000);
+  const read = await collectAccountPins(client);
+  const all = read.pins;
 
   const own = all.filter((p) => {
     const h = hostOf(p.link);
     return h !== null && (h === host || h.endsWith(`.${host}`)) && (p.title || p.description);
   });
   if (own.length === 0) {
-    throw new Error(`None of the account's ${all.length} pins link to ${host}. Warm the boards from the website with the Pinterest widget instead (SOP, month 1).`);
+    throw new Error(
+      read.total === 0
+        ? `This account has no pins we can read yet — ${read.boards_read} board(s) checked, nothing on them. ` +
+          `Warm the boards from the website with the Pinterest widget instead (SOP, month 1).`
+        : `None of the ${read.total} pins we can read on this account link to ${host} ` +
+          `(${read.from_feed} from the account's own pins, ${read.from_boards} off ${read.boards_read} board(s)). ` +
+          `Warm the boards from the website with the Pinterest widget instead (SOP, month 1).`
+    );
   }
   const byId = new Map(own.map((p) => [p.id, p]));
   const image = (p: (typeof own)[number]) => {
