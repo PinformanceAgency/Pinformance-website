@@ -21,7 +21,6 @@ interface Sub {
   id: string;
   title: string;
   desc: string;
-  video: string;
   link?: { label: string; url: string };
 }
 
@@ -32,8 +31,7 @@ export default function StepPinterest({ onDone, config }: Props) {
     {
       id: "business",
       title: "Set up your Pinterest Business account",
-      desc: "Create (or upgrade to) a Pinterest Business account. The video walks you through it step by step.",
-      video: config.videos.pinterestBusiness,
+      desc: "Create (or upgrade to) a Pinterest Business account. The walkthrough above covers this step.",
       link: config.links.pinterestBusinessSignup
         ? { label: "Go to Pinterest Business", url: config.links.pinterestBusinessSignup }
         : undefined,
@@ -42,13 +40,11 @@ export default function StepPinterest({ onDone, config }: Props) {
       id: "access",
       title: "Grant us access to your account",
       desc: "Add us as an admin in your Business Manager so we can build and optimize campaigns.",
-      video: config.videos.pinterestAccess,
     },
     {
       id: "tracking",
       title: "Connect your tracking",
       desc: "Install the Pinterest Tag and connect conversion tracking so we optimize on real events.",
-      video: config.videos.pinterestTracking,
     },
   ];
 
@@ -91,11 +87,6 @@ export default function StepPinterest({ onDone, config }: Props) {
             <span style={{ flex: 1 }}>{i + 1}. {s.title}</span>
           </div>
           <p className="ob-card-desc" style={{ marginLeft: 34 }}>{s.desc}</p>
-          {s.video && (
-            <div style={{ marginTop: 14, marginLeft: 34 }}>
-              <VideoEmbed url={s.video} title={s.title} />
-            </div>
-          )}
           {s.link && (
             <div style={{ marginTop: 14, marginLeft: 34 }}>
               <a href={s.link.url} target="_blank" rel="noopener noreferrer" className="ob-cta-secondary">

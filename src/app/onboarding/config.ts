@@ -45,17 +45,13 @@ export const ONBOARDING_CONFIG = {
   // on a phone would be made to download all of it.
   videos: {
     welcome: "https://epcbwgkfdtmtohbomzxt.supabase.co/storage/v1/object/public/uploads/onboarding/welcome.mp4",
+    // Eén Loom over de hele Pinterest-setup, dus de vier stappen eronder hebben
+    // geen eigen video — die sleutels stonden er wel en zijn weg (23-09-2026).
     // Deze is als Loom opgenomen en niet opnieuw gemonteerd, dus hij blijft een
     // embed. Let op de URL: Loom geeft je een /share/-link om te delen, en een
     // /embed/-link om in te sluiten. De share-variant in een iframe levert een
     // Loom-pagina op met kop en knoppen eromheen, geen speler.
     pinterestSetup: "https://www.loom.com/embed/8ca567ab3678406c9e948e3a960f6383",
-    // De drie losse sub-video's bestaan niet; de walkthrough hierboven behandelt
-    // alle vier de stappen en zegt dat ook. Leeg betekent hier: geen speler in
-    // die kaart, geen placeholder.
-    pinterestBusiness: "",
-    pinterestAccess: "",
-    pinterestTracking: "",
     // Eén video over contracten én facturatie, dus ook één kaart in StepAdmin.
     // Er was hier een aparte `billing`-sleutel; die is weg omdat er geen tweede
     // video is en een sleutel die nergens meer landt de volgende persoon laat

@@ -3,7 +3,7 @@
  *
  *   DOTENV_CONFIG_PATH=.env.local npx tsx scripts/upload-onboarding-videos.ts <map>
  *
- * De site heeft acht videoplekken (`src/app/onboarding/config.ts`). Dit script
+ * De site heeft vijf videoplekken (`src/app/onboarding/config.ts`). Dit script
  * pakt een map met de afgemonteerde bestanden, zet elk bestand om naar iets wat
  * een klant daadwerkelijk kan afspelen, zet het in de publieke `uploads`-bucket
  * en drukt het configblok af dat je erin plakt.
@@ -37,14 +37,11 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "no
 import { tmpdir } from "node:os";
 import { join, extname, basename } from "node:path";
 
-/** De acht plekken in config.ts, met de woorden waarop een bestand erbij hoort.
- *  Het eerste trefwoord dat in de bestandsnaam voorkomt wint, dus de specifieke
- *  staan voor de algemene — "pinterest access" voor "pinterest". */
+/** De plekken in config.ts, met de woorden waarop een bestand erbij hoort.
+ *  Het eerste trefwoord dat in de bestandsnaam voorkomt wint, dus specifieke
+ *  trefwoorden horen boven algemene te staan. */
 const SLOTS: Array<{ key: string; hints: string[] }> = [
   { key: "welcome", hints: ["welcome", "welkom", "intro"] },
-  { key: "pinterestBusiness", hints: ["business"] },
-  { key: "pinterestAccess", hints: ["access", "toegang"] },
-  { key: "pinterestTracking", hints: ["tracking", "tag"] },
   { key: "pinterestSetup", hints: ["setup", "pinterest"] },
   // Eén video dekt contracten en facturatie, dus er is geen aparte
   // billing-plek. "billing" hoort daarom hier bij de trefwoorden.
