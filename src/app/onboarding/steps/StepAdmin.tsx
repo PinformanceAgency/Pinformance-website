@@ -56,13 +56,15 @@ export default function StepAdmin({ onDone, config }: Props) {
             in your email so you can read through them at your own pace.
           </p>
           <p style={{ margin: "0 0 10px" }}>
-            <strong>Nothing needs to be filled in or signed beforehand</strong> — we go through both documents
-            together on the kickoff call and fill them in live. Just make sure you&apos;ve read them so you know what&apos;s
-            in there before we hop on the call.
+            <strong>It would be perfect if you could sign them before the kickoff call.</strong> That way we
+            can get started right away, and we spend the call on the things that actually make an impact
+            instead of on paperwork.
           </p>
           <p style={{ margin: "0 0 10px" }}>
             The NDA covers confidentiality on both sides. The Service Agreement outlines exactly what we do,
-            how we work, and what you can expect from us.
+            how we work, and what you can expect from us. Anything you&apos;d like to go through before you
+            sign? Send us a message — we&apos;d rather answer it now than have you sign something you&apos;re
+            unsure about.
           </p>
           <p style={{ margin: "0 0 10px" }}>
             On <strong>billing</strong>: you&apos;ll receive your invoice <strong>once a month</strong>, sent directly
