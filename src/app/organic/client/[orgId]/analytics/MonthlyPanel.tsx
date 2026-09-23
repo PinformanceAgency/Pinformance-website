@@ -29,7 +29,7 @@ import { Band, Panel, Label } from "@/components/organic/primitives";
 import { Table, TH, TD, Pill, Metric } from "@/components/organic/internal";
 import { TrendLine, BarList } from "@/components/organic/charts";
 import { FORMAT_LABEL, type CreativeFormat } from "@/lib/organic/formats";
-import type { MonthlyDashboard, TopPin } from "@/lib/organic/monthly";
+import type { MonthlyDashboard, TopPin, CsvPreviewRow } from "@/lib/organic/monthly";
 import { cn } from "@/lib/utils";
 
 const nf = (v: number | null | undefined, digits = 0): string =>
@@ -37,6 +37,33 @@ const nf = (v: number | null | undefined, digits = 0): string =>
 
 const money = (v: number | null | undefined): string =>
   v === null || v === undefined ? "—" : `€ ${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
+/** Wat `preview_csv` teruggeeft. `error` kan bij een 200 meekomen: een
+ *  onleesbaar bestand is geen serverfout, het is een bevinding over de CSV. */
+type CsvPreview = { rows: CsvPreviewRow[]; unknown_columns: string[]; error?: string };
+
+/** Welke kolommen een rij kan dragen, in de volgorde waarin ze worden getoond.
+ *  Losgehouden van `CSV_FIELDS` in monthly.ts: daar staan de namen waarop
+ *  herkend wordt, hier staat hoe een herkende waarde wordt voorgelezen. */
+const CSV_COLUMNS: Array<[string, string]> = [
+  ["revenue_organic", "organic"],
+  ["revenue_paid_assisted", "paid assisted"],
+  ["revenue_paid_unassisted", "paid unassisted"],
+  ["conversions", "conversions"],
+  ["checkouts", "checkouts"],
+  ["add_to_cart", "add to cart"],
+  ["page_visits", "page visits"],
+  ["ga4_sessions", "sessions"],
+  ["conversion_window_click", "click window"],
+  ["conversion_window_view", "view window"],
+];
+
+const landing = (figures: Record<string, unknown>): string => {
+  const parts = CSV_COLUMNS
+    .filter(([k]) => figures[k] !== null && figures[k] !== undefined)
+    .map(([k, label]) => `${label} ${nf(figures[k] as number, 2)}`);
+  return parts.length > 0 ? parts.join(" · ") : "the month, and nothing else";
+};
 
 const monthLabel = (iso: string): string =>
   new Date(`${iso.slice(0, 7)}-01T00:00:00Z`).toLocaleDateString("en-US", {
@@ -63,7 +90,31 @@ export function MonthlyPanel({ orgId, data }: { orgId: string; data: MonthlyDash
         setNote(`${d.imported} month(s) imported${d.skipped ? `, ${d.skipped} row(s) skipped` : ""}.`);
       }
       startTransition(() => router.refresh());
-    } catch (e) { setErr((e as Error).message); }
+      return true;
+    } catch (e) { setErr((e as Error).message); return false; }
+    finally { setBusy(null); }
+  }
+
+  /**
+   * De CSV eerst laten zien, dan pas wegschrijven.
+   *
+   * `import_csv` leest de tekst server-side opnieuw met dezelfde parser, dus
+   * wat hier op het scherm komt is wat er straks landt — er gaan geen rijen
+   * vanuit de browser terug. Wie de tekst daarna nog aanraakt, raakt het
+   * voorbeeld kwijt: importeren wat niemand heeft gezien is precies wat deze
+   * stap moet voorkomen.
+   */
+  async function previewCsv(csv: string): Promise<CsvPreview | null> {
+    setErr(null); setNote(null); setBusy("preview");
+    try {
+      const res = await fetch(`/api/organic/analytics/${orgId}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "preview_csv", csv }),
+      });
+      const d = await res.json() as CsvPreview & { error?: string };
+      if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
+      return d;
+    } catch (e) { setErr((e as Error).message); return null; }
     finally { setBusy(null); }
   }
 
@@ -220,6 +271,7 @@ export function MonthlyPanel({ orgId, data }: { orgId: string; data: MonthlyDash
         busy={busy}
         onSave={(figures) => call({ action: "save_figures", figures }, "figures")}
         onCsv={(csv) => call({ action: "import_csv", csv }, "csv")}
+        onPreviewCsv={previewCsv}
         current={current}
       />
 
@@ -347,13 +399,14 @@ const CLICK_WINDOWS = [1, 7, 30, 60];
 const VIEW_WINDOWS = [1, 7];
 
 function FiguresForm({
-  months, busy, onSave, onCsv, current,
+  months, busy, onSave, onCsv, onPreviewCsv, current,
 }: {
   orgId: string;
   months: string[];
   busy: string | null;
   onSave: (f: Record<string, unknown>) => void;
-  onCsv: (csv: string) => void;
+  onCsv: (csv: string) => Promise<boolean>;
+  onPreviewCsv: (csv: string) => Promise<CsvPreview | null>;
   current: MonthlyDashboard["current"];
 }) {
   const [month, setMonth] = useState(
@@ -371,6 +424,7 @@ function FiguresForm({
   const [sessions, setSessions] = useState("");
   const [figNote, setFigNote] = useState("");
   const [csv, setCsv] = useState("");
+  const [preview, setPreview] = useState<CsvPreview | null>(null);
 
   const num = (v: string): number | null => {
     const t = v.trim().replace(/[€\s]/g, "").replace(",", ".");
@@ -469,22 +523,126 @@ function FiguresForm({
         <p className="mt-1 text-[length:var(--text-o-label)] text-o-ink-3">
           One row per month. The columns are matched by name — month, organic revenue, paid assisted,
           paid unassisted, conversions, checkouts, add to cart, page visits, click window, view window.
-          Semicolons and commas both work. A row missing its month or its attribution window is
-          reported and skipped rather than guessed at.
+          Semicolons and commas both work. You see what the file says before anything is written: a row
+          missing its month or its attribution window is named and skipped rather than guessed at.
         </p>
-        <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={4}
+        <textarea value={csv} onChange={(e) => { setCsv(e.target.value); setPreview(null); }} rows={4}
           placeholder="month;organic revenue;paid assisted;click window&#10;2026-08;12450;3100;30"
           className="mt-2 w-full rounded-md border border-o-hairline bg-background px-2.5 py-2 font-mono text-xs
                      focus:outline-none focus:ring-1 focus:ring-o-accent/40" />
-        <button type="button" disabled={busy !== null || !csv.trim()}
-          onClick={() => onCsv(csv)}
-          className="mt-2 inline-flex items-center gap-1.5 text-[length:var(--text-o-label)] font-semibold
-                     px-2.5 py-1.5 rounded-md border border-o-hairline hover:bg-o-sunk disabled:opacity-50">
-          {busy === "csv" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-          {busy === "csv" ? "Importing…" : "Import these rows"}
-        </button>
+
+        {preview === null ? (
+          <button type="button" disabled={busy !== null || !csv.trim()}
+            onClick={async () => { const p = await onPreviewCsv(csv); if (p) setPreview(p); }}
+            className="mt-2 inline-flex items-center gap-1.5 text-[length:var(--text-o-label)] font-semibold
+                       px-2.5 py-1.5 rounded-md border border-o-hairline hover:bg-o-sunk disabled:opacity-50">
+            {busy === "preview" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {busy === "preview" ? "Reading…" : "Read this file"}
+          </button>
+        ) : (
+          <CsvPreviewTable
+            preview={preview}
+            busy={busy}
+            onCancel={() => setPreview(null)}
+            onConfirm={async () => { if (await onCsv(csv)) { setCsv(""); setPreview(null); } }}
+          />
+        )}
       </Panel>
     </Band>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Wat er gaat landen, voordat het landt.
+ *
+ * Een rij met een probleem wordt getoond en niet geïmporteerd — `importMonthlyCsv`
+ * slaat dezelfde rijen over, dus dit scherm belooft niets wat de import niet
+ * doet. Een niet-herkende kolom staat er apart onder: die wordt genegeerd, en
+ * stilzwijgend negeren is hoe je een maand omzet kwijtraakt aan een kolomnaam.
+ */
+function CsvPreviewTable({
+  preview, busy, onCancel, onConfirm,
+}: {
+  preview: CsvPreview;
+  busy: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (preview.error) {
+    return (
+      <div className="mt-3">
+        <p className="text-sm text-o-neg" role="alert">{preview.error}</p>
+        <button type="button" onClick={onCancel}
+          className="mt-2 text-[length:var(--text-o-label)] font-semibold underline underline-offset-2">
+          Try another file
+        </button>
+      </div>
+    );
+  }
+
+  const clean = preview.rows.filter((r) => r.problems.length === 0);
+  const skipped = preview.rows.length - clean.length;
+
+  return (
+    <div className="mt-3">
+      <p className="text-[length:var(--text-o-label)] text-o-ink-2">
+        {clean.length} month{clean.length === 1 ? "" : "s"} will be written
+        {skipped > 0 ? `, ${skipped} row${skipped === 1 ? "" : "s"} will be skipped` : ""}.
+        Nothing has been saved yet.
+      </p>
+
+      <Table className="mt-2">
+        <thead>
+          <tr>
+            <TH>Month</TH>
+            <TH>What lands</TH>
+            <TH>Skipped because</TH>
+          </tr>
+        </thead>
+        <tbody>
+          {preview.rows.map((r, i) => (
+            <tr key={`${r.month || "?"}-${i}`}>
+              <TD>{r.month ? monthLabel(r.month) : <span className="text-o-ink-3">—</span>}</TD>
+              <TD muted={r.problems.length > 0}>
+                {r.problems.length > 0
+                  ? <span className="text-o-ink-3">not imported</span>
+                  : landing(r.figures as unknown as Record<string, unknown>)}
+              </TD>
+              <TD>
+                {r.problems.length > 0
+                  ? <span className="text-o-neg">{r.problems.join("; ")}</span>
+                  : <span className="text-o-ink-3">—</span>}
+              </TD>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+
+      {preview.unknown_columns.length > 0 && (
+        <p className="mt-2 text-[length:var(--text-o-label)] text-o-ink-3">
+          Not recognised, so ignored: {preview.unknown_columns.join(", ")}.
+        </p>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
+        <button type="button" disabled={busy !== null || clean.length === 0}
+          onClick={onConfirm}
+          className="inline-flex items-center gap-1.5 text-[length:var(--text-o-label)] font-semibold
+                     px-2.5 py-1.5 rounded-md bg-foreground text-background hover:opacity-90 disabled:opacity-50">
+          {busy === "csv" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+          {busy === "csv"
+            ? "Importing…"
+            : `Import ${clean.length} month${clean.length === 1 ? "" : "s"}`}
+        </button>
+        <button type="button" disabled={busy !== null} onClick={onCancel}
+          className="text-[length:var(--text-o-label)] font-semibold px-2.5 py-1.5 rounded-md
+                     border border-o-hairline hover:bg-o-sunk disabled:opacity-50">
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 
