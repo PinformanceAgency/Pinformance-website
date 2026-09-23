@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, BookOpen, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PublishingPause } from "@/components/organic/PublishingPause";
+import { BoardSwap } from "@/components/organic/BoardSwap";
 
 /** Vandaag als ISO-datum, voor "hoeveel pins staan er te wachten". */
 const today = () => new Date().toISOString().slice(0, 10);
@@ -923,6 +924,11 @@ function WaterfallSection({ orgId, cycle }: { orgId: string; cycle: CycleView })
           heldPins={cycle.plan.filter((p) => p.status === "SCHEDULED" && p.scheduled_date <= today()).length}
         />
       )}
+
+      {/* Naast pauzeren, en om dezelfde reden: het alternatief voor "genereer
+          maar opnieuw" als er iets aan het plan niet deugt. Pauzeren is voor
+          als de creatives beter moeten, dit is voor als een board fout zit. */}
+      {cycle.waterfall && <BoardSwap orgId={orgId} waterfallId={cycle.waterfall.id} />}
 
       <PlanCalendar plan={cycle.plan} />
 

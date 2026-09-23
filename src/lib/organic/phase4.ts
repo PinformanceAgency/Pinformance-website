@@ -374,6 +374,278 @@ export async function assignBoardsToUrl(urlId: string, boardIds: string[]): Prom
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Eén board in een lopende cyclus vervangen
+ * ------------------------------------------------------------------ */
+
+export interface BoardSwapOption {
+  board_id: string;
+  name: string;
+  live: boolean;
+  pin_count: number;
+  /** Waarom dit board hier niet gekozen kan worden, of null. */
+  blocked: string | null;
+}
+
+export interface BoardSwapState {
+  waterfall_id: string;
+  url_id: string;
+  /** De boards waar deze cyclus nu op pint, met wat er nog te verplaatsen is. */
+  current: Array<{
+    board_id: string;
+    name: string;
+    pins: number;
+    movable: number;
+    published: number;
+  }>;
+  options: BoardSwapOption[];
+}
+
+/**
+ * Wat je in deze cyclus kunt omwisselen, en waarheen.
+ *
+ * Alles wat niet kan wordt **getoond met de reden** in plaats van weggelaten:
+ * een keuzelijst waar het board dat je zoekt niet in staat leest als een bug,
+ * en de reden is elke keer iets anders (nog niet op Pinterest, al in deze
+ * rotatie, binnen de 180 dagen van deze URL).
+ */
+export async function loadBoardSwapState(
+  orgId: string,
+  waterfallId: string
+): Promise<BoardSwapState> {
+  const pool = organicPool();
+  const w = await pool.query<{ url_id: string }>(
+    `SELECT url_id::text FROM organic.waterfalls WHERE id = $1 AND org_id = $2`,
+    [waterfallId, orgId]
+  );
+  if (w.rowCount === 0) throw new Error("That cycle is not in this store.");
+  const urlId = w.rows[0].url_id;
+
+  const [current, candidates] = await Promise.all([
+    pool.query<{ board_id: string; name: string; pins: string; movable: string; published: string }>(
+      `SELECT b.id::text AS board_id, b.name,
+              COUNT(*) FILTER (WHERE p.status <> 'CANCELLED'::organic.pin_status)::text AS pins,
+              COUNT(*) FILTER (WHERE p.status IN ('PLANNED','SCHEDULED'))::text          AS movable,
+              COUNT(*) FILTER (WHERE p.status = 'PUBLISHED'::organic.pin_status)::text   AS published
+         FROM organic.pins p JOIN organic.boards b ON b.id = p.board_id
+        WHERE p.waterfall_id = $1
+        GROUP BY b.id, b.name
+        ORDER BY b.name`,
+      [waterfallId]
+    ),
+    // Elk board van de store, met de twee dingen die het kunnen blokkeren
+    // erbij gerekend: zit het al in deze cyclus, en heeft deze URL er binnen
+    // 180 dagen in een ANDERE cyclus op gepind.
+    pool.query<{ board_id: string; name: string; live: boolean; pin_count: number; in_cycle: string; recent: string }>(
+      `SELECT b.id::text AS board_id, b.name,
+              b.pinterest_board_id IS NOT NULL AS live, b.pin_count,
+              (SELECT COUNT(*) FROM organic.pins p
+                WHERE p.waterfall_id = $2 AND p.board_id = b.id
+                  AND p.status <> 'CANCELLED'::organic.pin_status)::text AS in_cycle,
+              (SELECT COUNT(*) FROM organic.pins p2
+                 JOIN organic.waterfalls w2 ON w2.id = p2.waterfall_id
+                WHERE w2.url_id = $3 AND p2.board_id = b.id AND w2.id <> $2
+                  AND p2.scheduled_date > current_date - INTERVAL '180 days'
+                  AND p2.status <> 'CANCELLED'::organic.pin_status)::text AS recent
+         FROM organic.boards b
+        WHERE b.org_id = $1
+        ORDER BY b.name`,
+      [orgId, waterfallId, urlId]
+    ),
+  ]);
+
+  return {
+    waterfall_id: waterfallId,
+    url_id: urlId,
+    current: current.rows.map((r) => ({
+      board_id: r.board_id, name: r.name,
+      pins: Number(r.pins), movable: Number(r.movable), published: Number(r.published),
+    })),
+    options: candidates.rows.map((r) => ({
+      board_id: r.board_id,
+      name: r.name,
+      live: r.live,
+      pin_count: r.pin_count,
+      blocked:
+        Number(r.in_cycle) > 0
+          ? "already in this cycle — two crops of one design would land on the same board"
+          : !r.live
+            ? "not on Pinterest yet — a pin onto it is never returned by the publish query"
+            : Number(r.recent) > 0
+              ? "this URL pinned on it within the last 180 days (another cycle)"
+              : null,
+    })),
+  };
+}
+
+/**
+ * P4.3.x — één board van een lopende cyclus vervangen door een ander.
+ *
+ * Tot nu toe was het enige antwoord op "dit board is fout" de hele waterfall
+ * opnieuw genereren, en dat kost precies wat een waterfall is: de spreiding
+ * over weken, de boardrotatie, de zestien datums, en bij een RUNNING cyclus
+ * ook echt ingeplande pins die dan gecancelled worden. Fit Cherries heeft twee
+ * cycli op bh-boards lopen waar er één van niet deugt — een fout van bij de
+ * opzet — en dat weghalen kon alleen door beide cycli over te doen. Ook de
+ * Remove-knop in de bibliotheek weigert (terecht) zolang een lopende cyclus
+ * erop pint; dit is de stap die daarvoor ontbrak.
+ *
+ * Wat er gebeurt: elke pin van deze cyclus die nog **niet uit** is verhuist
+ * mee. Wat al **gepubliceerd** is blijft staan en wordt bij naam gemeld — die
+ * pin bestaat op Pinterest, op dat board, en die daar weghalen is een besluit
+ * over het account van de klant en niet iets wat een omwissel-knop stilletjes
+ * doet. De datums, de designs, de copy en de crops blijven zoals ze zijn: er
+ * verandert één kolom.
+ *
+ * Drie dingen worden geweigerd, elk met de reden erbij:
+ *
+ *   - een board dat **nog niet op Pinterest staat** — `publishDuePins()`
+ *     filtert daarop, dus zo'n pin gaat nooit uit en meldt ook niets;
+ *   - een board dat **al in deze cyclus zit** — dan komen twee crops van
+ *     hetzelfde design op één board, en dat is precies de dubbeling die
+ *     `identicalDesignGroups()` elders juist opspoort;
+ *   - een board waar deze URL **binnen 180 dagen** al op heeft gepind in een
+ *     andere cyclus. Die regel staat als trigger op INSERT, en een UPDATE van
+ *     `board_id` komt daar niet langs — dus hij staat hier, expliciet, of de
+ *     omwissel zou de cooldown omzeilen zonder dat iemand dat ziet.
+ *
+ * `url_boards` verhuist mee, want anders wijst de toewijzing van de URL nog
+ * steeds naar het board dat net is weggehaald en pakt de volgende cyclus het
+ * gewoon opnieuw.
+ */
+export async function swapCycleBoard(
+  orgId: string,
+  waterfallId: string,
+  fromBoardId: string,
+  toBoardId: string
+): Promise<{
+  from: string;
+  to: string;
+  moved: number;
+  left_published: Array<{ sequence_number: number; scheduled_date: string }>;
+  assignment: "moved" | "removed" | "untouched";
+}> {
+  if (fromBoardId === toBoardId) throw new Error("That is the same board.");
+  const pool = organicPool();
+
+  const w = await pool.query<{ url_id: string; status: string }>(
+    `SELECT url_id::text, status::text FROM organic.waterfalls WHERE id = $1 AND org_id = $2`,
+    [waterfallId, orgId]
+  );
+  if (w.rowCount === 0) throw new Error("That cycle is not in this store.");
+  if (w.rows[0].status === "ABANDONED") {
+    throw new Error("That cycle was superseded by a regeneration — swap a board on the live one.");
+  }
+  const urlId = w.rows[0].url_id;
+
+  const [fromB, toB] = await Promise.all([
+    pool.query<{ name: string }>(
+      `SELECT name FROM organic.boards WHERE id = $1 AND org_id = $2`, [fromBoardId, orgId]),
+    pool.query<{ name: string; live: boolean }>(
+      `SELECT name, pinterest_board_id IS NOT NULL AS live
+         FROM organic.boards WHERE id = $1 AND org_id = $2`, [toBoardId, orgId]),
+  ]);
+  if (fromB.rowCount === 0) throw new Error("The board being replaced is not in this store.");
+  if (toB.rowCount === 0) throw new Error("The replacement board is not in this store.");
+  if (!toB.rows[0].live) {
+    throw new Error(
+      `"${toB.rows[0].name}" is not on Pinterest yet. A pin onto a board that does not exist there ` +
+      `is never returned by the publish query — it would simply never go out. Create it first (P3.3.5).`
+    );
+  }
+
+  const [inCycle, recent, pins] = await Promise.all([
+    pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.pins
+        WHERE waterfall_id = $1 AND board_id = $2 AND status <> 'CANCELLED'::organic.pin_status`,
+      [waterfallId, toBoardId]),
+    pool.query<{ n: string; oldest: string | null }>(
+      `SELECT COUNT(*)::text AS n, MIN(p.scheduled_date)::text AS oldest
+         FROM organic.pins p JOIN organic.waterfalls w2 ON w2.id = p.waterfall_id
+        WHERE w2.url_id = $1 AND p.board_id = $2 AND w2.id <> $3
+          AND p.scheduled_date > current_date - INTERVAL '180 days'
+          AND p.status <> 'CANCELLED'::organic.pin_status`,
+      [urlId, toBoardId, waterfallId]),
+    pool.query<{ id: string; status: string; sequence_number: number; scheduled_date: string }>(
+      `SELECT id::text, status::text, sequence_number, scheduled_date::text
+         FROM organic.pins
+        WHERE waterfall_id = $1 AND board_id = $2 AND status <> 'CANCELLED'::organic.pin_status
+        ORDER BY sequence_number`,
+      [waterfallId, fromBoardId]),
+  ]);
+
+  if (Number(inCycle.rows[0].n) > 0) {
+    throw new Error(
+      `"${toB.rows[0].name}" already carries ${inCycle.rows[0].n} pin(s) in this cycle. ` +
+      `Moving more onto it puts two crops of one design on the same board.`
+    );
+  }
+  if (Number(recent.rows[0].n) > 0) {
+    throw new Error(
+      `This URL was pinned on "${toB.rows[0].name}" on ${recent.rows[0].oldest} in another cycle, ` +
+      `inside the 180-day board-URL rule. Pick a board this URL has not been on.`
+    );
+  }
+  if (pins.rowCount === 0) {
+    throw new Error(`"${fromB.rows[0].name}" carries no pins in this cycle — nothing to move.`);
+  }
+
+  const movable = pins.rows.filter((p) => p.status === "PLANNED" || p.status === "SCHEDULED");
+  const published = pins.rows.filter((p) => p.status === "PUBLISHED");
+  if (movable.length === 0) {
+    throw new Error(
+      `All ${pins.rowCount} pin(s) on "${fromB.rows[0].name}" have already gone out. ` +
+      `They live on Pinterest on that board; taking them down is a decision about the client's account.`
+    );
+  }
+
+  const db = await pool.connect();
+  let assignment: "moved" | "removed" | "untouched" = "untouched";
+  try {
+    await db.query("BEGIN");
+    await db.query(
+      `UPDATE organic.pins SET board_id = $1
+        WHERE waterfall_id = $2 AND board_id = $3
+          AND status IN ('PLANNED'::organic.pin_status, 'SCHEDULED'::organic.pin_status)`,
+      [toBoardId, waterfallId, fromBoardId]
+    );
+    // De toewijzing van de URL verhuist mee, op dezelfde positie — anders
+    // pakt de volgende cyclus hetzelfde board gewoon opnieuw. Staat het
+    // nieuwe board er al bij, dan gaat de oude rij eruit: de PK is
+    // (url_id, board_id) en twee rijen voor één board bestaat niet.
+    const held = await db.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM organic.url_boards WHERE url_id = $1 AND board_id = $2`,
+      [urlId, toBoardId]
+    );
+    if (Number(held.rows[0].n) > 0) {
+      const gone = await db.query(
+        `DELETE FROM organic.url_boards WHERE url_id = $1 AND board_id = $2`, [urlId, fromBoardId]);
+      assignment = (gone.rowCount ?? 0) > 0 ? "removed" : "untouched";
+    } else {
+      const moved = await db.query(
+        `UPDATE organic.url_boards SET board_id = $1 WHERE url_id = $2 AND board_id = $3`,
+        [toBoardId, urlId, fromBoardId]);
+      assignment = (moved.rowCount ?? 0) > 0 ? "moved" : "untouched";
+    }
+    await db.query("COMMIT");
+  } catch (e) {
+    await db.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    db.release();
+  }
+
+  return {
+    from: fromB.rows[0].name,
+    to: toB.rows[0].name,
+    moved: movable.length,
+    left_published: published.map((p) => ({
+      sequence_number: p.sequence_number, scheduled_date: p.scheduled_date,
+    })),
+    assignment,
+  };
+}
+
 /** The store a URL belongs to — the setup controls are called with a URL. */
 async function orgIdForUrl(urlId: string): Promise<string | null> {
   const r = await organicPool().query<{ org_id: string }>(

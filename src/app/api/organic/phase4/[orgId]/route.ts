@@ -153,6 +153,15 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       );
     case "pause_state":
       return { pause: await P4.loadPauseState(orgId) };
+    // Eén board van een lopende cyclus vervangen, zonder de waterfall zelf
+    // opnieuw te genereren — dat laatste kost de datums, de rotatie en bij
+    // een RUNNING cyclus ook echt ingeplande pins.
+    case "board_swap_state":
+      return { swap: await P4.loadBoardSwapState(orgId, String(body.waterfall_id)) };
+    case "swap_board":
+      return await P4.swapCycleBoard(
+        orgId, String(body.waterfall_id), String(body.from_board_id), String(body.to_board_id)
+      );
     case "cycle_assets":
       return { assets: await P4.loadCycleAssets(orgId, String(body.url_id)) };
     case "validate_copy":
