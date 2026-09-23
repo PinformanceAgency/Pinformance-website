@@ -31,9 +31,18 @@ export const ONBOARDING_CONFIG = {
     mediaBuyerNote: "Your personal media buyer will be assigned during the kickoff call.",
   },
 
-  // ---------- Videos (Loom embed URLs) ----------
-  // Get the Loom embed URL: in Loom → Share → Embed → copy the URL from the src="..." of the iframe.
-  // Looks like: https://www.loom.com/embed/XXXXXXXXXXXXXXXXX
+  // ---------- Videos ----------
+  // Two kinds of URL work here, and VideoEmbed tells them apart by extension:
+  //
+  //   a file we host  → https://<project>.supabase.co/storage/v1/object/public/uploads/onboarding/<name>.mp4
+  //                     rendered as a real <video> player
+  //   an embed        → https://www.loom.com/embed/XXXXXXXXXXXX
+  //                     rendered as an <iframe>
+  //
+  // The edited videos are ours, so they are files. Upload them with
+  // `scripts/upload-onboarding-videos.ts`, which compresses first — the master
+  // of the welcome video is 4K at 30 Mbps, 318 MB for 88 seconds, and a client
+  // on a phone would be made to download all of it.
   videos: {
     welcome: "",            // Tristan welcome video
     pinterestSetup: "",     // Overview of the Pinterest setup steps

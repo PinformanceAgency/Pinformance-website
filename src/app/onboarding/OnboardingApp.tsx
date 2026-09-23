@@ -215,6 +215,12 @@ export default function OnboardingApp() {
           overflow: hidden;
         }
         .ob-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+        /* Een zelfgehoste mp4 vult hetzelfde kader. object-fit: contain, want
+           een video die niet exact 16:9 is hoort bijgesneden noch uitgerekt. */
+        .ob-video video {
+          position: absolute; inset: 0; width: 100%; height: 100%;
+          border: 0; background: #111315; object-fit: contain;
+        }
         .ob-video-placeholder {
           position: absolute; inset: 0;
           display: flex; flex-direction: column; align-items: center; justify-content: center;
