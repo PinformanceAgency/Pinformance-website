@@ -44,14 +44,25 @@ export const ONBOARDING_CONFIG = {
   // of the welcome video is 4K at 30 Mbps, 318 MB for 88 seconds, and a client
   // on a phone would be made to download all of it.
   videos: {
-    welcome: "",            // Tristan welcome video
-    pinterestSetup: "",     // Overview of the Pinterest setup steps
-    pinterestBusiness: "",  // Sub-loom: create Pinterest Business account
-    pinterestAccess: "",    // Sub-loom: grant us access
-    pinterestTracking: "",  // Sub-loom: connect tracking
-    contracts: "",          // Loom 3 — Contracts (NDA + Service Agreement explainer)
-    billing: "",            // Loom 4 — Billing (monthly invoice, 7-day payment terms, etc.)
-    thanks: "",             // Final thanks video
+    welcome: "https://epcbwgkfdtmtohbomzxt.supabase.co/storage/v1/object/public/uploads/onboarding/welcome.mp4",
+    // Deze is als Loom opgenomen en niet opnieuw gemonteerd, dus hij blijft een
+    // embed. Let op de URL: Loom geeft je een /share/-link om te delen, en een
+    // /embed/-link om in te sluiten. De share-variant in een iframe levert een
+    // Loom-pagina op met kop en knoppen eromheen, geen speler.
+    pinterestSetup: "https://www.loom.com/embed/8ca567ab3678406c9e948e3a960f6383",
+    // De drie losse sub-video's bestaan niet; de walkthrough hierboven behandelt
+    // alle vier de stappen en zegt dat ook. Leeg betekent hier: geen speler in
+    // die kaart, geen placeholder.
+    pinterestBusiness: "",
+    pinterestAccess: "",
+    pinterestTracking: "",
+    // Eén video over contracten én facturatie, dus ook één kaart in StepAdmin.
+    // Er was hier een aparte `billing`-sleutel; die is weg omdat er geen tweede
+    // video is en een sleutel die nergens meer landt de volgende persoon laat
+    // zoeken naar een video die niet bestaat.
+    contracts: "https://epcbwgkfdtmtohbomzxt.supabase.co/storage/v1/object/public/uploads/onboarding/contracts.mp4",
+    kickoff: "https://epcbwgkfdtmtohbomzxt.supabase.co/storage/v1/object/public/uploads/onboarding/kickoff.mp4",
+    thanks: "https://epcbwgkfdtmtohbomzxt.supabase.co/storage/v1/object/public/uploads/onboarding/thanks.mp4",
   },
 
   // ---------- Intake form (Google Form mirror) ----------

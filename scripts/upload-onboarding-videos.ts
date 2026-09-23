@@ -41,13 +41,15 @@ import { join, extname, basename } from "node:path";
  *  Het eerste trefwoord dat in de bestandsnaam voorkomt wint, dus de specifieke
  *  staan voor de algemene — "pinterest access" voor "pinterest". */
 const SLOTS: Array<{ key: string; hints: string[] }> = [
-  { key: "welcome", hints: ["welcome", "welkom", "intro", "loom 1", "loom1"] },
+  { key: "welcome", hints: ["welcome", "welkom", "intro"] },
   { key: "pinterestBusiness", hints: ["business"] },
   { key: "pinterestAccess", hints: ["access", "toegang"] },
   { key: "pinterestTracking", hints: ["tracking", "tag"] },
-  { key: "pinterestSetup", hints: ["setup", "pinterest", "loom 2", "loom2"] },
-  { key: "contracts", hints: ["contract", "nda", "sa ", "agreement", "loom 3", "loom3"] },
-  { key: "billing", hints: ["billing", "invoice", "factu", "loom 4", "loom4"] },
+  { key: "pinterestSetup", hints: ["setup", "pinterest"] },
+  // Eén video dekt contracten en facturatie, dus er is geen aparte
+  // billing-plek. "billing" hoort daarom hier bij de trefwoorden.
+  { key: "contracts", hints: ["contract", "nda", "agreement", "billing", "invoice", "factu"] },
+  { key: "kickoff", hints: ["kick-off", "kickoff", "kick off", "call"] },
   { key: "thanks", hints: ["thanks", "thank", "bedankt", "outro"] },
 ];
 
@@ -112,7 +114,7 @@ async function main(): Promise<void> {
 
   console.log(`${files.length} file(s), ${taken.size} matched to a slot${dry ? "  [DRY RUN]" : ""}\n`);
   for (const s of skipped) console.log(`  not matched, skipped: ${s}`);
-  if (skipped.length > 0) console.log("    → rename it to the slot name (welcome.mp4, billing.mp4, …)\n");
+  if (skipped.length > 0) console.log("    → rename it to the slot name (welcome.mp4, contracts.mp4, kickoff.mp4, …)\n");
 
   const work = mkdtempSync(join(tmpdir(), "onboarding-video-"));
   const admin = dry ? null : createClient(

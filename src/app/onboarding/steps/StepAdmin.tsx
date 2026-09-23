@@ -18,90 +18,66 @@ function ArrowIcon() {
 }
 
 export default function StepAdmin({ onDone, config }: Props) {
-  const [contractsWatched, setContractsWatched] = useState(false);
-  const [billingWatched, setBillingWatched] = useState(false);
-  const canProceed = contractsWatched && billingWatched;
+  // Eén video over contracten en facturatie samen, dus één bevestiging. Er
+  // stonden hier twee kaarten met twee vinkjes toen dit nog twee Looms waren.
+  const [watched, setWatched] = useState(false);
+  const canProceed = watched;
 
   return (
     <>
-      {/* CONTRACTS */}
       <div className="ob-card">
         <div className="ob-card-title">
           <button
             type="button"
             className="ob-check"
-            data-checked={contractsWatched}
-            onClick={() => setContractsWatched((v) => !v)}
-            aria-label="Contracts video watched"
+            data-checked={watched}
+            onClick={() => setWatched((v) => !v)}
+            aria-label="Contracts and billing video watched"
           >
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </button>
-          <span style={{ flex: 1 }}>1. Contracts</span>
+          <span style={{ flex: 1 }}>Contracts &amp; billing</span>
         </div>
 
         <div style={{ marginLeft: 34, marginBottom: 16 }}>
-          <VideoEmbed url={config.videos.contracts} title="Contracts — NDA + Service Agreement" caption="Loom 3 · Contracts" />
+          <VideoEmbed
+            url={config.videos.contracts}
+            title="Contracts & billing"
+            caption="Video · Contracts and billing"
+          />
         </div>
 
         <div style={{ marginLeft: 34, color: "#6b7075", fontSize: 14.5, lineHeight: 1.65 }}>
           <p style={{ margin: "0 0 10px" }}>
-            Once you've finished the full onboarding, we prepare two <strong>custom-made</strong> documents
-            for your brand: an <strong>NDA</strong> and a <strong>Service Agreement</strong>. You'll receive both
+            Once you&apos;ve finished the full onboarding, we prepare two <strong>custom-made</strong> documents
+            for your brand: an <strong>NDA</strong> and a <strong>Service Agreement</strong>. You&apos;ll receive both
             in your email so you can read through them at your own pace.
           </p>
           <p style={{ margin: "0 0 10px" }}>
             <strong>Nothing needs to be filled in or signed beforehand</strong> — we go through both documents
-            together on the kickoff call and fill them in live. Just make sure you've read them so you know what's
+            together on the kickoff call and fill them in live. Just make sure you&apos;ve read them so you know what&apos;s
             in there before we hop on the call.
           </p>
-          <p style={{ margin: 0 }}>
+          <p style={{ margin: "0 0 10px" }}>
             The NDA covers confidentiality on both sides. The Service Agreement outlines exactly what we do,
-            how we work, and what you can expect from us. Questions before the call? Drop a message in Slack.
-          </p>
-        </div>
-      </div>
-
-      {/* BILLING */}
-      <div className="ob-card">
-        <div className="ob-card-title">
-          <button
-            type="button"
-            className="ob-check"
-            data-checked={billingWatched}
-            onClick={() => setBillingWatched((v) => !v)}
-            aria-label="Billing video watched"
-          >
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </button>
-          <span style={{ flex: 1 }}>2. Billing</span>
-        </div>
-
-        <div style={{ marginLeft: 34, marginBottom: 16 }}>
-          <VideoEmbed url={config.videos.billing} title="Billing — how invoicing works" caption="Loom 4 · Billing" />
-        </div>
-
-        <div style={{ marginLeft: 34, color: "#6b7075", fontSize: 14.5, lineHeight: 1.65 }}>
-          <p style={{ margin: "0 0 10px" }}>
-            Quick walkthrough of how billing works at Pinformance.
+            how we work, and what you can expect from us.
           </p>
           <p style={{ margin: "0 0 10px" }}>
-            You'll receive your invoice <strong>once a month</strong>, sent directly to your email.
-            Once received, you have <strong>7 days</strong> to complete the payment. You'll always get a
-            clear breakdown of exactly what's included — no surprises.
+            On <strong>billing</strong>: you&apos;ll receive your invoice <strong>once a month</strong>, sent directly
+            to your email. Once received, you have <strong>7 days</strong> to complete the payment. You&apos;ll always
+            get a clear breakdown of exactly what&apos;s included — no surprises.
           </p>
           <p style={{ margin: 0 }}>
-            Any question about an invoice? Reach out in Slack and we'll sort it for you.
+            Questions about the documents or an invoice? Drop a message in Slack and we&apos;ll sort it for you.
           </p>
         </div>
       </div>
 
       <div className="ob-actions">
         <button className="ob-cta" onClick={onDone} disabled={!canProceed} type="button">
-          <span>{canProceed ? "Continue to kickoff call" : "Watch both videos to continue"}</span>
+          <span>{canProceed ? "Continue to kickoff call" : "Watch the video to continue"}</span>
           <ArrowIcon />
         </button>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import VideoEmbed from "./VideoEmbed";
 import type { OnboardingConfig } from "../config";
 
 interface Props {
@@ -37,6 +38,15 @@ export default function StepKickoff({ onDone, config }: Props) {
 
   return (
     <>
+      {/* De video staat vóór de Calendly-kalender: hij legt uit wat er op het
+          gesprek gebeurt, en dat is wat iemand wil weten vóór hij een moment
+          kiest. Deze stap had als enige met een video geen plek ervoor. */}
+      <VideoEmbed
+        url={config.videos.kickoff}
+        title="What happens on the kickoff call"
+        caption="Video · The kickoff call"
+      />
+
       <div style={{ width: "100%", height: 720, borderRadius: 20, overflow: "hidden", border: "1px solid #f0f0f1", marginBottom: 20 }}>
         <iframe
           src={config.links.calendlyKickoff}
