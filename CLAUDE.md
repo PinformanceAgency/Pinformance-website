@@ -807,6 +807,7 @@ only produce an empty cohort would be noise there.
 - Deploy without `npx tsc --noEmit` passing
 - Edit shared code (`src/lib/`, `src/components/`, `src/app/api/`) without grepping to see who imports it
 - **Create a new public-schema table without also enabling RLS in the same migration.** Supabase flags any table with RLS off as "publicly accessible" (rls_disabled_in_public) because the anon key can read/write/delete it. Every new table needs at minimum: `ALTER TABLE <name> ENABLE ROW LEVEL SECURITY;` plus one or more `CREATE POLICY` statements for the roles that need access (usually authenticated for reads; service_role bypasses RLS automatically for cron writes)
+- Call `is_agency_admin()` / `user_org_id()` bare in a policy. Write `(SELECT is_agency_admin())`: bare, Postgres runs it once **per row**, and on the snapshot tables that was 1,75s of a 1,84s read and took Zones down with `canceling statement due to statement timeout` (25-09-2026, fixed for all 71 policies in migration 110)
 
 ## Do
 
