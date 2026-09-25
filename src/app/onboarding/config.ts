@@ -51,7 +51,7 @@ export const ONBOARDING_CONFIG = {
     // embed. Let op de URL: Loom geeft je een /share/-link om te delen, en een
     // /embed/-link om in te sluiten. De share-variant in een iframe levert een
     // Loom-pagina op met kop en knoppen eromheen, geen speler.
-    pinterestSetup: "https://www.loom.com/embed/8ca567ab3678406c9e948e3a960f6383",
+    pinterestSetup: "https://www.loom.com/embed/decb5d31d35c482ab9778e672a41eb14",
     // Eén video over contracten én facturatie, dus ook één kaart in StepAdmin.
     // Er was hier een aparte `billing`-sleutel; die is weg omdat er geen tweede
     // video is en een sleutel die nergens meer landt de volgende persoon laat
