@@ -17,6 +17,17 @@ function ArrowIcon() {
   );
 }
 
+/** Calendly's embed colours, set to the page's own. Without them a white
+ *  calendar sits in the middle of the black page. Calendly only honours
+ *  these on a paid plan and ignores them otherwise, so they are safe either way. */
+function darkCalendly(url: string): string {
+  const u = new URL(url);
+  u.searchParams.set("background_color", "141115");
+  u.searchParams.set("text_color", "f2f1f6");
+  u.searchParams.set("primary_color", "f0021a");
+  return u.toString();
+}
+
 export default function StepKickoff({ onDone, config }: Props) {
   const [confirmed, setConfirmed] = useState(false);
 
@@ -47,9 +58,9 @@ export default function StepKickoff({ onDone, config }: Props) {
         caption="Video · The kickoff call"
       />
 
-      <div style={{ width: "100%", height: 720, borderRadius: 20, overflow: "hidden", border: "1px solid #f0f0f1", marginBottom: 20 }}>
+      <div style={{ width: "100%", height: 720, borderRadius: 20, overflow: "hidden", border: "1px solid var(--line)", marginBottom: 20 }}>
         <iframe
-          src={config.links.calendlyKickoff}
+          src={darkCalendly(config.links.calendlyKickoff)}
           width="100%"
           height="100%"
           frameBorder={0}

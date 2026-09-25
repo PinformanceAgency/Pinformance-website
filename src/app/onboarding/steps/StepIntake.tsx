@@ -168,7 +168,7 @@ export default function StepIntake({ onDone, config }: Props) {
       })}
 
       {error && (
-        <div className="ob-warn" style={{ background: "#ffe6e6", borderColor: "#f5c2c2", color: "#7a0000" }}>
+        <div className="ob-warn">
           {error}
         </div>
       )}

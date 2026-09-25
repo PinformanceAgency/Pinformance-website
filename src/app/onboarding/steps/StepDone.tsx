@@ -35,14 +35,15 @@ export default function StepDone({ config }: Props) {
           background: rgba(255,255,255,0.2);
         }
         .ob-done-hero {
-          background: linear-gradient(180deg, #111315 0%, #0a0b0d 100%);
+          background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+          border: 1px solid var(--line);
           color: #fff;
           border-radius: 24px;
           padding: 56px 40px;
           position: relative;
           overflow: hidden;
           text-align: center;
-          box-shadow: 0 20px 60px -20px rgba(17,19,21,0.35);
+          box-shadow: 0 30px 80px -30px rgba(240,2,26,0.25);
         }
         .ob-done-hero::before {
           content: "";
@@ -95,7 +96,7 @@ export default function StepDone({ config }: Props) {
           width: 88px; height: 88px;
           margin: 0 auto 22px;
           border-radius: 50%;
-          background: rgba(240,2,26,0.08);
+          background: rgba(240,2,26,0.12);
           color: #F0021A;
           display: grid; place-items: center;
           position: relative;
@@ -108,8 +109,8 @@ export default function StepDone({ config }: Props) {
         }
 
         .ob-done-tagline-card {
-          background: #faf9f6;
-          border: 1px solid #f0f0f1;
+          background: var(--surface);
+          border: 1px solid var(--line);
           border-radius: 20px;
           padding: 36px 32px;
           text-align: center;
@@ -117,7 +118,7 @@ export default function StepDone({ config }: Props) {
         }
         .ob-done-tagline {
           font-weight: 700;
-          color: #111315;
+          color: var(--text);
           font-size: clamp(20px, 3vw, 26px);
           margin: 0;
           line-height: 1.3;
@@ -129,18 +130,18 @@ export default function StepDone({ config }: Props) {
           display: flex; flex-direction: column; align-items: center; gap: 8px;
           margin-top: 40px;
           padding-top: 24px;
-          border-top: 1px solid #f0f0f1;
+          border-top: 1px solid var(--line);
         }
         .ob-done-brandmark-name {
           font-family: 'JetBrains Mono', ui-monospace, monospace;
           font-size: 11px;
           letter-spacing: 0.3em;
           text-transform: uppercase;
-          color: #111315;
+          color: var(--text);
           font-weight: 700;
         }
         .ob-done-brandmark-tag {
-          color: #8a8e93;
+          color: var(--muted);
           font-size: 13.5px;
           font-weight: 500;
         }
@@ -157,7 +158,7 @@ export default function StepDone({ config }: Props) {
         <div className="ob-done-eyebrow" style={{ marginBottom: 10 }}>
           Onboarding complete
         </div>
-        <p style={{ fontSize: 20, fontWeight: 700, color: "#111315", margin: 0, letterSpacing: "-0.015em" }}>
+        <p style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", margin: 0, letterSpacing: "-0.015em" }}>
           You&apos;re all set.
         </p>
       </div>
@@ -194,7 +195,7 @@ export default function StepDone({ config }: Props) {
         </div>
       </div>
 
-      {/* Closing tagline: light off-white card for color contrast */}
+      {/* Closing tagline */}
       <div className="ob-done-tagline-card">
         <p className="ob-done-tagline">
           We&apos;re looking forward to seeing you on the <span className="accent">kick-off call</span>.

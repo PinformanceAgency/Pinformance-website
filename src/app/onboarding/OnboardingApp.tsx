@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ONBOARDING_CONFIG } from "./config";
-import { STEPS, STEP_IDS } from "./steps";
+import { STEPS, STEP_IDS, NUMBERED_STEPS } from "./steps";
 import StepWelcome from "./steps/StepWelcome";
 import StepIntake from "./steps/StepIntake";
 import StepPinterest from "./steps/StepPinterest";
@@ -61,6 +61,10 @@ export default function OnboardingApp() {
   const currentStep = STEPS[currentIdx];
   const totalSteps = STEPS.length;
   const progressPct = ((currentIdx + 1) / totalSteps) * 100;
+  const stepLabel =
+    currentStep.number !== null
+      ? `Step ${currentStep.number} / ${NUMBERED_STEPS}`
+      : currentStep.short;
 
   const completeCurrent = (extra?: Partial<Progress>) => {
     setProgress((p) => {
@@ -93,7 +97,7 @@ export default function OnboardingApp() {
 
   if (!hydrated) {
     return (
-      <div style={{ padding: "120px 20px", textAlign: "center", color: "#8a8e93", fontSize: 14 }}>
+      <div style={{ padding: "120px 20px", textAlign: "center", color: "#6e6769", fontSize: 14, background: "#0a0a0d", minHeight: "100vh" }}>
         Loading…
       </div>
     );
@@ -117,17 +121,31 @@ export default function OnboardingApp() {
         /* =============================================
            Layout: Implement-style, centered single column
            ============================================= */
+        /* Black ground and red accents, the same palette as the pitch
+           canvas (pitch.css). Every colour below reads from these tokens. */
         .ob-root {
-          background: #fff;
-          color: #111315;
+          --bg: #0a0a0d;
+          --surface: #141115;
+          --surface-2: #1f181b;
+          --text: #f2f1f6;
+          --muted: #a5a0a2;
+          --faint: #6e6769;
+          --line: rgba(255, 255, 255, 0.09);
+          --line-strong: rgba(255, 255, 255, 0.16);
+          --red: #F0021A;
+          --red-hover: #ff2338;
+          background: var(--bg);
+          color: var(--text);
           min-height: 100vh;
           display: flex;
           flex-direction: column;
-          font-family: 'Inter', system-ui, -apple-system, sans-serif;
+          font-family: 'Figtree', system-ui, -apple-system, sans-serif;
+          -webkit-font-smoothing: antialiased;
+          color-scheme: dark;
         }
 
         /* Header */
-        .ob-header { width: 100%; border-bottom: 1px solid #f0f0f1; background: #fff; }
+        .ob-header { width: 100%; border-bottom: 1px solid var(--line); background: var(--bg); }
         .ob-header-inner {
           max-width: 1080px; margin: 0 auto;
           padding: 0 24px;
@@ -140,14 +158,14 @@ export default function OnboardingApp() {
           font-size: 11px;
           letter-spacing: 0.2em;
           text-transform: uppercase;
-          color: #8a8e93;
+          color: var(--faint);
         }
 
         /* Progress bar */
-        .ob-progress-track { width: 100%; height: 4px; background: #f0f0f1; }
+        .ob-progress-track { width: 100%; height: 4px; background: var(--surface-2); }
         .ob-progress-fill {
           height: 100%;
-          background: #F0021A;
+          background: var(--red);
           transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
@@ -168,7 +186,7 @@ export default function OnboardingApp() {
           display: inline-flex; align-items: center;
           padding: 8px 18px;
           border-radius: 999px;
-          background: #F0021A;
+          background: var(--red);
           color: #fff;
           font-family: 'JetBrains Mono', ui-monospace, monospace;
           font-size: 11px;
@@ -185,14 +203,14 @@ export default function OnboardingApp() {
           letter-spacing: -0.035em;
           line-height: 0.95;
           margin: 0 0 24px;
-          color: #111315;
+          color: var(--text);
         }
-        .ob-headline .ob-headline-num { color: #F0021A; }
+        .ob-headline .ob-headline-num { color: var(--red); }
 
         /* Lead paragraph */
         .ob-lead {
           font-size: clamp(16px, 2.2vw, 20px);
-          color: #6b7075;
+          color: var(--muted);
           max-width: 620px;
           margin: 0 auto 44px;
           line-height: 1.5;
@@ -209,41 +227,42 @@ export default function OnboardingApp() {
           max-width: 780px;
           margin: 0 auto 40px;
           aspect-ratio: 16 / 9;
-          background: #faf9f6;
+          background: #000;
           border-radius: 20px;
-          border: 1px solid #f0f0f1;
+          border: 1px solid var(--line);
           overflow: hidden;
+          box-shadow: 0 30px 80px -30px rgba(240, 2, 26, 0.25);
         }
         .ob-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
         /* Een zelfgehoste mp4 vult hetzelfde kader. object-fit: contain, want
            een video die niet exact 16:9 is hoort bijgesneden noch uitgerekt. */
         .ob-video video {
           position: absolute; inset: 0; width: 100%; height: 100%;
-          border: 0; background: #111315; object-fit: contain;
+          border: 0; background: #000; object-fit: contain;
         }
         .ob-video-placeholder {
           position: absolute; inset: 0;
           display: flex; flex-direction: column; align-items: center; justify-content: center;
-          gap: 16px; color: #8a8e93; padding: 20px; text-align: center;
+          gap: 16px; color: var(--muted); padding: 20px; text-align: center;
         }
         .ob-video-play-btn {
           width: 78px; height: 78px;
           border-radius: 50%;
-          background: #111315;
+          background: var(--surface-2);
           display: grid; place-items: center;
           border: 0;
-          box-shadow: 0 20px 40px rgba(17,19,21,0.15);
+          box-shadow: 0 20px 40px rgba(0,0,0,0.4);
           cursor: pointer;
           transition: transform .2s ease, background .2s ease;
         }
-        .ob-video-play-btn:hover { transform: scale(1.05); background: #F0021A; }
+        .ob-video-play-btn:hover { transform: scale(1.05); background: var(--red); }
         .ob-video-play-btn svg { width: 26px; height: 26px; color: #fff; margin-left: 4px; }
         .ob-video-caption {
           font-family: 'JetBrains Mono', ui-monospace, monospace;
           font-size: 10px;
           letter-spacing: 0.18em;
           text-transform: uppercase;
-          color: #8a8e93;
+          color: var(--faint);
         }
 
         /* Primary CTA button: big pill */
@@ -251,7 +270,7 @@ export default function OnboardingApp() {
           display: inline-flex; align-items: center; gap: 12px;
           padding: 18px 34px;
           border-radius: 999px;
-          background: #F0021A;
+          background: var(--red);
           color: #fff;
           font-weight: 700;
           font-size: 16px;
@@ -261,8 +280,8 @@ export default function OnboardingApp() {
           transition: background .15s ease, transform .15s ease, opacity .15s ease;
           font-family: inherit;
         }
-        .ob-cta:hover:not(:disabled) { background: #c80216; transform: translateY(-1px); }
-        .ob-cta:disabled { background: #e0e2e5; color: #8a8e93; cursor: not-allowed; }
+        .ob-cta:hover:not(:disabled) { background: var(--red-hover); transform: translateY(-1px); }
+        .ob-cta:disabled { background: var(--surface-2); color: var(--faint); cursor: not-allowed; }
         .ob-cta svg { width: 18px; height: 18px; transition: transform .2s ease; }
         .ob-cta:hover:not(:disabled) svg { transform: translateX(4px); }
 
@@ -271,21 +290,21 @@ export default function OnboardingApp() {
           padding: 14px 26px;
           border-radius: 999px;
           background: transparent;
-          color: #111315;
+          color: var(--text);
           font-weight: 600;
           font-size: 15px;
           text-decoration: none;
-          border: 1px solid #ececec;
+          border: 1px solid var(--line-strong);
           cursor: pointer;
           transition: background .15s ease;
           font-family: inherit;
         }
-        .ob-cta-secondary:hover { background: #f5f5f5; }
+        .ob-cta-secondary:hover { background: var(--surface-2); }
 
         .ob-back-link {
           background: transparent;
           border: 0;
-          color: #8a8e93;
+          color: var(--faint);
           cursor: pointer;
           font-size: 13px;
           font-weight: 500;
@@ -295,7 +314,7 @@ export default function OnboardingApp() {
           display: inline-flex; align-items: center; gap: 6px;
           font-family: inherit;
         }
-        .ob-back-link:hover { color: #111315; }
+        .ob-back-link:hover { color: var(--text); }
 
         .ob-actions {
           display: flex; flex-wrap: wrap; gap: 12px;
@@ -305,8 +324,8 @@ export default function OnboardingApp() {
 
         /* Cards used inside steps */
         .ob-card {
-          background: #fff;
-          border: 1px solid #f0f0f1;
+          background: var(--surface);
+          border: 1px solid var(--line);
           border-radius: 16px;
           padding: 22px;
           margin-bottom: 14px;
@@ -316,16 +335,16 @@ export default function OnboardingApp() {
           font-weight: 700; font-size: 16px; margin: 0 0 6px;
           display: flex; align-items: flex-start; gap: 12px;
         }
-        .ob-card-desc { color: #6b7075; font-size: 14.5px; line-height: 1.55; margin: 0; }
+        .ob-card-desc { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0; }
         .ob-check {
           width: 22px; height: 22px; flex-shrink: 0;
-          border-radius: 50%; border: 2px solid #e0e2e5; cursor: pointer;
+          border-radius: 50%; border: 2px solid var(--line-strong); cursor: pointer;
           display: grid; place-items: center;
-          background: #fff;
+          background: transparent;
           margin-top: 1px;
           transition: background .15s ease, border-color .15s ease;
         }
-        .ob-check[data-checked="true"] { background: #F0021A; border-color: #F0021A; }
+        .ob-check[data-checked="true"] { background: var(--red); border-color: var(--red); }
         .ob-check[data-checked="true"] svg { display: block; }
         .ob-check svg { display: none; color: #fff; }
 
@@ -333,8 +352,8 @@ export default function OnboardingApp() {
         .ob-team { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 0 auto 32px; max-width: 780px; text-align: left; }
         @media (min-width: 640px) { .ob-team { grid-template-columns: 1fr 1fr; } }
         .ob-team-card {
-          background: #faf9f6;
-          border: 1px solid #f0f0f1;
+          background: var(--surface);
+          border: 1px solid var(--line);
           border-radius: 16px;
           padding: 22px;
         }
@@ -343,40 +362,41 @@ export default function OnboardingApp() {
           font-size: 10px;
           text-transform: uppercase;
           letter-spacing: 0.18em;
-          color: #F0021A;
+          color: var(--red);
           font-weight: 700;
           margin-bottom: 10px;
         }
         .ob-team-name { font-weight: 700; font-size: 16px; margin: 0 0 6px; }
-        .ob-team-desc { color: #6b7075; font-size: 13.5px; line-height: 1.55; margin: 0; }
+        .ob-team-desc { color: var(--muted); font-size: 13.5px; line-height: 1.55; margin: 0; }
 
         /* Form fields */
         .ob-field { margin-bottom: 20px; text-align: left; }
-        .ob-field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; color: #111315; }
-        .ob-field .ob-helper { font-size: 13px; color: #8a8e93; margin: 0 0 8px; }
+        .ob-field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; color: var(--text); }
+        .ob-field .ob-helper { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
         .ob-field input, .ob-field textarea, .ob-field select {
           width: 100%; box-sizing: border-box;
           padding: 14px 16px;
-          border: 1px solid #e0e2e5;
+          border: 1px solid var(--line-strong);
           border-radius: 12px;
           font-family: inherit;
           font-size: 15px;
-          background: #fff;
-          color: #111315;
+          background: var(--surface);
+          color: var(--text);
           transition: border-color .15s ease, box-shadow .15s ease;
         }
         .ob-field input:focus, .ob-field textarea:focus, .ob-field select:focus {
           outline: none;
-          border-color: #F0021A;
-          box-shadow: 0 0 0 3px rgba(240,2,26,0.1);
+          border-color: var(--red);
+          box-shadow: 0 0 0 3px rgba(240,2,26,0.2);
         }
+        .ob-field input::placeholder, .ob-field textarea::placeholder { color: var(--faint); }
         .ob-field textarea { resize: vertical; min-height: 110px; }
-        .ob-field .ob-error { color: #F0021A; font-size: 13px; margin-top: 6px; }
+        .ob-field .ob-error { color: #ff5c63; font-size: 13px; margin-top: 6px; }
 
         .ob-warn {
-          background: #fff8e6;
-          border: 1px solid #fce4a2;
-          color: #7a5c00;
+          background: rgba(240, 2, 26, 0.08);
+          border: 1px solid rgba(240, 2, 26, 0.3);
+          color: var(--text);
           padding: 14px 18px;
           border-radius: 12px;
           font-size: 14px;
@@ -386,9 +406,9 @@ export default function OnboardingApp() {
 
         /* Footer */
         .ob-footer {
-          border-top: 1px solid #f0f0f1;
+          border-top: 1px solid var(--line);
           padding: 20px 0;
-          background: #fff;
+          background: var(--bg);
         }
         .ob-footer-inner {
           max-width: 1080px; margin: 0 auto;
@@ -399,17 +419,17 @@ export default function OnboardingApp() {
         @media (min-width: 720px) {
           .ob-footer-inner { flex-direction: row; justify-content: space-between; }
         }
-        .ob-footer-copy { font-size: 12px; color: #8a8e93; margin: 0; }
+        .ob-footer-copy { font-size: 12px; color: var(--faint); margin: 0; }
         .ob-footer-step {
           font-family: 'JetBrains Mono', ui-monospace, monospace;
           font-size: 10px;
           letter-spacing: 0.18em;
           text-transform: uppercase;
-          color: #8a8e93;
+          color: var(--faint);
           background: transparent; border: 0; cursor: pointer;
           padding: 0;
         }
-        .ob-footer-step:hover { color: #111315; }
+        .ob-footer-step:hover { color: var(--text); }
       `}</style>
 
       {/* HEADER */}
@@ -417,10 +437,10 @@ export default function OnboardingApp() {
         <div className="ob-header-inner">
           <a href="https://pinformance-agency.com" className="ob-header-logo" aria-label="Pinformance">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/onboarding/logo-dark.svg" alt="Pinformance" />
+            <img src="/onboarding/logo-red.svg" alt="Pinformance" />
           </a>
           <span className="ob-step-counter">
-            Step {currentIdx + 1} / {totalSteps}
+            {stepLabel}
           </span>
         </div>
       </header>
@@ -442,7 +462,9 @@ export default function OnboardingApp() {
             </button>
           )}
 
-          <div className="ob-pill">Step {currentStep.number} · {currentStep.short}</div>
+          <div className="ob-pill">
+            {currentStep.number !== null ? `Step ${currentStep.number} · ${currentStep.short}` : currentStep.short}
+          </div>
 
           <h1 className="ob-headline">
             {currentStep.title}<span className="ob-headline-num">.</span>
@@ -459,7 +481,7 @@ export default function OnboardingApp() {
         <div className="ob-footer-inner">
           <p className="ob-footer-copy">© 2026 Pinformance Agency</p>
           <button className="ob-footer-step" onClick={reset} type="button" title="Start over">
-            Onboarding · {currentIdx + 1} of {totalSteps}
+            Onboarding · {stepLabel}
           </button>
         </div>
       </footer>

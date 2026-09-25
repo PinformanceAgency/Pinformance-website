@@ -66,7 +66,7 @@ export default function StepPinterest({ onDone, config }: Props) {
         title="Pinterest setup overview"
         caption="Video · Full Pinterest setup walkthrough"
       />
-      <p style={{ color: "#6b7075", fontSize: 14.5, lineHeight: 1.55, textAlign: "center", margin: "-24px auto 32px", maxWidth: 560 }}>
+      <p style={{ color: "var(--muted)", fontSize: 14.5, lineHeight: 1.55, textAlign: "center", margin: "-24px auto 32px", maxWidth: 560 }}>
         Watch the full walkthrough first. It covers all four steps below. Then work through the checklist at your own pace.
       </p>
 
@@ -128,10 +128,10 @@ export default function StepPinterest({ onDone, config }: Props) {
               gap: 12,
               alignItems: "flex-start",
               padding: "14px 16px",
-              border: `1px solid ${creativeChoice === "own_system" ? "#F0021A" : "#e0e2e5"}`,
+              border: `1px solid ${creativeChoice === "own_system" ? "#F0021A" : "var(--line-strong)"}`,
               borderRadius: 12,
               cursor: "pointer",
-              background: creativeChoice === "own_system" ? "rgba(240,2,26,0.03)" : "#fff",
+              background: creativeChoice === "own_system" ? "rgba(240,2,26,0.08)" : "var(--surface)",
               transition: "border-color .15s, background .15s",
             }}
           >
@@ -146,7 +146,7 @@ export default function StepPinterest({ onDone, config }: Props) {
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
                 Yes, we use an internal creative system
               </div>
-              <div style={{ color: "#6b7075", fontSize: 14, lineHeight: 1.5 }}>
+              <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
                 We'll work directly in <em>your</em> platform (Atria, ClickUp, or similar). You can skip Trello, no action needed on our board.
               </div>
             </div>
@@ -159,10 +159,10 @@ export default function StepPinterest({ onDone, config }: Props) {
               gap: 12,
               alignItems: "flex-start",
               padding: "14px 16px",
-              border: `1px solid ${creativeChoice === "use_trello" ? "#F0021A" : "#e0e2e5"}`,
+              border: `1px solid ${creativeChoice === "use_trello" ? "#F0021A" : "var(--line-strong)"}`,
               borderRadius: 12,
               cursor: "pointer",
-              background: creativeChoice === "use_trello" ? "rgba(240,2,26,0.03)" : "#fff",
+              background: creativeChoice === "use_trello" ? "rgba(240,2,26,0.08)" : "var(--surface)",
               transition: "border-color .15s, background .15s",
             }}
           >
@@ -177,7 +177,7 @@ export default function StepPinterest({ onDone, config }: Props) {
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
                 No, we work with Google Drive links or don't have a dedicated system
               </div>
-              <div style={{ color: "#6b7075", fontSize: 14, lineHeight: 1.5 }}>
+              <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
                 Then you'll use <strong>our Trello board</strong>. We'll send you the link once you've completed the onboarding.
               </div>
             </div>

@@ -49,7 +49,7 @@ export default function StepAdmin({ onDone, config }: Props) {
           />
         </div>
 
-        <div style={{ marginLeft: 34, color: "#6b7075", fontSize: 14.5, lineHeight: 1.65 }}>
+        <div style={{ marginLeft: 34, color: "var(--muted)", fontSize: 14.5, lineHeight: 1.65 }}>
           <p style={{ margin: "0 0 10px" }}>
             Once you&apos;ve finished the full onboarding, we prepare two <strong>custom-made</strong> documents
             for your brand: an <strong>NDA</strong> and a <strong>Service Agreement</strong>. You&apos;ll receive both

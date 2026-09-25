@@ -21,7 +21,7 @@ export default function StepWelcome({ onDone, config }: Props) {
 
       <div className="ob-actions">
         <button className="ob-cta" onClick={onDone} type="button">
-          <span>Continue to step 2</span>
+          <span>Get started</span>
           <ArrowIcon />
         </button>
       </div>
