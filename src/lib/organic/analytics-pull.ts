@@ -23,6 +23,7 @@
  * figures — a number that looks wrong is almost always a filter, and if the
  * filters live only in this file nobody can check that.
  */
+import { ownPinsAnalytics } from "./own-pins";
 import { organicPool } from "./db";
 import {
   pinterestClientsForOrgs,
@@ -330,8 +331,10 @@ export async function pullAccountKpis(
 
     // CLAIMED: onze eigen pins. Zonder deze parameter antwoordt Pinterest met
     // BOTH en staat andermans bereik in ons eigen cijfer.
-    const core = await client.getUserAccountAnalytics(
-      windowStart, monthEnd, ACCOUNT_METRICS, "CLAIMED"
+    // Own image + video pins only: product (catalogue) pins run on paid
+    // and would otherwise make up most of the month (own-pins.ts).
+    const core = await ownPinsAnalytics(
+      client, windowStart, monthEnd, ACCOUNT_METRICS, "CLAIMED"
     );
     const daily = core?.all?.daily_metrics ?? [];
     const ready = daily.filter((d) => !d.data_status || d.data_status === "READY");

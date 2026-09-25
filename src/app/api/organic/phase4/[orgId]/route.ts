@@ -56,6 +56,8 @@ async function dispatch(orgId: string, body: { action: string } & Record<string,
       const { fromTopPins } = await import("@/lib/organic/url-import");
       return await fromTopPins(orgId, { days: body.days ? Number(body.days) : undefined });
     }
+    case "remove_cycle":
+      return await P4.removeCycle(orgId, String(body.cycle));
     case "accept_urls": {
       const { acceptProposals } = await import("@/lib/organic/url-import");
       return await acceptProposals(orgId, body.urls as Parameters<typeof acceptProposals>[1]);

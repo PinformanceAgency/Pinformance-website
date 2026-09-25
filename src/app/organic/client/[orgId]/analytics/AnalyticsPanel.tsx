@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { AdsCandidate, AnalyticsFetch, BaselineRow, DeltaRow, FeedbackAggregate } from "@/lib/organic/phase5";
+import { OWN_PINS_FILTER_NOTE } from "@/lib/organic/own-pins-note";
 import { PROVENANCE_LABEL, PROVENANCE_REASON, type ProvenanceState } from "@/lib/organic/provenance";
 
 export function AnalyticsPanel({
@@ -27,9 +28,17 @@ export function AnalyticsPanel({
 
   return (
     <div className="space-y-6">
-      {/* Date range */}
-      <div className="flex items-center gap-2 text-xs bg-white rounded-md border border-neutral-200 px-3 py-2">
-        <span className="text-neutral-500">Range:</span>
+      {/* Date range: presets like the Zones page, or any two dates. */}
+      <div className="flex items-center gap-2 flex-wrap text-xs bg-white rounded-md border border-neutral-200 px-3 py-2">
+        {rangePresets().map((p) => (
+          <button key={p.label} type="button"
+            onClick={() => { setF(p.from); setT(p.to); startTransition(() => router.push(`?from=${p.from}&to=${p.to}`)); }}
+            className={`px-2.5 py-1 rounded-md border text-xs ${from === p.from && to === p.to
+              ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300 hover:bg-neutral-50"}`}>
+            {p.label}
+          </button>
+        ))}
+        <span className="text-neutral-500 ml-2">Custom:</span>
         <input type="date" value={f} onChange={(e) => setF(e.target.value)}
           className="rounded-md border border-neutral-300 px-2 py-1 text-xs" />
         <span>→</span>
@@ -40,6 +49,8 @@ export function AnalyticsPanel({
           Apply
         </button>
       </div>
+
+      <PeriodTotals pinterest={pinterest} from={from} to={to} />
 
       {/* Pinterest fetch status */}
       {!pinterest.ok && (
@@ -288,4 +299,60 @@ function deltaColor(v: number | null): string {
   if (v > 0) return "text-foreground";
   if (v < 0) return "text-red-600";
   return "text-neutral-500";
+}
+
+/** Yesterday is the last day with settled numbers; Pinterest serves 90 days back. */
+function rangePresets(): Array<{ label: string; from: string; to: string }> {
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const today = new Date();
+  const y = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - 1));
+  const back = (n: number) => new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate() - (n - 1)));
+  const monthStart = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), 1));
+  const lastMonthStart = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth() - 1, 1));
+  const lastMonthEnd = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), 0));
+  return [
+    { label: "Last 7 days", from: iso(back(7)), to: iso(y) },
+    { label: "Last 14 days", from: iso(back(14)), to: iso(y) },
+    { label: "Last 30 days", from: iso(back(30)), to: iso(y) },
+    { label: "This month", from: iso(monthStart), to: iso(y) },
+    { label: "Last month", from: iso(lastMonthStart), to: iso(lastMonthEnd) },
+  ];
+}
+
+/** The chosen period at a glance, counted on the store's own image and video
+ *  pins (own-pins.ts). Revenue is not here because Pinterest does not give it
+ *  for organic through the API; it is said rather than shown as zero. */
+function PeriodTotals({ pinterest, from, to }: { pinterest: AnalyticsFetch; from: string; to: string }) {
+  const t = pinterest.totals;
+  const n = (k: string) => (t && t[k] != null ? Number(t[k]) : null);
+  const imp = n("IMPRESSION"), saves = n("SAVE"), out = n("OUTBOUND_CLICK"), clicks = n("PIN_CLICK"), eng = n("ENGAGEMENT");
+  const rate = (a: number | null, b: number | null) =>
+    a != null && b != null && b > 0 ? `${((a / b) * 100).toFixed(2)}%` : "—";
+  const fmt = (v: number | null) => (v == null ? "—" : v.toLocaleString("en-US"));
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
+  const oldest = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const cells: Array<[string, string]> = [
+    ["Impressions", fmt(imp)],
+    ["Saves", fmt(saves)],
+    ["Pin clicks", fmt(clicks)],
+    ["Outbound clicks", fmt(out)],
+    ["Engagement rate", rate(eng, imp)],
+    ["Outbound click rate", rate(out, imp)],
+  ];
+  return (
+    <Section title={`${from} → ${to} · ${days} day${days === 1 ? "" : "s"}`}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        {cells.map(([label, value]) => (
+          <div key={label} className="rounded-md border border-border bg-card px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wide text-neutral-500">{label}</div>
+            <div className="text-base font-semibold tabular-nums text-neutral-900">{pinterest.ok ? value : "—"}</div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-neutral-500">
+        {OWN_PINS_FILTER_NOTE}
+        {from < oldest && " Pinterest only serves the last 90 days, so anything before " + oldest + " is not in these numbers."}
+      </p>
+    </Section>
+  );
 }

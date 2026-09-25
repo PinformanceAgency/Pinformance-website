@@ -13,6 +13,7 @@ import { TaskCard } from "./phase/[phase]/PhaseBoard";
 import { phaseMeta } from "@/lib/organic/phase-meta";
 import { useFormDraft } from "./useFormDraft";
 import type { CycleView } from "@/lib/organic/phase4";
+import { isDeprioritised, type CatalogueProfile } from "@/lib/organic/catalogue";
 import type { TaskRow, ViabilityRow } from "@/lib/organic/types";
 import type { AssetRow, TaskAnswer } from "@/lib/organic/workspace";
 import type { Phase2Snapshot } from "./Phase2Forms";
@@ -25,7 +26,7 @@ interface OrgBoard { id: string; name: string; status: string; topic_name: strin
 interface OrgTopic { id: string; name: string }
 interface OrgKeyword { id: string; term: string; volume: number | null; type: string }
 interface SelectableUrl {
-  id: string; url: string; name: string; reason: string | null; is_seasonal: boolean;
+  id: string; url: string; name: string; type?: string; reason: string | null; is_seasonal: boolean;
   is_selectable: boolean;
   /** The three conditions behind is_selectable, so the picker can say what
    *  is missing instead of hiding the URL. */
@@ -35,12 +36,14 @@ interface SelectableUrl {
 const REASONS = ["SEASONAL","NEW","BEST_PERFORMER","CLIENT_REQUEST","STOCK_PUSH","AB_TEST"] as const;
 
 export function Phase4Cycles({
-  orgId, cycles, selectableUrls, orgBoards, orgKeywords, orgTopics,
+  orgId, cycles, selectableUrls, catalogue, orgBoards, orgKeywords, orgTopics,
   assets, answers, viability, phase2, phase3, automation,
 }: {
   orgId: string;
   cycles: CycleView[];
   selectableUrls: SelectableUrl[];
+  /** Product-led or content-led, from this store's own pool (catalogue.ts). */
+  catalogue: CatalogueProfile;
   orgBoards: OrgBoard[];
   orgKeywords: OrgKeyword[];
   orgTopics: OrgTopic[];
@@ -65,7 +68,8 @@ export function Phase4Cycles({
           because nothing ever wrote organic.urls. */}
       <Phase4Sourcing orgId={orgId} poolSize={selectableUrls.length} />
 
-      <StartCycle orgId={orgId} candidates={selectableUrls} usedUrlIds={new Set(cycles.map((c) => c.url_id))} />
+      <StartCycle orgId={orgId} candidates={selectableUrls} catalogue={catalogue}
+                  usedUrlIds={new Set(cycles.map((c) => c.url_id))} />
 
       {cycles.length === 0 && (
         <div className="rounded-md border border-dashed border-neutral-300 bg-white px-4 py-6 text-sm text-neutral-500 text-center">
@@ -87,11 +91,19 @@ export function Phase4Cycles({
 
 // ---------- Cycle starter ---------------------------------------------------
 
+/** "[Product] " in front of a URL in the picker, so the kind of page is
+ *  visible before it becomes the destination of sixteen pins. */
+function typeTag(type: string | undefined): string {
+  if (!type) return "";
+  return `[${type.charAt(0)}${type.slice(1).toLowerCase()}] `;
+}
+
 function StartCycle({
-  orgId, candidates, usedUrlIds,
+  orgId, candidates, catalogue, usedUrlIds,
 }: {
   orgId: string;
   candidates: SelectableUrl[];
+  catalogue: CatalogueProfile;
   usedUrlIds: Set<string>;
 }) {
   const router = useRouter();
@@ -109,12 +121,16 @@ function StartCycle({
   // the method's answer, not a lock: a store with one product never reaches
   // four boards under a covered topic and still has to be able to work.
   const free = candidates.filter((c) => !usedUrlIds.has(c.id));
-  const eligible = free.filter((c) => c.is_selectable);
+  // On a product-led store blog posts get their own group at the bottom:
+  // still startable, never what is offered first (catalogue.ts).
+  const demoted = free.filter((c) => isDeprioritised(catalogue.mode, c.type) && c.cooldown_clear);
+  const lead = free.filter((c) => !isDeprioritised(catalogue.mode, c.type));
+  const eligible = lead.filter((c) => c.is_selectable);
   // A URL inside its cooldown is not offered at all. That is the one
   // condition with no override: it exists so our own pins do not compete
   // with each other, and no shortage of URLs makes that safe.
-  const overridable = free.filter((c) => !c.is_selectable && c.cooldown_clear);
-  const offered = [...eligible, ...overridable];
+  const overridable = lead.filter((c) => !c.is_selectable && c.cooldown_clear);
+  const offered = [...eligible, ...overridable, ...demoted];
   const picked = offered.find((c) => c.id === pick) ?? null;
   const needsReason = picked != null && !picked.is_selectable;
 
@@ -166,20 +182,33 @@ function StartCycle({
             </div>
           ) : (
             <>
+              <div className="text-[11px] text-neutral-500">
+                {catalogue.mode === "PRODUCT_LED" ? "Product-led store: " : "Content-led store: "}
+                {catalogue.why}.
+              </div>
               <select value={pick} onChange={(e) => { setPick(e.target.value); setErr(null); }}
                 className="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs bg-white">
                 <option value="">— Pick a candidate URL —</option>
                 {eligible.length > 0 && (
                   <optgroup label="Passes the gate">
                     {eligible.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} — {c.url}</option>
+                      <option key={c.id} value={c.id}>{typeTag(c.type)}{c.name} · {c.url}</option>
                     ))}
                   </optgroup>
                 )}
                 {overridable.length > 0 && (
                   <optgroup label="Short of the gate — needs a reason">
                     {overridable.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} — {shortfall(c)}</option>
+                      <option key={c.id} value={c.id}>{typeTag(c.type)}{c.name} · {shortfall(c)}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {demoted.length > 0 && (
+                  <optgroup label="Blog pages: this store is product-led, so these come last">
+                    {demoted.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {typeTag(c.type)}{c.name}{c.is_selectable ? "" : ` · ${shortfall(c)}`}
+                      </option>
                     ))}
                   </optgroup>
                 )}
@@ -273,8 +302,64 @@ function CycleCard({
           <TaskListSection cycle={cycle} orgId={orgId} assets={assets} answers={answers}
                            viability={viability} phase2={phase2} phase3={phase3}
                            automation={automation} />
+          <RemoveCycleSection orgId={orgId} cycle={cycle} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Take a cycle that was started by mistake off the store. The server has
+ *  the rules (removeCycle in phase4.ts); this only says up front what will
+ *  happen, and why a cycle with live pins cannot go. */
+function RemoveCycleSection({ orgId, cycle }: { orgId: string; cycle: CycleView }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const published = cycle.plan.filter((p) => p.status === "PUBLISHED").length;
+  const scheduled = cycle.plan.filter((p) => p.status === "SCHEDULED").length;
+
+  async function remove() {
+    const lines = [
+      `Remove the cycle for ${cycle.url_name}?`,
+      "",
+      "Its 22 tasks and their answers are deleted.",
+      scheduled > 0
+        ? `${scheduled} scheduled pin${scheduled === 1 ? " is" : "s are"} cancelled and will not publish.`
+        : "Its planned pins are cancelled. Designs and copy stay readable.",
+      "The URL goes back to the pool and can be started again later.",
+    ];
+    if (!confirm(lines.join("\n"))) return;
+    setBusy(true); setErr(null);
+    try {
+      await callP4(orgId, { action: "remove_cycle", cycle: cycle.cycle });
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setErr((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="px-4 py-3 flex items-center gap-3 flex-wrap">
+      {published > 0 ? (
+        <span className="text-[11px] text-neutral-500">
+          This cycle has {published} pin{published === 1 ? "" : "s"} live on Pinterest, so it cannot be removed.
+          Pause it instead if it should publish nothing more.
+        </span>
+      ) : (
+        <>
+          <button type="button" onClick={remove} disabled={busy}
+            className="px-3 py-1 rounded-md border border-red-200 text-red-700 text-xs font-medium hover:bg-red-50 disabled:opacity-50">
+            {busy ? "Removing…" : "Remove this cycle"}
+          </button>
+          <span className="text-[11px] text-neutral-500">
+            For a cycle started by mistake, or on a product that has since changed.
+          </span>
+        </>
+      )}
+      {err && <span className="w-full text-xs text-red-600">{err}</span>}
     </div>
   );
 }
@@ -327,7 +412,7 @@ function SetupSection({
       // Update URL reason + note
       await callP4(orgId, {
         action: "upsert_url",
-        url: cycle.url, name: cycle.url_name, type: "COLLECTION",
+        url: cycle.url, name: cycle.url_name, type: cycle.url_type,
         reason, reason_note: reasonNote,
         topic_id: topicId || null, funnel_stage: cycle.funnel_stage,
         is_seasonal: cycle.is_seasonal,

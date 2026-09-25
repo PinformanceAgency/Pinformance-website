@@ -61,6 +61,7 @@ import {
 const cycleLanguage = (brief: { language: WritingLanguage } | null): WritingLanguage =>
   brief?.language ?? writingLanguage(null);
 import type { Deviation } from "./structure";
+import { catalogueProfile, typeRank, isDeprioritised, type CatalogueProfile } from "./catalogue";
 
 /** Stamped on every generated copy set so a regression can be traced to
  *  the model that produced it. */
@@ -163,6 +164,97 @@ export async function startCycleForUrl(
     seeded: PHASE_4_TASK_IDS.length,
     overridden: !g.is_selectable ? reason : null,
   };
+}
+
+/**
+ * Take a cycle off the store: the twenty-two tasks, their answers, and the
+ * plan underneath it.
+ *
+ * Asked for by the organic team (25-09-2026): a cycle started on the wrong
+ * URL, or on a product that was replaced afterwards, sat on the phase-4 page
+ * for good, and "Regenerate" only ever replaced the plan inside it.
+ *
+ * Three rules, the same ones the rest of phase 4 keeps:
+ *  - A cycle with a PUBLISHED pin is refused. That pin exists on Pinterest,
+ *    on a client's board, and its cycle is the only place its history and
+ *    analytics hang together. Pause it instead.
+ *  - Nothing is deleted below the task level. Live waterfalls go to
+ *    ABANDONED and their PLANNED / SCHEDULED pins to CANCELLED, exactly what
+ *    a regeneration does, so the designs and copy stay readable and the
+ *    board-URL trigger stops counting them. A SCHEDULED pin is cancelled,
+ *    not refused: it is not on Pinterest yet, and stopping it is the point.
+ *  - The URL goes back to the pool as it was: an override reason given to
+ *    start THIS cycle is cleared, its boards and keywords stay.
+ */
+export async function removeCycle(orgId: string, cycle: string): Promise<{
+  url_name: string; removed_tasks: number; abandoned_waterfalls: number; cancelled_pins: number;
+}> {
+  if (!/^URL-[0-9a-f]{8}$/i.test(cycle)) throw new Error("Not a cycle key");
+  const pool = organicPool();
+  const url = await pool.query<{ id: string; name: string }>(
+    `SELECT id::text, name FROM organic.urls WHERE org_id = $1 AND left(id::text, 8) = $2`,
+    [orgId, cycle.slice(4).toLowerCase()]
+  );
+  const urlIds = url.rows.map((u) => u.id);
+  const urlName = url.rows[0]?.name ?? cycle;
+
+  if (urlIds.length > 0) {
+    const live = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n
+         FROM organic.pins p JOIN organic.waterfalls w ON w.id = p.waterfall_id
+        WHERE w.org_id = $1 AND w.url_id = ANY($2::uuid[])
+          AND p.status = 'PUBLISHED'::organic.pin_status`,
+      [orgId, urlIds]
+    );
+    const published = Number(live.rows[0].n);
+    if (published > 0) {
+      throw new Error(
+        `${urlName} already has ${published} pin${published === 1 ? "" : "s"} live on Pinterest, ` +
+        `so this cycle stays: it is where those pins' history and numbers are kept. ` +
+        `Pause it on the cycle card if it should publish nothing more.`
+      );
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    let abandoned = 0, cancelled = 0;
+    if (urlIds.length > 0) {
+      const wf = await client.query<{ id: string }>(
+        `UPDATE organic.waterfalls SET status = 'ABANDONED'::organic.waterfall_status
+          WHERE org_id = $1 AND url_id = ANY($2::uuid[])
+            AND status NOT IN ('ABANDONED'::organic.waterfall_status, 'COMPLETED'::organic.waterfall_status)
+        RETURNING id::text`,
+        [orgId, urlIds]
+      );
+      abandoned = wf.rowCount ?? 0;
+      if (abandoned > 0) {
+        const p = await client.query(
+          `UPDATE organic.pins SET status = 'CANCELLED'::organic.pin_status
+            WHERE waterfall_id = ANY($1::uuid[])
+              AND status IN ('PLANNED'::organic.pin_status, 'SCHEDULED'::organic.pin_status)`,
+          [wf.rows.map((w) => w.id)]
+        );
+        cancelled = p.rowCount ?? 0;
+      }
+      await client.query(
+        `UPDATE organic.urls SET gate_override_reason = NULL, gate_override_at = NULL
+          WHERE org_id = $1 AND id = ANY($2::uuid[])`,
+        [orgId, urlIds]
+      );
+    }
+    await client.query(`DELETE FROM organic.task_answers WHERE org_id = $1 AND cycle = $2`, [orgId, cycle]);
+    const t = await client.query(`DELETE FROM organic.client_tasks WHERE org_id = $1 AND cycle = $2`, [orgId, cycle]);
+    await client.query("COMMIT");
+    await recomputeAfter(orgId);
+    return { url_name: urlName, removed_tasks: t.rowCount ?? 0, abandoned_waterfalls: abandoned, cancelled_pins: cancelled };
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 // ---------- URL candidate pool + selection ----------------------------------
@@ -2071,15 +2163,30 @@ export async function completeCycleTask(orgId: string, cycle: string, taskId: st
   return recomputeAfter(orgId);
 }
 
+/** Counts per URL type in this store's pool, read into a catalogue profile. */
+export async function loadCatalogueProfile(orgId: string): Promise<CatalogueProfile> {
+  const r = await organicPool().query<{ type: string; n: string }>(
+    `SELECT type::text AS type, COUNT(*)::text AS n FROM organic.urls WHERE org_id = $1 GROUP BY type`,
+    [orgId]
+  );
+  return catalogueProfile(Object.fromEntries(r.rows.map((x) => [x.type, Number(x.n)])));
+}
+
 export async function loadPhase4Snapshot(orgId: string) {
   const pool = organicPool();
-  const [selectable, waterfalls] = await Promise.all([
-    pool.query(`SELECT id::text, url, name, reason::text, is_seasonal, cooldown_clear, topic_covered, assigned_boards, is_selectable
-                  FROM organic.urls_selectable WHERE org_id = $1`, [orgId]),
+  const [selectable, waterfalls, catalogue] = await Promise.all([
+    pool.query(
+      `SELECT id::text, url, name, type::text AS type, reason::text, is_seasonal, cooldown_clear, topic_covered, assigned_boards, is_selectable
+         FROM organic.urls_selectable WHERE org_id = $1`, [orgId]),
     pool.query(`SELECT id::text, url_id::text, status::text, start_date::text, end_date::text
                   FROM organic.waterfalls WHERE org_id = $1 ORDER BY created_at DESC`, [orgId]),
+    loadCatalogueProfile(orgId),
   ]);
-  return { selectable_urls: selectable.rows, waterfalls: waterfalls.rows };
+  // The picker offers what fits this store's catalogue first (catalogue.ts).
+  const selectable_urls = [...selectable.rows].sort((a: { type: string; name: string }, b: { type: string; name: string }) =>
+    typeRank(catalogue.mode, a.type) - typeRank(catalogue.mode, b.type) ||
+    String(a.name).localeCompare(String(b.name)));
+  return { selectable_urls, waterfalls: waterfalls.rows, catalogue };
 }
 
 // ---------- cycle loader for the UI -----------------------------------------
@@ -2119,6 +2226,12 @@ export interface CycleView {
   url_id: string;
   url: string;
   url_name: string;
+  /** PRODUCT / COLLECTION / BLOG / GALLERY / SELECTION. The setup form has to
+   *  send this back unchanged: it used to send a hard-coded "COLLECTION",
+   *  which turned every product page that started a cycle into a collection
+   *  (25-09-2026: all 21 live cycle URLs), and the type decides the overlay
+   *  and what the design brief asks for. */
+  url_type: string;
   reason: string;
   reason_note: string | null;
   /** Set when this URL was started without passing the gate. It stays on the
@@ -2201,8 +2314,8 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
   const urlShortIds = cycleKeys.map((c) => c.replace(/^URL-/, ""));
 
   // Match cycle-key short id (first 8 chars of url_id) → url row.
-  const urlsRes = await pool.query<{ id: string; url: string; name: string; reason: string; reason_note: string | null; gate_override_reason: string | null; is_seasonal: boolean; peak_window_start: string | null; peak_window_end: string | null; topic_id: string | null; topic_name: string | null; funnel_stage: string | null }>(
-    `SELECT u.id::text, u.url, u.name, u.reason::text AS reason, u.reason_note,
+  const urlsRes = await pool.query<{ id: string; url: string; name: string; type: string; reason: string; reason_note: string | null; gate_override_reason: string | null; is_seasonal: boolean; peak_window_start: string | null; peak_window_end: string | null; topic_id: string | null; topic_name: string | null; funnel_stage: string | null }>(
+    `SELECT u.id::text, u.url, u.name, u.type::text AS type, u.reason::text AS reason, u.reason_note,
             u.gate_override_reason,
             u.is_seasonal, u.peak_window_start::text, u.peak_window_end::text,
             u.topic_id::text, t.name AS topic_name, u.funnel_stage::text
@@ -2436,6 +2549,7 @@ export async function loadCyclesForOrg(orgId: string): Promise<CycleView[]> {
       url_id: u.id,
       url: u.url,
       url_name: u.name,
+      url_type: u.type,
       reason: u.reason,
       reason_note: u.reason_note,
       gate_override_reason: u.gate_override_reason,
@@ -2820,6 +2934,8 @@ export interface MonthlySelection {
     seasonal: boolean;
   }>;
   gaps: string[];
+  /** Why the list is ordered the way it is for this store. */
+  catalogue: CatalogueProfile;
 }
 
 /**
@@ -2833,7 +2949,7 @@ export interface MonthlySelection {
 export async function proposeMonthlySelection(orgId: string): Promise<MonthlySelection> {
   const pool = organicPool();
 
-  const [settings, started, candidates, seasonal, brief] = await Promise.all([
+  const [settings, started, candidates, seasonal, brief, catalogue] = await Promise.all([
     pool.query<{ urls_per_month: number | null }>(
       `SELECT urls_per_month FROM organic.client_settings WHERE org_id = $1`, [orgId]),
     pool.query<{ n: string }>(
@@ -2842,6 +2958,7 @@ export async function proposeMonthlySelection(orgId: string): Promise<MonthlySel
     candidateUrls(orgId),
     seasonalCandidates(orgId),
     loadAccountBrief(orgId),
+    loadCatalogueProfile(orgId),
   ]);
 
   const target = settings.rows[0]?.urls_per_month ?? 4;
@@ -2874,6 +2991,7 @@ export async function proposeMonthlySelection(orgId: string): Promise<MonthlySel
 
   const scored = options
     .map((o) => {
+      const demoted = isDeprioritised(catalogue.mode, o.type);
       const why =
         o.clicks + o.saves > 0
           ? `won here before — ${o.clicks.toLocaleString("en-US")} clicks / ${o.saves.toLocaleString("en-US")} saves`
@@ -2884,11 +3002,19 @@ export async function proposeMonthlySelection(orgId: string): Promise<MonthlySel
               : o.lead_signal === "NEW_URL"
                 ? "a new URL, which the algorithm rewards heavily"
                 : reasonFor.get(o.id) || "ranked by the research";
-      // Proven first, season second, then whatever the research ranks.
-      const tier = o.clicks + o.saves > 0 ? 0 : seasonalIds.has(o.id) ? 1 : 2;
-      return { o, why, tier, sub: rank.get(o.id) ?? 999 };
+      // Proven first, season second, then whatever the research ranks, in
+      // the order this store's catalogue prefers. On a product-led store a
+      // blog post comes after every product page unless it has won here or
+      // its season is opening: the pin shows a product, so the click should
+      // land on it rather than on an article about it.
+      const tier = o.clicks + o.saves > 0 ? 0 : seasonalIds.has(o.id) ? 1 : demoted ? 3 : 2;
+      return {
+        o, tier, sub: rank.get(o.id) ?? 999,
+        typeRank: typeRank(catalogue.mode, o.type),
+        why: demoted && tier === 3 ? `${why}; a blog page on a product-led store, so it comes after the product pages` : why,
+      };
     })
-    .sort((a, b) => a.tier - b.tier || b.o.clicks - a.o.clicks || a.sub - b.sub);
+    .sort((a, b) => a.tier - b.tier || b.o.clicks - a.o.clicks || a.typeRank - b.typeRank || a.sub - b.sub);
 
   return {
     target,
@@ -2904,6 +3030,7 @@ export async function proposeMonthlySelection(orgId: string): Promise<MonthlySel
       seasonal: seasonalIds.has(s.o.id),
     })),
     gaps: ranked.gaps,
+    catalogue,
   };
 }
 

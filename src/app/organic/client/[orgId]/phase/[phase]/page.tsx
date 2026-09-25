@@ -62,6 +62,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
           orgId={orgId}
           cycles={cycles}
           selectableUrls={p4.selectable_urls as Parameters<typeof Phase4Cycles>[0]["selectableUrls"]}
+          catalogue={p4.catalogue}
           orgBoards={orgBoards}
           orgKeywords={orgKeywords}
           orgTopics={orgTopics}

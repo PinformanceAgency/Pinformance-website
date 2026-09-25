@@ -10,6 +10,7 @@
  *   3. Ads candidates: organic winners that outperform a threshold and
  *      should be re-run as paid.
  */
+import { ownPinsAnalytics, ownTopPins } from "./own-pins";
 import { organicPool } from "./db";
 import { languageDirective } from "./language";
 import { decrypt } from "@/lib/encryption";
@@ -65,36 +66,24 @@ export async function fetchOrganicAnalytics(orgId: string, start: string, end: s
     return { ok: false, reason: "no pinterest token on organisation", start_date: start, end_date: end, totals: null, top_pins: null };
   }
   try {
-    const raw = await client.getUserAccountAnalytics(start, end);
+    // Own image + video pins only, never catalogue product pins (own-pins.ts).
+    const raw = await ownPinsAnalytics(client, start, end,
+      ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK", "ENGAGEMENT", "ENGAGEMENT_RATE", "SAVE_RATE"]);
     const totals = sumDailies(raw.all?.daily_metrics ?? []);
-    const top = await client.getTopPins(start, end, "OUTBOUND_CLICK",
-      ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK"], "ORGANIC");
-    // Try to fetch conversion + Your-vs-Other splits. Silently degrade
-    // if the endpoint/metric isn't available on this account tier.
-    const [conv, other] = await Promise.all([
-      fetchConversionMetrics(client, start, end),
-      fetchOtherPinsAnalytics(client, start, end),
-    ]);
+    const top = await ownTopPins(client, start, end, "OUTBOUND_CLICK",
+      ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK"]);
+    // Conversions are not asked for: /user_account/analytics has none, for
+    // any account (checked against Pinterest's own metric catalogue,
+    // 25-09-2026). The call that used to try returned {} every time.
+    const other = await fetchOtherPinsAnalytics(client, start, end);
     return {
       ok: true, start_date: start, end_date: end,
-      totals: { ...totals, ...conv, ...other },
+      totals: { ...totals, ...other },
       top_pins: top.pins ?? [],
     };
   } catch (e) {
     return { ok: false, reason: (e as Error).message, start_date: start, end_date: end, totals: null, top_pins: null };
   }
-}
-
-async function fetchConversionMetrics(client: PinterestClient, start: string, end: string): Promise<Record<string, number>> {
-  // Pinterest Conversion Insights exposes: PAGE_VISIT, ADD_TO_CART,
-  // CHECKOUT, CUSTOM (conversions), REVENUE. Not every account has
-  // the tag firing — soft-fail returns zeros with a _stale marker.
-  try {
-    const raw = await (client as unknown as {
-      getUserAccountAnalytics: (s: string, e: string, m?: string[]) => Promise<{ all?: { daily_metrics?: Array<{ metrics: Record<string, number> }> } }>;
-    }).getUserAccountAnalytics(start, end, ["PAGE_VISIT","ADD_TO_CART","CHECKOUT","CONVERSIONS","REVENUE"]);
-    return sumDailies(raw.all?.daily_metrics ?? []);
-  } catch { return {}; }
 }
 
 async function fetchOtherPinsAnalytics(client: PinterestClient, start: string, end: string): Promise<Record<string, number>> {

@@ -21,6 +21,7 @@
  *  - Follower count is today's. Pinterest exposes no history for it, so
  *    followers_start stays empty rather than being guessed backwards.
  */
+import { ownPinsAnalytics } from "./own-pins";
 import { pinterestClientForOrg } from "@/lib/pinterest/for-org";
 
 /** Metrics every business account answers for. Deliberately the same list
@@ -62,7 +63,8 @@ export async function pullBaselineSuggestion(
   from.setUTCDate(from.getUTCDate() - MAX_WINDOW_DAYS);
 
   const { client } = await pinterestClientForOrg(orgId);
-  const res = await client.getUserAccountAnalytics(iso(from), iso(to), ACCOUNT_METRICS);
+  // Same filter as the monthly figures it is compared with (own-pins.ts).
+  const res = await ownPinsAnalytics(client, iso(from), iso(to), ACCOUNT_METRICS);
   const days = res?.all?.daily_metrics ?? [];
 
   let impressions = 0, saves = 0, outbound = 0, engagements = 0, counted = 0;

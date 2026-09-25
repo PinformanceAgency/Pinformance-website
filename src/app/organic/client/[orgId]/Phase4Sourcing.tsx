@@ -20,6 +20,7 @@ import {
   Loader2, Download, Sparkles, Check, Plus, AlertTriangle, TrendingUp, CalendarClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { catalogueProfile, isDeprioritised, type CatalogueProfile } from "@/lib/organic/catalogue";
 
 interface Proposed {
   url: string;
@@ -82,6 +83,7 @@ function UrlImport({ orgId, poolSize }: { orgId: string; poolSize: number }) {
   const [rows, setRows] = useState<Proposed[] | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [profileNote, setProfileNote] = useState<string | null>(null);
 
   function toggle(url: string) {
     const next = new Set(picked);
@@ -98,8 +100,18 @@ function UrlImport({ orgId, poolSize }: { orgId: string; poolSize: number }) {
       const list = (d.proposals as Proposed[]) ?? [];
       setRows(list);
       // Pre-select what is new. The import exists to save typing, and
-      // unticking a few is faster than ticking a hundred.
-      setPicked(new Set(list.filter((p) => !p.already_known).map((p) => p.url)));
+      // unticking a few is faster than ticking a hundred. On a product-led
+      // shop the blog posts start unticked: its waterfalls should land on
+      // product pages (catalogue.ts). They stay in the list to tick by hand.
+      const counts: Record<string, number> = {};
+      for (const p of list) counts[p.type] = (counts[p.type] ?? 0) + 1;
+      const profile = catalogueProfile(counts);
+      setPicked(new Set(list
+        .filter((p) => !p.already_known && !isDeprioritised(profile.mode, p.type))
+        .map((p) => p.url)));
+      setProfileNote(profile.mode === "PRODUCT_LED" && (counts.BLOG ?? 0) > 0
+        ? `Product-led shop (${profile.products} product pages): the ${counts.BLOG} blog page${counts.BLOG === 1 ? " is" : "s are"} left unticked.`
+        : null);
       setSummary(source === "sitemap"
         ? `${d.scanned} URLs in the sitemap · ${d.pinnable} pinnable · ` +
           `${d.locale_variants_folded} locale variants folded into one`
@@ -168,6 +180,7 @@ function UrlImport({ orgId, poolSize }: { orgId: string; poolSize: number }) {
           </p>
 
           {summary && <p className="text-xs text-o-ink-2">{summary}</p>}
+          {profileNote && rows && <p className="text-xs text-o-ink-2">{profileNote}</p>}
           {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
 
           {rows && rows.length > 0 && (
@@ -233,6 +246,7 @@ function MonthlySelection({ orgId }: { orgId: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<{
     target: number; started: number; proposed: MonthlyProposal[]; gaps: string[];
+    catalogue?: CatalogueProfile;
   } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
@@ -241,6 +255,7 @@ function MonthlySelection({ orgId }: { orgId: string }) {
     try {
       const d = await callP4(orgId, { action: "monthly_selection" }) as unknown as {
         target: number; started: number; proposed: MonthlyProposal[]; gaps: string[];
+        catalogue?: CatalogueProfile;
       };
       setData(d);
       // Pre-tick up to what the frequency still asks for. This is the
@@ -298,6 +313,13 @@ function MonthlySelection({ orgId }: { orgId: string }) {
           {picked.size > room && <span className="text-o-accent"> · over the monthly frequency</span>}
         </span>
       </div>
+
+      {data.catalogue && (
+        <p className="px-4 py-2 text-xs text-o-ink-2 border-b border-o-hairline">
+          {data.catalogue.mode === "PRODUCT_LED" ? "Product-led store: " : "Content-led store: "}
+          {data.catalogue.why}.
+        </p>
+      )}
 
       <div className="divide-y divide-o-hairline max-h-96 overflow-y-auto">
         {data.proposed.map((p) => (

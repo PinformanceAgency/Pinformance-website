@@ -460,7 +460,15 @@ export class PinterestClient {
       "ENGAGEMENT_RATE",
       "SAVE_RATE",
     ],
-    fromClaimedContent?: "CLAIMED" | "OTHER" | "BOTH"
+    fromClaimedContent?: "CLAIMED" | "OTHER" | "BOTH",
+    /** Pinterest takes ONE pin_format per call. Organic reporting asks for
+     *  ORGANIC_IMAGE and ORGANIC_VIDEO separately and never ORGANIC_PRODUCT
+     *  (catalogue pins run on paid, but count as organic): see
+     *  src/lib/organic/own-pins.ts. */
+    filters?: {
+      pinFormat?: "ALL" | "ORGANIC_IMAGE" | "ORGANIC_VIDEO" | "ORGANIC_PRODUCT";
+      source?: "ALL" | "YOUR_PINS" | "OTHER_PINS";
+    }
   ) {
     const params = new URLSearchParams({
       start_date: startDate,
@@ -469,6 +477,8 @@ export class PinterestClient {
       content_type: "ORGANIC",
     });
     if (fromClaimedContent) params.set("from_claimed_content", fromClaimedContent);
+    if (filters?.pinFormat) params.set("pin_format", filters.pinFormat);
+    if (filters?.source) params.set("source", filters.source);
     return this.request<{
       all: {
         daily_metrics: Array<{
@@ -492,7 +502,11 @@ export class PinterestClient {
     endDate: string,
     sortBy: string = "IMPRESSION",
     metricTypes: string[] = ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK"],
-    contentType?: string
+    contentType?: string,
+    filters?: {
+      pinFormat?: "ALL" | "ORGANIC_IMAGE" | "ORGANIC_VIDEO" | "ORGANIC_PRODUCT";
+      source?: "ALL" | "YOUR_PINS" | "OTHER_PINS";
+    }
   ) {
     const params = new URLSearchParams({
       start_date: startDate,
@@ -503,6 +517,8 @@ export class PinterestClient {
     if (contentType) {
       params.set("content_type", contentType);
     }
+    if (filters?.pinFormat) params.set("pin_format", filters.pinFormat);
+    if (filters?.source) params.set("source", filters.source);
     return this.request<{
       pins: Array<{
         pin_id: string;

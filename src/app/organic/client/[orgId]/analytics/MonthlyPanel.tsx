@@ -22,6 +22,7 @@
  *   - **Een leeg veld is leeg.** Geen nul, want nul is een gemeten uitkomst.
  */
 
+import { OWN_PINS_FILTER_NOTE } from "@/lib/organic/own-pins-note";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Trophy, Plus, Trash2 } from "lucide-react";
@@ -165,6 +166,8 @@ export function MonthlyPanel({ orgId, data }: { orgId: string; data: MonthlyDash
                 apart and never added in.
               </p>
             )}
+
+            <p className="mt-3 text-[length:var(--text-o-label)] text-o-ink-3">{OWN_PINS_FILTER_NOTE}</p>
 
             {data.caveats.length > 0 && (
               <div className="mt-4 rounded-lg bg-o-accent/[0.07] ring-1 ring-inset ring-o-clay/25 px-3.5 py-3">
