@@ -467,7 +467,16 @@ export default function OnboardingApp() {
           </div>
 
           <h1 className="ob-headline">
-            {currentStep.title}<span className="ob-headline-num">.</span>
+            {currentStep.accent && currentStep.title.endsWith(currentStep.accent) ? (
+              <>
+                {currentStep.title.slice(0, -currentStep.accent.length)}
+                <span className="ob-headline-num">{currentStep.accent}.</span>
+              </>
+            ) : (
+              <>
+                {currentStep.title}<span className="ob-headline-num">.</span>
+              </>
+            )}
           </h1>
 
           <p className="ob-lead">{currentStep.desc}</p>

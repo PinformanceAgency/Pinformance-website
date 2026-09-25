@@ -5,6 +5,8 @@ export interface StepDef {
    *  (and the setup video) know it as the second thing they do. */
   number: number | null;
   title: string;
+  /** The part of the title drawn in brand red, e.g. "Pinformance". */
+  accent?: string;
   short: string;
   desc: string;
 }
@@ -14,8 +16,9 @@ export const STEPS: StepDef[] = [
     id: "welcome",
     number: null,
     title: "Welcome to Pinformance",
+    accent: "Pinformance",
     short: "Welcome",
-    desc: "Watch the intro from Tristan so you know your team and what's coming next.",
+    desc: "Watch the intro from Tristan so you know what's coming next.",
   },
   {
     id: "intake",
