@@ -22,6 +22,55 @@ interface Sub {
   title: string;
   desc: string;
   link?: { label: string; url: string };
+  /** Addresses the client has to add, shown as a list they can copy. */
+  emails?: string[];
+}
+
+// Everyone at the agency who works in a client's Business Manager.
+const ADMIN_EMAILS = [
+  "info@tt-advertisingbv.com",
+  "tycho@tt-advertisingbv.com",
+  "janner@tt-advertisingbv.com",
+  "dylan@tt-advertisingbv.com",
+  "joshua@tt-advertisingbv.com",
+  "ryan@tt-advertisingbv.com",
+  "tristan@tt-advertisingbv.com",
+  "renst@tt-advertisingbv.com",
+  "clarisse@tt-advertisingbv.com",
+  "louiza@tt-advertisingbv.com",
+];
+
+function EmailList({ emails }: { emails: string[] }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(emails.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard can be blocked; the addresses are still selectable below.
+    }
+  };
+  return (
+    <div
+      style={{
+        marginTop: 14, marginLeft: 34, padding: "14px 16px",
+        border: "1px solid var(--line)", borderRadius: 12, background: "var(--bg)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Add the following emails:</span>
+        <button type="button" onClick={copy} className="ob-cta-secondary" style={{ padding: "6px 14px", fontSize: 13 }}>
+          {copied ? "Copied" : "Copy all"}
+        </button>
+      </div>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 4 }}>
+        {emails.map((e) => (
+          <li key={e} style={{ fontSize: 14, color: "var(--muted)", userSelect: "all" }}>{e}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 type CreativeChoice = "" | "own_system" | "use_trello";
@@ -38,8 +87,9 @@ export default function StepPinterest({ onDone, config }: Props) {
     },
     {
       id: "access",
-      title: "Grant us access to your account",
+      title: "Grant us access to your Pinterest account",
       desc: "Add us as an admin in your Business Manager so we can build and optimize campaigns.",
+      emails: ADMIN_EMAILS,
     },
     {
       id: "tracking",
@@ -87,6 +137,7 @@ export default function StepPinterest({ onDone, config }: Props) {
             <span style={{ flex: 1 }}>{i + 1}. {s.title}</span>
           </div>
           <p className="ob-card-desc" style={{ marginLeft: 34 }}>{s.desc}</p>
+          {s.emails && <EmailList emails={s.emails} />}
           {s.link && (
             <div style={{ marginTop: 14, marginLeft: 34 }}>
               <a href={s.link.url} target="_blank" rel="noopener noreferrer" className="ob-cta-secondary">
