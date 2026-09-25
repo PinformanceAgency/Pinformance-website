@@ -1,15 +1,11 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Onboarding — Pinformance Agency",
+  title: "Onboarding | Pinformance Agency",
   description: "Complete your onboarding so we can go live fast.",
   robots: { index: false, follow: false },
-  icons: {
-    icon: [
-      { url: "/onboarding/favicon-light.jpg", media: "(prefers-color-scheme: light)", sizes: "32x32" },
-      { url: "/onboarding/favicon-dark.jpg", media: "(prefers-color-scheme: dark)", sizes: "32x32" },
-    ],
-  },
+  // No `icons` here: the root favicon.ico / icon.png / apple-icon.png are the
+  // real logo. Pinning icons in this layout overrides them for this hostname.
 };
 
 export default function OnboardingLayout({ children }: { children: React.ReactNode }) {

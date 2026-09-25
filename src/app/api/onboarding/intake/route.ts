@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
  * linked Google Form endpoint. Google Forms auto-appends the row to the
  * connected Google Sheet, and an existing Zapier zap picks up the new row
  * and posts it into the internal Slack channel. Nothing to do here beyond
- * forwarding to Google Forms — the rest is handled downstream.
+ * forwarding to Google Forms; the rest is handled downstream.
  */
 
 export const runtime = "nodejs";

@@ -115,7 +115,7 @@ export default function OnboardingApp() {
     <div className="ob-root">
       <style>{`
         /* =============================================
-           Layout — Implement-style, centered single column
+           Layout: Implement-style, centered single column
            ============================================= */
         .ob-root {
           background: #fff;
@@ -246,7 +246,7 @@ export default function OnboardingApp() {
           color: #8a8e93;
         }
 
-        /* Primary CTA button — big pill */
+        /* Primary CTA button: big pill */
         .ob-cta {
           display: inline-flex; align-items: center; gap: 12px;
           padding: 18px 34px;
@@ -430,7 +430,7 @@ export default function OnboardingApp() {
         <div className="ob-progress-fill" style={{ width: `${progressPct}%` }} />
       </div>
 
-      {/* MAIN — centered single column */}
+      {/* MAIN: centered single column */}
       <main className="ob-main">
         <div className="ob-container">
           {currentIdx > 0 && (

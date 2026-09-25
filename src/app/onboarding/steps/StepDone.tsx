@@ -164,7 +164,7 @@ export default function StepDone({ config }: Props) {
 
       <VideoEmbed url={config.videos.thanks} title="Welcome on board" caption="Video · A quick word from Tristan" />
 
-      {/* Signature message — dark premium block */}
+      {/* Signature message: dark premium block */}
       <div className="ob-done-hero">
         <div className="ob-done-hero-inner">
           <div className="ob-done-ornament">Signed off</div>
@@ -181,7 +181,7 @@ export default function StepDone({ config }: Props) {
               confirm your kick-off call.
             </p>
             <p>
-              If anything comes up in the meantime, you know where to find us — just drop a message
+              If anything comes up in the meantime, you know where to find us. Just drop a message
               in our Slack channel.
             </p>
           </div>
@@ -194,7 +194,7 @@ export default function StepDone({ config }: Props) {
         </div>
       </div>
 
-      {/* Closing tagline — light off-white card for color contrast */}
+      {/* Closing tagline: light off-white card for color contrast */}
       <div className="ob-done-tagline-card">
         <p className="ob-done-tagline">
           We&apos;re looking forward to seeing you on the <span className="accent">kick-off call</span>.

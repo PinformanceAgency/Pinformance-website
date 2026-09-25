@@ -1,5 +1,5 @@
 // ============================================================
-//  ONBOARDING CONFIG — Fill these in as you get each asset.
+//  ONBOARDING CONFIG: fill these in as you get each asset.
 //  Placeholders (empty string / "TODO") are safe: the UI will
 //  show a friendly "not set up yet" state instead of breaking.
 // ============================================================
@@ -40,13 +40,13 @@ export const ONBOARDING_CONFIG = {
   //                     rendered as an <iframe>
   //
   // The edited videos are ours, so they are files. Upload them with
-  // `scripts/upload-onboarding-videos.ts`, which compresses first — the master
+  // `scripts/upload-onboarding-videos.ts`, which compresses first; the master
   // of the welcome video is 4K at 30 Mbps, 318 MB for 88 seconds, and a client
   // on a phone would be made to download all of it.
   videos: {
     welcome: "https://epcbwgkfdtmtohbomzxt.supabase.co/storage/v1/object/public/uploads/onboarding/welcome.mp4",
     // Eén Loom over de hele Pinterest-setup, dus de vier stappen eronder hebben
-    // geen eigen video — die sleutels stonden er wel en zijn weg (23-09-2026).
+    // geen eigen video; die sleutels stonden er wel en zijn weg (23-09-2026).
     // Deze is als Loom opgenomen en niet opnieuw gemonteerd, dus hij blijft een
     // embed. Let op de URL: Loom geeft je een /share/-link om te delen, en een
     // /embed/-link om in te sluiten. De share-variant in een iframe levert een
@@ -91,7 +91,7 @@ export const ONBOARDING_CONFIG = {
         placeholder: "Google Drive, Dropbox, WeTransfer…" },
       { id: "brandbook", label: "If you have a brand book, can you give us the details? (logos, fonts, style, etc.)", type: "textarea",
         entryId: "entry.1631963486", required: false,
-        helper: "No brand book yet? Leave this empty — we'll pick it up on the kickoff call.",
+        helper: "No brand book yet? Leave this empty and we'll pick it up on the kickoff call.",
         placeholder: "A link works too" },
     ] as IntakeQuestion[],
   },
@@ -104,7 +104,6 @@ export const ONBOARDING_CONFIG = {
   links: {
     calendlyKickoff: "https://calendly.com/d/cysr-qwj-w5f/pinformance-kick-off-call",
     pinterestBusinessSignup: "https://business.pinterest.com/",
-    trelloCreativesBoard: "" as string, // Optional: Trello board URL for creative uploads
   },
 };
 

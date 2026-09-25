@@ -24,7 +24,7 @@ export default function StepKickoff({ onDone, config }: Props) {
     return (
       <>
         <div className="ob-warn">
-          Kickoff Calendly URL not set — configure <code>links.calendlyKickoff</code> in <code>src/app/onboarding/config.ts</code>.
+          Kickoff Calendly URL not set. Configure <code>links.calendlyKickoff</code> in <code>src/app/onboarding/config.ts</code>.
         </div>
         <div className="ob-actions">
           <button className="ob-cta" disabled type="button">

@@ -19,7 +19,7 @@ export const STEPS: StepDef[] = [
     number: 2,
     title: "Intake questionnaire",
     short: "Intake",
-    desc: "Fill out the intake — this is what we need to set up your account properly.",
+    desc: "Fill out the intake. This is what we need to set up your account properly.",
   },
   {
     id: "pinterest",
@@ -40,14 +40,14 @@ export const STEPS: StepDef[] = [
     number: 5,
     title: "Book your kickoff call",
     short: "Kickoff",
-    desc: "Pick a slot for the kickoff — we go live as fast as possible after that (ideally within 24 hours).",
+    desc: "Pick a slot for the kickoff. We go live as fast as possible after that (ideally within 24 hours).",
   },
   {
     id: "done",
     number: 6,
     title: "Welcome aboard",
     short: "Done",
-    desc: "That's it — you've completed the onboarding. Nicely done.",
+    desc: "That's it, you've completed the onboarding. Nicely done.",
   },
 ];
 

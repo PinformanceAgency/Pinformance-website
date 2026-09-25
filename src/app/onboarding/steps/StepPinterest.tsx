@@ -54,7 +54,7 @@ export default function StepPinterest({ onDone, config }: Props) {
 
   const creativesResolved =
     (creativeChoice === "own_system" && internalSystemName.trim().length > 0) ||
-    (creativeChoice === "use_trello" && checked["creatives_trello"] === true);
+    creativeChoice === "use_trello";
 
   const allChecked = simpleSubs.every((s) => checked[s.id]) && creativesResolved;
   const toggle = (id: string) => setChecked((c) => ({ ...c, [id]: !c[id] }));
@@ -67,7 +67,7 @@ export default function StepPinterest({ onDone, config }: Props) {
         caption="Video · Full Pinterest setup walkthrough"
       />
       <p style={{ color: "#6b7075", fontSize: 14.5, lineHeight: 1.55, textAlign: "center", margin: "-24px auto 32px", maxWidth: 560 }}>
-        Watch the full walkthrough first — it covers all four steps below. Then work through the checklist at your own pace.
+        Watch the full walkthrough first. It covers all four steps below. Then work through the checklist at your own pace.
       </p>
 
       {simpleSubs.map((s, i) => (
@@ -97,7 +97,7 @@ export default function StepPinterest({ onDone, config }: Props) {
         </div>
       ))}
 
-      {/* Sub 4 — Creative workflow with branching */}
+      {/* Sub 4: Creative workflow with branching */}
       <div className="ob-card">
         <div className="ob-card-title">
           <button
@@ -144,10 +144,10 @@ export default function StepPinterest({ onDone, config }: Props) {
             />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
-                Yes — we use an internal creative system
+                Yes, we use an internal creative system
               </div>
               <div style={{ color: "#6b7075", fontSize: 14, lineHeight: 1.5 }}>
-                We'll work directly in <em>your</em> platform (Atria, ClickUp, or similar). You can skip Trello — no action needed on our board.
+                We'll work directly in <em>your</em> platform (Atria, ClickUp, or similar). You can skip Trello, no action needed on our board.
               </div>
             </div>
           </label>
@@ -175,10 +175,10 @@ export default function StepPinterest({ onDone, config }: Props) {
             />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
-                No — we work with Google Drive links or don't have a dedicated system
+                No, we work with Google Drive links or don't have a dedicated system
               </div>
               <div style={{ color: "#6b7075", fontSize: 14, lineHeight: 1.5 }}>
-                Then you'll use <strong>our Trello board</strong>. Drop your creatives in the right column so we always know exactly where to find them.
+                Then you'll use <strong>our Trello board</strong>. We'll send you the link once you've completed the onboarding.
               </div>
             </div>
           </label>
@@ -201,70 +201,6 @@ export default function StepPinterest({ onDone, config }: Props) {
           </div>
         )}
 
-        {/* Follow-up: NO branch → Trello link + checkbox */}
-        {creativeChoice === "use_trello" && (
-          <div style={{ marginLeft: 34, marginTop: 16 }}>
-            {config.links.trelloCreativesBoard ? (
-              <>
-                <a
-                  href={config.links.trelloCreativesBoard}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ob-cta-secondary"
-                  style={{ marginBottom: 14 }}
-                >
-                  Open our Trello board ↗
-                </a>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    alignItems: "flex-start",
-                    marginTop: 14,
-                    padding: "14px 16px",
-                    border: "1px solid #e0e2e5",
-                    borderRadius: 12,
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="ob-check"
-                    data-checked={checked["creatives_trello"] ?? false}
-                    onClick={() => toggle("creatives_trello")}
-                    aria-label="Confirm creatives uploaded to Trello"
-                  >
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </button>
-                  <span style={{ fontSize: 14, color: "#111315", fontWeight: 500 }}>
-                    I've uploaded my creatives to the Trello board
-                  </span>
-                </div>
-              </>
-            ) : (
-              <div className="ob-warn">
-                Trello board link not yet set. Set <code>links.trelloCreativesBoard</code> in <code>src/app/onboarding/config.ts</code>.
-                <br />
-                For now: your Trello board will be shared with you in Slack after the kickoff.
-                <div style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    className="ob-check"
-                    data-checked={checked["creatives_trello"] ?? false}
-                    onClick={() => toggle("creatives_trello")}
-                    style={{ display: "inline-grid", verticalAlign: "middle", marginRight: 8 }}
-                  >
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </button>
-                  <span style={{ fontSize: 14, verticalAlign: "middle" }}>Acknowledged — I'll wait for the Trello link in Slack</span>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="ob-actions">

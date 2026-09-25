@@ -63,13 +63,13 @@ export default function StepAdmin({ onDone, config }: Props) {
           <p style={{ margin: "0 0 10px" }}>
             The NDA covers confidentiality on both sides. The Service Agreement outlines exactly what we do,
             how we work, and what you can expect from us. Anything you&apos;d like to go through before you
-            sign? Send us a message — we&apos;d rather answer it now than have you sign something you&apos;re
+            sign? Send us a message. We&apos;d rather answer it now than have you sign something you&apos;re
             unsure about.
           </p>
           <p style={{ margin: "0 0 10px" }}>
             On <strong>billing</strong>: you&apos;ll receive your invoice <strong>once a month</strong>, sent directly
             to your email. Once received, you have <strong>7 days</strong> to complete the payment. You&apos;ll always
-            get a clear breakdown of exactly what&apos;s included — no surprises.
+            get a clear breakdown of exactly what&apos;s included, no surprises.
           </p>
           <p style={{ margin: 0 }}>
             Questions about the documents or an invoice? Drop a message in Slack and we&apos;ll sort it for you.
