@@ -11,7 +11,7 @@ import type {
   StoreRankingRow,
 } from "@/lib/media-buying/store-ranking";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, ChevronLeft, ChevronRight, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,15 @@ function isoWeek(iso: string): number {
   d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7));
   const yearStart = Date.UTC(d.getUTCFullYear(), 0, 1);
   return Math.ceil(((d.getTime() - yearStart) / DAY + 1) / 7);
+}
+
+const yesterdayIso = () => addDays(new Date().toISOString().slice(0, 10), -1);
+
+/** Default custom range: the last 30 days ending the day before yesterday —
+ *  yesterday's numbers are still coming in. */
+function defaultRange(): { from: string; to: string } {
+  const to = addDays(new Date().toISOString().slice(0, 10), -2);
+  return { from: addDays(to, -29), to };
 }
 
 function fmtDay(iso: string): string {
@@ -77,7 +86,15 @@ function closeness(p: Period, roasTarget: number | null): number {
  *   4. the same for the week.
  * The month leads because that is what splits Off track from On track.
  */
-function worstFirst(a: StoreRankingRow, b: StoreRankingRow): number {
+function worstFirst(a: StoreRankingRow, b: StoreRankingRow, range = false): number {
+  // A custom range has no month beside it: the range alone decides.
+  if (range) {
+    return (
+      misses(b.week) - misses(a.week) ||
+      closeness(a.week, a.roas_target) - closeness(b.week, b.roas_target) ||
+      a.store_name.localeCompare(b.store_name)
+    );
+  }
   return (
     misses(b.month) - misses(a.month) ||
     misses(b.week) - misses(a.week) ||
@@ -89,6 +106,8 @@ function worstFirst(a: StoreRankingRow, b: StoreRankingRow): number {
 
 export default function StoreRankingPage() {
   const [week, setWeek] = useState<string | null>(null);
+  const [mode, setMode] = useState<"week" | "range">("week");
+  const [range, setRange] = useState(defaultRange);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +121,12 @@ export default function StoreRankingPage() {
     // Cancel an in-flight fetch when the week changes, or a slower earlier
     // answer lands after the newer one and overwrites it.
     const abort = new AbortController();
-    const qs = week ? `?week=${week}` : "";
+    if (mode === "range" && (!range.from || !range.to || range.from > range.to)) {
+      setLoading(false);
+      return;
+    }
+    const qs =
+      mode === "range" ? `?from=${range.from}&to=${range.to}` : week ? `?week=${week}` : "";
     fetch(`/api/media-buying/store-ranking${qs}`, { signal: abort.signal })
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e.error))))
       .then((d) => setData(d as ApiResponse))
@@ -112,7 +136,7 @@ export default function StoreRankingPage() {
       })
       .finally(() => setLoading(false));
     return () => abort.abort();
-  }, [week]);
+  }, [week, mode, range]);
 
   const buyers = useMemo(
     () => mediaBuyerOptions(data?.stores.map((s) => s.media_buyer) ?? []),
@@ -135,19 +159,25 @@ export default function StoreRankingPage() {
   );
   const filtered = useMemo(() => inFilter.filter(running), [inFilter]);
   const idle = useMemo(() => inFilter.filter((s) => !running(s)), [inFilter]);
+  const isRange = data?.periods.mode === "range";
+  // The week view splits on the month, as the deck does; a custom range has
+  // no month beside it, so it splits on the range itself.
+  const onTrackOf = useCallback(
+    (s: StoreRankingRow) => (isRange ? s.week.on_track : s.month.on_track),
+    [isRange]
+  );
+  const sortFn = useCallback(
+    (a: StoreRankingRow, b: StoreRankingRow) =>
+      order === "worst" ? worstFirst(a, b, isRange) : worstFirst(b, a, isRange),
+    [order, isRange]
+  );
   const offTrack = useMemo(
-    () =>
-      filtered
-        .filter((s) => !s.month.on_track)
-        .sort((a, b) => (order === "worst" ? worstFirst(a, b) : worstFirst(b, a))),
-    [filtered, order]
+    () => filtered.filter((s) => !onTrackOf(s)).sort(sortFn),
+    [filtered, onTrackOf, sortFn]
   );
   const onTrack = useMemo(
-    () =>
-      filtered
-        .filter((s) => s.month.on_track)
-        .sort((a, b) => (order === "worst" ? worstFirst(a, b) : worstFirst(b, a))),
-    [filtered, order]
+    () => filtered.filter(onTrackOf).sort(sortFn),
+    [filtered, onTrackOf, sortFn]
   );
   const weekOnTrack = filtered.filter((s) => s.week.on_track).length;
 
@@ -158,7 +188,13 @@ export default function StoreRankingPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Store Ranking</h1>
-          {p && (
+          {p && p.mode === "range" && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {fmtDay(p.week_start)} – {fmtDay(p.week_end)} ({p.week_days} days) vs the {p.week_days} days
+              before ({fmtDay(p.prev_week_start)} – {fmtDay(p.prev_week_end)})
+            </p>
+          )}
+          {p && p.mode === "week" && (
             <p className="mt-1 text-sm text-muted-foreground">
               Week {isoWeek(p.week_start)} ({fmtDay(p.week_start)} – {fmtDay(p.week_end)}) vs week{" "}
               {isoWeek(p.prev_week_start)} · month to date {fmtDay(p.month_start)} – {fmtDay(p.month_end)}
@@ -167,6 +203,41 @@ export default function StoreRankingPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="inline-flex rounded-md border border-border bg-background overflow-hidden">
+            {(["week", "range"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={cn("px-2.5 py-1.5 font-medium", mode === m ? "bg-foreground text-background" : "hover:bg-muted/40")}
+              >
+                {m === "week" ? "Week + month" : "Custom range"}
+              </button>
+            ))}
+          </div>
+          {mode === "range" && (
+            <div className="inline-flex items-center gap-1.5">
+              <input
+                type="date"
+                value={range.from}
+                max={range.to}
+                onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+                className="px-2 py-1 bg-background border border-border rounded-md font-medium tabular-nums"
+                aria-label="From"
+              />
+              <span className="text-muted-foreground">→</span>
+              <input
+                type="date"
+                value={range.to}
+                min={range.from}
+                max={yesterdayIso()}
+                onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+                className="px-2 py-1 bg-background border border-border rounded-md font-medium tabular-nums"
+                aria-label="To"
+              />
+            </div>
+          )}
+          {mode === "week" && (
           <div className="inline-flex items-center rounded-md border border-border bg-background">
             <button
               type="button"
@@ -187,6 +258,7 @@ export default function StoreRankingPage() {
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
+          )}
           <select
             value={buyer}
             onChange={(e) => setBuyer(e.target.value)}
@@ -232,6 +304,15 @@ export default function StoreRankingPage() {
 
       {!loading && data && (
         <>
+          {isRange ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <GoalCard
+                label={`${fmtDay(data.periods.week_start)} – ${fmtDay(data.periods.week_end)}`}
+                value={`${onTrack.length} / ${filtered.length}`}
+                caption="stores on track in this range"
+              />
+            </div>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <GoalCard
               label="This month"
@@ -244,15 +325,16 @@ export default function StoreRankingPage() {
               caption="stores on track this week"
             />
           </div>
+          )}
           {order === "worst" ? (
             <>
-              <Section kind="off" stores={offTrack} />
-              <Section kind="on" stores={onTrack} />
+              <Section kind="off" stores={offTrack} range={isRange} />
+              <Section kind="on" stores={onTrack} range={isRange} />
             </>
           ) : (
             <>
-              <Section kind="on" stores={onTrack} />
-              <Section kind="off" stores={offTrack} />
+              <Section kind="on" stores={onTrack} range={isRange} />
+              <Section kind="off" stores={offTrack} range={isRange} />
             </>
           )}
           {idle.length > 0 && (
@@ -265,6 +347,8 @@ export default function StoreRankingPage() {
             €1,726 spend), converted at the latest ECB rate. Month on track = ROAS MTD ≥ invoice ROAS and
             revenue MTD ≥ that floor × days / 7. The week&apos;s target is the floor: the target a buyer
             agreed in the Weekly Store Log is not in the dashboard, and below the floor is off track either way.
+            A custom range is judged like the week: ROAS ≥ invoice ROAS and revenue ≥ the weekly floor × days / 7,
+            against the same number of days right before it.
           </p>
         </>
       )}
@@ -282,7 +366,7 @@ function GoalCard({ label, value, caption }: { label: string; value: string; cap
   );
 }
 
-function Section({ kind, stores }: { kind: "on" | "off"; stores: StoreRankingRow[] }) {
+function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRankingRow[]; range: boolean }) {
   const on = kind === "on";
   return (
     <section className="space-y-2">
@@ -299,34 +383,44 @@ function Section({ kind, stores }: { kind: "on" | "off"; stores: StoreRankingRow
           <thead>
             <tr className="text-[11px] uppercase tracking-wide">
               <th colSpan={2} />
-              <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">Week</th>
-              <th className="w-px bg-border" />
-              <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">Month</th>
+              <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">
+                {range ? "Range" : "Week"}
+              </th>
+              {!range && (
+                <>
+                  <th className="w-px bg-border" />
+                  <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">Month</th>
+                </>
+              )}
             </tr>
             <tr className="border-b border-border text-left text-[11px] text-muted-foreground uppercase tracking-wide">
               <th className="py-2 pl-4 pr-2 font-medium">Store</th>
               <th className="py-2 px-2 font-medium">Buyer</th>
               <th className="py-2 px-2 font-medium normal-case">
-                <span className="uppercase">ROAS</span> last → this (target = invoice)
+                <span className="uppercase">ROAS</span> {range ? "before" : "last"} → this (target = invoice)
               </th>
               <th className="py-2 px-2 font-medium normal-case">
                 <span className="uppercase">Revenue</span> actual / target
               </th>
-              <th className="w-px bg-border" />
-              <th className="py-2 px-2 font-medium">Revenue MTD</th>
-              <th className="py-2 px-2 font-medium">ROAS MTD / target</th>
+              {!range && (
+                <>
+                  <th className="w-px bg-border" />
+                  <th className="py-2 px-2 font-medium">ROAS MTD / target</th>
+                  <th className="py-2 px-2 font-medium">Revenue MTD</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
             {stores.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-4 text-center text-xs text-muted-foreground">
+                <td colSpan={range ? 4 : 7} className="py-4 text-center text-xs text-muted-foreground">
                   No stores.
                 </td>
               </tr>
             )}
             {stores.map((s) => (
-              <Row key={s.org_id} s={s} on={on} />
+              <Row key={s.org_id} s={s} on={on} range={range} />
             ))}
           </tbody>
         </table>
@@ -335,7 +429,7 @@ function Section({ kind, stores }: { kind: "on" | "off"; stores: StoreRankingRow
   );
 }
 
-function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
+function Row({ s, on, range }: { s: StoreRankingRow; on: boolean; range: boolean }) {
   const cur = s.currency;
   const up =
     s.week.roas != null && s.prev_week.roas != null
@@ -372,23 +466,27 @@ function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
           </span>
         </Cell>
       </td>
-      <td className="w-px bg-border" />
-      <td className="py-2.5 px-2">
-        <Cell pill={s.month.volume_on_track}>
-          <span className="tabular-nums" title={`Target so far: ${fmtMoney(s.month.volume_target, cur)}`}>
-            <span className="font-semibold">{fmtMoney(s.month.volume, cur)}</span>
-            {s.spend_account && <span className="text-xs text-muted-foreground"> spend</span>}
-          </span>
-        </Cell>
-      </td>
-      <td className="py-2.5 px-2">
-        <Cell pill={s.month.roas_on_track}>
-          <span className="tabular-nums">
-            <span className="font-semibold">{fmtRoas(s.month.roas)}</span>
-            <span className="text-xs text-muted-foreground"> / {fmtRoas(s.roas_target)}</span>
-          </span>
-        </Cell>
-      </td>
+      {!range && (
+        <>
+          <td className="w-px bg-border" />
+          <td className="py-2.5 px-2">
+            <Cell pill={s.month.roas_on_track}>
+              <span className="tabular-nums">
+                <span className="font-semibold">{fmtRoas(s.month.roas)}</span>
+                <span className="text-xs text-muted-foreground"> / {fmtRoas(s.roas_target)}</span>
+              </span>
+            </Cell>
+          </td>
+          <td className="py-2.5 px-2">
+            <Cell pill={s.month.volume_on_track}>
+              <span className="tabular-nums" title={`Target so far: ${fmtMoney(s.month.volume_target, cur)}`}>
+                <span className="font-semibold">{fmtMoney(s.month.volume, cur)}</span>
+                {s.spend_account && <span className="text-xs text-muted-foreground"> spend</span>}
+              </span>
+            </Cell>
+          </td>
+        </>
+      )}
     </tr>
   );
 }

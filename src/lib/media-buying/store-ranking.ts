@@ -20,6 +20,12 @@
  * A store is ON TRACK when its month is: both month pills green. That is how
  * the deck splits its pages; the week pills say how last week went.
  *
+ * CUSTOM RANGE (storeRankingRangePeriods): any period, against the period of
+ * the same length right before it. Judged exactly like the week — ROAS ≥
+ * invoice, volume ≥ weekly floor × days / 7 — so a 7-day range that is a
+ * Mon–Sun week gives the same pills as the week view. There is no month
+ * beside it; the range's own status decides On track / Off track.
+ *
  * What the deck has and this does not: the target the buyer agreed for the
  * week (it lives in the Weekly Store Log on Monday, not here), so the week's
  * volume is shown against the floor. The deck never lets a lower agreed
@@ -69,9 +75,14 @@ export interface StoreRankingRow {
 }
 
 export interface StoreRankingPeriods {
+  /** "week": a Mon–Sun week plus month to date. "range": a chosen period,
+   *  carried in the week_* fields, with no month beside it. */
+  mode: "week" | "range";
   /** Monday and Sunday of the week being reported. */
   week_start: string;
   week_end: string;
+  /** Length of the week_* period in days — 7, or the custom range's. */
+  week_days: number;
   prev_week_start: string;
   prev_week_end: string;
   month_start: string;
@@ -116,14 +127,52 @@ export function storeRankingPeriods(
   const monthEnd = latest ? addDays(today, -2) : end;
   const monthStart = monthEnd.slice(0, 8) + "01";
   return {
+    mode: "week",
     week_start: start,
     week_end: end,
+    week_days: 7,
     prev_week_start: addDays(start, -7),
     prev_week_end: addDays(start, -1),
     month_start: monthStart,
     month_end: monthEnd,
     month_days: Number(monthEnd.slice(8, 10)),
     latest,
+  };
+}
+
+/** Longest custom range: a year, so a typo in the year cannot read ten. */
+export const MAX_RANGE_DAYS = 366;
+
+/**
+ * A chosen [from, to] period (inclusive) and the equally long one before it.
+ * `to` is capped at yesterday: today has no data yet. Throws on a period that
+ * is not one, so the route can say why.
+ */
+export function storeRankingRangePeriods(
+  from: string,
+  to: string,
+  now: Date = new Date(),
+): StoreRankingPeriods {
+  const valid = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d + "T00:00:00Z"));
+  if (!valid(from) || !valid(to)) throw new Error("Dates must be YYYY-MM-DD");
+  const yesterday = addDays(iso(now), -1);
+  const end = to > yesterday ? yesterday : to;
+  if (from > end) throw new Error("The start date must be on or before the end date (and before today)");
+  const days = Math.round((Date.parse(end) - Date.parse(from)) / DAY) + 1;
+  if (days > MAX_RANGE_DAYS) throw new Error(`A range can be at most ${MAX_RANGE_DAYS} days`);
+  return {
+    mode: "range",
+    week_start: from,
+    week_end: end,
+    week_days: days,
+    prev_week_start: addDays(from, -days),
+    prev_week_end: addDays(from, -1),
+    // No month in a range; the fields mirror the range so nothing reads
+    // outside it.
+    month_start: from,
+    month_end: end,
+    month_days: days,
+    latest: false,
   };
 }
 
@@ -242,7 +291,7 @@ export async function computeStoreRanking(
       scaleBasis: "range" as const,
       fxPerEur: ratePerEur(fxRates, currency),
     };
-    const weekGate = scaleFloorFor({ ...gateOpts, rangeDays: 7 });
+    const weekGate = scaleFloorFor({ ...gateOpts, rangeDays: periods.week_days });
     const monthGate = scaleFloorFor({ ...gateOpts, rangeDays: periods.month_days });
     const spendAccount = weekGate.metric === "spend";
 
