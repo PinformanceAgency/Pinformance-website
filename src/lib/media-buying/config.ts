@@ -388,6 +388,21 @@ export function scaleFloorFor(opts: {
   return { metric: "revenue", floor: eur * fx, floor_eur: eur };
 }
 
+/**
+ * The ROAS a store has to reach to be green: its invoice ROAS, or — for a
+ * store that has none set yet — BER × green_ratio, so it still classifies.
+ * Null when neither is known.
+ */
+export function invoiceRoasTarget(
+  invoiceRoas: number | null | undefined,
+  breakevenRoas: number | null | undefined,
+  overrides?: Partial<ZoneThresholds> | null,
+): number | null {
+  if (invoiceRoas != null && invoiceRoas > 0) return invoiceRoas;
+  if (breakevenRoas == null || breakevenRoas <= 0) return null;
+  return breakevenRoas * (overrides?.green_ratio ?? DEFAULT_ZONE_THRESHOLDS.green_ratio);
+}
+
 export function classifyZone(input: ClassifyInput): Zone | null {
   const {
     liveRoas,
@@ -412,14 +427,10 @@ export function classifyZone(input: ClassifyInput): Zone | null {
     min_monthly_revenue:
       overrides?.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR,
   };
-  // Effective invoice ROAS: prefer the explicit value, else fall back to
-  // BER × green_ratio so stores that haven't set invoice_roas yet still
-  // classify sensibly.
-  const effectiveInvoiceRoas = invoiceRoas != null && invoiceRoas > 0
-    ? invoiceRoas
-    : breakevenRoas * th.green_ratio;
+  const effectiveInvoiceRoas = invoiceRoasTarget(invoiceRoas, breakevenRoas, th);
 
-  const beatsInvoice = liveRoas >= effectiveInvoiceRoas;
+  const beatsInvoice =
+    effectiveInvoiceRoas != null && liveRoas >= effectiveInvoiceRoas;
 
   // Scale gate: is the store big enough for its billing model? Which metric
   // and which number that means depends on the model and on the bucket's

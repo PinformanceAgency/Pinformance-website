@@ -1,65 +1,84 @@
 "use client";
 
-import { mediaBuyerOptions, type Zone } from "@/lib/media-buying/config";
+/**
+ * Store Ranking — the delivery meeting on the dashboard. Same periods, same
+ * rules and the same ON TRACK / OFF TRACK pills as the weekly deck; see
+ * lib/media-buying/store-ranking.ts for the rules themselves.
+ */
+import { mediaBuyerOptions } from "@/lib/media-buying/config";
+import type {
+  StoreRankingPeriods,
+  StoreRankingRow,
+} from "@/lib/media-buying/store-ranking";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, ArrowUpDown, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface StoreRow {
-  org_id: string;
-  store_name: string;
-  media_buyer: string | null;
-  department: string | null;
-  currency: string | null;
-  zone: Zone | null;
-  roas: number | null;
-  spend: number;
-  revenue: number;
-  breakeven_roas: number | null;
-  invoice_roas: number | null;
-}
-
 interface ApiResponse {
-  start: string;
-  end: string;
-  stores: StoreRow[];
+  periods: StoreRankingPeriods;
+  stores: StoreRankingRow[];
 }
 
-type SortDir = "worst_first" | "best_first";
-type SortKey = "zone_roas" | "store" | "roas" | "spend" | "revenue";
+const DAY = 24 * 3600 * 1000;
+const addDays = (iso: string, n: number) =>
+  new Date(new Date(iso + "T00:00:00Z").getTime() + n * DAY).toISOString().slice(0, 10);
 
-/** Default range: last 7 days ending yesterday. */
-function defaultRange(): { start: string; end: string } {
-  const y = new Date();
-  y.setUTCDate(y.getUTCDate() - 1);
-  const end = y.toISOString().slice(0, 10);
-  const start = new Date(y.getTime() - 6 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  return { start, end };
+function isoWeek(iso: string): number {
+  // Thursday of this week decides which year the week belongs to.
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7));
+  const yearStart = Date.UTC(d.getUTCFullYear(), 0, 1);
+  return Math.ceil(((d.getTime() - yearStart) / DAY + 1) / 7);
+}
+
+function fmtDay(iso: string): string {
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+function fmtMoney(v: number, currency: string | null): string {
+  const symbol =
+    currency === "EUR" ? "€" : currency === "USD" ? "$" : currency === "GBP" ? "£" : currency ? `${currency} ` : "";
+  return `${symbol}${Math.round(v).toLocaleString("en-US")}`;
+}
+
+function fmtRoas(v: number | null): string {
+  return v == null ? "—" : v.toFixed(2);
+}
+
+/** A store that spent nothing in either week or this month is not running,
+ *  and counting it as off track would put it on the list of stores a buyer
+ *  has to explain. It is named underneath instead. */
+const running = (s: StoreRankingRow) =>
+  s.week.spend > 0 || s.prev_week.spend > 0 || s.month.spend > 0;
+
+/** How far the month is from its targets — sorts the worst to the top. */
+function monthScore(s: StoreRankingRow): number {
+  const roas = s.month.roas != null && s.roas_target ? s.month.roas / s.roas_target : 0;
+  const vol = s.month.volume_target > 0 ? s.month.volume / s.month.volume_target : 0;
+  return Math.min(roas, vol);
 }
 
 export default function StoreRankingPage() {
-  const [{ start: startInit, end: endInit }] = useState(defaultRange);
-  const [start, setStart] = useState(startInit);
-  const [end, setEnd] = useState(endInit);
+  const [week, setWeek] = useState<string | null>(null);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [buyer, setBuyer] = useState("all");
   const [dept, setDept] = useState("all");
-  const [sortDir, setSortDir] = useState<SortDir>("worst_first");
-  const [sortKey, setSortKey] = useState<SortKey>("zone_roas");
 
   useEffect(() => {
-    if (start > end) return; // invalid range
     setLoading(true);
     setError(null);
-    // Cancel any in-flight fetch when the range changes — otherwise a
-    // slower earlier request (e.g. from the intermediate "01" date while
-    // the user was still typing "10") can arrive AFTER the newer one and
-    // overwrite the freshly-fetched data.
+    // Cancel an in-flight fetch when the week changes, or a slower earlier
+    // answer lands after the newer one and overwrites it.
     const abort = new AbortController();
-    fetch(`/api/media-buying/store-ranking?start=${start}&end=${end}`, { signal: abort.signal })
+    const qs = week ? `?week=${week}` : "";
+    fetch(`/api/media-buying/store-ranking${qs}`, { signal: abort.signal })
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e.error))))
       .then((d) => setData(d as ApiResponse))
       .catch((e) => {
@@ -68,72 +87,92 @@ export default function StoreRankingPage() {
       })
       .finally(() => setLoading(false));
     return () => abort.abort();
-  }, [start, end]);
+  }, [week]);
 
   const buyers = useMemo(
     () => mediaBuyerOptions(data?.stores.map((s) => s.media_buyer) ?? []),
     [data]
   );
   const departments = useMemo(() => {
-    if (!data) return [];
     const set = new Set<string>();
-    for (const s of data.stores) if (s.department) set.add(s.department);
+    for (const s of data?.stores ?? []) if (s.department) set.add(s.department);
     return Array.from(set).sort();
   }, [data]);
 
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    return data.stores.filter((s) => {
-      if (buyer !== "all" && s.media_buyer !== buyer) return false;
-      if (dept !== "all" && s.department !== dept) return false;
-      return true;
-    });
-  }, [data, buyer, dept]);
+  const inFilter = useMemo(
+    () =>
+      (data?.stores ?? []).filter(
+        (s) =>
+          (buyer === "all" || s.media_buyer === buyer) &&
+          (dept === "all" || s.department === dept)
+      ),
+    [data, buyer, dept]
+  );
+  const filtered = useMemo(() => inFilter.filter(running), [inFilter]);
+  const idle = useMemo(() => inFilter.filter((s) => !running(s)), [inFilter]);
+  const offTrack = useMemo(
+    () => filtered.filter((s) => !s.month.on_track).sort((a, b) => monthScore(a) - monthScore(b)),
+    [filtered]
+  );
+  const onTrack = useMemo(
+    () => filtered.filter((s) => s.month.on_track).sort((a, b) => monthScore(b) - monthScore(a)),
+    [filtered]
+  );
+  const weekOnTrack = filtered.filter((s) => s.week.on_track).length;
 
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    const zoneRank = (z: Zone | null): number => {
-      if (z === "red") return 0;
-      if (z === null) return 1;
-      return 2;
-    };
-    const dir = sortDir === "worst_first" ? 1 : -1;
-    if (sortKey === "zone_roas") {
-      arr.sort((a, b) => {
-        const zc = (zoneRank(a.zone) - zoneRank(b.zone)) * dir;
-        if (zc !== 0) return zc;
-        return ((a.roas ?? -1) - (b.roas ?? -1)) * dir;
-      });
-    } else {
-      arr.sort((a, b) => {
-        const get = (r: StoreRow): string | number => {
-          switch (sortKey) {
-            case "store": return r.store_name.toLowerCase();
-            case "roas": return r.roas ?? -1;
-            case "spend": return r.spend;
-            case "revenue": return r.revenue;
-            default: return 0;
-          }
-        };
-        const av = get(a), bv = get(b);
-        if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
-        return String(av).localeCompare(String(bv)) * dir;
-      });
-    }
-    return arr;
-  }, [filtered, sortKey, sortDir]);
-
-  function toggleColumnSort(k: SortKey) {
-    if (k === sortKey) setSortDir(sortDir === "worst_first" ? "best_first" : "worst_first");
-    else setSortKey(k);
-  }
-
-  const invalidRange = start > end;
+  const p = data?.periods;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-4">
-      <header>
-        <h1 className="text-2xl font-semibold">Store Ranking</h1>
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Store Ranking</h1>
+          {p && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Week {isoWeek(p.week_start)} ({fmtDay(p.week_start)} – {fmtDay(p.week_end)}) vs week{" "}
+              {isoWeek(p.prev_week_start)} · month to date {fmtDay(p.month_start)} – {fmtDay(p.month_end)}
+              {p.latest && " (today and yesterday are left out: their numbers are still coming in)"}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="inline-flex items-center rounded-md border border-border bg-background">
+            <button
+              type="button"
+              onClick={() => p && setWeek(addDays(p.week_start, -7))}
+              className="px-2 py-1.5 hover:bg-muted/40"
+              aria-label="Previous week"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <span className="px-2 font-medium tabular-nums">{p ? `Week ${isoWeek(p.week_start)}` : "…"}</span>
+            <button
+              type="button"
+              onClick={() => p && setWeek(p.latest ? null : addDays(p.week_start, 7))}
+              disabled={!p || p.latest}
+              className="px-2 py-1.5 hover:bg-muted/40 disabled:opacity-30"
+              aria-label="Next week"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <select
+            value={buyer}
+            onChange={(e) => setBuyer(e.target.value)}
+            className="px-2 py-1.5 bg-background border border-border rounded-md font-medium"
+          >
+            <option value="all">All buyers</option>
+            {buyers.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+          <select
+            value={dept}
+            onChange={(e) => setDept(e.target.value)}
+            className="px-2 py-1.5 bg-background border border-border rounded-md font-medium"
+          >
+            <option value="all">All depts</option>
+            {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
       </header>
 
       {error && (
@@ -142,160 +181,184 @@ export default function StoreRankingPage() {
         </div>
       )}
 
-      {/* Filter bar — everything on one line */}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <input
-          type="date"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-          className="px-2.5 py-1.5 bg-background border border-border rounded-md font-medium tabular-nums"
-        />
-        <span className="text-muted-foreground">→</span>
-        <input
-          type="date"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-          className="px-2.5 py-1.5 bg-background border border-border rounded-md font-medium tabular-nums"
-        />
-        {invalidRange && (
-          <span className="text-red-600 dark:text-red-400 font-medium">
-            End date must be after start.
-          </span>
-        )}
-        <span className="flex-1" />
-        <select
-          value={buyer}
-          onChange={(e) => setBuyer(e.target.value)}
-          className="px-2 py-1.5 bg-background border border-border rounded-md font-medium"
-        >
-          <option value="all">All buyers</option>
-          {buyers.map((b) => <option key={b} value={b}>{b}</option>)}
-        </select>
-        <select
-          value={dept}
-          onChange={(e) => setDept(e.target.value)}
-          className="px-2 py-1.5 bg-background border border-border rounded-md font-medium"
-        >
-          <option value="all">All depts</option>
-          {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <button
-          onClick={() => setSortDir(sortDir === "worst_first" ? "best_first" : "worst_first")}
-          className="px-2 py-1.5 bg-background border border-border rounded-md font-medium inline-flex items-center gap-1"
-          title={sortDir === "worst_first" ? "Sorting worst→best. Click to flip." : "Sorting best→worst. Click to flip."}
-        >
-          {sortDir === "worst_first"
-            ? <><TrendingDown className="w-3 h-3" /> Worst first</>
-            : <><TrendingUp className="w-3 h-3" /> Best first</>
-          }
-        </button>
-      </div>
-
       {loading && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
         </div>
       )}
 
-      {/* Compact table — one line per store, zone as color dot */}
       {!loading && data && (
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-[11px] text-muted-foreground uppercase tracking-wide">
-                  <ColHeader label="Store" k="store" sortKey={sortKey} onSort={toggleColumnSort} align="left" />
-                  <th className="py-1.5 px-2 font-medium text-right">Buyer</th>
-                  <ColHeader label="ROAS" k="roas" sortKey={sortKey} onSort={toggleColumnSort} />
-                  <ColHeader label="Spend" k="spend" sortKey={sortKey} onSort={toggleColumnSort} />
-                  <ColHeader label="Revenue" k="revenue" sortKey={sortKey} onSort={toggleColumnSort} />
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-xs text-muted-foreground">
-                      No stores match the current filter.
-                    </td>
-                  </tr>
-                )}
-                {sorted.map((s) => (
-                  <tr key={s.org_id} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
-                    <td className="py-1.5 px-2">
-                      <div className="flex items-center gap-2">
-                        <ZoneDot zone={s.zone} />
-                        <span className="font-medium">{s.store_name}</span>
-                      </div>
-                    </td>
-                    <td className="py-1.5 px-2 text-right text-xs text-muted-foreground">
-                      {s.media_buyer ?? "—"}
-                    </td>
-                    <td className={cn("py-1.5 px-2 text-right tabular-nums font-semibold", roasColor(s.zone))}>
-                      {fmtRoas(s.roas)}
-                    </td>
-                    <td className="py-1.5 px-2 text-right tabular-nums text-muted-foreground">
-                      {fmtMoney(s.spend, s.currency)}
-                    </td>
-                    <td className="py-1.5 px-2 text-right tabular-nums text-muted-foreground">
-                      {fmtMoney(s.revenue, s.currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <GoalCard
+              label="This month"
+              value={`${onTrack.length} / ${filtered.length}`}
+              caption="stores on track month to date"
+            />
+            <GoalCard
+              label={`Week ${isoWeek(data.periods.week_start)}`}
+              value={`${weekOnTrack} / ${filtered.length}`}
+              caption="stores on track this week"
+            />
           </div>
-          <div className="text-[10px] text-muted-foreground px-3 py-1.5 border-t border-border">
-            {sorted.length}/{data.stores.length} stores · {data.start} → {data.end}
-          </div>
-        </div>
+          <Section kind="off" stores={offTrack} />
+          <Section kind="on" stores={onTrack} />
+          {idle.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              No spend in this period: {idle.map((s) => s.store_name).join(", ")}.
+            </p>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Week on track = ROAS ≥ invoice ROAS and revenue ≥ the weekly floor (€5,000; spend accounts
+            €1,726 spend), converted at the latest ECB rate. Month on track = ROAS MTD ≥ invoice ROAS and
+            revenue MTD ≥ that floor × days / 7. The week&apos;s target is the floor: the target a buyer
+            agreed in the Weekly Store Log is not in the dashboard, and below the floor is off track either way.
+          </p>
+        </>
       )}
     </div>
   );
 }
 
-function ColHeader({
-  label, k, sortKey, onSort, align = "right",
-}: {
-  label: string;
-  k: SortKey;
-  sortKey: SortKey;
-  onSort: (k: SortKey) => void;
-  align?: "left" | "right";
-}) {
-  const active = k === sortKey;
+function GoalCard({ label, value, caption }: { label: string; value: string; caption: string }) {
   return (
-    <th className={cn("py-1.5 px-2 font-medium select-none", align === "right" ? "text-right" : "text-left")}>
-      <button
-        type="button"
-        onClick={() => onSort(k)}
-        className={cn("inline-flex items-center gap-1 hover:text-foreground", active && "text-foreground")}
-      >
-        {label}
-        <ArrowUpDown className={cn("w-2.5 h-2.5 opacity-40", active && "opacity-100")} />
-      </button>
-    </th>
+    <div className="bg-card border border-border rounded-xl px-4 py-3">
+      <div className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">{label}</div>
+      <div className="text-2xl font-semibold tabular-nums mt-0.5">{value}</div>
+      <div className="text-xs text-muted-foreground">{caption}</div>
+    </div>
   );
 }
 
-function ZoneDot({ zone }: { zone: Zone | null }) {
-  const cls =
-    zone === "red" ? "bg-red-500"
-    : zone === "green" ? "bg-emerald-500"
-    : "bg-muted-foreground/30";
-  return <span className={cn("w-2 h-2 rounded-full flex-shrink-0", cls)} title={zone ?? "no data"} />;
+function Section({ kind, stores }: { kind: "on" | "off"; stores: StoreRankingRow[] }) {
+  const on = kind === "on";
+  return (
+    <section className="space-y-2">
+      <h2 className="flex items-baseline gap-3">
+        <span className={cn("text-2xl font-bold", on ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+          {on ? "On track" : "Off track"}
+        </span>
+        <span className="text-base font-semibold text-muted-foreground">
+          {stores.length} {stores.length === 1 ? "store" : "stores"}
+        </span>
+      </h2>
+      <div className="bg-card border border-border rounded-xl overflow-x-auto">
+        <table className="w-full min-w-[960px] text-sm">
+          <thead>
+            <tr className="text-[11px] uppercase tracking-wide">
+              <th colSpan={2} />
+              <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">Week</th>
+              <th className="w-px bg-border" />
+              <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">Month</th>
+            </tr>
+            <tr className="border-b border-border text-left text-[11px] text-muted-foreground uppercase tracking-wide">
+              <th className="py-2 pl-4 pr-2 font-medium">Store</th>
+              <th className="py-2 px-2 font-medium">Buyer</th>
+              <th className="py-2 px-2 font-medium normal-case">
+                <span className="uppercase">ROAS</span> last → this (target = invoice)
+              </th>
+              <th className="py-2 px-2 font-medium normal-case">
+                <span className="uppercase">Revenue</span> actual / target
+              </th>
+              <th className="w-px bg-border" />
+              <th className="py-2 px-2 font-medium">Revenue MTD</th>
+              <th className="py-2 px-2 font-medium">ROAS MTD / target</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stores.length === 0 && (
+              <tr>
+                <td colSpan={7} className="py-4 text-center text-xs text-muted-foreground">
+                  No stores.
+                </td>
+              </tr>
+            )}
+            {stores.map((s) => (
+              <Row key={s.org_id} s={s} on={on} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
-function roasColor(zone: Zone | null): string {
-  if (zone === "red") return "text-red-600 dark:text-red-400";
-  if (zone === "green") return "text-emerald-600 dark:text-emerald-400";
-  return "text-muted-foreground";
+function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
+  const cur = s.currency;
+  const up =
+    s.week.roas != null && s.prev_week.roas != null
+      ? s.week.roas > s.prev_week.roas
+        ? true
+        : s.week.roas < s.prev_week.roas
+        ? false
+        : null
+      : null;
+  return (
+    <tr className="border-b border-border/40 last:border-b-0 even:bg-muted/20">
+      <td className={cn("py-2.5 pl-4 pr-2 border-l-4", on ? "border-l-emerald-600" : "border-l-red-600")}>
+        <span className="font-semibold">{s.store_name}</span>
+      </td>
+      <td className="py-2.5 px-2 text-muted-foreground capitalize">{s.media_buyer ?? "—"}</td>
+      <td className="py-2.5 px-2">
+        <Cell pill={s.week.roas_on_track}>
+          <span className="inline-flex items-center gap-1.5 tabular-nums">
+            <span className="text-muted-foreground">{fmtRoas(s.prev_week.roas)}</span>
+            <ArrowRight className="w-3 h-3 text-muted-foreground" />
+            <span className="font-semibold">{fmtRoas(s.week.roas)}</span>
+            {up === true && <span className="text-emerald-600 text-xs">▲</span>}
+            {up === false && <span className="text-red-600 text-xs">▼</span>}
+            <span className="text-xs text-muted-foreground">/ {fmtRoas(s.roas_target)}</span>
+          </span>
+        </Cell>
+      </td>
+      <td className="py-2.5 px-2">
+        <Cell pill={s.week.volume_on_track}>
+          <span className="tabular-nums">
+            <span className="font-semibold">{fmtMoney(s.week.volume, cur)}</span>
+            <span className="text-xs text-muted-foreground"> / {fmtMoney(s.week.volume_target, cur)}</span>
+            {s.spend_account && <span className="text-xs text-muted-foreground"> spend</span>}
+          </span>
+        </Cell>
+      </td>
+      <td className="w-px bg-border" />
+      <td className="py-2.5 px-2">
+        <Cell pill={s.month.volume_on_track}>
+          <span className="tabular-nums" title={`Target so far: ${fmtMoney(s.month.volume_target, cur)}`}>
+            <span className="font-semibold">{fmtMoney(s.month.volume, cur)}</span>
+            {s.spend_account && <span className="text-xs text-muted-foreground"> spend</span>}
+          </span>
+        </Cell>
+      </td>
+      <td className="py-2.5 px-2">
+        <Cell pill={s.month.roas_on_track}>
+          <span className="tabular-nums">
+            <span className="font-semibold">{fmtRoas(s.month.roas)}</span>
+            <span className="text-xs text-muted-foreground"> / {fmtRoas(s.roas_target)}</span>
+          </span>
+        </Cell>
+      </td>
+    </tr>
+  );
 }
-function fmtRoas(v: number | null): string {
-  if (v == null) return "—";
-  return v.toFixed(2) + "x";
+
+function Cell({ pill, children }: { pill: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      {children}
+      <TrackPill on={pill} />
+    </div>
+  );
 }
-function fmtMoney(v: number, currency: string | null): string {
-  if (!v) return "—";
-  const symbol = currency === "EUR" ? "€" : currency === "USD" ? "$" : currency === "CHF" ? "CHF " : currency === "GBP" ? "£" : "";
-  return `${symbol}${Math.round(v).toLocaleString("en-US")}`;
+
+function TrackPill({ on }: { on: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex-shrink-0 rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white",
+        on ? "bg-emerald-600" : "bg-red-600"
+      )}
+    >
+      {on ? "On track" : "Off track"}
+    </span>
+  );
 }
