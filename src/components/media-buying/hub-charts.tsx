@@ -623,7 +623,6 @@ export function ZoneBlocksSection({
 
 interface ZoneCounts {
   red: number;
-  orange: number;
   green: number;
   unclassified: number;
 }
@@ -643,12 +642,11 @@ function countZonesAtIndex(
   mode: ZoneBlockMode,
   index: number
 ): ZoneCounts {
-  const c: ZoneCounts = { red: 0, orange: 0, green: 0, unclassified: 0 };
+  const c: ZoneCounts = { red: 0, green: 0, unclassified: 0 };
   for (const s of stores) {
     const arr = zonesFor(s, mode);
     const z = arr?.[index] ?? null;
     if (z === "red") c.red++;
-    else if (z === "orange") c.orange++;
     else if (z === "green") c.green++;
     else c.unclassified++;
   }
@@ -680,7 +678,7 @@ function ZoneBlock({
   // Build one row per bucket for the grouped bar chart.
   const chartData = labels.map((label, i) => {
     const c = countZonesAtIndex(stores, mode, i);
-    return { week: label, Red: c.red, Orange: c.orange, Green: c.green };
+    return { week: label, Red: c.red, Green: c.green };
   });
   const current = countZonesAtIndex(stores, mode, currentIdx);
   const prior = countZonesAtIndex(stores, mode, priorIdx);
@@ -695,11 +693,10 @@ function ZoneBlock({
     })
   );
   const red = stores.filter((s) => currentZoneByStore.get(s.org_id) === "red");
-  const orange = stores.filter((s) => currentZoneByStore.get(s.org_id) === "orange");
   const green = stores.filter((s) => currentZoneByStore.get(s.org_id) === "green");
   const unclassified = stores.filter((s) => {
     const z = currentZoneByStore.get(s.org_id);
-    return z !== "red" && z !== "orange" && z !== "green";
+    return z !== "red" && z !== "green";
   });
 
   return (
@@ -714,7 +711,6 @@ function ZoneBlock({
         </div>
         <div className="flex items-center gap-2">
           <ZoneTally label="Red" count={current.red} delta={current.red - prior.red} kind="red" suffix={deltaSuffix} />
-          <ZoneTally label="Orange" count={current.orange} delta={current.orange - prior.orange} kind="orange" suffix={deltaSuffix} />
           <ZoneTally label="Green" count={current.green} delta={current.green - prior.green} kind="green" suffix={deltaSuffix} />
         </div>
       </div>
@@ -741,19 +737,17 @@ function ZoneBlock({
               cursor={{ fill: "currentColor", opacity: 0.05 }}
               contentStyle={{ fontSize: 12, borderRadius: 8 }}
             />
-            {/* Grouped side-by-side (no stackId) so red / orange / green sit next
+            {/* Grouped side-by-side (no stackId) so red and green sit next
                 to each other per week rather than stacking on top of each other. */}
             <Bar dataKey="Red" fill="#ef4444" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-            <Bar dataKey="Orange" fill="#f59e0b" radius={[4, 4, 0, 0]} isAnimationActive={false} />
             <Bar dataKey="Green" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
       {/* Store lists per zone */}
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-border pt-4">
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-border pt-4">
         <ZoneColumn kind="red" stores={red} onStoreClick={onStoreClick} showLastMonth={mode === "last-month"} />
-        <ZoneColumn kind="orange" stores={orange} onStoreClick={onStoreClick} showLastMonth={mode === "last-month"} />
         <ZoneColumn kind="green" stores={green} onStoreClick={onStoreClick} showLastMonth={mode === "last-month"} />
       </div>
       {unclassified.length > 0 && (
@@ -775,20 +769,16 @@ function ZoneTally({
   label: string;
   count: number;
   delta: number;
-  kind: "red" | "orange" | "green";
+  kind: "red" | "green";
   suffix?: string;
 }) {
   const color =
     kind === "red"
       ? "text-red-600 dark:text-red-400"
-      : kind === "orange"
-      ? "text-amber-600 dark:text-amber-400"
       : "text-emerald-600 dark:text-emerald-400";
   const border =
     kind === "red"
       ? "border-red-500/40"
-      : kind === "orange"
-      ? "border-amber-500/40"
       : "border-emerald-500/40";
   return (
     <div className={cn("rounded-lg border px-3 py-1.5 min-w-[74px] text-center", border)}>
@@ -816,7 +806,7 @@ function ZoneColumn({
   showLastMonth = false,
   detail,
 }: {
-  kind: "red" | "orange" | "green";
+  kind: "red" | "green";
   stores: StoreZoneRow[];
   onStoreClick?: (orgId: string) => void;
   /** On the invoiced-month view, put that month's figures on the card — the
@@ -834,12 +824,6 @@ function ZoneColumn({
       bg: "bg-red-500/5 hover:bg-red-500/10",
       dot: "bg-red-500",
     },
-    orange: {
-      header: "text-amber-600 dark:text-amber-400",
-      border: "border-amber-500/40",
-      bg: "bg-amber-500/5 hover:bg-amber-500/10",
-      dot: "bg-amber-500",
-    },
     green: {
       header: "text-emerald-600 dark:text-emerald-400",
       border: "border-emerald-500/40",
@@ -847,7 +831,7 @@ function ZoneColumn({
       dot: "bg-emerald-500",
     },
   }[kind];
-  const label = kind === "red" ? "Red" : kind === "orange" ? "Orange" : "Green";
+  const label = kind === "red" ? "Red · off track" : "Green · on track";
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
@@ -985,7 +969,6 @@ function ZoneRangeBlock({
 }) {
   const zoneOf = (s: StoreZoneRow): Zone | null => byOrg.get(s.org_id)?.zone ?? null;
   const red = stores.filter((s) => zoneOf(s) === "red");
-  const orange = stores.filter((s) => zoneOf(s) === "orange");
   const green = stores.filter((s) => zoneOf(s) === "green");
   const unclassified = stores.filter((s) => zoneOf(s) == null);
 
@@ -1053,14 +1036,12 @@ function ZoneRangeBlock({
         <div className="flex items-center gap-2">
           {/* No delta: one period has nothing to be compared against. */}
           <ZoneTally label="Red" count={red.length} delta={0} kind="red" />
-          <ZoneTally label="Orange" count={orange.length} delta={0} kind="orange" />
           <ZoneTally label="Green" count={green.length} delta={0} kind="green" />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-border pt-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-border pt-4">
         <ZoneColumn kind="red" stores={red} onStoreClick={onStoreClick} detail={detail} />
-        <ZoneColumn kind="orange" stores={orange} onStoreClick={onStoreClick} detail={detail} />
         <ZoneColumn kind="green" stores={green} onStoreClick={onStoreClick} detail={detail} />
       </div>
       {unclassified.length > 0 && (
@@ -1159,7 +1140,6 @@ function ZoneCell({ zone, roas, hasData }: { zone: Zone | null; roas: number | n
         zone
           ? {
               red: "bg-red-500/15 border-red-500/40 text-red-700 dark:text-red-400",
-              orange: "bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-400",
               green: "bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
             }[zone]
           : "border-border text-muted-foreground"
@@ -1171,7 +1151,6 @@ function ZoneCell({ zone, roas, hasData }: { zone: Zone | null; roas: number | n
             "w-2 h-2 rounded-full flex-shrink-0",
             {
               red: "bg-red-500",
-              orange: "bg-amber-500",
               green: "bg-emerald-500",
             }[zone]
           )}

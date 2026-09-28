@@ -4,7 +4,7 @@
  * The single endpoint that powers the Media Buying Hub page. Returns:
  *  - `stores`     — every configured store's zone + metrics + benchmarks
  *  - `campaigns`  — every campaign's zone + parsed attrs (naming-explorer)
- *  - `zone_tally` — counts of red/orange/green at store + campaign level
+ *  - `zone_tally` — counts of red/green at store + campaign level
  *  - `buyer_scorecard` — per-media-buyer aggregate
  *  - `portfolio_health` — spend-weighted score for the whole book
  *  - `benchmarks` — per-niche / per-country / per-store rolling averages

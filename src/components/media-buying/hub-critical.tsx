@@ -50,9 +50,7 @@ export function CriticalAttentionOverview({
     [hub.movers, orgIdsInFilter]
   );
   const alarms = movers.filter((m) => m.category === "alarm");
-  const recovering = movers.filter(
-    (m) => m.category === "recovery" || m.category === "improvement"
-  );
+  const recovering = movers.filter((m) => m.category === "recovery");
 
   const currentlyRed = useMemo(
     () =>
@@ -83,11 +81,6 @@ export function CriticalAttentionOverview({
       />
       <PersistenceCard
         stores={filteredStores}
-        zone="orange"
-        onStoreClick={onStoreClick}
-      />
-      <PersistenceCard
-        stores={filteredStores}
         zone="green"
         onStoreClick={onStoreClick}
       />
@@ -100,7 +93,7 @@ export function CriticalAttentionOverview({
  *  bucket isn't that zone. */
 function consecutiveWeeksIn(
   zoneHistory: (StoreZoneRow["zone"] | null)[] | undefined,
-  targetZone: "red" | "orange" | "green"
+  targetZone: "red" | "green"
 ): number {
   if (!zoneHistory || zoneHistory.length === 0) return 0;
   let streak = 0;
@@ -320,14 +313,12 @@ function StoreList({
 }: {
   stores: StoreZoneRow[];
   onStoreClick: (orgId: string) => void;
-  zone: "red" | "green" | "orange";
+  zone: "red" | "green";
 }) {
   const borderClass =
     zone === "red"
       ? "border-red-500/40 bg-red-500/5 hover:bg-red-500/10"
-      : zone === "green"
-      ? "border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10"
-      : "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10";
+      : "border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10";
   return (
     <ul className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
       {stores.map((s) => (
@@ -356,12 +347,11 @@ function StoreList({
 
 /**
  * Persistence view — currently-in-zone stores sorted by how many consecutive
- * weeks they've been in that zone. Mutually exclusive across the 3 cards
+ * weeks they've been in that zone. Mutually exclusive across the 2 cards
  * because it filters on the store's CURRENT zone.
  *
- *   Red   → who has been red the longest (biggest concern)
- *   Orange → chronically underperforming, not yet breakeven
- *   Green → most reliable winners
+ *   Red   → off track the longest (biggest concern)
+ *   Green → on track the longest (most reliable winners)
  */
 function PersistenceCard({
   stores,
@@ -369,7 +359,7 @@ function PersistenceCard({
   onStoreClick,
 }: {
   stores: StoreZoneRow[];
-  zone: "red" | "orange" | "green";
+  zone: "red" | "green";
   onStoreClick: (orgId: string) => void;
 }) {
   const inZone = useMemo(
@@ -380,7 +370,7 @@ function PersistenceCard({
           store: s,
           weeks: consecutiveWeeksIn(s.zone_history as (typeof zone | null)[] | undefined, zone),
         }))
-        // Longest streak first — worst offenders (red/orange) or most reliable (green) at the top
+        // Longest streak first — worst offenders (red) or most reliable (green) at the top
         .sort((a, b) => b.weeks - a.weeks),
     [stores, zone]
   );
@@ -392,13 +382,6 @@ function PersistenceCard({
       chip: "border-red-500/40 bg-red-500/5 hover:bg-red-500/10",
       badge: "text-red-600 dark:text-red-400",
       empty: "No stores currently red.",
-    },
-    orange: {
-      title: "Longest in orange",
-      iconClass: "text-amber-500",
-      chip: "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10",
-      badge: "text-amber-600 dark:text-amber-400",
-      empty: "No stores currently orange.",
     },
     green: {
       title: "Longest in green",

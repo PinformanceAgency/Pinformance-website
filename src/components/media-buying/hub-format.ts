@@ -37,18 +37,15 @@ export const fmtCtr = (n: number | null | undefined): string =>
 
 export const zoneBg: Record<Zone, string> = {
   red: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/40",
-  orange: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40",
   green: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/40",
 };
 
 export const zoneDot: Record<Zone, string> = {
   red: "bg-red-500",
-  orange: "bg-amber-500",
   green: "bg-emerald-500",
 };
 
 export const zoneLabel: Record<Zone, string> = {
   red: "Red",
-  orange: "Orange",
   green: "Green",
 };

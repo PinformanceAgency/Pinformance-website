@@ -9,16 +9,15 @@
  */
 
 // ─── Zone thresholds (Task 2, per-head-of-media-buying rules) ─────────────
-// Zone is decided by TWO gates rather than a single ratio band:
-//   1. Profitability gate — is live ROAS above breakeven ROAS?
-//   2. Scale gate         — is live ROAS above the invoice ROAS AND is the
-//                            revenue (or spend) above the floor for this
-//                            bucket's period?
+// Two zones, the same two as the Monday "Weekly Updates" board:
 //
-//   red    = live ROAS < breakeven ROAS                       (losing money)
-//   green  = live ROAS ≥ invoice ROAS AND rev ≥ floor         (winning at scale)
-//   orange = anything else                                    (profitable but sub-scale
-//                                                              or between BER and invoice)
+//   green = live ROAS ≥ invoice ROAS AND volume ≥ floor   (on track)
+//   red   = either one missed, or both                    (off track)
+//
+// There used to be an orange zone between breakeven and invoice ROAS, or
+// profitable but sub-scale. It was dropped on 28-09-2026 (Tristan): the board
+// the buyers report on only knows on track / off track, and a third colour on
+// the dashboard meant every store had two verdicts that did not match.
 //
 // The scale gate is period-aware (see `scaleBasis` on ClassifyInput). A 7-day
 // bucket is held to the weekly floor; a calendar-month bucket is held to the
@@ -30,8 +29,6 @@
 // store. `green_ratio` is only used as a fallback when a store has no
 // invoice_roas configured yet (invoice_roas ≈ BER × green_ratio then).
 export interface ZoneThresholds {
-  /** Below this ratio (roas / ber) → red. Default 1.0 = BER itself. */
-  orange_ratio: number;
   /** Fallback multiplier when invoice_roas is not set on the store. */
   green_ratio: number;
   /** Per-store override for the weekly revenue floor required for green. */
@@ -44,7 +41,6 @@ export interface ZoneThresholds {
 }
 
 export const DEFAULT_ZONE_THRESHOLDS: ZoneThresholds = {
-  orange_ratio: 1.0,
   green_ratio: 1.3,
 };
 
@@ -242,7 +238,7 @@ export const DEPARTMENT_LABELS: Record<Department, string> = {
  * Returns null when we can't decide: no spend, or the store hasn't got a
  * breakeven ROAS filled in yet.
  */
-export type Zone = "red" | "orange" | "green";
+export type Zone = "red" | "green";
 
 export interface ClassifyInput {
   liveRoas: number | null | undefined;
@@ -410,17 +406,12 @@ export function classifyZone(input: ClassifyInput): Zone | null {
   if (liveRoas == null || !isFinite(liveRoas)) return null;
 
   const th: ZoneThresholds = {
-    orange_ratio: overrides?.orange_ratio ?? DEFAULT_ZONE_THRESHOLDS.orange_ratio,
     green_ratio: overrides?.green_ratio ?? DEFAULT_ZONE_THRESHOLDS.green_ratio,
     min_weekly_revenue:
       overrides?.min_weekly_revenue ?? DEFAULT_GREEN_REVENUE_WEEKLY_FLOOR,
     min_monthly_revenue:
       overrides?.min_monthly_revenue ?? DEFAULT_GREEN_REVENUE_MONTHLY_FLOOR,
   };
-  const berFloor = breakevenRoas * th.orange_ratio;
-  // Red — below breakeven. Costs > revenue in ad terms.
-  if (liveRoas < berFloor) return "red";
-
   // Effective invoice ROAS: prefer the explicit value, else fall back to
   // BER × green_ratio so stores that haven't set invoice_roas yet still
   // classify sensibly.
@@ -451,5 +442,5 @@ export function classifyZone(input: ClassifyInput): Zone | null {
   }
 
   if (beatsInvoice && scaleOK) return "green";
-  return "orange";
+  return "red";
 }

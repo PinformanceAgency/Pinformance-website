@@ -141,7 +141,7 @@ export default function ZonesPage() {
       <header>
         <h1 className="text-2xl font-semibold">Zones</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Red / orange / green at company, department and media-buyer level.
+          Green (on track) / red (off track) at company, department and media-buyer level.
           The last four weeks show short-term flips, this month shows who is on
           pace, last month is the finished month with its own numbers on every
           store, and a custom range answers any other period you need.

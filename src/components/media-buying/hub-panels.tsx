@@ -62,13 +62,13 @@ export function ZoneOverview({
       <div className="mb-4">
         <h2 className="text-base font-semibold">Zones</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Stores by health over the last {hub.meta.window_days} days. Red = below BER,
-          green = above invoice ROAS &amp; at scale, orange in between.
+          Stores by health over the last {hub.meta.window_days} days. Green = on track
+          (at or above invoice ROAS &amp; at scale), red = off track (either one missed).
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {(["red", "orange", "green"] as const).map((z) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {(["red", "green"] as const).map((z) => (
           <ZoneCard
             key={z}
             zone={z}
@@ -341,7 +341,7 @@ function tallyByZone<T extends { zone: Zone | null }>(rows: T[]) {
       if (r.zone) acc[r.zone]++;
       return acc;
     },
-    { red: 0, orange: 0, green: 0 } as Record<Zone, number>
+    { red: 0, green: 0 } as Record<Zone, number>
   );
 }
 
@@ -708,7 +708,7 @@ interface ScorecardTableRow {
   roas: number | null;
   weighted_ber: number | null;
   zone: Zone | null;
-  zones: { red: number; orange: number; green: number };
+  zones: { red: number; green: number };
   wow_spend_delta_pct: number | null;
   wow_roas_delta_pct: number | null;
 }
@@ -754,7 +754,7 @@ function ScorecardTable({
                 {fmtRoas(r.weighted_ber)}
               </td>
               <td className="py-2 pl-3">
-                <ZoneBars red={r.zones.red} orange={r.zones.orange} green={r.zones.green} />
+                <ZoneBars red={r.zones.red} green={r.zones.green} />
               </td>
               <td className="py-2 text-right tabular-nums">
                 <DeltaPct v={r.wow_spend_delta_pct} />
@@ -800,18 +800,17 @@ function ZoneBadge({ zone, large }: { zone: Zone | null; large?: boolean }) {
   );
 }
 
-function ZoneBars({ red, orange, green }: { red: number; orange: number; green: number }) {
-  const total = red + orange + green;
+function ZoneBars({ red, green }: { red: number; green: number }) {
+  const total = red + green;
   if (total === 0) return <span className="text-xs text-muted-foreground">—</span>;
   return (
     <div className="flex items-center gap-2">
       <div className="flex h-2 rounded overflow-hidden w-24">
         {red > 0 && <div className="bg-red-500" style={{ width: `${(red / total) * 100}%` }} />}
-        {orange > 0 && <div className="bg-amber-500" style={{ width: `${(orange / total) * 100}%` }} />}
         {green > 0 && <div className="bg-emerald-500" style={{ width: `${(green / total) * 100}%` }} />}
       </div>
       <span className="text-[11px] text-muted-foreground tabular-nums">
-        {red}·{orange}·{green}
+        {red}·{green}
       </span>
     </div>
   );
@@ -893,9 +892,7 @@ export function ExceptionsPanel({
 // ─── Zone movers ────────────────────────────────────────────────────────────
 const MOVER_LABEL: Record<Mover["category"], { label: string; cls: string; icon: React.ElementType }> = {
   recovery: { label: "Recovering", cls: "text-emerald-600 dark:text-emerald-400", icon: TrendingUp },
-  improvement: { label: "Improving", cls: "text-lime-600 dark:text-lime-400", icon: TrendingUp },
   alarm: { label: "Alarm", cls: "text-red-600 dark:text-red-400", icon: TrendingDown },
-  regression: { label: "Regressing", cls: "text-amber-600 dark:text-amber-400", icon: TrendingDown },
 };
 
 export function MoversPanel({

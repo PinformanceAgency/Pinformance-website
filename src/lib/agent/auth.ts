@@ -13,7 +13,7 @@
  *    Postgres — turns it back into a token. It usually has to be refreshed
  *    before it works at all (`pinterestClientForOrg`). A SQL reader gets
  *    unreadable text.
- *  - A database key also cannot reach the ZONES. Red/orange/green, the FX
+ *  - A database key also cannot reach the ZONES. Red/green, the FX
  *    conversion of the euro thresholds, the pro-rata of the running month —
  *    all of that is TypeScript in `src/lib/media-buying/`, not SQL. An agent
  *    reading the tables would have to reimplement it and would then quote

@@ -1,5 +1,5 @@
 /**
- * Server-side helpers to compute the red / orange / green zone for every
+ * Server-side helpers to compute the red / green zone for every
  * store (and optionally per-campaign) by reading pinterest_metrics_snapshots
  * and joining against store_settings' breakeven_roas + zone_thresholds.
  *
@@ -143,7 +143,7 @@ export interface StoreZoneRow {
     gap_days: number;
   };
   /** Rolling 12-week zone history, oldest first. Same bucketing logic as
-   *  weekly_zones just wider — used by Critical Attention "Long red/orange/
+   *  weekly_zones just wider — used by Critical Attention "Long red/
    *  green" cards to compute how many consecutive weeks the store has been
    *  in its current state. */
   zone_history: (Zone | null)[];
@@ -323,7 +323,7 @@ export async function computeStoreZones(
   /** The calendar month TODAY is in — the only bucket that may be pro-rated. */
   const currentCalendarMonth = new Date().toISOString().slice(0, 7);
   // 12 weeks of history for the persistence view on Critical Attention
-  // ("how long has this store been red/orange/green"). We need enough weeks
+  // ("how long has this store been red/green"). We need enough weeks
   // to spot multi-month streaks — 4 weeks alone caps the answer at "4+".
   const { start: weeklyHistoryStart } = zoneWindow(28);
   const { start: extendedHistoryStart } = zoneWindow(12 * 7); // 84 days
@@ -989,8 +989,8 @@ export async function computeCampaignZones(
     const revenue = tot.revenue;
     const roas = spend > 0 ? revenue / spend : null;
     // Campaigns skip the revenue-floor gate — a smaller winning campaign
-    // inside a healthy store shouldn't be dragged to orange just because it
-    // alone doesn't do €5k/week.
+    // inside a healthy store shouldn't be painted red just because it alone
+    // doesn't do €5k/week.
     const zone = classifyZone({
       liveRoas: roas,
       breakevenRoas: s?.breakeven_roas ?? null,
@@ -1027,11 +1027,10 @@ export async function computeCampaignZones(
 /** Count zone buckets from a list. Unclassified (null) is not counted. */
 export function tallyZones<T extends { zone: Zone | null }>(
   rows: T[]
-): { red: number; orange: number; green: number; unclassified: number } {
-  const out = { red: 0, orange: 0, green: 0, unclassified: 0 };
+): { red: number; green: number; unclassified: number } {
+  const out = { red: 0, green: 0, unclassified: 0 };
   for (const r of rows) {
     if (r.zone === "red") out.red++;
-    else if (r.zone === "orange") out.orange++;
     else if (r.zone === "green") out.green++;
     else out.unclassified++;
   }

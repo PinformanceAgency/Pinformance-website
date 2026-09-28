@@ -1,12 +1,10 @@
 "use client";
 
-import { mediaBuyerOptions } from "@/lib/media-buying/config";
+import { mediaBuyerOptions, type Zone } from "@/lib/media-buying/config";
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, ArrowUpDown, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-type Zone = "red" | "orange" | "green";
 
 interface StoreRow {
   org_id: string;
@@ -97,8 +95,7 @@ export default function StoreRankingPage() {
     const zoneRank = (z: Zone | null): number => {
       if (z === "red") return 0;
       if (z === null) return 1;
-      if (z === "orange") return 2;
-      return 3;
+      return 2;
     };
     const dir = sortDir === "worst_first" ? 1 : -1;
     if (sortKey === "zone_roas") {
@@ -283,7 +280,6 @@ function ColHeader({
 function ZoneDot({ zone }: { zone: Zone | null }) {
   const cls =
     zone === "red" ? "bg-red-500"
-    : zone === "orange" ? "bg-amber-500"
     : zone === "green" ? "bg-emerald-500"
     : "bg-muted-foreground/30";
   return <span className={cn("w-2 h-2 rounded-full flex-shrink-0", cls)} title={zone ?? "no data"} />;
@@ -291,7 +287,6 @@ function ZoneDot({ zone }: { zone: Zone | null }) {
 
 function roasColor(zone: Zone | null): string {
   if (zone === "red") return "text-red-600 dark:text-red-400";
-  if (zone === "orange") return "text-amber-600 dark:text-amber-400";
   if (zone === "green") return "text-emerald-600 dark:text-emerald-400";
   return "text-muted-foreground";
 }

@@ -281,11 +281,10 @@ function ZoneRulesFootnote({
     <div className="text-xs text-muted-foreground border-t border-border pt-3 space-y-1">
       <div>
         <strong>Zone rules for this store:</strong>{" "}
-        ROAS &lt; <strong>{fmtRoas(ber)}</strong> = red · ROAS &ge;{" "}
-        <strong>{fmtRoas(invoice)}</strong> AND weekly{" "}
+        ROAS &ge; <strong>{fmtRoas(invoice)}</strong> AND weekly{" "}
         {weeklyGate.metric === "spend" ? "spend" : "revenue"} &ge;{" "}
-        <strong>{fmtCurrency(weeklyGate.floor, currency)}</strong> = green ·
-        everything else = orange.
+        <strong>{fmtCurrency(weeklyGate.floor, currency)}</strong> = green (on
+        track) · missing either one = red (off track).
         {store.invoice_roas == null && (
           <span className="italic"> (Invoice ROAS not set; using BER &times; green fallback ratio.)</span>
         )}

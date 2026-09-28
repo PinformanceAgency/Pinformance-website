@@ -18,8 +18,8 @@ export interface HubResponse {
   stores: StoreZoneRow[];
   campaigns: CampaignZoneRow[];
   zone_tally: {
-    stores: { red: number; orange: number; green: number; unclassified: number };
-    campaigns: { red: number; orange: number; green: number; unclassified: number };
+    stores: { red: number; green: number; unclassified: number };
+    campaigns: { red: number; green: number; unclassified: number };
   };
   buyer_scorecard: BuyerScorecardRow[];
   department_breakdown: DepartmentRow[];

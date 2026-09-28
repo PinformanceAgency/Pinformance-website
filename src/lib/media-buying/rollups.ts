@@ -27,7 +27,7 @@ export interface GroupAggregate {
   weighted_invoice_roas: number | null;
   /** classifyZone applied to the spend-weighted aggregate. */
   zone: Zone | null;
-  zones: { red: number; orange: number; green: number };
+  zones: { red: number; green: number };
 }
 
 function aggregateStores(list: StoreZoneRow[]): GroupAggregate {
@@ -74,7 +74,7 @@ function aggregateStores(list: StoreZoneRow[]): GroupAggregate {
     weighted_ber,
     weighted_invoice_roas,
     zone,
-    zones: { red: zt.red, orange: zt.orange, green: zt.green },
+    zones: { red: zt.red, green: zt.green },
   };
 }
 

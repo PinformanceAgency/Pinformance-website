@@ -30,7 +30,6 @@ function parseZoneThresholds(
   if (typeof v !== "object") return undefined;
   const obj = v as Record<string, unknown>;
   const out: Partial<ZoneThresholds> = {};
-  if (typeof obj.orange_ratio === "number") out.orange_ratio = obj.orange_ratio;
   if (typeof obj.green_ratio === "number") out.green_ratio = obj.green_ratio;
   if (typeof obj.min_weekly_revenue === "number")
     out.min_weekly_revenue = obj.min_weekly_revenue;

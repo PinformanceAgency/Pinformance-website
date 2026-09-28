@@ -41,7 +41,7 @@ export interface Mover {
   store_name: string;
   from: Zone | null;
   to: Zone | null;
-  category: "recovery" | "alarm" | "improvement" | "regression";
+  category: "recovery" | "alarm";
   spend_curr: number;
   roas_curr: number | null;
   roas_prev: number | null;
@@ -214,13 +214,11 @@ export async function computeMovers(
     });
     if (zonePrev === zoneCurr) continue;
 
-    // Categorize: red→orange/green = recovery, orange→red / green→red = alarm,
-    // orange→green = improvement, green→orange = regression.
+    // Two zones: red→green is a recovery, green→red an alarm. A move to or
+    // from "no data" is not a transition anybody can act on.
     let category: Mover["category"] | null = null;
-    if (zonePrev === "red" && (zoneCurr === "orange" || zoneCurr === "green")) category = "recovery";
-    else if (zoneCurr === "red" && (zonePrev === "orange" || zonePrev === "green")) category = "alarm";
-    else if (zonePrev === "orange" && zoneCurr === "green") category = "improvement";
-    else if (zonePrev === "green" && zoneCurr === "orange") category = "regression";
+    if (zonePrev === "red" && zoneCurr === "green") category = "recovery";
+    else if (zonePrev === "green" && zoneCurr === "red") category = "alarm";
     if (!category) continue;
 
     out.push({
@@ -234,12 +232,10 @@ export async function computeMovers(
       roas_prev: roasPrev,
     });
   }
-  // Alarms first, then recoveries, then improvement, then regression.
+  // Alarms first, then recoveries.
   const rank: Record<Mover["category"], number> = {
     alarm: 0,
     recovery: 1,
-    regression: 2,
-    improvement: 3,
   };
   out.sort((a, b) => rank[a.category] - rank[b.category] || b.spend_curr - a.spend_curr);
   return out;

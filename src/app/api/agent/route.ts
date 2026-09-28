@@ -36,12 +36,12 @@ export async function GET(request: NextRequest) {
       },
       {
         path: "/api/agent/zones",
-        what: "Red/orange/green per store with the numbers it was decided on: 7-day window, 4 weekly buckets, 3 monthly buckets, month-to-date and the last completed month.",
+        what: "Green (on track) / red (off track) per store with the numbers it was decided on: 7-day window, 4 weekly buckets, 3 monthly buckets, month-to-date and the last completed month.",
         params: {
           window: "7 | 14 | 30 (default 7)",
           start: "YYYY-MM-DD — with `end`, switches to one custom period instead of the buckets",
           end: "YYYY-MM-DD — cannot be in the future",
-          zone: "red | orange | green — filter",
+          zone: "red | green — filter. Green = ROAS at or above invoice ROAS AND the volume floor met; red = either missed",
           buyer: "media buyer's first name, lowercase",
           include_unconfigured: "1 to include stores that have no settings yet",
         },
