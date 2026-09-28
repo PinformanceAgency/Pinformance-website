@@ -39,9 +39,10 @@ async function run(request: NextRequest) {
 
     const rows = report.orgs.reduce((t, o) => t + o.days_written, 0);
     const monthRows = report.orgs.reduce((t, o) => t + o.months_written, 0);
+    const weekRows = report.orgs.reduce((t, o) => t + o.weeks_written, 0);
     console.log(
       `[organic-pull-analytics] EINDCONTROLE: ${report.orgs.length} store(s), ` +
-      `${rows} dagrijen, ${monthRows} maandrijen, ${report.reconnect_required.length} herkoppelen, ` +
+      `${rows} dagrijen, ${monthRows} maandrijen, ${weekRows} weekrijen, ${report.reconnect_required.length} herkoppelen, ` +
       `${report.errors.length} fout` +
       (report.not_reached.length > 0
         ? ` — niet toegekomen aan ${report.not_reached.length}: ${report.not_reached.join(", ")}`

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const TABS = [
+  { slug: "weekly", label: "This week", hint: "organic per brand" },
   { slug: "portfolio", label: "Portfolio", hint: "health by cohort" },
   { slug: "execution", label: "Execution", hint: "are we delivering" },
   { slug: "margin",    label: "Capacity & margin", hint: "where the hours go" },

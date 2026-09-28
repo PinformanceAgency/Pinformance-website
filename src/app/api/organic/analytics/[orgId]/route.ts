@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import * as P5 from "@/lib/organic/phase5";
 import * as M from "@/lib/organic/monthly";
+import * as W from "@/lib/organic/weekly";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -56,6 +57,11 @@ export async function POST(
       case "promote_pin":
         await P5.promoteToAds(String(body.pin_id), body.signal as string, body.funnel_use as string);
         return NextResponse.json({ ok: true });
+
+      // Conversion Insights for one week. The conversion window is the
+      // brand's and is stamped server-side; the body cannot choose it.
+      case "save_week":
+        return NextResponse.json(await W.saveWeeklyFigures(orgId, body.figures as W.WeeklyFigures));
 
       case "save_figures":
         return NextResponse.json(await M.saveMonthlyFigures(orgId, body.figures as M.MonthlyFigures));

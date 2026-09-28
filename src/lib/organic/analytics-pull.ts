@@ -110,6 +110,7 @@ export interface PullReport {
     pins_measured: number;
     days_written: number;
     months_written: number;
+    weeks_written: number;
     /** Of Pinterest de OTHER-kant gaf: wat anderen op het geclaimde domein
      *  pinnen. Niets te maken met conversies — die bestaan hier niet. */
     other_pins_available: boolean;
@@ -126,29 +127,42 @@ export interface PullReport {
   not_reached: string[];
 }
 
+/** The seeded demo store: fake data, no token, nothing to pull. */
+const DEMO_ORG = "d3e70000-0000-4000-8000-00000000de00";
+
 /**
- * Pull both sets for every store that has published organic pins.
+ * Account figures (per month and per week) for every organic store; pin
+ * performance for the stores that have pins of ours published.
  *
  * Self-healing over a window rather than incremental: Pinterest revises
  * recent days, so re-reading the last two weeks and upserting is the only
  * way the numbers converge on what Pinterest will eventually agree with.
  */
 export async function pullOrganicAnalytics(
-  opts: { orgId?: string; days?: number; months?: number } = {}
+  opts: { orgId?: string; days?: number; months?: number; weeks?: number } = {}
 ): Promise<PullReport> {
   const pool = organicPool();
   const days = opts.days ?? 14;
   const months = opts.months ?? 2;
 
-  const orgs = await pool.query<{ org_id: string }>(
-    `SELECT DISTINCT w.org_id::text AS org_id
-       FROM organic.pins p
-       JOIN organic.waterfalls w ON w.id = p.waterfall_id
-      WHERE p.status = 'PUBLISHED'::organic.pin_status
-        AND p.pinterest_pin_id IS NOT NULL
-        AND ($1::uuid IS NULL OR w.org_id = $1::uuid)`,
-    [opts.orgId ?? null]
+  // Every store in the organic book, not only the ones we have published
+  // for. Until 28-09-2026 this selected on published pins, so a brand whose
+  // own pins had been running for months but where our first cycle had not
+  // gone live had no figures at all — 14 of 27 stores. The account totals
+  // are about the store's own image and video pins, whoever pinned them.
+  const orgs = await pool.query<{ org_id: string; has_published: boolean }>(
+    `SELECT cs.org_id::text AS org_id,
+            EXISTS (SELECT 1 FROM organic.pins p
+                      JOIN organic.waterfalls w ON w.id = p.waterfall_id
+                     WHERE w.org_id = cs.org_id
+                       AND p.status = 'PUBLISHED'::organic.pin_status
+                       AND p.pinterest_pin_id IS NOT NULL) AS has_published
+       FROM organic.client_settings cs
+      WHERE cs.org_id <> $2::uuid
+        AND ($1::uuid IS NULL OR cs.org_id = $1::uuid)`,
+    [opts.orgId ?? null, DEMO_ORG]
   );
+  const hasPublished = new Map(orgs.rows.map((r) => [r.org_id, r.has_published]));
 
   const report: PullReport = { orgs: [], reconnect_required: [], errors: [], not_reached: [] };
   const startedAt = Date.now();
@@ -171,7 +185,7 @@ export async function pullOrganicAnalytics(
     // maanden achtereen overgeslagen zonder dat één scherm dat kon zeggen.
     const notes: string[] = [];
     let pins = { pins: 0, rows: 0, failed: [] as string[] };
-    try {
+    if (hasPublished.get(orgId)) try {
       pins = await pullPinPerformance(orgId, entry.client, days);
       if (pins.failed.length > 0) {
         notes.push(`${pins.failed.length} pin(s) gave an error: ${pins.failed[0]}`);
@@ -194,12 +208,20 @@ export async function pullOrganicAnalytics(
       report.errors.push({ org_id: orgId, message: `account KPIs: ${(e as Error).message}` });
     }
 
+    let weeks = 0;
+    try {
+      weeks = await pullWeeklyKpis(orgId, entry.client, opts.weeks ?? 5);
+    } catch (e) {
+      report.errors.push({ org_id: orgId, message: `weekly KPIs: ${(e as Error).message}` });
+    }
+
     report.orgs.push({
       org_id: orgId,
       org_name: entry.orgName,
       pins_measured: pins.pins,
       days_written: pins.rows,
       months_written: kpis.months,
+      weeks_written: weeks,
       other_pins_available: kpis.other_pins,
       note: notes.length > 0 ? notes.join(" · ") : undefined,
     });
@@ -418,6 +440,82 @@ export async function pullAccountKpis(
   }
 
   return { months: written, other_pins: otherPinsSeen, skipped_too_old: skippedTooOld, failed: failures };
+}
+
+/**
+ * The last `weeks` full Monday–Sunday weeks, into `organic.weekly_kpis`.
+ *
+ * One call over the whole span (two, really: image and video) and bucketed
+ * per week here, rather than a call per week — five weeks are ten requests
+ * otherwise, times every store in the book. Same filters as the month:
+ * CLAIMED, own image + video pins, READY days only. A week with a day that is
+ * not READY yet, or that starts before the 90-day window, is marked partial.
+ *
+ * Only the API half is written. The Conversion Insights half (revenue,
+ * checkouts, ...) is typed in by a person and the upsert never touches it.
+ */
+export async function pullWeeklyKpis(
+  orgId: string,
+  client: PinterestClient,
+  weeks: number,
+): Promise<number> {
+  const pool = organicPool();
+  const DAY = 86_400_000;
+  const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
+  const dow = (today.getUTCDay() + 6) % 7; // Monday = 0
+  const lastMonday = new Date(today.getTime() - (dow + 7) * DAY);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const oldestAllowed = iso(new Date(Date.now() - (API_WINDOW_DAYS - 1) * DAY));
+
+  const starts: string[] = [];
+  for (let i = weeks - 1; i >= 0; i--) starts.push(iso(new Date(lastMonday.getTime() - i * 7 * DAY)));
+  const spanStart = starts[0] < oldestAllowed ? oldestAllowed : starts[0];
+  const spanEnd = iso(new Date(lastMonday.getTime() + 6 * DAY));
+
+  const res = await ownPinsAnalytics(
+    client, spanStart, spanEnd,
+    ["IMPRESSION", "SAVE", "PIN_CLICK", "OUTBOUND_CLICK", "ENGAGEMENT"], "CLAIMED",
+  );
+  const byDate = new Map((res?.all?.daily_metrics ?? []).map((d) => [d.date, d]));
+
+  let written = 0;
+  for (const start of starts) {
+    const days = Array.from({ length: 7 }, (_, i) => iso(new Date(Date.parse(start + "T00:00:00Z") + i * DAY)));
+    const ready = days.map((d) => byDate.get(d)).filter((d) => d && (!d.data_status || d.data_status === "READY"));
+    // BEFORE_BUSINESS_CREATED and its kin: the account did not exist yet, so
+    // there is nothing to measure — that is null, not zero. PROCESSING (the
+    // last day or two) is a day we cannot count YET: the week is partial,
+    // and the next nightly run fills it in. A day Pinterest left out
+    // entirely had no activity (see "Data conventions").
+    const before = (st?: string) => !!st && st.startsWith("BEFORE_");
+    const measurable = days.filter((d) => !before(byDate.get(d)?.data_status));
+    const notReady = measurable.some((d) => {
+      const st = byDate.get(d)?.data_status;
+      return !!st && st !== "READY";
+    });
+    if (start < oldestAllowed && days[6] < oldestAllowed) continue;
+    const partial = notReady || start < oldestAllowed;
+    const sum = (m: string) =>
+      measurable.length === 0 ? null : ready.reduce((t, d) => t + metric(d!.metrics, m), 0);
+    await pool.query(
+      `INSERT INTO organic.weekly_kpis
+         (org_id, week_start, impressions, pin_saves, pin_clicks, outbound_clicks,
+          engagements, is_partial, measured_at)
+       VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, now())
+       ON CONFLICT (org_id, week_start) DO UPDATE SET
+         impressions     = EXCLUDED.impressions,
+         pin_saves       = EXCLUDED.pin_saves,
+         pin_clicks      = EXCLUDED.pin_clicks,
+         outbound_clicks = EXCLUDED.outbound_clicks,
+         engagements     = EXCLUDED.engagements,
+         is_partial      = EXCLUDED.is_partial,
+         measured_at     = now()`,
+      [orgId, start, sum("IMPRESSION"), sum("SAVE"), sum("PIN_CLICK"),
+       sum("OUTBOUND_CLICK"), sum("ENGAGEMENT"), partial],
+    );
+    written += 1;
+  }
+  return written;
 }
 
 async function pinsPublishedIn(orgId: string, from: string, to: string): Promise<number> {

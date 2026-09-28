@@ -14,6 +14,8 @@ import { PhaseBoard } from "./PhaseBoard";
 import { Phase4Cycles } from "../../Phase4Cycles";
 import { CycleOpsPanel } from "@/components/organic/CycleOps";
 import { CycleStart } from "@/components/organic/CycleStart";
+import { loadStoreWeekly } from "@/lib/organic/weekly";
+import { WeeklyPanel } from "../../WeeklyPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +81,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
     );
   }
 
-  const [header, tasks, viability, p2, p3, assets, answers, automation] = await Promise.all([
+  const [header, tasks, viability, p2, p3, assets, answers, automation, weekly] = await Promise.all([
     loadClientHeader(orgId),
     loadClientTasks(orgId),
     loadViability(orgId),
@@ -88,6 +90,8 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
     loadAssets(orgId),
     loadTaskAnswers(orgId),
     loadAutomationWaits(orgId),
+    // Step 5 opens on the week: that is what gets looked at every Monday.
+    phase === 5 ? loadStoreWeekly(orgId) : Promise.resolve(null),
   ]);
   if (!header) notFound();
 
@@ -96,6 +100,7 @@ export default async function PhasePage({ params }: { params: Promise<{ orgId: s
   return (
     <div className="space-y-5">
       <PhaseHeader meta={meta} progress={header.phases.find((p) => p.phase === phase)} />
+      {weekly && <WeeklyPanel orgId={orgId} data={weekly} />}
       <PhaseBoard
         answers={answers}
         orgId={orgId}
