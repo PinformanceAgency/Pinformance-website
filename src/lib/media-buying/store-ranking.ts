@@ -20,11 +20,12 @@
  * A store is ON TRACK when its month is: both month pills green. That is how
  * the deck splits its pages; the week pills say how last week went.
  *
- * CUSTOM RANGE (storeRankingRangePeriods): any period, against the period of
- * the same length right before it. Judged exactly like the week — ROAS ≥
- * invoice, volume ≥ weekly floor × days / 7 — so a 7-day range that is a
- * Mon–Sun week gives the same pills as the week view. There is no month
- * beside it; the range's own status decides On track / Off track.
+ * CUSTOM RANGE (storeRankingRangePeriods): any period in place of the week,
+ * against the period of the same length right before it. Judged exactly like
+ * the week — ROAS ≥ invoice, volume ≥ weekly floor × days / 7 — so a 7-day
+ * range that is a Mon–Sun week gives the same pills as the week view. Month
+ * to date stays beside it, unchanged: it is always wanted (Tristan,
+ * 28-09-2026), and it still decides On track / Off track.
  *
  * What the deck has and this does not: the target the buyer agreed for the
  * week (it lives in the Weekly Store Log on Monday, not here), so the week's
@@ -75,8 +76,8 @@ export interface StoreRankingRow {
 }
 
 export interface StoreRankingPeriods {
-  /** "week": a Mon–Sun week plus month to date. "range": a chosen period,
-   *  carried in the week_* fields, with no month beside it. */
+  /** "week": a Mon–Sun week plus month to date. "range": a chosen period in
+   *  the week_* fields, with the same month to date beside it. */
   mode: "week" | "range";
   /** Monday and Sunday of the week being reported. */
   week_start: string;
@@ -160,6 +161,9 @@ export function storeRankingRangePeriods(
   if (from > end) throw new Error("The start date must be on or before the end date (and before today)");
   const days = Math.round((Date.parse(end) - Date.parse(from)) / DAY) + 1;
   if (days > MAX_RANGE_DAYS) throw new Error(`A range can be at most ${MAX_RANGE_DAYS} days`);
+  // Month to date is the same as in the week view: the current month up to
+  // the day before yesterday, whatever range is chosen.
+  const { month_start, month_end, month_days } = storeRankingPeriods(null, now);
   return {
     mode: "range",
     week_start: from,
@@ -167,11 +171,9 @@ export function storeRankingRangePeriods(
     week_days: days,
     prev_week_start: addDays(from, -days),
     prev_week_end: addDays(from, -1),
-    // No month in a range; the fields mirror the range so nothing reads
-    // outside it.
-    month_start: from,
-    month_end: end,
-    month_days: days,
+    month_start,
+    month_end,
+    month_days,
     latest: false,
   };
 }

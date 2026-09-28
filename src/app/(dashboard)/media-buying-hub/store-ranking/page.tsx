@@ -86,15 +86,7 @@ function closeness(p: Period, roasTarget: number | null): number {
  *   4. the same for the week.
  * The month leads because that is what splits Off track from On track.
  */
-function worstFirst(a: StoreRankingRow, b: StoreRankingRow, range = false): number {
-  // A custom range has no month beside it: the range alone decides.
-  if (range) {
-    return (
-      misses(b.week) - misses(a.week) ||
-      closeness(a.week, a.roas_target) - closeness(b.week, b.roas_target) ||
-      a.store_name.localeCompare(b.store_name)
-    );
-  }
+function worstFirst(a: StoreRankingRow, b: StoreRankingRow): number {
   return (
     misses(b.month) - misses(a.month) ||
     misses(b.week) - misses(a.week) ||
@@ -160,24 +152,20 @@ export default function StoreRankingPage() {
   const filtered = useMemo(() => inFilter.filter(running), [inFilter]);
   const idle = useMemo(() => inFilter.filter((s) => !running(s)), [inFilter]);
   const isRange = data?.periods.mode === "range";
-  // The week view splits on the month, as the deck does; a custom range has
-  // no month beside it, so it splits on the range itself.
-  const onTrackOf = useCallback(
-    (s: StoreRankingRow) => (isRange ? s.week.on_track : s.month.on_track),
-    [isRange]
-  );
+  // Split on the month, as the deck does — in a custom range too: the range
+  // only takes the place of the week.
   const sortFn = useCallback(
     (a: StoreRankingRow, b: StoreRankingRow) =>
-      order === "worst" ? worstFirst(a, b, isRange) : worstFirst(b, a, isRange),
-    [order, isRange]
+      order === "worst" ? worstFirst(a, b) : worstFirst(b, a),
+    [order]
   );
   const offTrack = useMemo(
-    () => filtered.filter((s) => !onTrackOf(s)).sort(sortFn),
-    [filtered, onTrackOf, sortFn]
+    () => filtered.filter((s) => !s.month.on_track).sort(sortFn),
+    [filtered, sortFn]
   );
   const onTrack = useMemo(
-    () => filtered.filter(onTrackOf).sort(sortFn),
-    [filtered, onTrackOf, sortFn]
+    () => filtered.filter((s) => s.month.on_track).sort(sortFn),
+    [filtered, sortFn]
   );
   const weekOnTrack = filtered.filter((s) => s.week.on_track).length;
 
@@ -191,7 +179,8 @@ export default function StoreRankingPage() {
           {p && p.mode === "range" && (
             <p className="mt-1 text-sm text-muted-foreground">
               {fmtDay(p.week_start)} – {fmtDay(p.week_end)} ({p.week_days} days) vs the {p.week_days} days
-              before ({fmtDay(p.prev_week_start)} – {fmtDay(p.prev_week_end)})
+              before ({fmtDay(p.prev_week_start)} – {fmtDay(p.prev_week_end)}) · month to date{" "}
+              {fmtDay(p.month_start)} – {fmtDay(p.month_end)} (today and yesterday are left out)
             </p>
           )}
           {p && p.mode === "week" && (
@@ -304,15 +293,6 @@ export default function StoreRankingPage() {
 
       {!loading && data && (
         <>
-          {isRange ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <GoalCard
-                label={`${fmtDay(data.periods.week_start)} – ${fmtDay(data.periods.week_end)}`}
-                value={`${onTrack.length} / ${filtered.length}`}
-                caption="stores on track in this range"
-              />
-            </div>
-          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <GoalCard
               label="This month"
@@ -320,12 +300,15 @@ export default function StoreRankingPage() {
               caption="stores on track month to date"
             />
             <GoalCard
-              label={`Week ${isoWeek(data.periods.week_start)}`}
+              label={
+                isRange
+                  ? `${fmtDay(data.periods.week_start)} – ${fmtDay(data.periods.week_end)}`
+                  : `Week ${isoWeek(data.periods.week_start)}`
+              }
               value={`${weekOnTrack} / ${filtered.length}`}
-              caption="stores on track this week"
+              caption={isRange ? "stores on track in this range" : "stores on track this week"}
             />
           </div>
-          )}
           {order === "worst" ? (
             <>
               <Section kind="off" stores={offTrack} range={isRange} />
@@ -347,8 +330,9 @@ export default function StoreRankingPage() {
             €1,726 spend), converted at the latest ECB rate. Month on track = ROAS MTD ≥ invoice ROAS and
             revenue MTD ≥ that floor × days / 7. The week&apos;s target is the floor: the target a buyer
             agreed in the Weekly Store Log is not in the dashboard, and below the floor is off track either way.
-            A custom range is judged like the week: ROAS ≥ invoice ROAS and revenue ≥ the weekly floor × days / 7,
-            against the same number of days right before it.
+            A custom range takes the place of the week and is judged like it: ROAS ≥ invoice ROAS and revenue ≥
+            the weekly floor × days / 7, against the same number of days right before it. Month to date stays
+            as it is and still decides On track / Off track.
           </p>
         </>
       )}
@@ -386,12 +370,8 @@ function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRan
               <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">
                 {range ? "Range" : "Week"}
               </th>
-              {!range && (
-                <>
-                  <th className="w-px bg-border" />
-                  <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">Month</th>
-                </>
-              )}
+              <th className="w-px bg-border" />
+              <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">Month</th>
             </tr>
             <tr className="border-b border-border text-left text-[11px] text-muted-foreground uppercase tracking-wide">
               <th className="py-2 pl-4 pr-2 font-medium">Store</th>
@@ -402,25 +382,21 @@ function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRan
               <th className="py-2 px-2 font-medium normal-case">
                 <span className="uppercase">Revenue</span> actual / target
               </th>
-              {!range && (
-                <>
-                  <th className="w-px bg-border" />
-                  <th className="py-2 px-2 font-medium">ROAS MTD / target</th>
-                  <th className="py-2 px-2 font-medium">Revenue MTD</th>
-                </>
-              )}
+              <th className="w-px bg-border" />
+              <th className="py-2 px-2 font-medium">ROAS MTD / target</th>
+              <th className="py-2 px-2 font-medium">Revenue MTD</th>
             </tr>
           </thead>
           <tbody>
             {stores.length === 0 && (
               <tr>
-                <td colSpan={range ? 4 : 7} className="py-4 text-center text-xs text-muted-foreground">
+                <td colSpan={7} className="py-4 text-center text-xs text-muted-foreground">
                   No stores.
                 </td>
               </tr>
             )}
             {stores.map((s) => (
-              <Row key={s.org_id} s={s} on={on} range={range} />
+              <Row key={s.org_id} s={s} on={on} />
             ))}
           </tbody>
         </table>
@@ -429,7 +405,7 @@ function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRan
   );
 }
 
-function Row({ s, on, range }: { s: StoreRankingRow; on: boolean; range: boolean }) {
+function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
   const cur = s.currency;
   const up =
     s.week.roas != null && s.prev_week.roas != null
@@ -466,27 +442,23 @@ function Row({ s, on, range }: { s: StoreRankingRow; on: boolean; range: boolean
           </span>
         </Cell>
       </td>
-      {!range && (
-        <>
-          <td className="w-px bg-border" />
-          <td className="py-2.5 px-2">
-            <Cell pill={s.month.roas_on_track}>
-              <span className="tabular-nums">
-                <span className="font-semibold">{fmtRoas(s.month.roas)}</span>
-                <span className="text-xs text-muted-foreground"> / {fmtRoas(s.roas_target)}</span>
-              </span>
-            </Cell>
-          </td>
-          <td className="py-2.5 px-2">
-            <Cell pill={s.month.volume_on_track}>
-              <span className="tabular-nums" title={`Target so far: ${fmtMoney(s.month.volume_target, cur)}`}>
-                <span className="font-semibold">{fmtMoney(s.month.volume, cur)}</span>
-                {s.spend_account && <span className="text-xs text-muted-foreground"> spend</span>}
-              </span>
-            </Cell>
-          </td>
-        </>
-      )}
+      <td className="w-px bg-border" />
+      <td className="py-2.5 px-2">
+        <Cell pill={s.month.roas_on_track}>
+          <span className="tabular-nums">
+            <span className="font-semibold">{fmtRoas(s.month.roas)}</span>
+            <span className="text-xs text-muted-foreground"> / {fmtRoas(s.roas_target)}</span>
+          </span>
+        </Cell>
+      </td>
+      <td className="py-2.5 px-2">
+        <Cell pill={s.month.volume_on_track}>
+          <span className="tabular-nums" title={`Target so far: ${fmtMoney(s.month.volume_target, cur)}`}>
+            <span className="font-semibold">{fmtMoney(s.month.volume, cur)}</span>
+            {s.spend_account && <span className="text-xs text-muted-foreground"> spend</span>}
+          </span>
+        </Cell>
+      </td>
     </tr>
   );
 }
