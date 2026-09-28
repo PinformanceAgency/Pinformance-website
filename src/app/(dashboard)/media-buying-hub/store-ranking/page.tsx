@@ -12,7 +12,7 @@ import type {
 } from "@/lib/media-buying/store-ranking";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ApiResponse {
@@ -56,11 +56,35 @@ function fmtRoas(v: number | null): string {
 const running = (s: StoreRankingRow) =>
   s.week.spend > 0 || s.prev_week.spend > 0 || s.month.spend > 0;
 
-/** How far the month is from its targets — sorts the worst to the top. */
-function monthScore(s: StoreRankingRow): number {
-  const roas = s.month.roas != null && s.roas_target ? s.month.roas / s.roas_target : 0;
-  const vol = s.month.volume_target > 0 ? s.month.volume / s.month.volume_target : 0;
-  return Math.min(roas, vol);
+type Period = StoreRankingRow["week"];
+
+/** Off-track pills in a period: 2 = ROAS and volume both missed, 0 = both hit. */
+const misses = (p: Period) => Number(!p.roas_on_track) + Number(!p.volume_on_track);
+
+/** How close a period came to its targets, as a fraction: ROAS against the
+ *  invoice ROAS and volume against the floor, added up. Lower is worse. */
+function closeness(p: Period, roasTarget: number | null): number {
+  const roas = p.roas != null && roasTarget ? p.roas / roasTarget : 0;
+  const vol = p.volume_target > 0 ? p.volume / p.volume_target : 0;
+  return roas + vol;
+}
+
+/**
+ * Worst store first. In order, each deciding only when the one before ties:
+ *   1. the month — both pills off, then one off, then both on;
+ *   2. the week, on the same count;
+ *   3. how far the month is from its targets (lowest ROAS and revenue first);
+ *   4. the same for the week.
+ * The month leads because that is what splits Off track from On track.
+ */
+function worstFirst(a: StoreRankingRow, b: StoreRankingRow): number {
+  return (
+    misses(b.month) - misses(a.month) ||
+    misses(b.week) - misses(a.week) ||
+    closeness(a.month, a.roas_target) - closeness(b.month, b.roas_target) ||
+    closeness(a.week, a.roas_target) - closeness(b.week, b.roas_target) ||
+    a.store_name.localeCompare(b.store_name)
+  );
 }
 
 export default function StoreRankingPage() {
@@ -70,6 +94,7 @@ export default function StoreRankingPage() {
   const [error, setError] = useState<string | null>(null);
   const [buyer, setBuyer] = useState("all");
   const [dept, setDept] = useState("all");
+  const [order, setOrder] = useState<"worst" | "best">("worst");
 
   useEffect(() => {
     setLoading(true);
@@ -111,12 +136,18 @@ export default function StoreRankingPage() {
   const filtered = useMemo(() => inFilter.filter(running), [inFilter]);
   const idle = useMemo(() => inFilter.filter((s) => !running(s)), [inFilter]);
   const offTrack = useMemo(
-    () => filtered.filter((s) => !s.month.on_track).sort((a, b) => monthScore(a) - monthScore(b)),
-    [filtered]
+    () =>
+      filtered
+        .filter((s) => !s.month.on_track)
+        .sort((a, b) => (order === "worst" ? worstFirst(a, b) : worstFirst(b, a))),
+    [filtered, order]
   );
   const onTrack = useMemo(
-    () => filtered.filter((s) => s.month.on_track).sort((a, b) => monthScore(b) - monthScore(a)),
-    [filtered]
+    () =>
+      filtered
+        .filter((s) => s.month.on_track)
+        .sort((a, b) => (order === "worst" ? worstFirst(a, b) : worstFirst(b, a))),
+    [filtered, order]
   );
   const weekOnTrack = filtered.filter((s) => s.week.on_track).length;
 
@@ -172,6 +203,18 @@ export default function StoreRankingPage() {
             <option value="all">All depts</option>
             {departments.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
+          <button
+            type="button"
+            onClick={() => setOrder(order === "worst" ? "best" : "worst")}
+            className="px-2 py-1.5 bg-background border border-border rounded-md font-medium inline-flex items-center gap-1"
+            title="Worst first: both month pills off, then one, then the week, then the lowest ROAS and revenue against target. Click to flip."
+          >
+            {order === "worst" ? (
+              <><TrendingDown className="w-3 h-3" /> Worst first</>
+            ) : (
+              <><TrendingUp className="w-3 h-3" /> Best first</>
+            )}
+          </button>
         </div>
       </header>
 
@@ -201,8 +244,17 @@ export default function StoreRankingPage() {
               caption="stores on track this week"
             />
           </div>
-          <Section kind="off" stores={offTrack} />
-          <Section kind="on" stores={onTrack} />
+          {order === "worst" ? (
+            <>
+              <Section kind="off" stores={offTrack} />
+              <Section kind="on" stores={onTrack} />
+            </>
+          ) : (
+            <>
+              <Section kind="on" stores={onTrack} />
+              <Section kind="off" stores={offTrack} />
+            </>
+          )}
           {idle.length > 0 && (
             <p className="text-xs text-muted-foreground">
               No spend in this period: {idle.map((s) => s.store_name).join(", ")}.
