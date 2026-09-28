@@ -84,14 +84,18 @@ function describeError(error: unknown): string | null {
 export async function alertCronFailure(alert: CronAlert): Promise<boolean> {
   const webhook =
     (alert.webhookEnv ? process.env[alert.webhookEnv] : null) || process.env.SLACK_ALERT_WEBHOOK;
+  const detail = describeError(alert.error);
   if (!webhook) {
+    // The error itself goes into the log too. Without it a failed run left
+    // only "not written" in Vercel and the reason nowhere (28-09-2026: the
+    // weekly sync failed twice and the cause had to be reconstructed).
     console.warn(
-      `[alerts] SLACK_ALERT_WEBHOOK niet ingesteld -- geen Slack-melding voor ${alert.cron}: ${alert.message}`
+      `[alerts] SLACK_ALERT_WEBHOOK niet ingesteld -- geen Slack-melding voor ${alert.cron}: ${alert.message}` +
+        (detail ? ` | fout: ${detail}` : "")
     );
     return false;
   }
 
-  const detail = describeError(alert.error);
   const heading =
     alert.level === "attention"
       ? `:warning: *Nalopen: ${alert.cron}*`
