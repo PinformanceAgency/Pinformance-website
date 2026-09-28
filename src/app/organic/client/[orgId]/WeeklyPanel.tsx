@@ -15,11 +15,8 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Band, Panel, Label } from "@/components/organic/primitives";
 import { Table, TH, TD, Pill } from "@/components/organic/internal";
-import {
-  conversionInsightsSteps,
-  type StoreWeekly,
-  type WeekRow,
-} from "@/lib/organic/weekly";
+import { conversionInsightsSteps, type WeekRow } from "@/lib/organic/weekly-shared";
+import type { StoreWeekly } from "@/lib/organic/weekly";
 import { cn } from "@/lib/utils";
 
 const nf = (v: number | null) =>
