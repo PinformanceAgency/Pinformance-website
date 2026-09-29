@@ -90,8 +90,23 @@ export const BRIEF_BATCH = 6;
 export const TARGET_BATCH = 8;
 
 /**
- * Deliver waits for both streams until this UTC hour:minute, then sends what
- * it has. 09:45 UTC is 10:45 in winter and 11:45 in summer in Amsterdam —
- * still before the 12:00 promise either way.
+ * Where the result lands: a to-do for Tycho in "Tycho To Do's" on the
+ * Operations To Do's board, one per meeting, the files attached to its update.
+ * Problems found by the 10:30 check go to Tristan's group.
  */
-export const DELIVER_WAIT_UNTIL_UTC = { h: 9, m: 45 };
+export const MONDAY_DELIVERY = {
+  BOARD: 5100077374,
+  GROUP_TYCHO: "group_title",
+  PERSON_TYCHO: 108368238,
+  GROUP_TRISTAN: "group_mm1tf651",
+  PERSON_TRISTAN: 101160765,
+  COL_PERSON: "person",
+  COL_STATUS: "status",
+  COL_DEADLINE: "date_mm2zm1vb",
+  COL_PRIORITY: "color_mm34y739",
+  STATUS_TODO: "To Do",
+  PRIORITY: "High",
+} as const;
+
+/** The day each meeting is held, relative to the Tuesday: dropship Tue, branded Wed. */
+export const MEETING_DAY_OFFSET = { dropship: 0, branded: 1 } as const;

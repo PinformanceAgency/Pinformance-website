@@ -71,7 +71,7 @@ The script connects via `pg` using `DATABASE_URL` from `.env.local` (bypasses Su
 | `/api/cron/organic-health` | 0 2 * * * | **Organic daily watchdog.** Read-only, ~4s agency-wide, alerts to Slack only when something stands between a store and publishing: stuck pins, a ready plan never queued, a plan past its own start date still being built, refused pins, a dead token with pins queued. Silent otherwise; the demo store is excluded. Posts to `#organic-daily-watchdog` via `SLACK_ORGANIC_WEBHOOK` and tags `SLACK_ORGANIC_MENTION`. **02:00 is the earliest hour that is honest** — see below |
 | `/api/cron/organic-pacing` | 0 3 * * * | **The ramp.** Raises each store's `daily_pin_target` by one once its two-week hold has passed and it has earned the step, up to the ceiling of 5. Built 15-09-2026, because `scale_up_eligible_date` had been rendered and re-armed since the first organic migration and **acted on by nothing** — so every store sat at 1/day, sixteen pins a month, for ever. `?dry_run=1` reports and writes nothing |
 | `/api/cron/organic-pull-analytics` | 0 7 * * * | **Organic P5.1.1.** Every organic store (not only those we publish for, since 28-09-2026), plus the last five full weeks into `organic.weekly_kpis`. Rolling 14-day / 2-month re-read into `organic.pin_performance` + `organic.monthly_kpis`. An hour after the main pull so the two don't hit Pinterest for the same accounts at once. Leverde tot 22-09-2026 **niets** op: hij begon met de bulk-endpoint `/v5/pins/analytics`, die onze apps niet mogen gebruiken (401 code 3), en die fout nam de maandcijfers mee. Nu per pin, met de twee pulls los van elkaar en een eigen tijdsbudget (`?budget_ms=`) — zie "Data conventions" |
-| `/api/cron/delivery-meeting/<stage>` | Tue 06:00–10:30 | **Delivery meeting decks + Tycho's prep → one Slack DM.** Eight stages (collect 06:00, fathom every 10 min 06–07:50, targets 07:30, compute 08:00, briefs every 10 min 08:15–08:55, render 09:00, deliver 09:15/30/45, check 10:30), state in `delivery_meeting_runs`. See "Delivery meeting pipeline" below |
+| `/api/cron/delivery-meeting/<stage>` | Tue 06:00–10:30 | **Delivery meeting decks + Tycho's prep → a monday to-do for Tycho per meeting.** Eight stages (collect 06:00, fathom every 10 min 06–07:50, targets 07:30, compute 08:00, briefs every 10 min 08:15–08:55, render 09:00, deliver 09:15/30/45, check 10:30), state in `delivery_meeting_runs`. See "Delivery meeting pipeline" below |
 
 ### Cron failure alerts
 
@@ -214,9 +214,13 @@ is the head of its queue postable.
 
 ## Delivery meeting pipeline (`src/lib/delivery-meeting/`)
 
-Every Tuesday, without anyone's laptop, Tristan gets one Slack DM with the
-three delivery decks (dropship EN, branded Rens NL, branded Louiza NL), the
-two Tycho preps (PDF) and a Dutch summary. Built 29-09-2026 as a port of the
+Every Tuesday, without anyone's laptop, Tycho gets a to-do per meeting in
+"Tycho To Do's" (Operations To Do's board), due on the meeting day — dropship
+Tuesday, branded Wednesday — with the decks (dropship EN, branded Rens and
+Louiza NL) and his prep PDF attached to its update, under a Dutch summary.
+Delivery is on monday, not Slack, on purpose (Tristan, 29-09-2026): the monday
+token is already there, a Slack app with a bot token is not. What the 10:30
+check finds lands as a to-do in Tristan's own group. Built 29-09-2026 as a port of the
 claude.ai skill "Delivery decks + Tycho prep"; the approved layout is that
 skill's, and **changing it needs Tristan's approval**.
 
@@ -231,10 +235,12 @@ idempotent. **Every stage route advances everything up to its own stage**: the
 briefs cron finishes a fathom stage that ran late instead of finding "not
 ready" and waiting a week. Runs are leased (`locked_until`), because two crons
 fire in the same minute and two writers on one payload drop each other's work.
-One stream's failure never blocks the other; only `deliver` looks at both, and
-sends what exists after 09:45 UTC. Locally, with no budget:
+One stream's failure never blocks the other: each has its own to-do. Deliver
+keeps the monday item id, the update id and every uploaded file in the
+payload, so a retry never makes a second to-do and uploads only what is
+missing. Locally, with no budget:
 `DOTENV_CONFIG_PATH=.env.local npx tsx scripts/delivery-meeting.ts all --date 2026-09-29 --dry-run`
-(files in `./tmp/`, no Slack, runs left at `deliver` so the real cron still sends).
+(files in `./tmp/`, nothing on monday, runs left at `deliver` so the real cron still delivers).
 
 **Numbers are Store Ranking's** (`computeStoreRanking(storeRankingPeriods())`,
 the page's own call), floors included, so a pill on the slide is the pill on
@@ -278,10 +284,10 @@ ligature left gaps ("starti ng") — both are switched off in `FONT_OPTS`.
 The deck is pptxgenjs, and was checked shape by shape against the Python
 builder on the same data: 361 text shapes, 0 differences.
 
-Env: `FATHOM_API_KEY`, `SLACK_BOT_TOKEN` (chat:write, files:write, im:write)
-and `SLACK_DELIVERY_USER` on top of the usual. Without Fathom the prep is built
-without meeting notes or deep dive and says so; without Slack, deliver errors
-and the 10:30 check reports it.
+Env: `FATHOM_API_KEY` on top of the usual. Without it the prep is built
+without meeting notes or deep dive and says so. The key only sees recordings
+its owner made or that are shared with them or their team — Tycho's deep
+dives must be shared, or they are invisible to the cron.
 
 ## Read-only agent API (`/api/agent/*`)
 

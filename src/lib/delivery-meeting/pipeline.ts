@@ -1,5 +1,6 @@
 /**
- * Delivery meeting pipeline — decks + Tycho's prep → one Slack DM, Tuesdays.
+ * Delivery meeting pipeline — decks + Tycho's prep → a monday to-do for
+ * Tycho per meeting, every Tuesday.
  *
  *   collect → fathom → targets → compute → briefs → render → deliver → done
  *
@@ -21,14 +22,14 @@
  *
  * ONE STREAM NEVER BLOCKS THE OTHER
  * ---------------------------------
- * Each stream is its own row, its own lease and its own try/catch. The steps
- * alternate between the streams so one stream's briefs cannot eat the whole
- * budget. Only `deliver` looks at both: it waits for both until
- * DELIVER_WAIT_UNTIL_UTC and then sends what exists, naming what is missing.
+ * Each stream is its own row, its own lease and its own try/catch, and its own
+ * to-do on monday. The steps alternate between the streams so one stream's
+ * briefs cannot eat the whole budget.
  */
 import {
-  DELIVER_WAIT_UNTIL_UTC,
+  MEETING_DAY_OFFSET,
   MIN_STEP_MS,
+  MONDAY_DELIVERY,
   RUN_BUDGET_MS,
   STAGES,
   STREAMS,
@@ -53,7 +54,8 @@ import { discover, processNext } from "./fathom";
 import { extractTargets, nextBriefBatch, prepStores, targetQueue, writeBriefs } from "./briefs";
 import { renderDeck } from "./render-deck";
 import { renderPrep } from "./render-prep";
-import { combinedSummary } from "./summary";
+import { summaryFor } from "./summary";
+import { attachFile, createTodo, createUpdate, toUpdateHtml } from "./monday-deliver";
 import type { RunPayload, RunRow } from "./types";
 import { addDays, meetingDates } from "./util";
 
@@ -211,6 +213,35 @@ async function step(run: RunRow, opts: AdvanceOptions): Promise<{ payload: RunPa
       p.files = files;
       return { payload: p, done: true, note: `rendered ${files.map((f) => f.name).join(", ")}` };
     }
+    case "deliver": {
+      // one to-do per meeting, for Tycho, due on the meeting day
+      const m = (p.monday ??= { item_id: null, update_id: null, uploaded: [] });
+      const label = run.stream === "dropship" ? "Dropship" : "Branded";
+      if (!m.item_id) {
+        m.item_id = await createTodo({
+          name: `Delivery meeting ${label} · week ${p.meeting_week} (${p.data_period})`,
+          deadline: addDays(run.meeting_date, MEETING_DAY_OFFSET[run.stream]),
+          personId: MONDAY_DELIVERY.PERSON_TYCHO,
+          group: MONDAY_DELIVERY.GROUP_TYCHO,
+        });
+        // saved before anything else can fail: a retry must not make a second to-do
+        return { payload: p, done: false, note: `monday to-do ${m.item_id} created` };
+      }
+      if (!m.update_id) {
+        m.update_id = await createUpdate(m.item_id, toUpdateHtml(summaryFor(run)));
+        return { payload: p, done: false, note: `summary posted on ${m.item_id}` };
+      }
+      // decks first, then the prep
+      const files = [...(p.files ?? [])].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "deck" ? -1 : 1));
+      for (const f of files) {
+        if (m.uploaded.includes(f.name)) continue;
+        await attachFile(m.update_id, f.name, await downloadFile(f.path));
+        m.uploaded.push(f.name);
+      }
+      p.delivered_at = new Date().toISOString();
+      p.delivered_files = [...m.uploaded];
+      return { payload: p, done: true, note: `${m.uploaded.length} file(s) on monday item ${m.item_id}` };
+    }
     default:
       return { payload: p, done: false, note: `nothing to do at ${run.stage}` };
   }
@@ -246,7 +277,8 @@ export async function advance(opts: AdvanceOptions): Promise<AdvanceResult> {
       let progressed = false;
       for (const [s, run] of runs) {
         if (blocked.has(s)) continue;
-        if (run.stage === "deliver" || run.stage === "done") continue;
+        if (run.stage === "done") continue;
+        if (run.stage === "deliver" && opts.dryRun) continue; // a dry run never touches monday
         if (stageIndex(run.stage) > ceilingIdx) continue;
         if (left() < MIN_STEP_MS && opts.budgetMs !== Infinity) continue;
         try {
@@ -270,34 +302,17 @@ export async function advance(opts: AdvanceOptions): Promise<AdvanceResult> {
       if (!progressed) break;
     }
 
-    // deliver: one DM for both streams
-    if (ceilingIdx >= stageIndex("deliver")) {
-      const ready = [...runs.values()].filter((r) => r.stage === "deliver");
-      if (ready.length) {
-        const now = opts.now ?? new Date();
-        const pastWait =
-          now.getUTCHours() > DELIVER_WAIT_UNTIL_UTC.h ||
-          (now.getUTCHours() === DELIVER_WAIT_UNTIL_UTC.h && now.getUTCMinutes() >= DELIVER_WAIT_UNTIL_UTC.m) ||
-          opts.meetingDate < now.toISOString().slice(0, 10);
-        const others = await Promise.all(
-          STREAMS.filter((s) => !ready.some((r) => r.stream === s)).map((s) => getRun(opts.meetingDate, s)),
-        );
-        const notReady = others.filter((r) => !r || stageIndex(r.stage) < stageIndex("deliver"));
-        if (notReady.length === 0 || pastWait) {
-          const missing = STREAMS.filter(
-            (s) => !ready.some((r) => r.stream === s) && !others.some((o) => o?.stream === s && o.stage === "done"),
-          );
-          const delivered = await deliver(ready, missing, opts, log);
-          // A dry run leaves the runs at "deliver", so the real cron still sends.
-          for (const r of opts.dryRun ? [] : delivered) {
-            const saved = await saveRun(r, { stage: "done", status: "done", error: null, payload: r.payload });
-            runs.set(r.stream, saved);
-            result.delivered.push(r.stream);
-          }
-        } else {
-          log(`deliver: waiting for ${notReady.map((r) => r?.stream ?? "?").join(", ")}`);
-        }
+    // a dry run shows what would have gone to monday
+    if (opts.dryRun) {
+      for (const r of runs.values()) {
+        if (r.stage !== "deliver") continue;
+        log(`deliver (dry run) — would put ${(r.payload.files ?? []).map((f) => f.name).join(", ")} on a monday to-do for Tycho`);
+        log("\n" + summaryFor(r));
       }
+    }
+    for (const r of runs.values()) if (r.stage === "done" && r.status !== "done") {
+      runs.set(r.stream, await saveRun(r, { status: "done" }));
+      result.delivered.push(r.stream);
     }
   } finally {
     for (const r of runs.values()) await releaseRun(r).catch(() => undefined);
@@ -308,35 +323,6 @@ export async function advance(opts: AdvanceOptions): Promise<AdvanceResult> {
   }
   result.elapsed_ms = Date.now() - started;
   return result;
-}
-
-async function deliver(
-  ready: RunRow[],
-  missing: Stream[],
-  opts: AdvanceOptions,
-  log: (m: string) => void,
-): Promise<RunRow[]> {
-  const order = (r: RunRow) => STREAMS.indexOf(r.stream);
-  ready.sort((a, b) => order(a) - order(b));
-  const text = combinedSummary(ready, ready[0].meeting_date, missing);
-  if (opts.dryRun) {
-    log(`deliver (dry run) — would DM ${ready.flatMap((r) => r.payload.files ?? []).map((f) => f.name).join(", ")}`);
-    log("\n" + text);
-    return ready;
-  }
-  const { openDm, uploadFiles, postMessage } = await import("./slack");
-  const channel = await openDm();
-  // decks first, then the preps: the order the table in the spec lists them
-  const files = ready.flatMap((r) => r.payload.files ?? []).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "deck" ? -1 : 1));
-  const data = await Promise.all(files.map(async (f) => ({ name: f.name, data: await downloadFile(f.path) })));
-  await uploadFiles(channel, data);
-  await postMessage(channel, text);
-  for (const r of ready) {
-    r.payload.delivered_at = new Date().toISOString();
-    r.payload.delivered_files = files.filter((f) => f.path.startsWith(r.meeting_date)).map((f) => f.name);
-  }
-  log(`delivered ${files.length} files to Slack`);
-  return ready;
 }
 
 /** The 10:30 watchdog: anything not done is reported. Read-only on the runs. */
@@ -350,4 +336,28 @@ export async function check(meetingDate: string): Promise<{ ok: boolean; problem
     }
   }
   return { ok: problems.length === 0, problems };
+}
+
+/**
+ * The check's findings, where Tristan sees them without a Slack webhook: a
+ * to-do in his own group on Operations To Do's, due today, with the problems
+ * as its update. The Slack alert still goes out too, for when a webhook is set.
+ */
+export async function reportProblems(meetingDate: string, problems: string[]): Promise<string> {
+  const week = meetingDates(meetingDate).meeting_week;
+  const item = await createTodo({
+    name: `Delivery meeting week ${week}: niet (helemaal) klaar`,
+    deadline: meetingDate,
+    personId: MONDAY_DELIVERY.PERSON_TRISTAN,
+    group: MONDAY_DELIVERY.GROUP_TRISTAN,
+  });
+  await createUpdate(
+    item,
+    toUpdateHtml(
+      `*De delivery meeting van ${meetingDate} is niet (helemaal) bij Tycho aangekomen.*\n` +
+        problems.map((p) => `• ${p}`).join("\n") +
+        `\n\nOpnieuw proberen: /api/cron/delivery-meeting/deliver?date=${meetingDate} (met x-cron-secret), of lokaal scripts/delivery-meeting.ts all --date ${meetingDate}.`,
+    ),
+  );
+  return item;
 }

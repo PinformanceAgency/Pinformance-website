@@ -9,8 +9,8 @@
  *   /api/cron/delivery-meeting/compute   08:00        deck data
  *   /api/cron/delivery-meeting/briefs    every 10 min 08:15–08:55   prep text, six stores per step
  *   /api/cron/delivery-meeting/render    09:00        3 decks + 2 preps → Storage
- *   /api/cron/delivery-meeting/deliver   09:15/30/45  one Slack DM with the five files
- *   /api/cron/delivery-meeting/check     10:30        read-only watchdog
+ *   /api/cron/delivery-meeting/deliver   09:15/30/45  a monday to-do for Tycho per meeting, files attached
+ *   /api/cron/delivery-meeting/check     10:30        watchdog: problems → a to-do for Tristan
  *
  * Each route advances every run up to and including its own stage, so a late
  * stage is finished by the next cron rather than skipped for a week; a stage
@@ -20,8 +20,7 @@
  *   ?force=1 on collect throws the day's runs away and starts over.
  *
  * Env: CRON_SECRET, MONDAY_API_TOKEN, NEXT_PUBLIC_SUPABASE_URL,
- * SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY, FATHOM_API_KEY,
- * SLACK_BOT_TOKEN, SLACK_DELIVERY_USER. Loaded lazily (dynamic import), so a
+ * SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY, FATHOM_API_KEY. Loaded lazily (dynamic import), so a
  * missing one is a 500 on this route, never a broken build.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -68,12 +67,12 @@ async function handle(request: NextRequest, stage: string) {
       if (!r.ok) {
         const message = `Delivery meeting ${meetingDate} is niet (helemaal) bezorgd:\n${r.problems.join("\n")}`;
         await alertCronFailure({ cron, message });
-        // and straight to the person waiting for the files
+        // and onto monday, where it is seen: no Slack webhook is configured
         try {
-          const { openDm, postMessage } = await import("@/lib/delivery-meeting/slack");
-          await postMessage(await openDm(), `*Delivery meeting ${meetingDate}: niet alles is klaar*\n${r.problems.join("\n")}`);
+          const { reportProblems } = await import("@/lib/delivery-meeting/pipeline");
+          await reportProblems(meetingDate, r.problems);
         } catch (e) {
-          console.error("[delivery-meeting] check DM failed:", e instanceof Error ? e.message : e);
+          console.error("[delivery-meeting] check could not post to monday:", e instanceof Error ? e.message : e);
         }
       }
       return NextResponse.json({ ok: r.ok, meeting_date: meetingDate, problems: r.problems });

@@ -1,6 +1,6 @@
 /**
- * The Dutch summary that goes with the five files. Slack mrkdwn (*bold*), no
- * emoji. Per meeting, and first — because Tycho reads it before anything else
+ * The Dutch summary that goes on the monday to-do with the files. Written with
+ * *bold* markers, turned into HTML by toUpdateHtml(); no emoji. Per meeting, and first — because Tycho reads it before anything else
  * — the stores his deep dive said nothing about.
  */
 import type { RunPayload, RunRow } from "./types";
@@ -74,13 +74,6 @@ export function summaryFor(run: RunRow): string {
   }
   for (const i of p.issues ?? []) out.push(`Let op: ${i}`);
   return out.join("\n").replace(/\n{3,}/g, "\n\n");
-}
-
-export function combinedSummary(runs: RunRow[], dateLabel: string, missing: string[]): string {
-  const head = `*Delivery meeting ${dateLabel}* — decks en prep hieronder.`;
-  const parts = runs.map(summaryFor);
-  if (missing.length) parts.push(`*Ontbreekt nog:* ${missing.join(", ")} — volgt zodra klaar.`);
-  return [head, ...parts].join("\n\n");
 }
 
 export type { RunPayload };
