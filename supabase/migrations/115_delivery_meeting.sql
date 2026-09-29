@@ -54,8 +54,6 @@ CREATE TABLE IF NOT EXISTS public.delivery_meeting_settings (
   -- every other spelling monday uses for it (Clients subitem, to-dos): the
   -- names diverge systematically ("graceparkerjewelry", "ICON.", "by-willa")
   monday_aliases            text[] NOT NULL DEFAULT '{}',
-  -- offboarded but still invoiced: stays in the deck up to and including
-  keep_until                date,
   updated_at                timestamptz NOT NULL DEFAULT now()
 );
 

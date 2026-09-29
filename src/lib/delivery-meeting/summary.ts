@@ -65,7 +65,8 @@ export function summaryFor(run: RunRow): string {
     out.push("");
     if (n.monday_source.length) out.push(`Cijfers uit monday in plaats van het dashboard: ${list(n.monday_source)}`);
     if (n.missing_in_settings.length) out.push(`Active op Clients, niet (goed) in store_settings — niet in de deck: ${list(n.missing_in_settings)}`);
-    if (n.inactive_left_out.length) out.push(`Inactive op Clients — uit de deck gelaten (keep_until zetten als ze nog gefactureerd worden): ${list(n.inactive_left_out)}`);
+    if (n.inactive_left_out.length) out.push(`Inactive op Clients — overgeslagen: ${list(n.inactive_left_out)}`);
+    if (n.not_on_clients?.length) out.push(`Niet gevonden op het Clients-board — overgeslagen (alias toevoegen of store_settings uitzetten): ${list(n.not_on_clients)}`);
     if (n.no_deck.length) out.push(`Geen deck voor deze buyer: ${list(n.no_deck)}`);
     if (n.week_data_missing.length) out.push(`Geen weekdata: ${list(n.week_data_missing)}`);
     if (n.unmatched_logs.length) out.push(`Weekly Store Log niet aan een store gekoppeld: ${list(n.unmatched_logs)}`);

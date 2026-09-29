@@ -114,7 +114,6 @@ export interface MeetingSettingsRow {
   monday_weekly_update_ids: string[];
   monday_store_name: string | null;
   monday_aliases: string[];
-  keep_until: string | null;
 }
 
 export async function loadBuyers(): Promise<BuyerRow[]> {

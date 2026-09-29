@@ -105,6 +105,7 @@ export interface RunPayload {
   notices?: {
     missing_in_settings: string[];
     inactive_left_out: string[];
+    not_on_clients: string[];
     no_deck: string[];
     monday_source: string[];
     week_data_missing: string[];

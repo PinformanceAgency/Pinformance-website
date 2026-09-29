@@ -13,7 +13,6 @@
  *   DOTENV_CONFIG_PATH=.env.local npx tsx scripts/seed-delivery-meeting-settings.ts "<dir>"
  *
  * Optional:
- *   KEEP_UNTIL="By Willa=2026-09-30;Bootylift=2026-09-30"   offboarded, still invoiced
  *   ALIASES="Nature Roots=trynatureroots;Icon Amsterdam=ICON."  extra monday spellings
  *
  * WHAT IT DERIVES, AND HOW
@@ -27,8 +26,6 @@
  *   the store this week — the Weekly Store Log's Store column, the Clients
  *   subitem, the Weekly Updates item — because those names diverge from the
  *   org names systematically ("graceparkerjewelry", "by-willa", "ICON.").
- * - keep_until: a config note saying "offboarded" or "inactive … remove in
- *   <month>" sets the last day of the current month; KEEP_UNTIL overrides.
  *
  * Invoice ROAS, BER, currency, invoicing model, department and buyer are NOT
  * written: they live in store_settings and stay there.
@@ -71,7 +68,6 @@ const pairs = (env: string | undefined) =>
       .filter((p) => p.length === 2)
       .map(([k, v]) => [k.trim().toLowerCase(), v.trim()]),
   );
-const KEEP = pairs(process.env.KEEP_UNTIL);
 const ALIASES = pairs(process.env.ALIASES);
 
 async function monday(query: string, variables: Record<string, unknown> = {}) {
@@ -134,10 +130,6 @@ async function allNames(board: number, extra = ""): Promise<{ id: string; name: 
   const buyers: Record<string, unknown>[] = [];
   const settings = new Map<string, Record<string, unknown>>();
   const unmatched: string[] = [];
-  const endOfMonth = (() => {
-    const d = new Date();
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
-  })();
 
   for (const { stream, cfg } of cfgs) {
     for (const [label, b] of Object.entries(cfg.buyers)) {
@@ -180,9 +172,6 @@ async function allNames(board: number, extra = ""): Promise<{ id: string; name: 
         continue;
       }
       const blend = members.size > 1 ? s.name : null;
-      const note = s.note ?? "";
-      const keep =
-        KEEP.get(s.name.toLowerCase()) ?? (/offboarded|inactive/i.test(note) ? endOfMonth : null);
 
       for (const o of members.values()) {
         const keys = [s.name, o.name, ...(idsByOrg.get(o.id) ?? []).map((m) => wuName.get(m) ?? "")]
@@ -207,7 +196,6 @@ async function allNames(board: number, extra = ""): Promise<{ id: string; name: 
           monday_weekly_update_ids: idsByOrg.get(o.id) ?? [],
           monday_store_name: logName,
           monday_aliases: [...seen],
-          keep_until: keep,
           updated_at: new Date().toISOString(),
         });
       }
@@ -227,7 +215,6 @@ async function allNames(board: number, extra = ""): Promise<{ id: string; name: 
       monday_weekly_update_ids: [],
       monday_store_name: null,
       monday_aliases: extra.split(",").map((x) => x.trim()),
-      keep_until: KEEP.get(name) ?? null,
       updated_at: new Date().toISOString(),
     });
   }
@@ -240,7 +227,7 @@ async function allNames(board: number, extra = ""): Promise<{ id: string; name: 
     console.log(
       `   ${String(o?.name).padEnd(24)} ${String(s.display_name ?? "").padEnd(22)} goal=${s.weekly_goal ? "Y" : "-"} ` +
         `×${s.revenue_multiplier ?? 1} blend=${s.blend_group ?? "-"} wu=${JSON.stringify(s.monday_weekly_update_ids ?? [])} ` +
-        `log="${s.monday_store_name ?? ""}" keep=${s.keep_until ?? "-"} aliases=${JSON.stringify(s.monday_aliases)}`,
+        `log="${s.monday_store_name ?? ""}" aliases=${JSON.stringify(s.monday_aliases)}`,
     );
   }
   if (unmatched.length) console.log("\nNOT MATCHED (fix the config or pass ALIASES):\n  " + unmatched.join("\n  "));

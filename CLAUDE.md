@@ -246,16 +246,19 @@ differences). Stores with no Pinterest data fall back to the Weekly Updates
 subitems and are named in the DM. Two deliberate exceptions the check skips:
 stores with a revenue multiplier, and blended stores.
 
-**Which stores:** `store_settings.media_buyer` + `department` decide; the
-Clients board cross-checks. Inactive on Clients leaves the deck unless
-`delivery_meeting_settings.keep_until` ≥ the meeting (offboarded but still
-invoiced); Active on Clients without a configured `store_settings` row is left
-out **and named**. A branded store whose buyer has no branded deck is named
-too (Bootylift: department branding, buyer dylan).
+**Which stores: the Clients board decides, every week.** Stores are onboarded
+and offboarded continuously, so there is no fixed list: a store is in when its
+Clients subitem is Active / Onboarding / blank under a live client, and out the
+moment it is Inactive — even when the dashboard still has it (Tristan,
+29-09-2026, about Bootylift). `store_settings` then says which deck
+(`media_buyer` + `department`) and what it is measured against. Every mismatch
+is named in the DM rather than dropped: Active on Clients but not configured
+(a new store nobody set up), configured but not findable on Clients (add a
+`monday_aliases` spelling), live but with a buyer who has no deck.
 
 **Settings that are client figures are not in the repo.** `delivery_meeting_buyers`
 (monthly goal per buyer) and `delivery_meeting_settings` (weekly-goal stores,
-multiplier, blend group, monday spellings, keep_until) are seeded from the
+multiplier, blend group, monday spellings) are seeded from the
 skill's config files by `scripts/seed-delivery-meeting-settings.ts <dir>` —
 point it at the folder, never copy the files in. Invoice ROAS, BER, invoicing
 model, buyer and department stay in `store_settings`.

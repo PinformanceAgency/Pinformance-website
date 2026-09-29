@@ -8,12 +8,16 @@
  * monday Weekly Updates subitems (week = this Monday's cohort, prev = last
  * Monday's, month = this month's cohorts) and is named in the DM as such.
  *
- * WHICH STORES: store_settings.media_buyer + department decide — the decision
- * lives there, not in this pipeline. The monday Clients board is the cross-
- * check: a store set Inactive there leaves the deck unless it is still being
- * invoiced this month (`keep_until`), and an Active store there that has no
- * configured store_settings row is left out AND named, because a store that
- * silently never appears in the meeting is the failure this list exists for.
+ * WHICH STORES: the monday Clients board decides whether a store is in.
+ * Stores come and go every week, so nothing here is a fixed list: a store is
+ * in the meeting when its Clients subitem is Active (or Onboarding, or has no
+ * status yet) under a live client — and out the moment it is set Inactive,
+ * whatever the dashboard still says (Tristan, 29-09-2026: Bootylift is
+ * inactive and must be skipped even though store_settings still has it).
+ * store_settings then says which deck it goes in (media_buyer + department)
+ * and what it is measured against. Both ways a mismatch is named in the DM,
+ * never dropped silently: Active on Clients but not configured, or configured
+ * but not findable on Clients.
  */
 import { computeStoreRanking, storeRankingPeriods, type StoreRankingRow } from "@/lib/media-buying/store-ranking";
 import { invoiceRoasTarget, scaleFloorFor, type InvoicingModel } from "@/lib/media-buying/config";
@@ -83,6 +87,7 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
   const notices = {
     missing_in_settings: [] as string[],
     inactive_left_out: [] as string[],
+    not_on_clients: [] as string[],
     no_deck: [] as string[],
     monday_source: [] as string[],
     week_data_missing: [] as string[],
@@ -97,53 +102,69 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       .map(nameKey)
       .filter(Boolean);
   };
-  const kept = (org: string) => !!ms(org)?.keep_until && ms(org)!.keep_until! >= meetingDate;
-
-  // A branded store whose buyer has no branded deck would fall out of every
-  // meeting without a word; say so. (Bootylift, 29-09-2026: department
-  // branding, buyer dylan.)
-  for (const s of all) {
-    if (!s.is_active && !kept(s.org_id)) continue;
-    if (s.department === DEPARTMENT[stream] && s.media_buyer && !buyerIds.has(s.media_buyer)) {
-      const inOther = buyersAll.some((b) => b.buyer === s.media_buyer);
-      if (!inOther || stream === "branded") {
-        notices.no_deck.push(`${orgName.get(s.org_id)} (buyer ${s.media_buyer}, ${s.department})`);
-      }
-    }
-  }
-
-  let candidates = all.filter(
-    (s) =>
-      s.department === DEPARTMENT[stream] &&
-      !!s.media_buyer &&
-      buyerIds.has(s.media_buyer) &&
-      (s.is_active !== false || kept(s.org_id)),
-  );
-
-  // ---- Clients board cross-check ------------------------------------------
+  // ---- The Clients board: who is in ---------------------------------------
   const clients = await loadClientStores().catch((e) => {
-    issues.push(`Clients board not read: ${e instanceof Error ? e.message : e}`);
-    return [];
+    issues.push(`Clients board not read (${e instanceof Error ? e.message : e}) — fell back to store_settings.is_active`);
+    return null;
   });
   const liveClient = (c: { status: string; parent_group: string | null }) =>
     c.status !== "Inactive" && !/inactive/i.test(c.parent_group ?? "");
-  candidates = candidates.filter((s) => {
-    const keys = keysFor(s.org_id);
-    const hits = clients.filter((c) => nameMatches(c.name, keys));
-    if (hits.length === 0 || hits.some(liveClient) || kept(s.org_id)) return true;
-    notices.inactive_left_out.push(orgName.get(s.org_id) ?? s.org_id);
-    return false;
-  });
-  const candidateKeys = candidates.map((s) => keysFor(s.org_id));
-  for (const c of clients) {
+  type ClientState = "live" | "inactive" | "absent";
+  const clientState = (org: string): ClientState => {
+    if (!clients) return "live";
+    const hits = clients.filter((c) => nameMatches(c.name, keysFor(org)));
+    // one live subitem is enough: "May Cosmetics NL" is Active next to an
+    // Inactive "May Cosmetics DE / WW", and the org is the NL store
+    if (hits.some(liveClient)) return "live";
+    return hits.length ? "inactive" : "absent";
+  };
+
+  const candidates: SettingsRow[] = [];
+  const skippedKeys: string[] = []; // stores left out: their logs are not "unmatched"
+  for (const s of all) {
+    const name = ms(s.org_id)?.display_name || orgName.get(s.org_id) || s.org_id;
+    if (s.department !== DEPARTMENT[stream]) continue;
+    const state = clientState(s.org_id);
+    // a store that is not on Clients at all and switched off in store_settings
+    // is simply history — not worth a line in the DM
+    if (state === "absent" && s.is_active === false) continue;
+    if (!clients && s.is_active === false) continue;
+    if (!s.media_buyer || !buyerIds.has(s.media_buyer)) {
+      // A live store whose buyer has no deck in this stream would fall out of
+      // every meeting without a word.
+      const other = buyersAll.find((b) => b.buyer === s.media_buyer);
+      if (state === "live" && (!other || stream === "branded")) {
+        notices.no_deck.push(`${name} (buyer ${s.media_buyer ?? "none"}, ${s.department})`);
+      }
+      continue;
+    }
+    if (state === "inactive") {
+      // only worth a line while the dashboard still counts it as live; a store
+      // off in both places is history
+      if (s.is_active !== false) notices.inactive_left_out.push(name);
+      skippedKeys.push(...keysFor(s.org_id));
+      continue;
+    }
+    if (state === "absent") {
+      notices.not_on_clients.push(name);
+      continue;
+    }
+    if (s.is_active === false) {
+      notices.missing_in_settings.push(`${name} (Active op Clients, maar is_active = false in store_settings)`);
+      continue;
+    }
+    candidates.push(s);
+  }
+
+  // Active on Clients, with one of this stream's buyers, and no configured
+  // store_settings row to put it in a deck with: a new store nobody set up yet
+  for (const c of clients ?? []) {
     if (!liveClient(c) || !c.person_ids.some((p) => buyerMondayIds.has(p))) continue;
-    const known = all.some((s) => nameMatches(c.name, keysFor(s.org_id)));
-    if (!candidateKeys.some((k) => nameMatches(c.name, k)) && !known) {
-      notices.missing_in_settings.push(`${c.name} (${c.client})`);
-    } else if (!candidateKeys.some((k) => nameMatches(c.name, k)) && known) {
-      const s = all.find((x) => nameMatches(c.name, keysFor(x.org_id)))!;
-      const configured = s.department && s.breakeven_roas != null && s.media_buyer;
-      if (!configured) notices.missing_in_settings.push(`${c.name} (${c.client}, not configured)`);
+    if (candidates.some((s) => nameMatches(c.name, keysFor(s.org_id)))) continue;
+    const s = all.find((x) => nameMatches(c.name, keysFor(x.org_id)));
+    if (!s) notices.missing_in_settings.push(`${c.name} (${c.client})`);
+    else if (!s.department || s.breakeven_roas == null || !s.media_buyer) {
+      notices.missing_in_settings.push(`${c.name} (${c.client}, niet geconfigureerd)`);
     }
   }
 
@@ -323,7 +344,7 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
   for (const item of logItems) {
     const store = stores.find((s) => nameMatches(item.store, s.match_keys));
     if (store) matched.push({ store, item });
-    else if (item.person_ids.some((p) => buyerMondayIds.has(p)) && item.store) {
+    else if (item.person_ids.some((p) => buyerMondayIds.has(p)) && item.store && !nameMatches(item.store, skippedKeys)) {
       notices.unmatched_logs.push(`${item.store} (${item.kind === "archived" ? "data week" : "live"} log)`);
     }
   }
