@@ -84,8 +84,8 @@ export const STORAGE_BUCKET = "delivery-meeting";
 /** Claude model for extraction and writing. */
 export const MODEL = "claude-sonnet-5";
 
-/** Briefs per step. */
-export const BRIEF_BATCH = 6;
+/** Briefs per step. Six took up to 48 s (29-09-2026), too close to the ~60 s an invocation gets. */
+export const BRIEF_BATCH = 4;
 /** Stores per targets step. */
 export const TARGET_BATCH = 8;
 

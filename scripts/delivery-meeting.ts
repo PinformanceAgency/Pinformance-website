@@ -8,10 +8,11 @@
  *   <stage>     collect | fathom | targets | compute | briefs | render | deliver | all | check
  *               a stage runs everything up to and including it that is not done yet
  *   --date      the meeting Tuesday (default: this week's)
- *   --dry-run   files go to ./tmp/delivery-meeting/<date>/, Slack is skipped and
- *               the runs stay at "deliver" so the real cron still sends
+ *   --dry-run   files go to ./tmp/delivery-meeting/<date>/, nothing goes to monday
+ *               and the runs stay at "deliver" so the real cron still delivers
  *   --force     throw away the runs for that date and collect again
  *   --stream    dropship | branded (default: both)
+ *   --test      deliver to Tristan's group with "[TEST]" in the name, not to Tycho
  *
  * Locally there is no 60-second budget: every stage runs to the end.
  * Writes the run rows in delivery_meeting_runs, like the cron does.
@@ -49,6 +50,7 @@ const value = (name: string) => {
     budgetMs: Infinity,
     dryRun,
     force: flag("force"),
+    test: flag("test"),
     streams: stream ? [stream] : undefined,
     outDir: dryRun ? `tmp/delivery-meeting/${meetingDate}` : undefined,
   });

@@ -64,6 +64,8 @@ export interface AdvanceOptions {
   ceiling: Stage;
   budgetMs?: number;
   dryRun?: boolean;
+  /** deliver to Tristan's group with "[TEST]" in the name, never to Tycho */
+  test?: boolean;
   /** throw the run away and collect again */
   force?: boolean;
   /** only these streams */
@@ -215,14 +217,17 @@ async function step(run: RunRow, opts: AdvanceOptions): Promise<{ payload: RunPa
     }
     case "deliver": {
       // one to-do per meeting, for Tycho, due on the meeting day
-      const m = (p.monday ??= { item_id: null, update_id: null, uploaded: [] });
+      // A test run keeps its own ids, so the real delivery is not marked as done by it.
+      const m = opts.test
+        ? (p.monday_test ??= { item_id: null, update_id: null, uploaded: [] })
+        : (p.monday ??= { item_id: null, update_id: null, uploaded: [] });
       const label = run.stream === "dropship" ? "Dropship" : "Branded";
       if (!m.item_id) {
         m.item_id = await createTodo({
-          name: `Delivery meeting ${label} · week ${p.meeting_week} (${p.data_period})`,
+          name: `${opts.test ? "[TEST] " : ""}Delivery meeting ${label} · week ${p.meeting_week} (${p.data_period})`,
           deadline: addDays(run.meeting_date, MEETING_DAY_OFFSET[run.stream]),
-          personId: MONDAY_DELIVERY.PERSON_TYCHO,
-          group: MONDAY_DELIVERY.GROUP_TYCHO,
+          personId: opts.test ? MONDAY_DELIVERY.PERSON_TRISTAN : MONDAY_DELIVERY.PERSON_TYCHO,
+          group: opts.test ? MONDAY_DELIVERY.GROUP_TRISTAN : MONDAY_DELIVERY.GROUP_TYCHO,
         });
         // saved before anything else can fail: a retry must not make a second to-do
         return { payload: p, done: false, note: `monday to-do ${m.item_id} created` };

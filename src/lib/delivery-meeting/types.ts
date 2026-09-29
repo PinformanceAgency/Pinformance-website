@@ -130,6 +130,7 @@ export interface RunPayload {
   delivered_files?: string[];
   /** the monday to-do the files went to */
   monday?: { item_id: string | null; update_id: string | null; uploaded: string[] };
+  monday_test?: { item_id: string | null; update_id: string | null; uploaded: string[] };
   delivered_at?: string;
   issues?: string[];
 }
