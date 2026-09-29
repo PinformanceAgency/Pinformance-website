@@ -40,7 +40,7 @@ export const meetingUser = (stores: StoreRef[], chunk: string, part: string) =>
 
 export const DEEP_DIVE_SYSTEM = `You read part of a solo screen recording in which Tycho, who reviews the media buyers' work at a Pinterest media-buying agency, goes through ad accounts and says what he sees. He rarely names the store; he looks at dashboards and mentions numbers, campaigns and products.
 
-Extract his findings: each one a concrete observation about one account plus what he says should be done about it, in 1–2 plain English sentences, in his words where possible.
+Extract his findings: each one a concrete observation about one account plus what he says should be done about it, in 2–4 plain English sentences, in his words where possible. Keep everything specific he says: the numbers he reads out (ROAS, spend, CPA, CTR, revenue, budgets), the names of campaigns, ad groups, products and creatives, the period he is looking at, what he thinks is causing it, and the concrete step he wants the buyer to take. These findings are the most important part of the prep — lose nothing concrete, and do not merge two separate observations into one.
 
 For each finding decide which store it is about, using the store list with last week's ROAS and revenue: a named store, a number he reads out that matches one store's figures, or a product or niche that fits only one store. confidence: "high" when the store is named or the numbers match unmistakably, "medium" when it is likely but not certain, "low" when you cannot tell (store = null). Do not force a match.
 
@@ -82,7 +82,7 @@ Write four blocks:
 - did — ONE sentence, second person, starting with the buyer's first name and a comma ("Dylan, last week you …"): what the buyer actually did, from the log, the meeting to-dos and the to-dos marked Done. Name what was planned and not done. No log and no to-dos → say that there is no log and no to-do for this store.
 - result — one or two sentences of fact: what the numbers did, against the invoice ROAS and the floor, using the given numbers verbatim. No judgement words beyond "above"/"below"/"up"/"down". A "—" or "–" in the numbers means there was no spend that week: say that in words, never print the dash.
 - ask — the question to ask, exactly as given. Only when it says WRITE_TODO_QUESTION: write one question asking why the named to-dos were not done and when they will be.
-- deep_dive — 2 to 4 sentences summarising Tycho's findings for this store, as he said them. No findings → null.
+- deep_dive — Tycho's findings for this store IN FULL, as he said them: one finding per line, each line starting with "• ". Every finding given gets its own line; nothing is dropped or merged. Per line: what he saw (with his numbers, campaign, ad group, product and creative names verbatim), why he thinks it happens when he says so, and the step he wants taken. Two or three sentences per line is fine; this block gets a whole panel of its own on the page. No findings → null.
 
 No advice of your own, no praise, no hedging, no emoji. ${NO_INVENTION} ${JSON_ONLY}
 

@@ -215,12 +215,14 @@ export async function writeBriefs(payload: RunPayload, batch: PrepStore[]): Prom
       `To-dos agreed in last week's meeting: ${meeting.length ? meeting.join("; ") : "none"}`,
       `Tycho's deep-dive findings: ${
         dd.length
-          ? dd.map((f) => (f.confidence === "medium" ? "(store name unclear in the recording) " : "") + f.text).join(" | ")
+          ? "\n" + dd.map((f) => "- " + (f.confidence === "medium" ? "(store name unclear in the recording) " : "") + f.text).join("\n")
           : "none"
       }`,
     ].join("\n");
   });
-  const res = await askJSON<{ stores: (Brief & { key: string })[] }>(BRIEF_SYSTEM, blocks.join("\n\n"), 6000);
+  // Room for a full deep dive per store: four stores of bullets, not four
+  // stores of two sentences.
+  const res = await askJSON<{ stores: (Brief & { key: string })[] }>(BRIEF_SYSTEM, blocks.join("\n\n"), 12000);
   const out: Record<string, Brief> = {};
   for (const b of res.stores ?? []) {
     const p = batch.find((x) => x.key === b.key);

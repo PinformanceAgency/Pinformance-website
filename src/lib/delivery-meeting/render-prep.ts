@@ -4,13 +4,16 @@
  * page with pdf-lib, at the script's own measurements (in mm, from its CSS).
  *
  * Landscape 16:9 (338.67 × 190.5 mm), black, red bar, logo, "Off track" /
- * "On track" (green) titles, two stores a page. Per store: name · buyer ·
- * WEEK ON/OFF TRACK pill, the numbers line, then LAST WEEK / RESULT / ASK
- * (bold) / DEEP DIVE.
+ * "On track" (green) titles, ONE store a page (29-09-2026: two a page left the
+ * deep dive two lines, and the deep dive is Tycho's own insight — the part of
+ * the prep that matters most). Per store: name · buyer · WEEK ON/OFF TRACK
+ * pill and the numbers line across the top; below it LAST WEEK / RESULT / ASK
+ * (bold) in a narrow left column and TYCHO'S DEEP DIVE, one finding per
+ * bullet, in a wide panel on the right.
  *
- * Nothing is cut off: a card whose text does not fit at 13 pt is set again a
- * size smaller, down to 9 pt, and only then shortened — and a shortened card
- * is reported, never silent.
+ * Nothing is cut off: a column whose text does not fit is set again a size
+ * smaller, down to 9 pt, and only then shortened — and a shortened page is
+ * reported, never silent.
  */
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
@@ -33,6 +36,7 @@ const GREY = hex("#808080");
 const LIGHT = hex("#BBBBBB");
 const WHITE = hex("#FFFFFF");
 const PILL_NONE = hex("#2A2A2A");
+const PANEL = hex("#1E1E1E");
 
 // No subsetting: pdf-lib's subsetter dropped glyphs from Carlito ("Pn rm n"
 // for "Pinformance"). No ligatures: fontkit's "ti"/"ft" ligatures were drawn
@@ -116,16 +120,16 @@ export async function renderPrep(opts: {
   const S = (f: PDFFont, s: string) => safe(f, s);
   const shortened: string[] = [];
 
-  // pages: per section, off track then on track, two stores a page — the
-  // script's grouping, kept inside each deck's section so the branded prep
-  // runs Rens's deck order, then Louiza's
-  const pages: { kicker: string; title: string; count: number; chunk: PrepStore[] }[] = [];
+  // pages: per section, off track then on track, one store a page — kept
+  // inside each deck's section so the branded prep runs Rens's deck order,
+  // then Louiza's
+  const pages: { kicker: string; title: string; count: number; index: number; st: PrepStore }[] = [];
   for (const sec of opts.sections) {
     for (const [title, list] of [
       ["Off track", sec.stores.filter((s) => !s.month_ok)],
       ["On track", sec.stores.filter((s) => s.month_ok)],
     ] as const) {
-      for (let i = 0; i < list.length; i += 2) pages.push({ kicker: sec.kicker, title, count: list.length, chunk: list.slice(i, i + 2) });
+      list.forEach((st, i) => pages.push({ kicker: sec.kicker, title, count: list.length, index: i + 1, st }));
     }
   }
 
@@ -149,21 +153,15 @@ export async function renderPrep(opts: {
     const tcol = pg.title === "On track" ? GREEN : RED;
     const tSegs: Seg[] = [
       { t: pg.title, font: fonts.bold, size: 26, color: tcol, gapAfter: 3 * MM },
-      { t: `${pg.count} stores`, font: fonts.bold, size: 16, color: LIGHT },
+      { t: `${pg.index} of ${pg.count}`, font: fonts.bold, size: 16, color: LIGHT },
     ];
     const tw = tSegs.reduce((a, s) => a + s.font.widthOfTextAtSize(s.t, s.size) + (s.gapAfter ?? 0), 0);
     const titleTop = 12 * MM + 10 * 1.22;
     drawSegs(page, tSegs, (W - tw) / 2, H - titleTop - 26 * 0.95);
 
-    // from the top, in pt — measured against the WeasyPrint original: its
-    // title box is shorter than 1.22 × 26 pt, so the first card sits 3.4 mm
-    // higher than the naive sum
-    let y = titleTop + 26 * 1.22 + 0.6 * MM;
-    for (const st of pg.chunk) {
-      y += 3.5 * MM;
-      drawCard(page, fonts, st, 14 * MM, H - y, W - 28 * MM, 63 * MM, shortened);
-      y += 63 * MM;
-    }
+    // the card fills the page between the title and the footer
+    const cardTop = titleTop + 26 * 1.22 + 4 * MM;
+    drawCard(page, fonts, pg.st, 14 * MM, H - cardTop, W - 28 * MM, H - cardTop - 12 * MM, shortened);
 
     const foot = S(fonts.bold, opts.footer);
     page.drawText(foot, { x: 14 * MM, y: 6 * MM, size: 8, font: fonts.bold, color: GREY });
@@ -240,45 +238,115 @@ function drawCard(
   drawSegs(page, segs, cx, cy - 12 * 0.95);
   cy -= 12 * 1.22 + 2.5 * MM;
 
-  // the four blocks, set at the largest size that fits
+  cy -= 3 * MM;
+
+  // two columns: the buyer's week on the left, Tycho's deep dive on the right
   const b = st.brief;
-  const rows: { lab: string; text: string; font: PDFFont; color: ReturnType<typeof rgb> }[] = [
+  const bottom = yTop - h + 5 * MM;
+  const gap = 6 * MM;
+  const leftW = cw * 0.36;
+  const rightX = cx + leftW + gap;
+  const rightW = cw - leftW - gap;
+
+  const left: Block[] = [
     { lab: "LAST WEEK", text: b?.did ?? "", font: fonts.reg, color: WHITE },
     { lab: "RESULT", text: b?.result ?? "", font: fonts.reg, color: WHITE },
     { lab: "ASK", text: b?.ask ?? "", font: fonts.bold, color: WHITE },
-    { lab: "DEEP DIVE", text: b?.deep_dive || "Not in this week’s deep dive.", font: fonts.reg, color: LIGHT },
   ].filter((r) => r.text);
-  const bottom = yTop - h + 4 * MM;
-  const avail = cy - bottom;
-  const textX = cx + 26 * MM + 4 * MM;
-  const textW = cw - 26 * MM - 4 * MM;
+  let cut = drawColumn(page, fonts, left, cx, cy, leftW, cy - bottom, 13);
 
-  let size = 13;
-  let laid: { lab: string; lines: string[]; font: PDFFont; color: ReturnType<typeof rgb> }[] = [];
-  for (; size >= 9; size -= 0.5) {
-    laid = rows.map((r) => ({ ...r, lines: wrap(S(r.font, r.text), r.font, size, textW) }));
-    const need = laid.reduce((a, r) => a + r.lines.length * size * 1.3 + 2.4 * MM, 0) - 2.4 * MM;
-    if (need <= avail) break;
+  // deep dive panel
+  const panelTop = cy + 1.5 * MM;
+  page.drawRectangle({ x: rightX - 4 * MM, y: bottom - 2 * MM, width: rightW + 4 * MM, height: panelTop - bottom + 2 * MM, color: PANEL });
+  page.drawRectangle({ x: rightX - 4 * MM, y: bottom - 2 * MM, width: 0.8 * MM, height: panelTop - bottom + 2 * MM, color: RED });
+  const dd = b?.deep_dive?.trim();
+  const ddTop = cy - 1.5 * MM;
+  page.drawText("TYCHO'S DEEP DIVE", { x: rightX, y: ddTop - 11 * 0.95, size: 11, font: fonts.bold, color: RED });
+  const bodyTop = ddTop - 11 * 1.22 - 3 * MM;
+  if (dd) {
+    const bullets = dd.split(/\n+/).map((l) => l.replace(/^\s*[•\-*]\s*/, "").trim()).filter(Boolean);
+    cut = drawBullets(page, fonts, bullets, rightX, bodyTop, rightW - 4 * MM, bodyTop - bottom, 15) || cut;
+  } else {
+    page.drawText("Not in this week's deep dive.", { x: rightX, y: bodyTop - 13 * 1.05, size: 13, font: fonts.reg, color: GREY });
   }
+  if (cut) shortened.push(st.name);
+}
+
+type Block = { lab: string; text: string; font: PDFFont; color: ReturnType<typeof rgb> };
+
+/** Labelled blocks in one column, at the largest size that fits. Returns
+ *  whether anything had to be shortened. */
+function drawColumn(page: PDFPage, fonts: Fonts, rows: Block[], x: number, yTop: number, w: number, avail: number, maxSize: number): boolean {
+  const S = (f: PDFFont, s: string) => safe(f, s);
+  const labH = 9.5 * 1.25;
+  let size = maxSize;
+  let laid: (Block & { lines: string[] })[] = [];
+  const need = () => laid.reduce((a, r) => a + labH + r.lines.length * size * 1.3 + 3.5 * MM, 0) - 3.5 * MM;
+  for (; size >= 9; size -= 0.5) {
+    laid = rows.map((r) => ({ ...r, lines: wrap(S(r.font, r.text), r.font, size, w) }));
+    if (need() <= avail) break;
+  }
+  let cut = false;
   if (size < 9) {
     size = 9;
-    shortened.push(st.name);
+    cut = true;
     let left = avail;
     laid = laid.map((r) => {
+      left -= labH;
       const fit = Math.max(0, Math.floor((left + 0.01) / (size * 1.3)));
       const lines = r.lines.slice(0, fit);
       if (lines.length < r.lines.length && lines.length) lines[lines.length - 1] = lines[lines.length - 1].replace(/\s*\S*$/, "") + " ...";
-      left -= lines.length * size * 1.3 + 2.4 * MM;
+      left -= lines.length * size * 1.3 + 3.5 * MM;
       return { ...r, lines };
     });
   }
+  let cy = yTop;
   for (const r of laid) {
     if (!r.lines.length) continue;
-    page.drawText(r.lab, { x: cx, y: cy - 0.8 * MM - 9.5 * 0.95, size: 9.5, font: fonts.bold, color: RED });
+    page.drawText(r.lab, { x, y: cy - 9.5 * 0.95, size: 9.5, font: fonts.bold, color: RED });
+    cy -= labH;
     for (const line of r.lines) {
-      page.drawText(line, { x: textX, y: cy - size * 1.05, size, font: r.font, color: r.color });
+      page.drawText(line, { x, y: cy - size * 1.05, size, font: r.font, color: r.color });
       cy -= size * 1.3;
     }
-    cy -= 2.4 * MM;
+    cy -= 3.5 * MM;
   }
+  return cut;
+}
+
+/** One finding per bullet, hanging indent, at the largest size that fits. */
+function drawBullets(page: PDFPage, fonts: Fonts, bullets: string[], x: number, yTop: number, w: number, avail: number, maxSize: number): boolean {
+  const indent = 5 * MM;
+  const gapB = 2.8 * MM;
+  let size = maxSize;
+  let laid: string[][] = [];
+  const need = () => laid.reduce((a, l) => a + l.length * size * 1.3 + gapB, 0) - gapB;
+  for (; size >= 9; size -= 0.5) {
+    laid = bullets.map((t) => wrap(safe(fonts.reg, t), fonts.reg, size, w - indent));
+    if (need() <= avail) break;
+  }
+  let cut = false;
+  if (size < 9) {
+    size = 9;
+    cut = true;
+    let left = avail;
+    laid = laid.map((lines) => {
+      const fit = Math.max(0, Math.floor((left + 0.01) / (size * 1.3)));
+      const kept = lines.slice(0, fit);
+      if (kept.length < lines.length && kept.length) kept[kept.length - 1] = kept[kept.length - 1].replace(/\s*\S*$/, "") + " ...";
+      left -= kept.length * size * 1.3 + gapB;
+      return kept;
+    });
+  }
+  let cy = yTop;
+  for (const lines of laid) {
+    if (!lines.length) continue;
+    page.drawText("•", { x, y: cy - size * 1.05, size, font: fonts.bold, color: RED });
+    for (const line of lines) {
+      page.drawText(line, { x: x + indent, y: cy - size * 1.05, size, font: fonts.reg, color: WHITE });
+      cy -= size * 1.3;
+    }
+    cy -= gapB;
+  }
+  return cut;
 }
