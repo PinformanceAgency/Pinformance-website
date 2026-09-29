@@ -86,6 +86,22 @@
     {
       "path": "/api/cron/organic-seed-boards",
       "schedule": "20 6-17 * * *"
+    },
+    {
+      "path": "/api/cron/delivery-meeting/dropship/run",
+      "schedule": "*/10 4-9 * * 2"
+    },
+    {
+      "path": "/api/cron/delivery-meeting/dropship/check",
+      "schedule": "30 9 * * 2"
+    },
+    {
+      "path": "/api/cron/delivery-meeting/branded/run",
+      "schedule": "*/10 2-7 * * 3"
+    },
+    {
+      "path": "/api/cron/delivery-meeting/branded/check",
+      "schedule": "30 7 * * 3"
     }
   ]
 }

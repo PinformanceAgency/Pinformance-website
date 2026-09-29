@@ -8,7 +8,12 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "images.unsplash.com" },
     ],
   },
-  serverExternalPackages: ["bullmq", "ioredis", "@resvg/resvg-js"],
+  serverExternalPackages: ["bullmq", "ioredis", "@resvg/resvg-js", "pptxgenjs", "pdf-lib", "@pdf-lib/fontkit"],
+  // The delivery-meeting cron reads its fonts and logo from disk at runtime;
+  // without this they are not in the serverless bundle.
+  outputFileTracingIncludes: {
+    "/api/cron/delivery-meeting/[stream]/[stage]": ["./src/lib/delivery-meeting/assets/**"],
+  },
 };
 
 export default nextConfig;
