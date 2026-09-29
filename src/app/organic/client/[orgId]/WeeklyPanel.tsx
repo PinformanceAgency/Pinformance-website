@@ -18,6 +18,7 @@ import { Table, TH, TD, Pill } from "@/components/organic/internal";
 import { conversionInsightsSteps, type WeekRow } from "@/lib/organic/weekly-shared";
 import type { StoreWeekly } from "@/lib/organic/weekly";
 import { cn } from "@/lib/utils";
+import { TopPinCell } from "../../TopPinCell";
 
 const nf = (v: number | null) =>
   v === null ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -51,6 +52,7 @@ export function WeeklyPanel({ orgId, data }: { orgId: string; data: StoreWeekly 
   );
 
   return (
+    <>
     <Band
       title="Organic per week"
       sub="Monday to Sunday. Reach comes from Pinterest every night; revenue and conversions are copied from Conversion Insights once a week."
@@ -139,6 +141,86 @@ export function WeeklyPanel({ orgId, data }: { orgId: string; data: StoreWeekly 
           </p>
         </Panel>
       </div>
+    </Band>
+    <ContentPerWeek weeks={data.weeks} currentWeek={data.current_week} />
+    </>
+  );
+}
+
+/**
+ * Followers, posts and the top post per week, and what the pins that were new
+ * that week did next to the account as a whole (migration 114). Kept apart
+ * from the table above: that one is the account's reach and revenue, this one
+ * is what was put out.
+ */
+function ContentPerWeek({ weeks, currentWeek }: { weeks: WeekRow[]; currentWeek: string }) {
+  const share = (w: WeekRow) => {
+    const a = w.impressions, b = w.new_pins?.impressions ?? null;
+    if (a === null || b === null || a === 0) return null;
+    return Math.round((b / a) * 100);
+  };
+  return (
+    <Band
+      title="Content per week"
+      sub="What was posted, and how the pins new that week did from the day they went up to Sunday, next to the whole account's reach. Followers are counted daily from 28 Sep 2026 — Pinterest keeps no follower history, so earlier weeks have none."
+    >
+      <Table>
+        <thead>
+          <tr>
+            <TH>Week</TH>
+            <TH align="right">Followers</TH>
+            <TH align="right">Posts</TH>
+            <TH align="right">New pins: impressions</TH>
+            <TH align="right">Saves</TH>
+            <TH align="right">Outbound clicks</TH>
+            <TH align="right">Share of reach</TH>
+            <TH>Top post</TH>
+          </tr>
+        </thead>
+        <tbody>
+          {weeks.map((w, i) => {
+            const prev = weeks[i + 1];
+            const np = w.new_pins;
+            const pending = np ? np.count - np.measured : 0;
+            const pct = share(w);
+            return (
+              <tr key={w.week_start} className={cn(w.week_start === currentWeek && "bg-o-sunk")}>
+                <TD><span className="font-medium text-o-ink">{weekLabel(w.week_start)}</span></TD>
+                <TD align="right">
+                  {nf(w.followers)}
+                  {w.followers !== null && prev?.followers != null && w.followers !== prev.followers && (
+                    <span className={cn("ml-1.5 tabular-nums", w.followers > prev.followers ? "text-emerald-700" : "text-o-accent")}>
+                      {w.followers > prev.followers ? "+" : ""}{w.followers - prev.followers}
+                    </span>
+                  )}
+                </TD>
+                <TD align="right">
+                  {nf(w.posts_published)}
+                  {np && np.ours > 0 && (
+                    <span className="block text-[length:var(--text-o-label)] text-o-ink-3">{np.ours} by us</span>
+                  )}
+                  {(w.board_warming_saves ?? 0) > 0 && (
+                    <span className="block text-[length:var(--text-o-label)] text-o-ink-3"
+                      title="Existing pins saved onto new boards (P3.3.7). Copies, not new posts.">
+                      +{w.board_warming_saves} warming saves
+                    </span>
+                  )}
+                </TD>
+                <TD align="right">
+                  {np && np.count > 0 ? nf(np.impressions) : <span className="text-o-ink-3">—</span>}
+                  {pending > 0 && (
+                    <span className="block text-[length:var(--text-o-label)] text-o-ink-3">{pending} not measured yet</span>
+                  )}
+                </TD>
+                <TD align="right">{np && np.count > 0 ? nf(np.saves) : "—"}</TD>
+                <TD align="right">{np && np.count > 0 ? nf(np.outbound_clicks) : "—"}</TD>
+                <TD align="right" muted>{pct === null ? "—" : `${pct}%`}</TD>
+                <TD><TopPinCell pin={w.top_pin} /></TD>
+              </tr>
+            );
+          })}
+        </tbody>
+      </Table>
     </Band>
   );
 }

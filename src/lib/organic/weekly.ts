@@ -54,13 +54,80 @@ function toWeek(r: Record<string, unknown>): WeekRow {
     conversion_window_view: num(r.conversion_window_view),
     figures_entered_at: r.figures_entered_at ? String(r.figures_entered_at) : null,
     figures_note: r.figures_note ? String(r.figures_note) : null,
+    followers: null,
+    posts_published: num(r.posts_published),
+    board_warming_saves: num(r.board_warming_saves),
+    top_pin: r.top_pin_id
+      ? {
+          id: String(r.top_pin_id),
+          title: r.top_pin_title ? String(r.top_pin_title) : null,
+          image: r.top_pin_image ? String(r.top_pin_image) : null,
+          link: r.top_pin_link ? String(r.top_pin_link) : null,
+          impressions: num(r.top_pin_impressions),
+          saves: num(r.top_pin_saves),
+          outbound_clicks: num(r.top_pin_outbound_clicks),
+        }
+      : null,
+    new_pins: null,
   };
 }
 
 const WEEK_COLUMNS = `week_start::text AS week_start, impressions, pin_saves, pin_clicks,
   outbound_clicks, engagements, is_partial, measured_at, revenue_organic, checkouts,
   page_visits, add_to_cart, conversion_window_click, conversion_window_view,
-  figures_entered_at, figures_note`;
+  figures_entered_at, figures_note, posts_published, board_warming_saves, top_pin_id,
+  top_pin_title, top_pin_image, top_pin_link, top_pin_impressions, top_pin_saves,
+  top_pin_outbound_clicks`;
+
+/**
+ * Followers and the new-pins summary onto rows already built (migration 114).
+ * Followers: the first snapshot on or after the week's Sunday, within a week
+ * of it — Pinterest only ever gives today's count. New pins: only where the
+ * week's posts were read, so "no posts read" never renders as "0 new pins".
+ */
+async function attachReporting(rows: Array<{ org_id: string; week: WeekRow }>): Promise<void> {
+  if (rows.length === 0) return;
+  const pool = organicPool();
+  const orgIds = [...new Set(rows.map((r) => r.org_id))];
+  const weeks = [...new Set(rows.map((r) => r.week.week_start))];
+  const [followers, fresh] = await Promise.all([
+    pool.query<{ org_id: string; week_start: string; followers: number }>(
+      `SELECT o.org_id::text, w.week_start::text, f.followers
+         FROM unnest($1::uuid[]) AS o(org_id)
+        CROSS JOIN unnest($2::date[]) AS w(week_start)
+        CROSS JOIN LATERAL (
+          SELECT followers FROM organic.follower_snapshots s
+           WHERE s.org_id = o.org_id
+             AND s.measured_on BETWEEN w.week_start + 6 AND w.week_start + 12
+           ORDER BY s.measured_on LIMIT 1) f`,
+      [orgIds, weeks],
+    ),
+    pool.query<{
+      org_id: string; week_start: string; n: number; measured: number; ours: number;
+      impressions: string | null; saves: string | null; outbound_clicks: string | null;
+    }>(
+      `SELECT org_id::text, week_start::text, count(*)::int AS n,
+              count(measured_at)::int AS measured, count(*) FILTER (WHERE is_ours)::int AS ours,
+              sum(impressions) AS impressions, sum(saves) AS saves, sum(outbound_clicks) AS outbound_clicks
+         FROM organic.new_pins
+        WHERE org_id = ANY($1::uuid[]) AND week_start = ANY($2::date[])
+        GROUP BY 1, 2`,
+      [orgIds, weeks],
+    ),
+  ]);
+  const k = (o: string, w: string) => `${o}|${w}`;
+  const f = new Map(followers.rows.map((r) => [k(r.org_id, r.week_start), Number(r.followers)]));
+  const np = new Map(fresh.rows.map((r) => [k(r.org_id, r.week_start), r]));
+  for (const { org_id, week } of rows) {
+    week.followers = f.get(k(org_id, week.week_start)) ?? null;
+    if (week.posts_published === null) continue;
+    const r = np.get(k(org_id, week.week_start));
+    week.new_pins = r
+      ? { count: r.n, measured: r.measured, ours: r.ours, impressions: num(r.impressions),
+          saves: num(r.saves), outbound_clicks: num(r.outbound_clicks) }
+      : { count: 0, measured: 0, ours: 0, impressions: null, saves: null, outbound_clicks: null };
+  }
+}
 
 async function brandInfo(orgIds: string[]): Promise<Map<string, { window: BrandWindow; currency: string | null }>> {
   const pool = organicPool();
@@ -111,6 +178,7 @@ export async function loadStoreWeekly(orgId: string, weeks = 8): Promise<StoreWe
     const w = addWeeks(current, -i);
     out.push(byWeek.get(w) ?? toWeek({ week_start: w }));
   }
+  await attachReporting(out.map((week) => ({ org_id: orgId, week })));
   const b = info.get(orgId)!;
   return { window: b.window, currency: b.currency, weeks: out, current_week: current };
 }
@@ -207,16 +275,16 @@ export async function loadAgencyWeekly(weekStart?: string | null): Promise<{
   ]);
   const key = (o: string, w: string) => `${o}|${w}`;
   const byKey = new Map(rows.rows.map((r) => [key(String(r.org_id), String(r.week_start)), toWeek(r)]));
-  return {
-    week_start: week,
-    latest: week === latest,
-    stores: orgs.rows.map((o) => ({
-      org_id: o.org_id,
-      name: o.name,
-      window: info.get(o.org_id)!.window,
-      currency: info.get(o.org_id)!.currency,
-      week: byKey.get(key(o.org_id, week)) ?? toWeek({ week_start: week }),
-      previous: byKey.get(key(o.org_id, prev)) ?? toWeek({ week_start: prev }),
-    })),
-  };
+  const stores = orgs.rows.map((o) => ({
+    org_id: o.org_id,
+    name: o.name,
+    window: info.get(o.org_id)!.window,
+    currency: info.get(o.org_id)!.currency,
+    week: byKey.get(key(o.org_id, week)) ?? toWeek({ week_start: week }),
+    previous: byKey.get(key(o.org_id, prev)) ?? toWeek({ week_start: prev }),
+  }));
+  await attachReporting(stores.flatMap((s) => [
+    { org_id: s.org_id, week: s.week }, { org_id: s.org_id, week: s.previous },
+  ]));
+  return { week_start: week, latest: week === latest, stores };
 }

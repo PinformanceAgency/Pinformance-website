@@ -12,6 +12,7 @@ import { addWeeks, loadAgencyWeekly, type WeekRow } from "@/lib/organic/weekly";
 import { Band, Panel } from "@/components/organic/primitives";
 import { Table, TH, TD, Pill, Metric, Toolbar } from "@/components/organic/internal";
 import { cn } from "@/lib/utils";
+import { TopPinCell } from "../../TopPinCell";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +92,7 @@ export default async function AgencyWeeklyPage({
 
       <Band
         title="Organic per brand"
-        sub="Own image and video pins only — product pins run on paid and are left out. Revenue is Conversion Insights' organic column, with each brand's own conversion window."
+        sub="Own image and video pins only — product pins run on paid and are left out. Posts are own pins created that week, board-warming saves not counted. Followers are counted daily from 28 Sep 2026; Pinterest keeps no history. Revenue is Conversion Insights' organic column, with each brand's own conversion window."
       >
         <Table>
           <thead>
@@ -100,6 +101,9 @@ export default async function AgencyWeeklyPage({
               <TH align="right">Impressions</TH>
               <TH align="right">Saves</TH>
               <TH align="right">Outbound clicks</TH>
+              <TH align="right">Followers</TH>
+              <TH align="right">Posts</TH>
+              <TH>Top post</TH>
               <TH align="right">Organic revenue</TH>
               <TH align="right">Checkouts</TH>
               <TH>Window</TH>
@@ -117,6 +121,9 @@ export default async function AgencyWeeklyPage({
                 <TD align="right">{nf(s.week.impressions)}<Delta now={s.week.impressions} prev={s.previous.impressions} /></TD>
                 <TD align="right">{nf(s.week.pin_saves)}<Delta now={s.week.pin_saves} prev={s.previous.pin_saves} /></TD>
                 <TD align="right">{nf(s.week.outbound_clicks)}<Delta now={s.week.outbound_clicks} prev={s.previous.outbound_clicks} /></TD>
+                <TD align="right">{nf(s.week.followers)}<Delta now={s.week.followers} prev={s.previous.followers} /></TD>
+                <TD align="right">{nf(s.week.posts_published)}<Delta now={s.week.posts_published} prev={s.previous.posts_published} /></TD>
+                <TD><TopPinCell pin={s.week.top_pin} /></TD>
                 <TD align="right">
                   {entered(s.week) ? (
                     <>

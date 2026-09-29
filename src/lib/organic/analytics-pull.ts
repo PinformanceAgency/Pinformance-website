@@ -24,6 +24,7 @@
  * filters live only in this file nobody can check that.
  */
 import { ownPinsAnalytics } from "./own-pins";
+import { pullReportingExtras } from "./reporting-pull";
 import { organicPool } from "./db";
 import {
   pinterestClientsForOrgs,
@@ -171,13 +172,22 @@ export async function pullOrganicAnalytics(
   const { clients, failed } = await pinterestClientsForOrgs(orgs.rows.map((r) => r.org_id));
   report.reconnect_required.push(...failed);
 
-  for (const [orgId, entry] of clients) {
+  // Drie stores tegelijk. Elke store heeft zijn eigen Pinterest-app, dus ze
+  // delen geen rate limit; na de rapportage-uitbreiding (migratie 114) liep
+  // de reeks één-voor-één op 218s tegen een budget van 240s.
+  const queue = [...clients];
+  const worker = async () => {
+    for (let next = queue.shift(); next; next = queue.shift()) {
+      await pullOne(next[0], next[1]);
+    }
+  };
+  const pullOne = async (orgId: string, entry: typeof queue[number][1]) => {
     // Op tijd stoppen in plaats van halverwege een store worden afgekapt. Een
     // niet-bereikte store is over 24 uur gewoon weer aan de beurt; een
     // afgekapte run laat niemand weten waar hij bleef.
     if (Date.now() - startedAt > RUN_BUDGET_MS) {
       report.not_reached.push(entry.orgName);
-      continue;
+      return;
     }
     // De twee pulls vallen LOS van elkaar. Dat is niet netjes-doen: precies
     // hier ging het mis. De pin-pull wierp een 401 op de bulk-endpoint, en
@@ -215,6 +225,15 @@ export async function pullOrganicAnalytics(
       report.errors.push({ org_id: orgId, message: `weekly KPIs: ${(e as Error).message}` });
     }
 
+    // Followers, posts published, top post and new pins (migration 114).
+    // Its own try per part inside; a failure here costs only these columns.
+    try {
+      const extras = await pullReportingExtras(orgId, entry.client, fullWeekStarts(opts.weeks ?? 5));
+      if (extras.notes.length > 0) notes.push(`reporting: ${extras.notes.slice(0, 2).join("; ")}`);
+    } catch (e) {
+      report.errors.push({ org_id: orgId, message: `reporting: ${(e as Error).message}` });
+    }
+
     report.orgs.push({
       org_id: orgId,
       org_name: entry.orgName,
@@ -225,7 +244,8 @@ export async function pullOrganicAnalytics(
       other_pins_available: kpis.other_pins,
       note: notes.length > 0 ? notes.join(" · ") : undefined,
     });
-  }
+  };
+  await Promise.all([worker(), worker(), worker()]);
   return report;
 }
 
@@ -454,6 +474,16 @@ export async function pullAccountKpis(
  * Only the API half is written. The Conversion Insights half (revenue,
  * checkouts, ...) is typed in by a person and the upsert never touches it.
  */
+/** Mondays of the last `weeks` full Mon–Sun weeks, oldest first. */
+export function fullWeekStarts(weeks: number, now: Date = new Date()): string[] {
+  const DAY = 86_400_000;
+  const today = new Date(now.toISOString().slice(0, 10) + "T00:00:00Z");
+  const dow = (today.getUTCDay() + 6) % 7;
+  const lastMonday = today.getTime() - (dow + 7) * DAY;
+  return Array.from({ length: weeks }, (_, i) =>
+    new Date(lastMonday - (weeks - 1 - i) * 7 * DAY).toISOString().slice(0, 10));
+}
+
 export async function pullWeeklyKpis(
   orgId: string,
   client: PinterestClient,

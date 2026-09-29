@@ -32,6 +32,36 @@ export interface WeekRow {
   conversion_window_view: number | null;
   figures_entered_at: string | null;
   figures_note: string | null;
+  /** Migration 114. Snapshot on the week's Sunday or the first one after;
+   *  null before snapshots began (28-09-2026) — Pinterest keeps no history. */
+  followers: number | null;
+  /** Own pins created that week, board-warming saves excluded. Null = not read. */
+  posts_published: number | null;
+  board_warming_saves: number | null;
+  top_pin: TopPin | null;
+  /** What the pins created that week did, creation → Sunday. Null = no posts read. */
+  new_pins: NewPinsSummary | null;
+}
+
+export interface TopPin {
+  id: string;
+  title: string | null;
+  image: string | null;
+  link: string | null;
+  impressions: number | null;
+  saves: number | null;
+  outbound_clicks: number | null;
+}
+
+export interface NewPinsSummary {
+  count: number;
+  /** How many of `count` have figures yet; the rest follow the next night. */
+  measured: number;
+  /** Published through the dashboard rather than by the client. */
+  ours: number;
+  impressions: number | null;
+  saves: number | null;
+  outbound_clicks: number | null;
 }
 
 /** How to read the four hand-entered figures, in the order you click. */
