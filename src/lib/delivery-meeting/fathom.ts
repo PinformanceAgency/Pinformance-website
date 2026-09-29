@@ -55,9 +55,16 @@ const title = (m: FathomMeeting) => `${m.title ?? ""} ${m.meeting_title ?? ""}`.
 const startedAt = (m: FathomMeeting) => m.recording_start_time ?? m.created_at;
 
 /** Find the recordings and build the queue. No chunk is processed here. */
-export async function discover(stream: Stream, meetingDate: string): Promise<NonNullable<RunPayload["fathom"]>> {
+export async function discover(
+  stream: Stream,
+  meetingDate: string,
+  now: Date = new Date(),
+): Promise<NonNullable<RunPayload["fathom"]>> {
+  // Up to now, not up to the Tuesday: the branded run is on Wednesday night,
+  // precisely so the brand deep dives Tycho records on Tuesday are in it.
   const from = addDays(meetingDate, -9);
-  const meetings = await listMeetings(`${from}T00:00:00Z`, `${meetingDate}T23:59:59Z`);
+  const until = now.toISOString();
+  const meetings = await listMeetings(`${from}T00:00:00Z`, until);
 
   // Last week's delivery meeting of this stream: Tuesday (dropship) or
   // Wednesday (branded) of the week before — the latest match before today.
@@ -83,7 +90,7 @@ export async function discover(stream: Stream, meetingDate: string): Promise<Non
       /deep\s*dive/.test(t) &&
       t.includes(streamWord) &&
       startedAt(m) > since &&
-      startedAt(m).slice(0, 10) <= meetingDate
+      startedAt(m) <= until
     );
   });
 

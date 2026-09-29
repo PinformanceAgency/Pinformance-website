@@ -51,6 +51,8 @@ const value = (name: string) => {
     dryRun,
     force: flag("force"),
     test: flag("test"),
+    // a manual run delivers when it is done, not at the meeting's hour
+    ignoreSchedule: true,
     streams: stream ? [stream] : undefined,
     outDir: dryRun ? `tmp/delivery-meeting/${meetingDate}` : undefined,
   });

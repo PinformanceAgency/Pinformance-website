@@ -110,3 +110,13 @@ export const MONDAY_DELIVERY = {
 
 /** The day each meeting is held, relative to the Tuesday: dropship Tue, branded Wed. */
 export const MEETING_DAY_OFFSET = { dropship: 0, branded: 1 } as const;
+
+/**
+ * When the to-do lands with Tycho, in Amsterdam time (Tristan, 29-09-2026):
+ * dropship Tuesday 10:00; branded Wednesday 08:00 — later, because Tycho
+ * records the brand deep dives later, often on the Tuesday. The crons run in
+ * UTC and fire at both candidate hours; deliver waits for the local hour, so
+ * summer and winter time both land on the minute without a code change.
+ */
+export const DELIVER_AT_LOCAL_HOUR = { dropship: 10, branded: 8 } as const;
+export const TIME_ZONE = "Europe/Amsterdam";

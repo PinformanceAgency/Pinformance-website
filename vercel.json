@@ -88,36 +88,20 @@
       "schedule": "20 6-17 * * *"
     },
     {
-      "path": "/api/cron/delivery-meeting/collect",
-      "schedule": "0 6 * * 2"
+      "path": "/api/cron/delivery-meeting/dropship/run",
+      "schedule": "*/10 4-9 * * 2"
     },
     {
-      "path": "/api/cron/delivery-meeting/fathom",
-      "schedule": "*/10 6-7 * * 2"
+      "path": "/api/cron/delivery-meeting/dropship/check",
+      "schedule": "30 9 * * 2"
     },
     {
-      "path": "/api/cron/delivery-meeting/targets",
-      "schedule": "30 7 * * 2"
+      "path": "/api/cron/delivery-meeting/branded/run",
+      "schedule": "*/10 2-7 * * 3"
     },
     {
-      "path": "/api/cron/delivery-meeting/compute",
-      "schedule": "0 8 * * 2"
-    },
-    {
-      "path": "/api/cron/delivery-meeting/briefs",
-      "schedule": "15-55/10 8 * * 2"
-    },
-    {
-      "path": "/api/cron/delivery-meeting/render",
-      "schedule": "0 9 * * 2"
-    },
-    {
-      "path": "/api/cron/delivery-meeting/deliver",
-      "schedule": "15-45/15 9 * * 2"
-    },
-    {
-      "path": "/api/cron/delivery-meeting/check",
-      "schedule": "30 10 * * 2"
+      "path": "/api/cron/delivery-meeting/branded/check",
+      "schedule": "30 7 * * 3"
     }
   ]
 }

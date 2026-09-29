@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   // The delivery-meeting cron reads its fonts and logo from disk at runtime;
   // without this they are not in the serverless bundle.
   outputFileTracingIncludes: {
-    "/api/cron/delivery-meeting/[stage]": ["./src/lib/delivery-meeting/assets/**"],
+    "/api/cron/delivery-meeting/[stream]/[stage]": ["./src/lib/delivery-meeting/assets/**"],
   },
 };
 

@@ -123,3 +123,17 @@ export function nameMatches(mondayName: string, keys: string[]): boolean {
 }
 
 export const pct = (now: number, prev: number) => (prev ? (now - prev) / prev : null);
+
+/** Date and hour in Amsterdam: "YYYY-MM-DD" and 0–23. */
+export function amsterdamNow(now: Date = new Date()): { date: string; hour: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Amsterdam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return { date: `${get("year")}-${get("month")}-${get("day")}`, hour: Number(get("hour")) };
+}

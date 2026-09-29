@@ -27,6 +27,7 @@
  * briefs cannot eat the whole budget.
  */
 import {
+  DELIVER_AT_LOCAL_HOUR,
   MEETING_DAY_OFFSET,
   MIN_STEP_MS,
   MONDAY_DELIVERY,
@@ -57,13 +58,15 @@ import { renderPrep } from "./render-prep";
 import { summaryFor } from "./summary";
 import { attachFile, createTodo, createUpdate, toUpdateHtml } from "./monday-deliver";
 import type { RunPayload, RunRow } from "./types";
-import { addDays, meetingDates } from "./util";
+import { addDays, amsterdamNow, meetingDates } from "./util";
 
 export interface AdvanceOptions {
   meetingDate: string;
   ceiling: Stage;
   budgetMs?: number;
   dryRun?: boolean;
+  /** deliver now instead of waiting for the meeting's local hour (manual runs) */
+  ignoreSchedule?: boolean;
   /** deliver to Tristan's group with "[TEST]" in the name, never to Tycho */
   test?: boolean;
   /** throw the run away and collect again */
@@ -102,7 +105,10 @@ async function ensureRun(meetingDate: string, stream: Stream, force: boolean): P
 }
 
 /** One unit of work for one run. Mutates and returns the payload. */
-async function step(run: RunRow, opts: AdvanceOptions): Promise<{ payload: RunPayload; done: boolean; note: string }> {
+async function step(
+  run: RunRow,
+  opts: AdvanceOptions,
+): Promise<{ payload: RunPayload; done: boolean; note: string; wait?: boolean }> {
   const p = run.payload;
   switch (run.stage) {
     case "collect": {
@@ -116,7 +122,7 @@ async function step(run: RunRow, opts: AdvanceOptions): Promise<{ payload: RunPa
         return { payload: p, done: true, note: "fathom skipped (no key)" };
       }
       if (!p.fathom) {
-        p.fathom = await discover(run.stream, run.meeting_date);
+        p.fathom = await discover(run.stream, run.meeting_date, opts.now ?? new Date());
         return {
           payload: p,
           done: p.fathom.done,
@@ -216,6 +222,14 @@ async function step(run: RunRow, opts: AdvanceOptions): Promise<{ payload: RunPa
       return { payload: p, done: true, note: `rendered ${files.map((f) => f.name).join(", ")}` };
     }
     case "deliver": {
+      // Not before the meeting's local hour (dropship Tue 10:00, branded Wed
+      // 08:00, Amsterdam). The work is done; only the hand-over waits.
+      const dueDate = addDays(run.meeting_date, MEETING_DAY_OFFSET[run.stream]);
+      const local = amsterdamNow(opts.now ?? new Date());
+      const due = local.date > dueDate || (local.date === dueDate && local.hour >= DELIVER_AT_LOCAL_HOUR[run.stream]);
+      if (!due && !opts.ignoreSchedule && !opts.test) {
+        return { payload: p, done: false, wait: true, note: `ready, delivers ${dueDate} ${DELIVER_AT_LOCAL_HOUR[run.stream]}:00 Amsterdam` };
+      }
       // one to-do per meeting, for Tycho, due on the meeting day
       // A test run keeps its own ids, so the real delivery is not marked as done by it.
       const m = opts.test
@@ -288,7 +302,13 @@ export async function advance(opts: AdvanceOptions): Promise<AdvanceResult> {
         if (left() < MIN_STEP_MS && opts.budgetMs !== Infinity) continue;
         try {
           const t0 = Date.now();
-          const { payload, done, note } = await step(run, opts);
+          const { payload, done, note, wait } = await step(run, opts);
+          if (wait) {
+            blocked.add(s); // nothing to do until the hour; not an error
+            result.streams[s].steps.push(`${run.stage}: ${note}`);
+            log(`${s}: ${run.stage}: ${note}`);
+            continue;
+          }
           const stage = done ? nextStage(run.stage) : run.stage;
           const saved = await saveRun(run, { payload, stage, status: "running", error: null, attempts: 0 });
           runs.set(s, saved);
@@ -331,9 +351,12 @@ export async function advance(opts: AdvanceOptions): Promise<AdvanceResult> {
 }
 
 /** The 10:30 watchdog: anything not done is reported. Read-only on the runs. */
-export async function check(meetingDate: string): Promise<{ ok: boolean; problems: string[] }> {
+export async function check(
+  meetingDate: string,
+  streams: readonly Stream[] = STREAMS,
+): Promise<{ ok: boolean; problems: string[] }> {
   const problems: string[] = [];
-  for (const s of STREAMS) {
+  for (const s of streams) {
     const r = await getRun(meetingDate, s);
     if (!r) problems.push(`${s}: no run row at all — collect never ran`);
     else if (r.status !== "done") {
