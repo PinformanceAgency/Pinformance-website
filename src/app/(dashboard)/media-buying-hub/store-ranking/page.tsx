@@ -407,14 +407,7 @@ function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRan
 
 function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
   const cur = s.currency;
-  const up =
-    s.week.roas != null && s.prev_week.roas != null
-      ? s.week.roas > s.prev_week.roas
-        ? true
-        : s.week.roas < s.prev_week.roas
-        ? false
-        : null
-      : null;
+  const prevVolume = s.spend_account ? s.prev_week.spend : s.prev_week.revenue;
   return (
     <tr className="border-b border-border/40 last:border-b-0 even:bg-muted/20">
       <td className={cn("py-2.5 pl-4 pr-2 border-l-4", on ? "border-l-emerald-600" : "border-l-red-600")}>
@@ -427,9 +420,8 @@ function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
             <span className="text-muted-foreground">{fmtRoas(s.prev_week.roas)}</span>
             <ArrowRight className="w-3 h-3 text-muted-foreground" />
             <span className="font-semibold">{fmtRoas(s.week.roas)}</span>
-            {up === true && <span className="text-emerald-600 text-xs">▲</span>}
-            {up === false && <span className="text-red-600 text-xs">▼</span>}
             <span className="text-xs text-muted-foreground">/ {fmtRoas(s.roas_target)}</span>
+            <Delta now={s.week.roas} before={s.prev_week.roas} />
           </span>
         </Cell>
       </td>
@@ -439,6 +431,7 @@ function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
             <span className="font-semibold">{fmtMoney(s.week.volume, cur)}</span>
             <span className="text-xs text-muted-foreground"> / {fmtMoney(s.week.volume_target, cur)}</span>
             {s.spend_account && <span className="text-xs text-muted-foreground"> spend</span>}
+            <Delta now={s.week.volume} before={prevVolume} />
           </span>
         </Cell>
       </td>
@@ -460,6 +453,29 @@ function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
         </Cell>
       </td>
     </tr>
+  );
+}
+
+/** Change against the period before, in percent. Nothing when there is no
+ *  "before" to compare with: +∞% against a week without revenue says nothing. */
+function Delta({ now, before }: { now: number | null; before: number | null }) {
+  if (now == null || before == null || before <= 0) return null;
+  const pct = ((now - before) / before) * 100;
+  const shown = Math.round(pct);
+  const tone =
+    shown > 0
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+      : shown < 0
+      ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
+      : "bg-muted text-muted-foreground";
+  return (
+    <span
+      className={cn("ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums", tone)}
+      title="Change against the period before"
+    >
+      {shown > 0 ? "▲ +" : shown < 0 ? "▼ " : ""}
+      {shown.toLocaleString("en-US")}%
+    </span>
   );
 }
 
