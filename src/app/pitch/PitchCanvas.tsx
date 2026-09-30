@@ -639,7 +639,12 @@ export default function PitchCanvas({ lang = "nl" }: { lang?: Lang }) {
 
                 <div className="pitch-cases">
                   {detail.cases.map((c) => {
-                    const f = caseMode === "organic" ? c.organic : c.paid;
+                    const f =
+                      caseMode === "organic"
+                        ? // Geen cijfer aangeleverd: wel dezelfde vier regels,
+                          // met een streepje waar het getal hoort.
+                          (c.organic ?? { ...t.cases.noOrganic, value: "—" })
+                        : c.paid;
                     return (
                       <div className="pcase" key={c.brand}>
                         {c.src ? (

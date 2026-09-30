@@ -163,7 +163,13 @@ export type CaseMode = "paid" | "organic";
 export interface CaseRow {
   brand: string;
   paid: CaseFigures;
-  organic: CaseFigures;
+  /**
+   * Leeg zolang er voor deze case geen organic-cijfer is aangeleverd. De
+   * banner blijft dan staan met een streepje in plaats van een getal: hem
+   * weglaten zou de rij laten verspringen bij het omschakelen, en een nul
+   * invullen zou een cijfer beweren dat niemand gemeten heeft.
+   */
+  organic?: CaseFigures;
   /** Wat er bij de cijfers komt te staan, en het beeld zodra het er is. */
   visual: string;
   src?: string;
@@ -477,7 +483,7 @@ export const ROADMAP_NODES: RoadmapNode[] = [
     y: 660,
     name: "Resultaten",
     cat: "Pagina 4 · Resultaten + pricing",
-    desc: "Vier accounts, grootste eerst. Alle cijfers over dit jaar.",
+    desc: "Zeven accounts, grootste eerst. Alle cijfers over dit jaar, tenzij anders vermeld.",
     // De volgorde blijft in beide modi gelijk, zodat er bij het omschakelen
     // geen banner van plek wisselt. Daarom noemt de organic-subtitel geen
     // volgorde.
@@ -528,6 +534,19 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         logo: "/pitch/brand-celestia.png",
       },
       {
+        brand: "Jewellery merk (anoniem)",
+        paid: {
+          label: "Dit jaar",
+          value: "€ 437k",
+          unit: "Revenue",
+          metric: "ROAS 2,20",
+        },
+        // Anoniem, dus het bestand is naar de niche genoemd en niet naar het
+        // merk: een bestandsnaam staat in de broncode van de pagina.
+        visual: "Sfeerbeeld zonder logo",
+        src: "/pitch/case-jewellery.jpg",
+      },
+      {
         brand: "FitCherries",
         paid: {
           label: "Dit jaar",
@@ -562,6 +581,30 @@ export const ROADMAP_NODES: RoadmapNode[] = [
         visual: "Merkbanner",
         src: "/pitch/case-may-cosmetics.jpg",
         logo: "/pitch/brand-may.png",
+      },
+      {
+        brand: "Havelalights",
+        paid: {
+          // Vier maanden onboarded, dus "dit jaar" zou het cijfer kleiner
+          // laten lijken dan het is.
+          label: "In 4 maanden",
+          value: "€ 185k",
+          unit: "Revenue",
+          metric: "ROAS 3,61",
+        },
+        visual: "Merkbanner",
+        src: "/pitch/case-havelalights.jpg",
+      },
+      {
+        brand: "Nature's Roots",
+        paid: {
+          label: "Dit jaar",
+          value: "€ 160k",
+          unit: "Ad spend",
+          metric: "CPA €32",
+        },
+        visual: "Merkbanner",
+        src: "/pitch/case-nature-roots.jpg",
       },
     ],
     visual: {

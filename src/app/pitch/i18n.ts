@@ -26,7 +26,13 @@ export interface Strings {
     otherLanguage: string;
   };
   carousel: { prev: string; next: string; slide: (i: number, n: number) => string };
-  cases: { paid: string; organic: string; group: string };
+  cases: {
+    paid: string;
+    organic: string;
+    group: string;
+    /** Een case waarvoor nog geen organic-cijfer is aangeleverd. */
+    noOrganic: { label: string; unit: string; metric: string };
+  };
   calc: {
     questionsTitle: string;
     questionsLead: string;
@@ -129,7 +135,16 @@ const nl: Strings = {
     next: "Volgende",
     slide: (i, n) => `Beeld ${i} van ${n}`,
   },
-  cases: { paid: "Paid", organic: "Organic", group: "Paid of organic" },
+  cases: {
+    paid: "Paid",
+    organic: "Organic",
+    group: "Paid of organic",
+    noOrganic: {
+      label: "Organic",
+      unit: "Organic revenue",
+      metric: "Cijfer volgt",
+    },
+  },
   calc: {
     questionsTitle: "Eerst drie vragen",
     questionsLead:
@@ -247,7 +262,16 @@ const en: Strings = {
     next: "Next",
     slide: (i, n) => `Image ${i} of ${n}`,
   },
-  cases: { paid: "Paid", organic: "Organic", group: "Paid or organic" },
+  cases: {
+    paid: "Paid",
+    organic: "Organic",
+    group: "Paid or organic",
+    noOrganic: {
+      label: "Organic",
+      unit: "Organic revenue",
+      metric: "Figure to follow",
+    },
+  },
   calc: {
     questionsTitle: "Three questions first",
     questionsLead: "The offer uses your numbers, not an assumption of ours.",

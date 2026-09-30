@@ -21,7 +21,10 @@ export interface NodeCopy {
   highlight?: { k: string; v: string; s?: string; f?: string };
   columns?: { title: string; items: string[] }[];
   /** Per case, op merknaam: de cijfers in beide standen. */
-  cases?: Record<string, { brand?: string; paid: CaseFigures; organic: CaseFigures }>;
+  cases?: Record<
+    string,
+    { brand?: string; paid: CaseFigures; organic?: CaseFigures }
+  >;
 }
 
 /** De titel boven elke pagina. */
@@ -223,7 +226,7 @@ export const EN_NODES: Record<string, NodeCopy> = {
   "de-cases": {
     name: "Results",
     cat: PAGE4,
-    desc: "Four accounts, largest first. All figures for this year.",
+    desc: "Seven accounts, largest first. All figures for this year unless stated otherwise.",
     descOrganic: "Organic revenue over the last 30 days, in euros.",
     cases: {
       "Fashion merk (anoniem)": {
@@ -269,6 +272,15 @@ export const EN_NODES: Record<string, NodeCopy> = {
           metric: "Without any ad budget",
         },
       },
+      "Jewellery merk (anoniem)": {
+        brand: "Jewellery brand (anonymous)",
+        paid: {
+          label: "This year",
+          value: "€ 437k",
+          unit: "Revenue",
+          metric: "ROAS 2.20",
+        },
+      },
       "May Cosmetics": {
         paid: {
           label: "This year",
@@ -281,6 +293,22 @@ export const EN_NODES: Record<string, NodeCopy> = {
           value: "€ 3,270",
           unit: "Organic revenue",
           metric: "Without any ad budget",
+        },
+      },
+      Havelalights: {
+        paid: {
+          label: "In 4 months",
+          value: "€ 185k",
+          unit: "Revenue",
+          metric: "ROAS 3.61",
+        },
+      },
+      "Nature's Roots": {
+        paid: {
+          label: "This year",
+          value: "€ 160k",
+          unit: "Ad spend",
+          metric: "CPA €32",
         },
       },
     },
