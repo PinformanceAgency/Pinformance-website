@@ -172,7 +172,7 @@ export default function StoreRankingPage() {
   const p = data?.periods;
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
+    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Store Ranking</h1>
@@ -363,7 +363,7 @@ function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRan
         </span>
       </h2>
       <div className="bg-card border border-border rounded-xl overflow-x-auto">
-        <table className="w-full min-w-[960px] text-sm">
+        <table className="w-full min-w-[1180px] text-sm">
           <thead>
             <tr className="text-[11px] uppercase tracking-wide">
               <th colSpan={2} />
@@ -481,7 +481,7 @@ function Delta({ now, before }: { now: number | null; before: number | null }) {
 
 function Cell({ pill, children }: { pill: boolean; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-center justify-between gap-4 whitespace-nowrap">
       {children}
       <TrackPill on={pill} />
     </div>
