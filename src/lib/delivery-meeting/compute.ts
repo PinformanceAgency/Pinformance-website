@@ -59,7 +59,36 @@ export function computeDeck(opts: {
   const tot = [0, 0, 0, 0];
   const explicitGoal = stores.some((s) => s.weekly_goal);
 
+  const newRows: DeckStoreRow[] = [];
   for (const s of stores) {
+    if (s.new_store) {
+      // on the deck so it gets a plan; no numbers, no pills, in no goal
+      newRows.push({
+        key: s.key,
+        name: s.name,
+        buyer: label(s.buyer),
+        spend_acct: false,
+        roas_wk_prev: "—",
+        roas_wk_now: "—",
+        week_delta: null,
+        wk_roas_ok: false,
+        rev_wk_txt: "—",
+        rev_wk_tgt_txt: "",
+        rev_wk_delta: null,
+        wk_rev_ok: false,
+        rev_tgt_hit: null,
+        mtd_txt: "—",
+        mtd_ok: false,
+        roas_mtd: "—",
+        roas_target: "—",
+        roas_mtd_ok: false,
+        month_ok: false,
+        week_ok: false,
+        source: s.source,
+        new_store: true,
+      });
+      continue;
+    }
     const { cur, invoice: inv } = s;
     const [rn, sn, rp, sp] = [s.week.revenue, s.week.spend, s.prev.revenue, s.prev.spend];
     const mr = s.month.revenue;
@@ -130,7 +159,7 @@ export function computeDeck(opts: {
 
   // (month_ok, mtd / floor) ascending — exactly the script's sort
   rows.sort((a, b) => a._sort[0] - b._sort[0] || a._sort[1] - b._sort[1]);
-  const storeRows: DeckStoreRow[] = rows.map(({ _sort, ...r }) => r);
+  const storeRows: DeckStoreRow[] = [...rows.map(({ _sort, ...r }) => r), ...newRows];
   const onTrack = storeRows.filter((r) => r.month_ok).length;
 
   // NB: summed across currencies, as the approved deck does (slide 2).

@@ -338,3 +338,9 @@ export async function loadWeeklyRows(sendDates: string[]): Promise<WeeklyRow[]> 
   }
   return out;
 }
+
+/** Store names in Weekly Updates' active group — the agency's live book. */
+export async function loadWeeklyActiveNames(): Promise<string[]> {
+  const items = await allItems(MONDAY.WEEKLY_PARENT_BOARD, "id name", { groups: [MONDAY.WU_ACTIVE_GROUP] });
+  return items.map((i) => String(i.name).trim()).filter(Boolean);
+}

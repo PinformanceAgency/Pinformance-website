@@ -54,6 +54,8 @@ export const MONDAY = {
 
   // Weekly Updates: the fallback numbers for stores not on the dashboard
   WEEKLY_PARENT_BOARD: 5091362359,
+  /** Weekly Updates' active group: a store in it is live for the agency */
+  WU_ACTIVE_GROUP: "topics",
   WEEKLY_SUBITEM_BOARD: 5091487606,
   WU_COL_REVENUE: "numeric_mm0dgayk",
   WU_COL_SPEND: "numeric_mm0dje2n",

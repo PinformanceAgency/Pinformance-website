@@ -279,9 +279,22 @@ Clients subitem is Active / Onboarding / blank under a live client, and out the
 moment it is Inactive — even when the dashboard still has it (Tristan,
 29-09-2026, about Bootylift). `store_settings` then says which deck
 (`media_buyer` + `department`) and what it is measured against. Every mismatch
-is named in the summary rather than dropped: Active on Clients but not
-configured (a new store nobody set up), configured but not findable on Clients
-(add a `monday_aliases` spelling), live but with a buyer who has no deck.
+is named in the summary rather than dropped: configured but not findable on
+Clients (add a `monday_aliases` spelling), live but with a buyer who has no
+deck. **Clients wins over `store_settings.is_active = false`**: a store that is
+Active there goes on the deck.
+
+**A live store is always on the deck, with or without numbers** (Tristan,
+30-09-2026: "we need a plan for that store" — SOOS Atelier, Otrium and Little
+Rowan were left off the first decks because nobody had filled in Store
+Settings). A store that is live on Clients with one of the meeting's buyers
+**and** in Weekly Updates' active group (`topics`) but has no usable
+`store_settings` row becomes a `new_store`: the buyer comes from the Clients
+person column, it is drawn in its own block after On track — "New stores" /
+"Nieuwe stores", "No data yet · what is the plan for this store?" — and it
+counts in no goal, no on/off-track tally and no total. Once someone fills in
+Store Settings it moves into Off/On track with its numbers. Live on Clients but
+not in Weekly Updates is only named in the summary.
 
 **Settings that are client figures are not in the repo.** `delivery_meeting_buyers`
 (monthly goal per buyer) and `delivery_meeting_settings` (weekly-goal stores,

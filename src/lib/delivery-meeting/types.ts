@@ -30,7 +30,10 @@ export interface CollectedStore {
   /** Store Ranking's floors — the same numbers as the pills on the page */
   week_floor: number;
   month_floor: number;
-  source: "dashboard" | "monday" | "mixed";
+  source: "dashboard" | "monday" | "mixed" | "none";
+  /** Live on Clients and in Weekly Updates, but not set up in Store Settings
+   *  (or no data yet): on the deck without numbers, so it gets a plan. */
+  new_store?: boolean;
   weekly_goal: boolean;
   /** every spelling monday may use, normalised */
   match_keys: string[];
@@ -76,6 +79,8 @@ export interface RunPayload {
     inactive_left_out: string[];
     not_on_clients: string[];
     no_deck: string[];
+    /** on the deck without numbers: live on Clients + Weekly Updates, not set up */
+    new_stores: string[];
     monday_source: string[];
     week_data_missing: string[];
     unmatched_logs: string[];
@@ -131,6 +136,8 @@ export interface DeckStoreRow {
   month_ok: boolean;
   week_ok: boolean;
   source: CollectedStore["source"];
+  /** no numbers yet: drawn in its own block, counted in no goal */
+  new_store?: boolean;
 }
 
 export interface GoalSplit {

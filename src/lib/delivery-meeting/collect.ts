@@ -30,6 +30,7 @@ import {
   loadLogDocs,
   loadLogItems,
   loadTemplateTexts,
+  loadWeeklyActiveNames,
   loadWeeklyRows,
   sharedTexts,
   type Block,
@@ -88,6 +89,7 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
     inactive_left_out: [] as string[],
     not_on_clients: [] as string[],
     no_deck: [] as string[],
+    new_stores: [] as string[],
     monday_source: [] as string[],
     week_data_missing: [] as string[],
     unmatched_logs: [] as string[],
@@ -102,10 +104,16 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       .filter(Boolean);
   };
   // ---- The Clients board: who is in ---------------------------------------
-  const clients = await loadClientStores().catch((e) => {
-    issues.push(`Clients board not read (${e instanceof Error ? e.message : e}) — fell back to store_settings.is_active`);
-    return null;
-  });
+  const [clients, weeklyActive] = await Promise.all([
+    loadClientStores().catch((e) => {
+      issues.push(`Clients board not read (${e instanceof Error ? e.message : e}) — fell back to store_settings.is_active`);
+      return null;
+    }),
+    loadWeeklyActiveNames().catch((e) => {
+      issues.push(`Weekly Updates not read (${e instanceof Error ? e.message : e}) — new stores without settings are left out`);
+      return null;
+    }),
+  ]);
   const liveClient = (c: { status: string; parent_group: string | null }) =>
     c.status !== "Inactive" && !/inactive/i.test(c.parent_group ?? "");
   type ClientState = "live" | "inactive" | "absent";
@@ -148,23 +156,59 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       notices.not_on_clients.push(name);
       continue;
     }
-    if (s.is_active === false) {
-      notices.missing_in_settings.push(`${name} (Active op Clients, maar is_active = false in store_settings)`);
-      continue;
-    }
+    // Live on Clients wins over is_active = false in store_settings: the Clients
+    // board decides who is in (Tristan, 30-09-2026), and a store left off the
+    // deck gets no plan.
     candidates.push(s);
   }
 
   // Active on Clients, with one of this stream's buyers, and no configured
-  // store_settings row to put it in a deck with: a new store nobody set up yet
+  // store_settings row to put it in a deck with: a new store nobody set up yet.
+  // When it is also in Weekly Updates' active group it is live for the agency
+  // and goes on the deck WITHOUT numbers — "we need a plan for that store"
+  // (Tristan, 30-09-2026, about SOOS Atelier, which the first decks left out).
+  const newStores: CollectedStore[] = [];
+  const buyerByMondayId = new Map(buyers.filter((b) => b.monday_user_id).map((b) => [Number(b.monday_user_id), b.buyer]));
   for (const c of clients ?? []) {
     if (!liveClient(c) || !c.person_ids.some((p) => buyerMondayIds.has(p))) continue;
     if (candidates.some((s) => nameMatches(c.name, keysFor(s.org_id)))) continue;
     const s = all.find((x) => nameMatches(c.name, keysFor(x.org_id)));
-    if (!s) notices.missing_in_settings.push(`${c.name} (${c.client})`);
-    else if (!s.department || s.breakeven_roas == null || !s.media_buyer) {
-      notices.missing_in_settings.push(`${c.name} (${c.client}, niet geconfigureerd)`);
+    if (s && s.department && s.department !== DEPARTMENT[stream]) continue; // set up for the other stream
+    const inWeekly = !!weeklyActive?.some((w) => nameMatches(w, [nameKey(c.name)]));
+    const org = s?.org_id ?? [...orgName.entries()].find(([, n]) => nameMatches(c.name, [nameKey(n)]))?.[0];
+    if (!inWeekly) {
+      notices.missing_in_settings.push(`${c.name} (${c.client}${s ? ", niet geconfigureerd" : ""}, niet in Weekly Updates)`);
+      continue;
     }
+    const buyer = c.person_ids.map((p) => buyerByMondayId.get(p)).find(Boolean)!;
+    const name = (org && (ms(org)?.display_name || orgName.get(org))) || c.name;
+    const key = org ?? `new:${nameKey(c.name)}`;
+    if (newStores.some((x) => x.key === key)) continue;
+    const zero = { spend: 0, revenue: 0 };
+    newStores.push({
+      key,
+      name,
+      org_ids: org ? [org] : [],
+      buyer,
+      deck: stream === "dropship" ? "dropship" : buyer,
+      cur: "€",
+      currency: null,
+      invoice: 0,
+      ber: null,
+      spend_account: false,
+      multiplier: 1,
+      week: zero,
+      prev: zero,
+      month: zero,
+      week_floor: 0,
+      month_floor: 0,
+      source: "none",
+      weekly_goal: false,
+      match_keys: [...new Set([nameKey(c.name), ...(org ? keysFor(org) : [])])].filter(Boolean),
+      week_missing: false,
+      new_store: true,
+    });
+    notices.new_stores.push(`${name} (${buyer})`);
   }
 
   // ---- Numbers --------------------------------------------------------------
@@ -333,6 +377,7 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       match_keys: members.flatMap((m) => keysFor(m.org_id)),
     });
   }
+  stores.push(...newStores);
   for (const s of singles) if (s.source === "monday") notices.monday_source.push(s.name);
   for (const s of stores) if (s.week_missing) notices.week_data_missing.push(s.name);
 

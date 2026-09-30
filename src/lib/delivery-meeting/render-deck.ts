@@ -4,7 +4,9 @@
  * call; change one only with Tristan's approval (the layout is approved).
  *
  * Slide 1 Goals · slide 2 Past week · then per store, off track first, at most
- * eight rows a page. ROAS always before revenue. EN for dropship, NL labels
+ * eight rows a page, and last the new stores that have no numbers yet (added
+ * 30-09-2026 with Tristan's approval: a live store left off the deck gets no
+ * plan). ROAS always before revenue. EN for dropship, NL labels
  * for branded.
  */
 import PptxGenJS from "pptxgenjs";
@@ -54,6 +56,8 @@ const NL: Record<string, string> = {
   "REVENUE  actual / target ✓": "OMZET  actueel / target ✓",
   "REVENUE MTD": "OMZET MTD",
   "ROAS MTD / TARGET": "ROAS MTD / TARGET",
+  "New stores": "Nieuwe stores",
+  "No data yet  ·  what is the plan for this store?": "Nog geen data  ·  wat is het plan voor deze store?",
 };
 
 type Run = [text: string, bold: boolean, color: string, size?: number];
@@ -177,9 +181,10 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
   // group per month status: off track first, then on track; max 8 rows per
   // page, split evenly
   const MAXR = 8;
-  const groups: [boolean, number, number, number, DeckStoreRow[]][] = [];
-  for (const key of [false, true]) {
-    const grp = d.stores.filter((st) => !!st.month_ok === key);
+  type GroupKey = "off" | "on" | "new";
+  const groups: [GroupKey, number, number, number, DeckStoreRow[]][] = [];
+  for (const key of ["off", "on", "new"] as const) {
+    const grp = d.stores.filter((st) => (st.new_store ? "new" : st.month_ok ? "on" : "off") === key);
     if (!grp.length) continue;
     const nP = Math.ceil(grp.length / MAXR);
     const per = Math.ceil(grp.length / nP);
@@ -316,7 +321,7 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
   }
 
   // ---------- 3+ · per store: WEEK (left) | MONTH (right) ----------
-  const TITLE: Record<string, [string, string]> = { false: ["Off track", ZRED], true: ["On track", GREEN] };
+  const TITLE: Record<GroupKey, [string, string]> = { off: ["Off track", ZRED], on: ["On track", GREEN], new: [T("New stores"), WHITE] };
   const xStore = MARGIN + 200000;
   const wStore = 1900000;
   const xBuyer = xStore + wStore;
@@ -330,7 +335,7 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
 
   for (const [key, j, nP, nGrp, rows] of groups) {
     const s = base();
-    const [title, tcol] = TITLE[String(key)];
+    const [title, tcol] = TITLE[key];
     txt(s, MARGIN, 620000, CW, 330000, "PER STORE" + (nP > 1 ? `   ${j} / ${nP}` : ""), 13, true, RED, "center");
     txt(s, MARGIN, 900000, CW, 520000, [[title, true, tcol, 30], [`   ${nGrp} store${nGrp === 1 ? "" : "s"}`, true, DGREY, 20]], 30, false, WHITE, "center");
     const top = 1480000;
@@ -362,11 +367,15 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
       const y = y0 + i * rh;
       const h = rh - 50000;
       if (i % 2 === 0) rect(s, MARGIN, y, CW, h, CARD);
-      rect(s, MARGIN, y, 40000, h, st.month_ok ? GREEN : ZRED);
+      rect(s, MARGIN, y, 40000, h, st.new_store ? DGREY : st.month_ok ? GREEN : ZRED);
       const cy = y + (h - 300000) / 2;
       const py = y + (h - 250000) / 2;
       txt(s, xStore, cy, wStore - 60000, 300000, st.name, 15, true, WHITE, "left", "middle");
       txt(s, xBuyer, cy, wBuyer - 40000, 300000, st.buyer ?? "", 13, false, GREY, "left", "middle");
+      if (st.new_store) {
+        txt(s, blkX + 60000, cy, 2 * blkW + 120000 - 120000, 300000, T("No data yet  ·  what is the plan for this store?"), 14, false, GREY, "left", "middle");
+        return;
+      }
       const tw = subW - PW - 140000;
       // WEEK · ROAS
       let x = blkX;
