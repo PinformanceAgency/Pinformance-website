@@ -19,6 +19,7 @@ const KIND_LABEL: Record<string, string> = {
   client_unresponsive: "Client unresponsive",
   nothing_queued: "Nothing queued",
   no_topic_covered: "No topic covered",
+  pacing_below_target: "Below its pin target",
   no_token: "No Pinterest token",
   token_expired: "Token expired",
   token_expiring: "Token expiring",

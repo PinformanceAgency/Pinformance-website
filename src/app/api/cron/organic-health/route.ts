@@ -38,6 +38,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { organicPool } from "@/lib/organic/db";
 import { alertCronFailure } from "@/lib/alerts";
 import { pinterestClientsForOrgs } from "@/lib/pinterest/for-org";
+import { describePacingGap, loadPacingGaps } from "@/lib/organic/pacing-gap";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -66,7 +67,7 @@ interface Finding {
   /** One line, in the words somebody would use to fix it. */
   what: string;
   /** Which shape, so the message can group them. */
-  kind: "token" | "stuck" | "failed" | "unqueued" | "late";
+  kind: "token" | "stuck" | "failed" | "unqueued" | "late" | "pacing";
 }
 
 export async function GET(request: NextRequest) { return run(request); }
@@ -239,6 +240,13 @@ async function run(request: NextRequest) {
         store: r.store, kind: "failed",
         what: `${r.n} pin(s) failed in the last fortnight — ${(r.reason ?? "no reason recorded").slice(0, 140)}`,
       });
+    }
+
+    // 5. Publishing below its own daily target over the next two weeks. The
+    //    target is a ceiling; one cycle on 48h spacing is every other day, and
+    //    only a second cycle alongside closes that (Icon Amsterdam, 30-09-2026).
+    for (const g of await loadPacingGaps()) {
+      findings.push({ store: g.store, kind: "pacing", what: describePacingGap(g) });
     }
 
     // 4. A dead token, but only for a store with something waiting on it. A

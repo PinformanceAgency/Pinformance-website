@@ -5,6 +5,7 @@
  */
 import { organicPool } from "./db";
 import { SCALE_UP_STEP_DAYS, SPACING_FOR_CLASS } from "./pacing";
+import { PACING_WINDOW_DAYS, loadPacingGaps } from "./pacing-gap";
 import { fieldsFor, visibleFields, completionHolds } from "./task-fields";
 import { recomputeStatuses } from "./status";
 
@@ -132,6 +133,33 @@ export async function loadLeaks(orgId: string): Promise<Leak[]> {
       severity: "medium",
       cost_rank: 7,
       cost: "Idle inventory — URLs that are cleared to run and earning nothing.",
+    });
+  }
+
+  // 3b. Publishing below its own daily target. The target is a ceiling, and
+  //     only more cycles running at once reach it — one URL gives a pin per
+  //     spacing_hours. Without this line a store at 1/day with one cycle on
+  //     48h spacing (every other day) looked exactly like one on course.
+  const [gap] = await loadPacingGaps(orgId);
+  if (gap) {
+    leaks.push({
+      kind: "pacing_below_target",
+      label: `Publishing ${gap.planned_per_day}/day against a target of ${gap.target}/day`,
+      count: gap.more_cycles,
+      detail: [
+        `${gap.planned} pin(s) planned in the next ${PACING_WINDOW_DAYS} days, ${gap.running_cycles} cycle(s) running`,
+        `at ${gap.spacing_hours}h per URL the target takes ${gap.cycles_needed} cycles at once — start ${gap.more_cycles} more alongside`,
+        gap.ready_urls > 0
+          ? `${gap.ready_urls} URL(s) ready to start`
+          : gap.urls_short_of_boards > 0
+            ? `${gap.urls_short_of_boards} URL(s) only need four boards assigned (URLs page), then they can start`
+            : "no URL is close to the cycle gate yet",
+      ],
+      fix_href: gap.ready_urls > 0 ? `phase/4` : `urls`,
+      fix_task: "P4.1.4",
+      severity: "medium",
+      cost_rank: 3,
+      cost: "Fewer pins than the store is set up for — every missing day is reach that is not coming back.",
     });
   }
 

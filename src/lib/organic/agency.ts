@@ -10,6 +10,7 @@
  * against a month-fourteen store produces a ranking that is worse than
  * useless, because it points attention at the wrong accounts.
  */
+import { loadPacingGaps } from "./pacing-gap";
 import { organicPool } from "./db";
 
 /* ------------------------------------------------------------------ *
@@ -449,6 +450,16 @@ export async function loadRisk(portfolio?: PortfolioRow[]): Promise<RiskFlag[]> 
         rank: 2,
       });
     }
+  }
+
+  // Publishing below its own daily target: one cycle on 48h spacing is every
+  // other day, whatever the target says. Only more cycles at once fix it.
+  for (const g of await loadPacingGaps()) {
+    flags.push({
+      org_id: g.org_id, name: g.store, kind: "pacing_below_target",
+      detail: `${g.planned_per_day}/day planned against ${g.target}/day — start ${g.more_cycles} more cycle(s) alongside`,
+      rank: 2,
+    });
   }
 
   // Unresponsive clients, from the waiting-on capture rather than a guess.
