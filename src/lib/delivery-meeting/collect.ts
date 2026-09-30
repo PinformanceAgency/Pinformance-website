@@ -45,6 +45,8 @@ interface SettingsRow {
   org_id: string;
   media_buyer: string | null;
   department: string | null;
+  niche?: string | null;
+  countries?: string[] | null;
   is_active: boolean | null;
   invoice_roas: number | null;
   breakeven_roas: number | null;
@@ -286,6 +288,8 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       source,
       weekly_goal: !!m?.weekly_goal,
       week_missing: weekMissing,
+      niche: s.niche ?? null,
+      countries: Array.isArray(s.countries) ? s.countries : [],
     });
   }
 

@@ -58,7 +58,7 @@ import { renderPrep } from "./render-prep";
 import { summaryFor } from "./summary";
 import { assignPerson, attachFile, createTodo, createUpdate, toUpdateHtml } from "./monday-deliver";
 import type { RunPayload, RunRow } from "./types";
-import { addDays, amsterdamNow, meetingDates } from "./util";
+import { addDays, amsterdamNow, meetingDates, nameKey } from "./util";
 
 export interface AdvanceOptions {
   meetingDate: string;
@@ -122,7 +122,10 @@ async function step(
         return { payload: p, done: true, note: "fathom skipped (no key)" };
       }
       if (!p.fathom) {
-        p.fathom = await discover(run.stream, run.meeting_date, opts.now ?? new Date());
+        // recordings last week's run already read are not read again
+        const last = await getRun(addDays(run.meeting_date, -7), run.stream);
+        const used = new Set((last?.payload.fathom?.queue ?? []).filter((q) => q.kind === "deep_dive").map((q) => q.recording_id));
+        p.fathom = await discover(run.stream, run.meeting_date, opts.now ?? new Date(), used);
         return {
           payload: p,
           done: p.fathom.done,
@@ -215,6 +218,9 @@ async function step(
       const { pdf, shortened } = await renderPrep({
         sections,
         footer: `MEETING PREP · ${streamWord} · WEEK ${p.meeting_week} · RESULTS ${p.data_period}`,
+        unplaced: (p.fathom?.findings ?? [])
+          .filter((f) => !f.store_key || f.confidence === "low")
+          .map((f) => ({ recording: f.recording, short: withoutStorePrefix(f.short || f.text, p.stores ?? []) })),
       });
       if (shortened.length) (p.issues ??= []).push(`Prep text shortened to fit: ${shortened.join(", ")}`);
       await put(`Prep_${run.stream === "dropship" ? "Dropship" : "Branded"}_week${NN}.pdf`, pdf, "application/pdf", "prep");
@@ -271,6 +277,16 @@ async function step(
     default:
       return { payload: p, done: false, note: `nothing to do at ${run.stage}` };
   }
+}
+
+/** "Moonhaven: NL+DE main markets" → "NL+DE main markets". A chunk's guess
+ *  at the store must not reach the page of findings no store was found for. */
+function withoutStorePrefix(text: string, stores: { name: string; match_keys: string[] }[]): string {
+  const m = /^\s*([^:→]{2,40}):\s+/.exec(text);
+  if (!m) return text;
+  const head = nameKey(m[1]);
+  const known = /store|account|unclear|unknown/i.test(m[1]) || stores.some((s) => nameKey(s.name) === head || s.match_keys.includes(head));
+  return known ? text.slice(m[0].length) : text;
 }
 
 export async function advance(opts: AdvanceOptions): Promise<AdvanceResult> {

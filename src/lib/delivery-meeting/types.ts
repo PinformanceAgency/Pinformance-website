@@ -36,6 +36,9 @@ export interface CollectedStore {
   match_keys: string[];
   /** true when no week figures exist at all (not even a zero row) */
   week_missing: boolean;
+  /** Matching clues for Tycho's deep dives, which rarely name the store. */
+  niche?: string | null;
+  countries?: string[];
 }
 
 export interface LogNotes {
@@ -68,13 +71,23 @@ export interface FathomQueueItem {
   recorded_at: string;
   chunks_total: number | null;
   chunks_done: number;
+  /** The store Tycho was on at the end of the last chunk read, carried into
+   *  the next one: he names an account once and then says "this account". */
+  last_store?: string | null;
+  /** Deep dive only: the whole-recording pass that places the findings ran. */
+  attributed?: boolean;
+  /** What that pass saw: which account he was on when. For checking. */
+  segments?: { from: string; to: string; store: string | null; evidence: string }[];
 }
 
 export interface DeepDiveFinding {
   store_key: string | null;
   confidence: "high" | "medium" | "low";
   text: string;
+  /** The same finding in keywords (≤ 12 words), for the prep. */
+  short?: string;
   recording: string;
+  recording_id?: number;
 }
 
 export interface Brief {

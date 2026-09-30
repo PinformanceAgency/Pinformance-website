@@ -104,6 +104,9 @@ function safe(font: PDFFont, s: string): string {
 export async function renderPrep(opts: {
   sections: PrepSection[];
   footer: string;
+  /** Deep-dive findings no store could be matched to, in keywords. They go on
+   *  the last page(s): dropping them is how Moonhaven's went missing (30-09). */
+  unplaced?: { recording: string; short: string }[];
 }): Promise<{ pdf: Buffer; shortened: string[] }> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
@@ -132,6 +135,19 @@ export async function renderPrep(opts: {
       list.forEach((st, i) => pages.push({ kicker: sec.kicker, title, count: list.length, index: i + 1, st }));
     }
   }
+
+  const PER_APPENDIX = 16;
+  const unplaced = opts.unplaced ?? [];
+  const appendixPages: (typeof unplaced)[] = [];
+  for (let i = 0; i < unplaced.length; i += PER_APPENDIX) appendixPages.push(unplaced.slice(i, i + PER_APPENDIX));
+  const total = pages.length + appendixPages.length;
+  const pageNum = (pi: number) => `${String(pi + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`;
+  const frame = (page: PDFPage, pi: number) => {
+    const foot = S(fonts.bold, opts.footer);
+    page.drawText(foot, { x: 14 * MM, y: 6 * MM, size: 8, font: fonts.bold, color: GREY });
+    const num = pageNum(pi);
+    page.drawText(num, { x: W - 14 * MM - fonts.bold.widthOfTextAtSize(num, 8), y: 6 * MM, size: 8, font: fonts.bold, color: GREY });
+  };
 
   pages.forEach((pg, pi) => {
     const page = doc.addPage([W, H]);
@@ -163,10 +179,29 @@ export async function renderPrep(opts: {
     const cardTop = titleTop + 26 * 1.22 + 4 * MM;
     drawCard(page, fonts, pg.st, 14 * MM, H - cardTop, W - 28 * MM, H - cardTop - 12 * MM, shortened);
 
-    const foot = S(fonts.bold, opts.footer);
-    page.drawText(foot, { x: 14 * MM, y: 6 * MM, size: 8, font: fonts.bold, color: GREY });
-    const num = `${String(pi + 1).padStart(2, "0")} / ${String(pages.length).padStart(2, "0")}`;
-    page.drawText(num, { x: W - 14 * MM - fonts.bold.widthOfTextAtSize(num, 8), y: 6 * MM, size: 8, font: fonts.bold, color: GREY });
+    frame(page, pi);
+  });
+
+  // Findings the run could not place, so Tycho can still put them with a store
+  appendixPages.forEach((list, ai) => {
+    const page = doc.addPage([W, H]);
+    const top = (mm: number) => H - mm * MM;
+    page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: BG });
+    page.drawRectangle({ x: 0, y: top(2.2), width: W, height: 2.2 * MM, color: RED });
+    page.drawText("Pinformance", { x: 9 * MM, y: top(6) - 10 * 0.95, size: 10, font: fonts.bold, color: WHITE });
+    const title = S(fonts.bold, "Deep dive — store not recognised");
+    page.drawText(title, { x: (W - fonts.bold.widthOfTextAtSize(title, 22)) / 2, y: top(14) - 22 * 0.95, size: 22, font: fonts.bold, color: RED });
+    const sub = S(fonts.reg, "Tycho said these without a store the recording made clear. Which store is it?");
+    page.drawText(sub, { x: (W - fonts.reg.widthOfTextAtSize(sub, 11)) / 2, y: top(24) - 11 * 0.95, size: 11, font: fonts.reg, color: LIGHT });
+    const yTop = top(33);
+    const avail = yTop - 14 * MM;
+    const colW = (W - 28 * MM - 10 * MM) / 2;
+    const bullets = list.map((f) => `${f.short}  (${f.recording})`);
+    const half = Math.ceil(bullets.length / 2);
+    let cut = drawBullets(page, fonts, bullets.slice(0, half), 14 * MM, yTop, colW, avail, 13);
+    cut = drawBullets(page, fonts, bullets.slice(half), 14 * MM + colW + 10 * MM, yTop, colW, avail, 13) || cut;
+    if (cut) shortened.push(`unplaced findings, page ${ai + 1}`);
+    frame(page, pages.length + ai);
   });
 
   return { pdf: Buffer.from(await doc.save()), shortened };

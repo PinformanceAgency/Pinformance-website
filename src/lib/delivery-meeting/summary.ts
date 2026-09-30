@@ -26,9 +26,7 @@ export function summaryFor(run: RunRow): string {
     out.push(`*Voor Tycho — geen deep-dive-bevinding:* ${list(stores.filter((s) => !withFinding.has(s.key)).map((s) => s.name))}`);
     const loose = (f.findings ?? []).filter((x) => !x.store_key);
     if (loose.length) {
-      out.push(`*Bevindingen zonder store (niet in de PDF):*`);
-      for (const x of loose.slice(0, 12)) out.push(`• ${x.text}`);
-      if (loose.length > 12) out.push(`• … en nog ${loose.length - 12}`);
+      out.push(`*${loose.length} deep-dive-bevinding(en) zonder store* — op de laatste pagina van de prep, in steekwoorden.`);
     }
   }
   if (!f?.meeting_found) out.push(`Vorige delivery meeting niet gevonden in Fathom — to-do's en targets alleen uit monday.`);

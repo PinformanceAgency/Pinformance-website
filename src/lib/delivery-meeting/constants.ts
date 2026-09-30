@@ -83,6 +83,10 @@ export const FATHOM = {
    *  than one cron tick (with thinking on; see ai.ts for effort). */
   DEEP_DIVE_CHUNK_CHARS: 10_000,
   DEEP_DIVE_MAX_TOKENS: 16_000,
+  /** Tail of the previous chunk given along as context (not re-extracted). */
+  DEEP_DIVE_OVERLAP_CHARS: 2_500,
+  /** The whole-recording placing pass answers with indices, not prose. */
+  ATTRIBUTE_MAX_TOKENS: 16_000,
 } as const;
 
 export const STORAGE_BUCKET = "delivery-meeting";

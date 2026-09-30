@@ -38,18 +38,54 @@ export const meetingUser = (stores: StoreRef[], chunk: string, part: string) =>
 
 /* ---------- Fathom: Tycho's deep dives ---------- */
 
-export const DEEP_DIVE_SYSTEM = `You read part of a solo screen recording in which Tycho, who reviews the media buyers' work at a Pinterest media-buying agency, goes through ad accounts and says what he sees. He rarely names the store; he looks at dashboards and mentions numbers, campaigns and products.
+export const DEEP_DIVE_SYSTEM = `You read part of a solo screen recording in which Tycho, who reviews the media buyers' work at a Pinterest media-buying agency, goes through ad accounts one after the other and says what he sees. He rarely names the store; he looks at dashboards and mentions numbers, countries, campaigns and products.
 
-Extract his findings: each one a concrete observation about one account plus what he says should be done about it, in 2–4 plain English sentences, in his words where possible. Keep everything specific he says: the numbers he reads out (ROAS, spend, CPA, CTR, revenue, budgets), the names of campaigns, ad groups, products and creatives, the period he is looking at, what he thinks is causing it, and the concrete step he wants the buyer to take. These findings are the most important part of the prep — lose nothing concrete, and do not merge two separate observations into one.
+Extract his findings: each one a concrete observation about one account plus what he says should be done about it. Keep what is specific: the numbers he reads out (ROAS, spend, CPA, CTR, CPM, revenue, budgets), countries, the names of campaigns, ad groups, products and creatives, what he thinks causes it, and the step he wants taken. Do not merge two separate observations into one, and do not repeat one he already made.
 
-For each finding decide which store it is about, using the store list with last week's ROAS and revenue: a named store, a number he reads out that matches one store's figures, or a product or niche that fits only one store. confidence: "high" when the store is named or the numbers match unmistakably, "medium" when it is likely but not certain, "low" when you cannot tell (store = null). Do not force a match.
+Per finding give two versions:
+- text: one or two plain English sentences, with the specifics.
+- short: the same in keywords for a meeting sheet, at most 12 words, no full sentences, the action after an arrow. Never start it with the store name — which store it is gets decided separately. Example: "US + DE 30% spend each, weak ROAS → shift budget to AU/UK". Keep his numbers and names.
 
-Skip small talk, tool trouble and general remarks that are about no account. ${NO_INVENTION} ${JSON_ONLY}
+WHICH STORE. He works through the accounts in turn and usually says the name once — when he opens the account, sometimes only in passing ("Moonhaven en Voice staan hier allebei") — and after that says "this account" / "deze store" until he moves on ("next account", "dan gaan we naar …", opening another dashboard). Track which account he is on through the transcript:
+- You are told which store he was on at the end of the previous part, and given the last minutes of it as context. Findings keep belonging to that store until he clearly switches.
+- A name may be said loosely or mis-transcribed ("Voice" for Envoise, "Breathe Free"); use the spellings given.
+- Otherwise match on what he reads out: last week's ROAS and revenue, the countries (a store that only runs GB, one that runs US/DE/AU), the currency, the niche and products.
+confidence: "high" when named or unmistakable from the numbers or the running context, "medium" when likely, "low" when you cannot tell (store = null). Do not force a match.
 
-Shape: {"findings":[{"store":"<name from the list>"|null,"confidence":"high"|"medium"|"low","text":"..."}]}`;
+Also return last_store: the store he is on at the end of this part (a name from the list), or null when unclear.
 
-export const deepDiveUser = (stores: StoreRef[], chunk: string, part: string) =>
-  `Stores (last week: ROAS and revenue, week before in brackets):\n${storeList(stores)}\n\nTranscript (${part}):\n${chunk}`;
+Skip small talk, tool trouble and general remarks that are about no account. Only extract findings from the transcript part itself, not from the context before it. ${NO_INVENTION} ${JSON_ONLY}
+
+Shape: {"findings":[{"store":"<name from the list>"|null,"confidence":"high"|"medium"|"low","text":"...","short":"..."}],"last_store":"<name>"|null}`;
+
+export const deepDiveUser = (
+  stores: StoreRef[],
+  chunk: string,
+  part: string,
+  lastStore: string | null = null,
+  context = "",
+) =>
+  `Stores (last week: ROAS and revenue, week before in brackets; then matching clues):\n${storeList(stores)}\n\n` +
+  (context
+    ? `At the end of the previous part Tycho was on: ${lastStore ?? "unclear"}.\nLast minutes of the previous part (context only, already extracted):\n${context}\n\n`
+    : "") +
+  `Transcript (${part}):\n${chunk}`;
+
+export const ATTRIBUTE_SYSTEM = `You get the full transcript of a solo screen recording in which Tycho, who reviews the media buyers' work at a Pinterest media-buying agency, goes through ad accounts one after the other, and a numbered list of findings already extracted from it. Your job is to say which store each finding is about.
+
+First work out the accounts in order: where he opens an account and where he moves to the next one ("next account", "dan gaan we naar …", "deze store", switching dashboards, a jump in currency, countries or scale). He names an account once, in passing, or not at all — and the transcription garbles names, so match on how a name SOUNDS: "Burfery" / "Brevry" / "Free" = Breathfree, "En voice" / "Voice" = Envoise, "Vicherry" = Fit Cherries, "Lily Parry" = Lili Paris, "Rollen home" = Roha Home, "Make Cosmetics" = MayCosmetics. A name he says, even garbled, outweighs every other clue — the countries on file may be out of date. He often lists the stores he is about to do at the start of a recording; use that order. Without a name, identify the account from everything in its stretch together: the countries he reads out (a store that only runs GB; one that runs CA/AU/US/NZ), the currency, the size of spend and revenue (a store on a tenner a day vs one on thousands), last week's ROAS, the niche and the products. Two stores in the list can be told apart by their countries and scale even when neither is named.
+
+Then put each finding under the account whose stretch it comes from, by its number.
+
+He also looks at stores that are NOT in this meeting (given separately — inactive, not set up, another stream): their stretch gets store null, never the nearest store in the list. When he names a store that is not in this meeting, everything after it belongs to that store until he clearly opens the next account — do not hand the rest of that stretch to a store from the list. confidence per account: "high" only when he says the name (garbled counts); "medium" when he does not and the clues point to one store; "low" when you cannot tell (store null). Do not force a match. A finding you cannot place goes nowhere.
+
+Answer compactly — one entry per account stretch, the evidence in at most ten words. ${NO_INVENTION} ${JSON_ONLY}
+
+Shape: {"segments":[{"from":"hh:mm:ss","to":"hh:mm:ss","store":"<name from the list>"|null,"confidence":"high"|"medium"|"low","evidence":"...","findings":[0,1,2]}]}`;
+
+export const attributeUser = (stores: StoreRef[], transcript: string, findings: string[], others: string[] = []) =>
+  `Stores (last week: ROAS and revenue, week before in brackets; then matching clues):\n${storeList(stores)}\n\n` +
+  `Stores NOT in this meeting (findings about these → store null): ${others.length ? others.join(", ") : "none known"}\n\nFindings:\n${findings.join("\n")}\n\nFull transcript:\n${transcript}`;
 
 /* ---------- Targets from the logs ---------- */
 
@@ -82,7 +118,7 @@ Write four blocks:
 - did — ONE sentence, second person, starting with the buyer's first name and a comma ("Dylan, last week you …"): what the buyer actually did, from the log, the meeting to-dos and the to-dos marked Done. Name what was planned and not done. No log and no to-dos → say that there is no log and no to-do for this store.
 - result — one or two sentences of fact: what the numbers did, against the invoice ROAS and the floor, using the given numbers verbatim. No judgement words beyond "above"/"below"/"up"/"down". A "—" or "–" in the numbers means there was no spend that week: say that in words, never print the dash.
 - ask — the question to ask, exactly as given. Only when it says WRITE_TODO_QUESTION: write one question asking why the named to-dos were not done and when they will be.
-- deep_dive — Tycho's findings for this store IN FULL, as he said them: one finding per line, each line starting with "• ". Every finding given gets its own line; nothing is dropped or merged. Per line: what he saw (with his numbers, campaign, ad group, product and creative names verbatim), why he thinks it happens when he says so, and the step he wants taken. Two or three sentences per line is fine; this block gets a whole panel of its own on the page. No findings → null.
+- deep_dive — Tycho's findings for this store IN KEYWORDS, so he takes them in at a glance during the meeting: one line per point, each line starting with "• ", at most 12 words, no full sentences, the action after an arrow. Keep his numbers, countries and campaign / creative names; drop filler, explanation and repetition, and merge findings that say the same thing. At most 8 lines — the points that matter most for this meeting first. Example lines: "• US + DE 30% spend each, weak ROAS → shift budget to AU/UK", "• 'Badge 10' unclear, looks like duplicate prospecting → turn off". No findings → null.
 
 No advice of your own, no praise, no hedging, no emoji. ${NO_INVENTION} ${JSON_ONLY}
 
