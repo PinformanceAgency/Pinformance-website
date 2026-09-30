@@ -36,9 +36,6 @@ export interface CollectedStore {
   match_keys: string[];
   /** true when no week figures exist at all (not even a zero row) */
   week_missing: boolean;
-  /** Matching clues for Tycho's deep dives, which rarely name the store. */
-  niche?: string | null;
-  countries?: string[];
 }
 
 export interface LogNotes {
@@ -48,53 +45,13 @@ export interface LogNotes {
   live_section1: string | null;
 }
 
-export interface Todo {
-  name: string;
-  status: string;
-  created_at: string;
-  deadline: string | null;
-}
-
 export interface Target {
   spend_day?: number | string | null;
   spend_week?: number | null;
   revenue_week?: number | null;
   roas?: number | null;
-  source?: "log" | "meeting";
+  source?: "log";
   quote?: string | null;
-}
-
-export interface FathomQueueItem {
-  recording_id: number;
-  kind: "meeting" | "deep_dive";
-  title: string;
-  recorded_at: string;
-  chunks_total: number | null;
-  chunks_done: number;
-  /** The store Tycho was on at the end of the last chunk read, carried into
-   *  the next one: he names an account once and then says "this account". */
-  last_store?: string | null;
-  /** Deep dive only: the whole-recording pass that places the findings ran. */
-  attributed?: boolean;
-  /** What that pass saw: which account he was on when. For checking. */
-  segments?: { from: string; to: string; store: string | null; evidence: string }[];
-}
-
-export interface DeepDiveFinding {
-  store_key: string | null;
-  confidence: "high" | "medium" | "low";
-  text: string;
-  /** The same finding in keywords (≤ 12 words), for the prep. */
-  short?: string;
-  recording: string;
-  recording_id?: number;
-}
-
-export interface Brief {
-  did: string;
-  result: string;
-  ask: string;
-  deep_dive: string | null;
 }
 
 export interface DeckRef {
@@ -114,7 +71,6 @@ export interface RunPayload {
   decks?: DeckRef[];
   stores?: CollectedStore[];
   logs?: Record<string, LogNotes>;
-  todos?: Record<string, Todo[]>;
   notices?: {
     missing_in_settings: string[];
     inactive_left_out: string[];
@@ -125,21 +81,11 @@ export interface RunPayload {
     unmatched_logs: string[];
     config_gaps: string[];
   };
-  fathom?: {
-    queue: FathomQueueItem[];
-    meeting_found: string | null;
-    meeting_notes: Record<string, { todos: string[]; target: Target | null }>;
-    findings: DeepDiveFinding[];
-    deep_dives_found: number;
-    done: boolean;
-  };
   targets?: Record<string, Target>;
   /** store keys whose log has been read for a target */
   targets_checked?: string[];
   deck_data?: Record<string, DeckData>;
-  briefs?: Record<string, Brief>;
-  brief_errors?: Record<string, string>;
-  files?: { name: string; path: string; kind: "deck" | "prep" }[];
+  files?: { name: string; path: string; kind: "deck" }[];
   delivered_files?: string[];
   /** the monday to-do the files went to */
   monday?: { item_id: string | null; update_id: string | null; uploaded: string[] };

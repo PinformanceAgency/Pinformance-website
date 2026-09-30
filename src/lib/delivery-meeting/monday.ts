@@ -6,7 +6,7 @@
  * broken deploy for every hostname.
  */
 import { MONDAY } from "./constants";
-import type { LogNotes, Todo } from "./types";
+import type { LogNotes } from "./types";
 
 type Q = (query: string, variables: Record<string, unknown>) => Promise<any>;
 let q: Q | null = null;
@@ -277,42 +277,6 @@ export function buildLogNotes(
   const join = (docs: Block[][], only?: number) =>
     docs.map((d) => logText(d, template, shared, only)).filter(Boolean).join("\n\n---\n") || null;
   return { archived: join(archived), live_section1: join(live, 1) };
-}
-
-/* ------------------------------------------------------------------ */
-/* To-dos                                                              */
-/* ------------------------------------------------------------------ */
-
-export interface TodoItem extends Todo {
-  store: string;
-  person_ids: number[];
-}
-
-/**
- * To-dos that belong to the data week: created from the Sunday before it up to
- * the meeting, or with a deadline inside it. The board holds a thousand-plus
- * items, so all three groups are paged.
- */
-export async function loadTodos(fromSunday: string, dataStart: string, dataEnd: string, meetingDate: string) {
-  const fields = `id name created_at column_values(ids: ["${MONDAY.COL_STORE}", "${MONDAY.COL_DEADLINE}", "${MONDAY.COL_PERSON}", "${MONDAY.COL_STATUS}"]) { id text value }`;
-  const items = await allItems(MONDAY.TODO_BOARD, fields, { groups: [...MONDAY.TODO_GROUPS] });
-  const out: TodoItem[] = [];
-  for (const i of items) {
-    const created = String(i.created_at).slice(0, 10);
-    const deadline = text(i, MONDAY.COL_DEADLINE) || null;
-    const createdIn = created >= fromSunday && created <= meetingDate;
-    const dueIn = !!deadline && deadline >= dataStart && deadline <= dataEnd;
-    if (!createdIn && !dueIn) continue;
-    out.push({
-      name: String(i.name).trim(),
-      status: text(i, MONDAY.COL_STATUS) || "Not Started",
-      created_at: created,
-      deadline,
-      store: text(i, MONDAY.COL_STORE),
-      person_ids: personIds(col(i, MONDAY.COL_PERSON)?.value),
-    });
-  }
-  return out;
 }
 
 /* ------------------------------------------------------------------ */

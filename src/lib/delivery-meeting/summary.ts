@@ -1,7 +1,7 @@
 /**
  * The Dutch summary that goes on the monday to-do with the files. Written with
- * *bold* markers, turned into HTML by toUpdateHtml(); no emoji. Per meeting, and first — because Tycho reads it before anything else
- * — the stores his deep dive said nothing about.
+ * *bold* markers, turned into HTML by toUpdateHtml(); no emoji. Per deck: the goals, the biggest mover up and down, and the
+ * stores the dashboard could not place.
  */
 import type { RunPayload, RunRow } from "./types";
 
@@ -11,25 +11,12 @@ export function summaryFor(run: RunRow): string {
   const p = run.payload;
   const out: string[] = [];
   const streamLabel = run.stream === "dropship" ? "Dropship" : "Branded";
+  const stores = p.stores ?? [];
   out.push(`*${streamLabel} · week ${p.meeting_week}* (resultaten ${p.data_period})`);
   if (run.status === "error" || !p.deck_data) {
     out.push(`Niet klaar: ${run.error ?? `gestopt bij stage ${run.stage}`}`);
     return out.join("\n");
   }
-
-  const f = p.fathom;
-  const stores = p.stores ?? [];
-  const withFinding = new Set((f?.findings ?? []).filter((x) => x.store_key && x.confidence !== "low").map((x) => x.store_key));
-  if (!f || f.deep_dives_found === 0) {
-    out.push(`*Voor Tycho:* nog geen deep dive van deze week gevonden in Fathom — de prep is zonder deep-dive-tekst gemaakt.`);
-  } else {
-    out.push(`*Voor Tycho — geen deep-dive-bevinding:* ${list(stores.filter((s) => !withFinding.has(s.key)).map((s) => s.name))}`);
-    const loose = (f.findings ?? []).filter((x) => !x.store_key);
-    if (loose.length) {
-      out.push(`*${loose.length} deep-dive-bevinding(en) zonder store* — op de laatste pagina van de prep, in steekwoorden.`);
-    }
-  }
-  if (!f?.meeting_found) out.push(`Vorige delivery meeting niet gevonden in Fathom — to-do's en targets alleen uit monday.`);
 
   for (const deck of p.decks ?? []) {
     const d = p.deck_data![deck.key];

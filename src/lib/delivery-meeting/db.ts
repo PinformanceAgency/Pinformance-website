@@ -56,8 +56,8 @@ export async function resetRun(meetingDate: string, stream: Stream, payload: Run
 }
 
 /**
- * Take the run for this invocation. Two crons can fire in the same minute
- * (collect at 06:00, fathom every ten minutes from 06:00), and two writers on
+ * Take the run for this invocation. Two invocations can overlap (a tick that
+ * runs long and the next one, or a manual run), and two writers on
  * one payload means the second silently drops the first one's work. So a run
  * is held under a lease; a crashed invocation frees it when the lease passes.
  * Returns null when somebody else holds it.

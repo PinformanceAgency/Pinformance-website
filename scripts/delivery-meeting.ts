@@ -5,7 +5,7 @@
  *   DOTENV_CONFIG_PATH=.env.local npx tsx scripts/delivery-meeting.ts collect --date 2026-09-29 --force
  *   DOTENV_CONFIG_PATH=.env.local npx tsx scripts/delivery-meeting.ts check
  *
- *   <stage>     collect | fathom | targets | compute | briefs | render | deliver | all | check
+ *   <stage>     collect | targets | compute | render | deliver | all | check
  *               a stage runs everything up to and including it that is not done yet
  *   --date      the meeting Tuesday (default: this week's)
  *   --dry-run   files go to ./tmp/delivery-meeting/<date>/, nothing goes to monday

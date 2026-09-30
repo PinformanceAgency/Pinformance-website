@@ -9,10 +9,8 @@ export type Stream = (typeof STREAMS)[number];
 /** Pipeline order. A run's `stage` is the NEXT stage to do. */
 export const STAGES = [
   "collect",
-  "fathom",
   "targets",
   "compute",
-  "briefs",
   "render",
   "deliver",
   "done",
@@ -27,7 +25,7 @@ export type RouteStage = (typeof ROUTE_STAGES)[number];
  * What one invocation may spend. The repo measured ~60 s of real run time per
  * invocation whatever `maxDuration` says (weekly-update-sync, 17-08-2026), so
  * a step is only STARTED when this much is still left, and every step is sized
- * to fit in it: one transcript chunk, one batch of briefs, one stream's render.
+ * to fit in it: one batch of targets, one stream's render.
  */
 export const RUN_BUDGET_MS = 50_000;
 /** A step that has not started by this point waits for the next invocation. */
@@ -41,7 +39,6 @@ export const MONDAY = {
   TODO_BOARD: 5101714191,
   LOG_GROUP_ARCHIVE: "group_mm5zkew3",
   LOG_GROUP_LIVE: "group_mm5zbv0d",
-  TODO_GROUPS: ["group_title", "group_mm5car0h", "group_mkyfmg04"],
   COL_STORE: "text_mm1csd9j",
   COL_DEADLINE: "date_mm1c4dgx",
   COL_PERSON: "person",
@@ -64,43 +61,11 @@ export const MONDAY = {
   WU_COL_CURRENCY: "text_mm0qxxnt",
 } as const;
 
-/** Fathom recordings the pipeline looks for. */
-export const FATHOM = {
-  API: "https://api.fathom.ai/external/v1",
-  /** Last week's delivery meeting, by stream: title and weekday offset. */
-  MEETING_TITLE: {
-    dropship: "mediabuying - dropship",
-    branded: "delivery meeting branding - pinformance",
-  } as Record<Stream, string>,
-  /** Days before the meeting the previous one was held (Tue / Wed). */
-  MEETING_DAYS_BEFORE: { dropship: 7, branded: 6 } as Record<Stream, number>,
-  DEEP_DIVE_BY: "tycho",
-  /** Characters of transcript per Claude call — one chunk per invocation. */
-  CHUNK_CHARS: 45_000,
-  /** Deep dives are cut finer: every finding is kept in full, so the answer
-   *  outgrew 4,096 tokens on a 45k chunk (30-09-2026, first real branded run:
-   *  146 findings from three deep dives), and a 20k chunk took 60-70 s — more
-   *  than one cron tick (with thinking on; see ai.ts for effort). */
-  DEEP_DIVE_CHUNK_CHARS: 10_000,
-  DEEP_DIVE_MAX_TOKENS: 16_000,
-  /** Tail of the previous chunk given along as context (not re-extracted). */
-  DEEP_DIVE_OVERLAP_CHARS: 2_500,
-  /** The whole-recording placing pass answers with indices, not prose. */
-  ATTRIBUTE_MAX_TOKENS: 16_000,
-} as const;
-
 export const STORAGE_BUCKET = "delivery-meeting";
 
-/** Claude model for extraction and writing. */
+/** Claude model for reading the targets out of the logs. */
 export const MODEL = "claude-sonnet-5";
 
-/** Briefs per step. Six took up to 48 s (29-09-2026), too close to the ~60 s an invocation gets. */
-export const BRIEF_BATCH = 4;
-/** Deep-dive text per brief step. Store count alone did not bound the answer:
- *  on 30-09-2026 a store had 19 findings, and four such stores overflowed
- *  12,000 tokens. A batch stops adding stores past this (always at least one). */
-export const BRIEF_DEEP_DIVE_CHARS = 6_000;
-export const BRIEF_MAX_TOKENS = 16_000;
 /** Stores per targets step. */
 export const TARGET_BATCH = 8;
 
@@ -123,15 +88,16 @@ export const MONDAY_DELIVERY = {
   PRIORITY: "High",
 } as const;
 
-/** The day each meeting is held, relative to the Tuesday: dropship Tue, branded Wed. */
-export const MEETING_DAY_OFFSET = { dropship: 0, branded: 1 } as const;
+/** The day each meeting's decks are delivered, relative to the Tuesday: both on Tuesday. */
+export const MEETING_DAY_OFFSET = { dropship: 0, branded: 0 } as const;
 
 /**
- * When the to-do lands with Tycho, in Amsterdam time (Tristan, 29-09-2026):
- * dropship Tuesday 10:00; branded Wednesday 08:00 — later, because Tycho
- * records the brand deep dives later, often on the Tuesday. The crons run in
- * UTC and fire at both candidate hours; deliver waits for the local hour, so
- * summer and winter time both land on the minute without a code change.
+ * When the to-do lands with Tycho, in Amsterdam time: both decks on Tuesday at
+ * 10:00 (Tristan, 30-09-2026 — branded was Wednesday 08:00 while the run also
+ * built a prep from Tycho's deep dives; with the prep gone there is nothing to
+ * wait for). The crons run in UTC and fire at both candidate hours; deliver
+ * waits for the local hour, so summer and winter time both land on the minute
+ * without a code change.
  */
-export const DELIVER_AT_LOCAL_HOUR = { dropship: 10, branded: 8 } as const;
+export const DELIVER_AT_LOCAL_HOUR = { dropship: 10, branded: 10 } as const;
 export const TIME_ZONE = "Europe/Amsterdam";

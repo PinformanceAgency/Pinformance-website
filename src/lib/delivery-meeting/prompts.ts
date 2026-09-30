@@ -1,91 +1,12 @@
 /**
- * Every prompt the delivery meeting sends to Claude. Three rules hold for all
- * of them: JSON only; never a number that was not passed in (the numbers are
- * computed in code and handed over as text, to be used verbatim); English;
- * and no advice of the model's own — it reports what the buyers and Tycho
- * said and did.
+ * The one prompt the delivery meeting sends to Claude: the buyer's target for
+ * the data week, read from the Weekly Store Log. JSON only, and never a
+ * number that is not in the log.
  */
 
 const JSON_ONLY = "Answer with one JSON object and nothing else: no prose, no code fence.";
 const NO_INVENTION =
-  "Never invent anything. A number, a store, a to-do or a finding that is not in the input does not go in the output. When the input does not say, use null.";
-
-export interface StoreRef {
-  name: string;
-  aliases: string[];
-  numbers?: string;
-}
-
-const storeList = (stores: StoreRef[]) =>
-  stores
-    .map((s) => `- ${s.name}${s.aliases.length ? ` (also written: ${s.aliases.join(", ")})` : ""}${s.numbers ? ` — ${s.numbers}` : ""}`)
-    .join("\n");
-
-/* ---------- Fathom: last week's delivery meeting ---------- */
-
-export const MEETING_SYSTEM = `You read part of the transcript of a weekly delivery meeting at a Pinterest media-buying agency. In it, the media buyers go through their stores one by one with the head of media buying, agree what they will do this week, and sometimes say a target out loud.
-
-Extract, per store that is discussed in THIS part of the transcript:
-- todos: what the buyer committed to doing, as short imperative phrases in English ("Launch two sub-catalogs", "Email the client about tracking").
-- target: a spend, revenue or ROAS target that was said out loud for the coming week — only when a number was actually said. spend_day is spend per day, revenue_week is revenue for the whole week.
-
-Use the store names exactly as given in the list. Match what is said to the list even when a store is named loosely ("Nordheim" is "Nordheim Mode"). A store that is not discussed is left out. ${NO_INVENTION} ${JSON_ONLY}
-
-Shape: {"stores":[{"store":"<name from the list>","todos":["..."],"target":{"spend_day":number|null,"revenue_week":number|null,"roas":number|null,"quote":"<the words that were said>"}|null}]}`;
-
-export const meetingUser = (stores: StoreRef[], chunk: string, part: string) =>
-  `Stores in this meeting:\n${storeList(stores)}\n\nTranscript (${part}):\n${chunk}`;
-
-/* ---------- Fathom: Tycho's deep dives ---------- */
-
-export const DEEP_DIVE_SYSTEM = `You read part of a solo screen recording in which Tycho, who reviews the media buyers' work at a Pinterest media-buying agency, goes through ad accounts one after the other and says what he sees. He rarely names the store; he looks at dashboards and mentions numbers, countries, campaigns and products.
-
-Extract his findings: each one a concrete observation about one account plus what he says should be done about it. Keep what is specific: the numbers he reads out (ROAS, spend, CPA, CTR, CPM, revenue, budgets), countries, the names of campaigns, ad groups, products and creatives, what he thinks causes it, and the step he wants taken. Do not merge two separate observations into one, and do not repeat one he already made.
-
-Per finding give two versions:
-- text: one or two plain English sentences, with the specifics.
-- short: the same in keywords for a meeting sheet, at most 12 words, no full sentences, the action after an arrow. Never start it with the store name — which store it is gets decided separately. Example: "US + DE 30% spend each, weak ROAS → shift budget to AU/UK". Keep his numbers and names.
-
-WHICH STORE. He works through the accounts in turn and usually says the name once — when he opens the account, sometimes only in passing ("Moonhaven en Voice staan hier allebei") — and after that says "this account" / "deze store" until he moves on ("next account", "dan gaan we naar …", opening another dashboard). Track which account he is on through the transcript:
-- You are told which store he was on at the end of the previous part, and given the last minutes of it as context. Findings keep belonging to that store until he clearly switches.
-- A name may be said loosely or mis-transcribed ("Voice" for Envoise, "Breathe Free"); use the spellings given.
-- Otherwise match on what he reads out: last week's ROAS and revenue, the countries (a store that only runs GB, one that runs US/DE/AU), the currency, the niche and products.
-confidence: "high" when named or unmistakable from the numbers or the running context, "medium" when likely, "low" when you cannot tell (store = null). Do not force a match.
-
-Also return last_store: the store he is on at the end of this part (a name from the list), or null when unclear.
-
-Skip small talk, tool trouble and general remarks that are about no account. Only extract findings from the transcript part itself, not from the context before it. ${NO_INVENTION} ${JSON_ONLY}
-
-Shape: {"findings":[{"store":"<name from the list>"|null,"confidence":"high"|"medium"|"low","text":"...","short":"..."}],"last_store":"<name>"|null}`;
-
-export const deepDiveUser = (
-  stores: StoreRef[],
-  chunk: string,
-  part: string,
-  lastStore: string | null = null,
-  context = "",
-) =>
-  `Stores (last week: ROAS and revenue, week before in brackets; then matching clues):\n${storeList(stores)}\n\n` +
-  (context
-    ? `At the end of the previous part Tycho was on: ${lastStore ?? "unclear"}.\nLast minutes of the previous part (context only, already extracted):\n${context}\n\n`
-    : "") +
-  `Transcript (${part}):\n${chunk}`;
-
-export const ATTRIBUTE_SYSTEM = `You get the full transcript of a solo screen recording in which Tycho, who reviews the media buyers' work at a Pinterest media-buying agency, goes through ad accounts one after the other, and a numbered list of findings already extracted from it. Your job is to say which store each finding is about.
-
-First work out the accounts in order: where he opens an account and where he moves to the next one ("next account", "dan gaan we naar …", "deze store", switching dashboards, a jump in currency, countries or scale). He names an account once, in passing, or not at all — and the transcription garbles names, so match on how a name SOUNDS: "Burfery" / "Brevry" / "Free" = Breathfree, "En voice" / "Voice" = Envoise, "Vicherry" = Fit Cherries, "Lily Parry" = Lili Paris, "Rollen home" = Roha Home, "Make Cosmetics" = MayCosmetics. A name he says, even garbled, outweighs every other clue — the countries on file may be out of date. He often lists the stores he is about to do at the start of a recording; use that order. Without a name, identify the account from everything in its stretch together: the countries he reads out (a store that only runs GB; one that runs CA/AU/US/NZ), the currency, the size of spend and revenue (a store on a tenner a day vs one on thousands), last week's ROAS, the niche and the products. Two stores in the list can be told apart by their countries and scale even when neither is named.
-
-Then put each finding under the account whose stretch it comes from, by its number.
-
-He also looks at stores that are NOT in this meeting (given separately — inactive, not set up, another stream): their stretch gets store null, never the nearest store in the list. When he names a store that is not in this meeting, everything after it belongs to that store until he clearly opens the next account — do not hand the rest of that stretch to a store from the list. confidence per account: "high" only when he says the name (garbled counts); "medium" when he does not and the clues point to one store; "low" when you cannot tell (store null). Do not force a match. A finding you cannot place goes nowhere.
-
-Answer compactly — one entry per account stretch, the evidence in at most ten words. ${NO_INVENTION} ${JSON_ONLY}
-
-Shape: {"segments":[{"from":"hh:mm:ss","to":"hh:mm:ss","store":"<name from the list>"|null,"confidence":"high"|"medium"|"low","evidence":"...","findings":[0,1,2]}]}`;
-
-export const attributeUser = (stores: StoreRef[], transcript: string, findings: string[], others: string[] = []) =>
-  `Stores (last week: ROAS and revenue, week before in brackets; then matching clues):\n${storeList(stores)}\n\n` +
-  `Stores NOT in this meeting (findings about these → store null): ${others.length ? others.join(", ") : "none known"}\n\nFindings:\n${findings.join("\n")}\n\nFull transcript:\n${transcript}`;
+  "Never invent anything. A number or a store that is not in the input does not go in the output. When the input does not say, use null.";
 
 /* ---------- Targets from the logs ---------- */
 
@@ -104,22 +25,6 @@ For each store return:
 
 Logs are in English or Dutch. A target that is only a ROAS ("de roas boven de 1.8 krijgen") is still a target: return the roas with the volume fields null.
 
-If the log has no target, use the meeting target given for the store (source "meeting"). Nothing in either → leave the store out. ${NO_INVENTION} ${JSON_ONLY}
+If the log has no target, leave the store out. ${NO_INVENTION} ${JSON_ONLY}
 
-Shape: {"targets":[{"store":"<name>","spend_day":number|"same"|"+N%"|null,"spend_week":number|null,"revenue_week":number|null,"roas":number|null,"source":"log"|"meeting","quote":"..."}]}`;
-
-/* ---------- Tycho's prep: the four blocks per store ---------- */
-
-export const BRIEF_SYSTEM = `You write Tycho's meeting prep at a Pinterest media-buying agency: per store, what he reads out and asks in the weekly delivery meeting. Tycho talks to the media buyer directly. English. Plain, short, factual.
-
-Per store you get: the buyer's first name, last week's numbers (already formatted — copy them verbatim, never compute or round differently), the week's status, the buyer's Weekly Store Log, the to-dos from monday with their status, the to-dos agreed in last week's meeting, Tycho's deep-dive findings, and the question to ask.
-
-Write four blocks:
-- did — ONE sentence, second person, starting with the buyer's first name and a comma ("Dylan, last week you …"): what the buyer actually did, from the log, the meeting to-dos and the to-dos marked Done. Name what was planned and not done. No log and no to-dos → say that there is no log and no to-do for this store.
-- result — one or two sentences of fact: what the numbers did, against the invoice ROAS and the floor, using the given numbers verbatim. No judgement words beyond "above"/"below"/"up"/"down". A "—" or "–" in the numbers means there was no spend that week: say that in words, never print the dash.
-- ask — the question to ask, exactly as given. Only when it says WRITE_TODO_QUESTION: write one question asking why the named to-dos were not done and when they will be.
-- deep_dive — Tycho's findings for this store IN KEYWORDS, so he takes them in at a glance during the meeting: one line per point, each line starting with "• ", at most 12 words, no full sentences, the action after an arrow. Keep his numbers, countries and campaign / creative names; drop filler, explanation and repetition, and merge findings that say the same thing. At most 8 lines — the points that matter most for this meeting first. Example lines: "• US + DE 30% spend each, weak ROAS → shift budget to AU/UK", "• 'Badge 10' unclear, looks like duplicate prospecting → turn off". No findings → null.
-
-No advice of your own, no praise, no hedging, no emoji. ${NO_INVENTION} ${JSON_ONLY}
-
-Shape: {"stores":[{"key":"<key as given>","did":"...","result":"...","ask":"...","deep_dive":"..."|null}]}`;
+Shape: {"targets":[{"store":"<name>","spend_day":number|"same"|"+N%"|null,"spend_week":number|null,"revenue_week":number|null,"roas":number|null,"source":"log","quote":"..."}]}`;

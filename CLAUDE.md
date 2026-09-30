@@ -71,7 +71,7 @@ The script connects via `pg` using `DATABASE_URL` from `.env.local` (bypasses Su
 | `/api/cron/organic-health` | 0 2 * * * | **Organic daily watchdog.** Read-only, ~4s agency-wide, alerts to Slack only when something stands between a store and publishing: stuck pins, a ready plan never queued, a plan past its own start date still being built, refused pins, a dead token with pins queued. Silent otherwise; the demo store is excluded. Posts to `#organic-daily-watchdog` via `SLACK_ORGANIC_WEBHOOK` and tags `SLACK_ORGANIC_MENTION`. **02:00 is the earliest hour that is honest** — see below |
 | `/api/cron/organic-pacing` | 0 3 * * * | **The ramp.** Raises each store's `daily_pin_target` by one once its two-week hold has passed and it has earned the step, up to the ceiling of 5. Built 15-09-2026, because `scale_up_eligible_date` had been rendered and re-armed since the first organic migration and **acted on by nothing** — so every store sat at 1/day, sixteen pins a month, for ever. `?dry_run=1` reports and writes nothing |
 | `/api/cron/organic-pull-analytics` | 0 7 * * * | **Organic P5.1.1.** Every organic store (not only those we publish for, since 28-09-2026), plus the last five full weeks into `organic.weekly_kpis`. Rolling 14-day / 2-month re-read into `organic.pin_performance` + `organic.monthly_kpis`. An hour after the main pull so the two don't hit Pinterest for the same accounts at once. Leverde tot 22-09-2026 **niets** op: hij begon met de bulk-endpoint `/v5/pins/analytics`, die onze apps niet mogen gebruiken (401 code 3), en die fout nam de maandcijfers mee. Nu per pin, met de twee pulls los van elkaar en een eigen tijdsbudget (`?budget_ms=`) — zie "Data conventions" |
-| `/api/cron/delivery-meeting/{dropship,branded}/{run,check}` | dropship Tue */10 04–09, check 09:30 · branded Wed */10 02–07, check 07:30 | **Delivery meeting decks + Tycho's prep → a monday to-do for Tycho per meeting.** Dropship lands Tue 10:00, branded Wed 08:00 (Amsterdam; deliver waits for the local hour, so summer and winter time need no change). Branded runs a day later because Tycho records the brand deep dives later. See "Delivery meeting pipeline" below |
+| `/api/cron/delivery-meeting/{dropship,branded}/{run,check}` | both Tue */10 04–09, check 09:30 | **Delivery meeting decks → a monday to-do for Tycho per meeting**, both land Tue 10:00 Amsterdam (deliver waits for the local hour, so summer and winter time need no change). No prep and no Fathom since 30-09-2026. See "Delivery meeting pipeline" below |
 
 ### Cron failure alerts
 
@@ -215,36 +215,53 @@ is the head of its queue postable.
 ## Delivery meeting pipeline (`src/lib/delivery-meeting/`)
 
 Without anyone's laptop, Tycho gets a to-do per meeting in "Tycho To Do's"
-(Operations To Do's board): dropship on Tuesday at 10:00, branded on Wednesday
-at 08:00 (Amsterdam). Branded is built on Wednesday night, not Tuesday, because
-Tycho records the brand deep dives later — often on the Tuesday — and a run
-only sees the recordings that exist when it reads Fathom. Each to-do comes the decks (dropship EN, branded Rens and
-Louiza NL) and his prep PDF attached to its update, under a Dutch summary.
-Delivery is on monday, not Slack, on purpose (Tristan, 29-09-2026): the monday
-token is already there, a Slack app with a bot token is not. What the 10:30
-check finds lands as a to-do in Tristan's own group. Built 29-09-2026 as a port of the
-claude.ai skill "Delivery decks + Tycho prep"; the approved layout is that
-skill's, and **changing it needs Tristan's approval**.
+(Operations To Do's board) with the decks attached to its update, under a
+Dutch summary: dropship (EN) and branded (Rens and Louiza, NL), **both on
+Tuesday at 10:00** (Amsterdam). Delivery is on monday, not Slack, on purpose
+(Tristan, 29-09-2026): the monday token is already there, a Slack app with a
+bot token is not. What the 09:30 check finds lands as a to-do in Tristan's
+own group. Built 29-09-2026 as a port of the claude.ai skill "Delivery decks
++ Tycho prep"; the approved deck layout is that skill's, and **changing it
+needs Tristan's approval**.
 
-**Staged, because one invocation is ~60 s.** A Fathom transcript and a Claude
-call do not fit in one run, so `pipeline.ts` is a state machine over
-`delivery_meeting_runs` (one row per stream per Tuesday): collect → fathom →
-targets → compute → briefs → render → deliver → done. A step is only started
-with 35 s of the 50 s budget left, steps are sized to fit (one transcript
-chunk, eight stores' targets, six stores' briefs — the model writes ~60
-tokens a second, so a whole stream in one call took 54 s), and each is
-idempotent. Each stream has one cron, `…/<stream>/run`, ticking every ten
-minutes through its window; every tick does whatever step is next, so a stage
-that ran late is simply finished by the next tick. Deliver waits for the
-meeting's local hour: the window covers both the summer and the winter UTC
-hour, and the check against Amsterdam time picks the right one. Runs are leased (`locked_until`), because two crons
-fire in the same minute and two writers on one payload drop each other's work.
-One stream's failure never blocks the other: each has its own to-do. Deliver
-keeps the monday item id, the update id and every uploaded file in the
-payload, so a retry never makes a second to-do and uploads only what is
-missing. Locally, with no budget:
+**There is no prep, and no Fathom (Tristan, 30-09-2026).** The pipeline also
+built Tycho's prep PDF from his Fathom deep dives for two days. It was removed
+whole — Fathom reading, the briefs, the PDF renderer, pdf-lib — because it was
+most of the cost and could not reliably tell which store Tycho was talking
+about: he names an account once, garbled by the transcription ("Burfery" =
+Breathfree), or not at all, and the first prep left Moonhaven and Breathfree
+empty. Tycho and Tristan prepare the meeting themselves. Branded ran on
+Wednesday only to wait for the deep dives; with them gone it runs on Tuesday
+too. Do not bring the prep back without asking: the reasons it went are in
+the git history (`0583a9b`, and the commit that removed it).
+
+**Staged, because one invocation was measured at ~60 s.** `pipeline.ts` is a
+state machine over `delivery_meeting_runs` (one row per stream per Tuesday):
+collect → targets → compute → render → deliver → done. A step is only started
+with 35 s of the 50 s budget left, steps are sized to fit (eight stores'
+targets per Claude call), and each is idempotent. Each stream has one cron,
+`…/<stream>/run`, ticking every ten minutes through its window; every tick
+does whatever step is next, so a stage that ran late is simply finished by the
+next tick. Deliver waits for the meeting's local hour: the window covers both
+the summer and the winter UTC hour, and the check against Amsterdam time picks
+the right one. Runs are leased (`locked_until`), because two writers on one
+payload drop each other's work. One stream's failure never blocks the other:
+each has its own to-do. Deliver keeps the monday item id, the update id and
+every uploaded file in the payload, so a retry never makes a second to-do and
+uploads only what is missing. Locally, with no budget:
 `DOTENV_CONFIG_PATH=.env.local npx tsx scripts/delivery-meeting.ts all --date 2026-09-29 --dry-run`
-(files in `./tmp/`, nothing on monday, runs left at `deliver` so the real cron still delivers).
+(files in `./tmp/`, nothing on monday, runs left at `deliver` so the real cron
+still delivers). Both streams together: ~65 s locally, a few cents of Claude
+for the targets.
+
+**Lessons from the first real run (30-09-2026).** A `--test` delivery used to
+move the run to `done`, so the real cron found nothing to do and Tycho got
+nothing; a test now leaves the run at `deliver`. Every Claude call runs at
+**effort `low`** (`ai.ts`): Sonnet 5 thinks by default and bills the thinking
+as output — three times the tokens and three times the time for the same
+answer. The monday person is set again after creation (`assignPerson`): the
+first to-do came out on Tristan although it was created for Tycho, so
+something on that board overrides the person on creation.
 
 **Numbers are Store Ranking's** (`computeStoreRanking(storeRankingPeriods())`,
 the page's own call), floors included, so a pill on the slide is the pill on
@@ -253,8 +270,8 @@ figure can differ from a deck it built; the month matches to the cent.
 `scripts/check-delivery-meeting.ts <Tuesday>` sums the same rows in plain SQL
 and compares the pills with Store Ranking (29-09-2026: 38 stores, 0
 differences). Stores with no Pinterest data fall back to the Weekly Updates
-subitems and are named in the DM. Two deliberate exceptions the check skips:
-stores with a revenue multiplier, and blended stores.
+subitems and are named in the summary. Two deliberate exceptions the check
+skips: stores with a revenue multiplier, and blended stores.
 
 **Which stores: the Clients board decides, every week.** Stores are onboarded
 and offboarded continuously, so there is no fixed list: a store is in when its
@@ -262,9 +279,9 @@ Clients subitem is Active / Onboarding / blank under a live client, and out the
 moment it is Inactive — even when the dashboard still has it (Tristan,
 29-09-2026, about Bootylift). `store_settings` then says which deck
 (`media_buyer` + `department`) and what it is measured against. Every mismatch
-is named in the DM rather than dropped: Active on Clients but not configured
-(a new store nobody set up), configured but not findable on Clients (add a
-`monday_aliases` spelling), live but with a buyer who has no deck.
+is named in the summary rather than dropped: Active on Clients but not
+configured (a new store nobody set up), configured but not findable on Clients
+(add a `monday_aliases` spelling), live but with a buyer who has no deck.
 
 **Settings that are client figures are not in the repo.** `delivery_meeting_buyers`
 (monthly goal per buyer) and `delivery_meeting_settings` (weekly-goal stores,
@@ -277,29 +294,14 @@ model, buyer and department stay in `store_settings`.
 a "Week of" title, a second with sections as plain lines, the current one with
 tables), so `logText()` finds sections by their "N ·" text, reads tables cell
 by cell, pages past 100 blocks, and strips template text three ways (template
-doc, italic, text shared by three or more logs). A store's monday spelling
-diverges from its org name ("graceparkerjewelry", "ICON.", "by-willa"):
-matching goes through `monday_aliases`; add one there, not a fuzzier matcher.
+doc, italic, text shared by three or more logs). The target each buyer set for
+the data week comes out of that log (`targets.ts`, one Claude call per eight
+stores) and is shown on the deck. A store's monday spelling diverges from its
+org name ("graceparkerjewelry", "ICON.", "by-willa"): matching goes through
+`monday_aliases`; add one there, not a fuzzier matcher.
 
-**The prep PDF is drawn with pdf-lib, not a browser** (none on Vercel), in
-Carlito — Calibri's metric twin; Calibri itself cannot go in a public repo.
-Two pdf-lib traps: subsetting dropped glyphs ("Pn rm n"), and fontkit's "ti"
-ligature left gaps ("starti ng") — both are switched off in `FONT_OPTS`.
-The deck is pptxgenjs, and was checked shape by shape against the Python
-builder on the same data: 361 text shapes, 0 differences.
-
-**First real run, 30-09-2026 — three lessons.** A `--test` delivery used to move the run to `done`, so the real cron found nothing to do and Tycho got nothing; a test now leaves the run at `deliver`. Every Claude call runs at **effort `low`** (`ai.ts`): Sonnet 5 thinks by default and bills it as output, and at the default a 10k deep-dive chunk took 51 s and 4,853 tokens against 16 s and 1,526 at low, same findings — about **$0.55 a stream per week** at low. And brief batches are sized by deep-dive text (`BRIEF_DEEP_DIVE_CHARS`), not only store count, because one store can carry nineteen findings. The monday person is set again after creation (`assignPerson`): the first to-do came out on Tristan although it was created for Tycho.
-
-**Tycho's deep dive is in keywords, and every finding lands somewhere** (30-09-2026, after the first prep left Moonhaven and Breathfree without a word). Three faults, each worth not reintroducing. (1) **The window lost a recording**: deep dives were taken "since the previous meeting", but Tycho records a series around it ("deepdive brands pt1" the day before, "pt2" after) and pt1 held Moonhaven. They are now taken from the day before the previous meeting, minus recordings last week's run already read (`used` in `discover()`), so nothing counts twice. (2) **Chunks cannot place findings**: he names an account once, often garbled by the transcription ("Burfery" = Breathfree, "En voice" = Envoise), or not at all, then says "this account" for fifteen minutes; 50 of 146 findings could not be placed and were silently dropped. After a recording's chunks are read, `attribute()` makes **one pass over the whole transcript** that splits it into account stretches and places every finding by number — that pass decides, a chunk's guess it cannot confirm is dropped. It gets niche, countries, currency, buyer and every spelling per store, plus the stores **not** in this meeting (inactive, not set up), because otherwise The Longevity store's stretch is handed to the nearest store that is. "high" needs a spoken name; an unnamed stretch is at most "medium", which the prep marks "(store name unclear)". Measured on the 88-minute recording: 58 s, inside the route's `maxDuration = 300`. The segments it found are kept on the queue item (`segments`) — look there first when a store's deep dive looks wrong. (3) **Nothing is dropped**: a finding no store is found for goes on a last page, "Deep dive — store not recognised", in keywords. Each finding carries a keyword version (`short`, ≤ 12 words) next to its sentence, and the prep's DEEP DIVE panel is keywords only, at most eight lines — full sentences were too much to read during the meeting. Changing the prep layout needs Tristan's approval.
-
-**First real run, 30-09-2026 — three lessons.** A `--test` delivery used to move the run to `done`, so the real cron found nothing to do and Tycho got nothing; a test now leaves the run at `deliver`. Every Claude call runs at **effort `low`** (`ai.ts`): Sonnet 5 thinks by default and bills it as output, and at the default a 10k deep-dive chunk took 51 s and 4,853 tokens against 16 s and 1,526 at low, same findings — about **$0.55 a stream per week** at low. And brief batches are sized by deep-dive text (`BRIEF_DEEP_DIVE_CHARS`), not only store count, because one store can carry nineteen findings. The monday person is set again after creation (`assignPerson`): the first to-do came out on Tristan although it was created for Tycho.
-
-**Tycho's deep dive is in keywords, and every finding lands somewhere** (30-09-2026, after the first prep dropped Moonhaven). He names an account once, often in passing, then says "this account" for minutes, and the recordings are read in 10k chunks — so a chunk without the name could not place its findings, and 50 of 146 were silently dropped. Each chunk now gets the store he was on at the end of the previous one (`last_store` on the queue item) plus its last 2,500 characters, and the store list carries niche, countries, currency, buyer and every known spelling. Whatever still cannot be placed goes on a last page, "Deep dive — store not recognised", never nowhere. Each finding carries a keyword version (`short`, ≤ 12 words) next to its sentence, and the prep's DEEP DIVE panel is keywords only, at most eight lines — full sentences were too much to read during the meeting. Changing the prep layout needs Tristan's approval.
-
-Env: `FATHOM_API_KEY` on top of the usual. Without it the prep is built
-without meeting notes or deep dive and says so. The key only sees recordings
-its owner made or that are shared with them or their team — Tycho's deep
-dives must be shared, or they are invisible to the cron.
+**The deck is pptxgenjs**, checked shape by shape against the Python builder
+on the same data: 361 text shapes, 0 differences.
 
 ## Read-only agent API (`/api/agent/*`)
 

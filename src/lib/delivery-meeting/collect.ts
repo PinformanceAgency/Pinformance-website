@@ -30,13 +30,12 @@ import {
   loadLogDocs,
   loadLogItems,
   loadTemplateTexts,
-  loadTodos,
   loadWeeklyRows,
   sharedTexts,
   type Block,
   type WeeklyRow,
 } from "./monday";
-import type { CollectedStore, DeckRef, LogNotes, Money, RunPayload, Todo } from "./types";
+import type { CollectedStore, DeckRef, LogNotes, Money, RunPayload } from "./types";
 import { addDays, currencyPrefix, meetingDates, nameKey, nameMatches } from "./util";
 
 const DEPARTMENT: Record<Stream, string> = { dropship: "dropship", branded: "branding" };
@@ -45,8 +44,6 @@ interface SettingsRow {
   org_id: string;
   media_buyer: string | null;
   department: string | null;
-  niche?: string | null;
-  countries?: string[] | null;
   is_active: boolean | null;
   invoice_roas: number | null;
   breakeven_roas: number | null;
@@ -288,8 +285,6 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       source,
       weekly_goal: !!m?.weekly_goal,
       week_missing: weekMissing,
-      niche: s.niche ?? null,
-      countries: Array.isArray(s.countries) ? s.countries : [],
     });
   }
 
@@ -363,16 +358,6 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
     if (notes.archived || notes.live_section1) logs[s.key] = notes;
   }
 
-  // ---- To-dos -------------------------------------------------------------
-  const todos: Record<string, Todo[]> = {};
-  const allTodos = await loadTodos(dates.todo_from, dates.data_start, dates.data_end, meetingDate);
-  for (const t of allTodos) {
-    if (!t.store) continue;
-    const store = stores.find((s) => nameMatches(t.store, s.match_keys));
-    if (!store) continue;
-    (todos[store.key] ??= []).push({ name: t.name, status: t.status, created_at: t.created_at, deadline: t.deadline });
-  }
-
   // ---- Decks ----------------------------------------------------------------
   const NN = String(dates.meeting_week).padStart(2, "0");
   let decks: DeckRef[];
@@ -409,7 +394,6 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
     decks,
     stores,
     logs,
-    todos,
     notices,
     issues,
   };

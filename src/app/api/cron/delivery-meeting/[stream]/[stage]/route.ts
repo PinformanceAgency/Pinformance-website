@@ -3,16 +3,17 @@
  * The pipeline is in src/lib/delivery-meeting/pipeline.ts; this is only the
  * cron entry around it.
  *
- * Each stream runs on its own day (vercel.json, UTC):
+ * Both streams run on Tuesday (vercel.json, UTC) and deliver at 10:00
+ * Amsterdam:
  *
- *   dropship/run    Tue every 10 min 04:00–09:50   delivers Tue 10:00 Amsterdam
+ *   dropship/run    Tue every 10 min 04:00–09:50
+ *   branded/run     Tue every 10 min 04:00–09:50
  *   dropship/check  Tue 09:30
- *   branded/run     Wed every 10 min 02:00–07:50   delivers Wed 08:00 Amsterdam
- *   branded/check   Wed 07:30
+ *   branded/check   Tue 09:30
  *
- * Branded runs a day later on purpose: Tycho records the brand deep dives
- * later, often on the Tuesday, and the run only sees what exists when it
- * reads Fathom (Tristan, 29-09-2026).
+ * Until 30-09-2026 branded ran on Wednesday and both built a prep for Tycho
+ * from his Fathom deep dives; the prep was dropped (Tristan) and with it the
+ * reason to wait a day.
  *
  * "run" advances everything up to and including deliver, one step at a time
  * within the ~60 s an invocation really gets; the next tick carries on. Deliver
@@ -24,12 +25,12 @@
  *   curl -H "x-cron-secret: $CRON_SECRET" \
  *     "https://dashboard.pinformance-agency.com/api/cron/delivery-meeting/branded/run?date=2026-10-06"
  *
- *   ?date=   the meeting TUESDAY of that week (branded too — the runs are keyed on it)
+ *   ?date=   the meeting Tuesday of that week
  *   ?force=1 throw that stream's run away and collect again
  *   ?now=1   deliver when done, without waiting for the hour
  *
  * Env: CRON_SECRET, MONDAY_API_TOKEN, NEXT_PUBLIC_SUPABASE_URL,
- * SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY, FATHOM_API_KEY. Loaded lazily
+ * SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY. Loaded lazily
  * (dynamic import), so a missing one is a 500 on this route, never a broken
  * build.
  */
@@ -42,7 +43,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 const STREAMS = ["dropship", "branded"] as const;
-const STAGES = ["run", "collect", "fathom", "targets", "compute", "briefs", "render", "deliver", "check"] as const;
+const STAGES = ["run", "collect", "targets", "compute", "render", "deliver", "check"] as const;
 
 function verifyCron(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -69,7 +70,7 @@ async function handle(request: NextRequest, streamParam: string, stageParam: str
   try {
     const { advance, check, reportProblems } = await import("@/lib/delivery-meeting/pipeline");
     const { meetingTuesday, weekday } = await import("@/lib/delivery-meeting/util");
-    // on the Wednesday this is still the Tuesday of the same week
+    // a manual re-run later in the week still lands on that week's Tuesday
     const meetingDate = date ?? meetingTuesday();
     if (weekday(meetingDate) !== 1) {
       return NextResponse.json({ error: `${meetingDate} is not a Tuesday (runs are keyed on the Tuesday)` }, { status: 400 });

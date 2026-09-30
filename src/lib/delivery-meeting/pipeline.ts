@@ -1,14 +1,17 @@
 /**
- * Delivery meeting pipeline — decks + Tycho's prep → a monday to-do for
- * Tycho per meeting, every Tuesday.
+ * Delivery meeting pipeline — the decks → a monday to-do for Tycho per
+ * meeting, both on Tuesday at 10:00. There is no prep any more: it was built
+ * from Tycho's Fathom deep dives until 30-09-2026 and removed, because it cost
+ * most of the money and could not reliably tell which store he was on — Tycho
+ * and Tristan prepare the meeting themselves.
  *
- *   collect → fathom → targets → compute → briefs → render → deliver → done
+ *   collect → targets → compute → render → deliver → done
  *
  * WHY STAGED
  * ----------
- * A Fathom transcript plus a Claude call does not fit in the ~60 s a Vercel
- * invocation really gets (measured on weekly-update-sync, whatever
- * `maxDuration` says). So each stage is small, the state lives in
+ * Collecting (dashboard, three monday boards, the logs) plus a Claude call per
+ * batch of targets does not fit in the ~60 s a Vercel invocation was measured
+ * to get (weekly-update-sync). So each stage is small, the state lives in
  * `delivery_meeting_runs.payload`, and every step is idempotent: a run that
  * dies is picked up by the next invocation exactly where it stopped.
  *
@@ -16,15 +19,14 @@
  * ------------------------------------------
  * `advance(ceiling)` does the next step of each run, whatever it is, up to
  * and including `ceiling`. The cron for a stage therefore also finishes an
- * earlier stage that ran late — the briefs cron at 08:15 finishes a fathom
- * stage that was still going — instead of finding "not ready" and doing
+ * earlier stage that ran late instead of finding "not ready" and doing
  * nothing until next week. A stage that is already past is a no-op.
  *
  * ONE STREAM NEVER BLOCKS THE OTHER
  * ---------------------------------
  * Each stream is its own row, its own lease and its own try/catch, and its own
- * to-do on monday. The steps alternate between the streams so one stream's
- * briefs cannot eat the whole budget.
+ * to-do on monday. The steps alternate between the streams so one stream
+ * cannot eat the whole budget.
  */
 import {
   DELIVER_AT_LOCAL_HOUR,
@@ -38,7 +40,7 @@ import {
   type Stage,
   type Stream,
 } from "./constants";
-import { collect, buyerLabel } from "./collect";
+import { collect } from "./collect";
 import { computeDeck, prevGoalFrom } from "./compute";
 import {
   claimRun,
@@ -51,14 +53,12 @@ import {
   stageIndex,
   uploadFile,
 } from "./db";
-import { discover, processNext } from "./fathom";
-import { extractTargets, nextBriefBatch, prepStores, targetQueue, writeBriefs } from "./briefs";
+import { extractTargets, targetQueue } from "./targets";
 import { renderDeck } from "./render-deck";
-import { renderPrep } from "./render-prep";
 import { summaryFor } from "./summary";
 import { assignPerson, attachFile, createTodo, createUpdate, toUpdateHtml } from "./monday-deliver";
 import type { RunPayload, RunRow } from "./types";
-import { addDays, amsterdamNow, meetingDates, nameKey } from "./util";
+import { addDays, amsterdamNow, meetingDates } from "./util";
 
 export interface AdvanceOptions {
   meetingDate: string;
@@ -115,27 +115,6 @@ async function step(
       const collected = await collect(run.stream, run.meeting_date);
       return { payload: collected, done: true, note: `collected ${collected.stores?.length ?? 0} stores` };
     }
-    case "fathom": {
-      if (!process.env.FATHOM_API_KEY) {
-        p.fathom = { queue: [], meeting_found: null, meeting_notes: {}, findings: [], deep_dives_found: 0, done: true };
-        (p.issues ??= []).push("FATHOM_API_KEY is not set: no meeting notes and no deep dive this week");
-        return { payload: p, done: true, note: "fathom skipped (no key)" };
-      }
-      if (!p.fathom) {
-        // recordings last week's run already read are not read again
-        const last = await getRun(addDays(run.meeting_date, -7), run.stream);
-        const used = new Set((last?.payload.fathom?.queue ?? []).filter((q) => q.kind === "deep_dive").map((q) => q.recording_id));
-        p.fathom = await discover(run.stream, run.meeting_date, opts.now ?? new Date(), used);
-        return {
-          payload: p,
-          done: p.fathom.done,
-          note: `fathom: meeting ${p.fathom.meeting_found ? "found" : "not found"}, ${p.fathom.deep_dives_found} deep dive(s)`,
-        };
-      }
-      const did = await processNext(p);
-      const left = p.fathom.queue.filter((q) => q.chunks_total == null || q.chunks_done < q.chunks_total).length;
-      return { payload: p, done: p.fathom.done, note: did ? `fathom chunk done, ${left} recording(s) left` : "fathom done" };
-    }
     case "targets": {
       const batch = targetQueue(p).slice(0, TARGET_BATCH);
       if (!batch.length) return { payload: p, done: true, note: "targets done" };
@@ -164,33 +143,9 @@ async function step(
       }
       return { payload: p, done: true, note: `computed ${p.decks?.length ?? 0} deck(s)` };
     }
-    case "briefs": {
-      const batch = nextBriefBatch(p);
-      if (!batch.length) return { payload: p, done: true, note: "briefs done" };
-      const got = await writeBriefs(p, batch);
-      p.briefs = { ...(p.briefs ?? {}), ...got };
-      // A store Claude skipped twice gets a brief with only the facts, so one
-      // stubborn store cannot hold the prep for everybody.
-      p.brief_errors ??= {};
-      for (const s of batch) {
-        if (got[s.key]) continue;
-        const n = Number(p.brief_errors[s.key] ?? 0) + 1;
-        p.brief_errors[s.key] = String(n);
-        if (n >= 2) {
-          p.briefs[s.key] = {
-            did: `${s.buyer}, no summary could be written for this store — read the log.`,
-            result: `ROAS ${s.numbers.roas_prev} → ${s.numbers.roas} against invoice ${s.numbers.invoice}; ${s.numbers.volume_label.toLowerCase()} ${s.numbers.volume_prev} → ${s.numbers.volume} against the ${s.numbers.target} floor.`,
-            ask: s.ask_rule.startsWith("WRITE_TODO_QUESTION") ? "Which of last week's to-dos were not done, and when will they be?" : s.ask_rule,
-            deep_dive: null,
-          };
-        }
-      }
-      const left = nextBriefBatch(p).length;
-      return { payload: p, done: left === 0, note: `briefs: ${Object.keys(got).length} written` };
-    }
     case "render": {
       const files: NonNullable<RunPayload["files"]> = [];
-      const put = async (name: string, data: Buffer, type: string, kind: "deck" | "prep") => {
+      const put = async (name: string, data: Buffer, type: string, kind: "deck") => {
         const path = `${run.meeting_date}/${name}`;
         if (opts.outDir) {
           const { writeFileSync, mkdirSync } = await import("fs");
@@ -205,31 +160,11 @@ async function step(
         const d = p.deck_data?.[deck.key];
         if (d) await put(deck.file, await renderDeck(d), "application/vnd.openxmlformats-officedocument.presentationml.presentation", "deck");
       }
-      const prep = prepStores(p).map((s) => ({ ...s, brief: p.briefs?.[s.key] }));
-      const buyers = await loadBuyers();
-      const NN = String(p.meeting_week).padStart(2, "0");
-      const streamWord = run.stream === "dropship" ? "DROPSHIP" : "BRANDED";
-      const sections = (p.decks ?? []).map((deck) => ({
-        kicker: `MEETING PREP · ${streamWord} · ${deck.buyers
-          .map((b) => buyerLabel(buyers.find((x) => x.buyer === b), b).toUpperCase())
-          .join(" & ")}`,
-        stores: prep.filter((s) => s.deck === deck.key),
-      }));
-      const { pdf, shortened } = await renderPrep({
-        sections,
-        footer: `MEETING PREP · ${streamWord} · WEEK ${p.meeting_week} · RESULTS ${p.data_period}`,
-        unplaced: (p.fathom?.findings ?? [])
-          .filter((f) => !f.store_key || f.confidence === "low")
-          .map((f) => ({ recording: f.recording, short: withoutStorePrefix(f.short || f.text, p.stores ?? []) })),
-      });
-      if (shortened.length) (p.issues ??= []).push(`Prep text shortened to fit: ${shortened.join(", ")}`);
-      await put(`Prep_${run.stream === "dropship" ? "Dropship" : "Branded"}_week${NN}.pdf`, pdf, "application/pdf", "prep");
       p.files = files;
       return { payload: p, done: true, note: `rendered ${files.map((f) => f.name).join(", ")}` };
     }
     case "deliver": {
-      // Not before the meeting's local hour (dropship Tue 10:00, branded Wed
-      // 08:00, Amsterdam). The work is done; only the hand-over waits.
+      // Not before the meeting's local hour (both Tuesday 10:00, Amsterdam). The work is done; only the hand-over waits.
       const dueDate = addDays(run.meeting_date, MEETING_DAY_OFFSET[run.stream]);
       const local = amsterdamNow(opts.now ?? new Date());
       const due = local.date > dueDate || (local.date === dueDate && local.hour >= DELIVER_AT_LOCAL_HOUR[run.stream]);
@@ -257,8 +192,7 @@ async function step(
         m.update_id = await createUpdate(m.item_id, toUpdateHtml(summaryFor(run)));
         return { payload: p, done: false, note: `summary posted on ${m.item_id}` };
       }
-      // decks first, then the prep
-      const files = [...(p.files ?? [])].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "deck" ? -1 : 1));
+      const files = p.files ?? [];
       for (const f of files) {
         if (m.uploaded.includes(f.name)) continue;
         await attachFile(m.update_id, f.name, await downloadFile(f.path));
@@ -277,16 +211,6 @@ async function step(
     default:
       return { payload: p, done: false, note: `nothing to do at ${run.stage}` };
   }
-}
-
-/** "Moonhaven: NL+DE main markets" → "NL+DE main markets". A chunk's guess
- *  at the store must not reach the page of findings no store was found for. */
-function withoutStorePrefix(text: string, stores: { name: string; match_keys: string[] }[]): string {
-  const m = /^\s*([^:→]{2,40}):\s+/.exec(text);
-  if (!m) return text;
-  const head = nameKey(m[1]);
-  const known = /store|account|unclear|unknown/i.test(m[1]) || stores.some((s) => nameKey(s.name) === head || s.match_keys.includes(head));
-  return known ? text.slice(m[0].length) : text;
 }
 
 export async function advance(opts: AdvanceOptions): Promise<AdvanceResult> {
