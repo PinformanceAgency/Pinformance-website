@@ -6,7 +6,7 @@
  * only the prose around them — and the one ASK that needs the to-dos'
  * wording, "why were these not done, and when".
  */
-import { BRIEF_BATCH } from "./constants";
+import { BRIEF_BATCH, BRIEF_DEEP_DIVE_CHARS, BRIEF_MAX_TOKENS } from "./constants";
 import { askJSON } from "./ai";
 import { BRIEF_SYSTEM, TARGETS_SYSTEM } from "./prompts";
 import type { Brief, CollectedStore, DeckData, DeckStoreRow, RunPayload, Target } from "./types";
@@ -185,9 +185,18 @@ function askFor(
 
 export function nextBriefBatch(payload: RunPayload): PrepStore[] {
   const done = payload.briefs ?? {};
-  return prepStores(payload)
-    .filter((p) => !done[p.key])
-    .slice(0, BRIEF_BATCH);
+  const findings = payload.fathom?.findings ?? [];
+  const batch: PrepStore[] = [];
+  let chars = 0;
+  for (const p of prepStores(payload).filter((x) => !done[x.key])) {
+    const own = findings
+      .filter((f) => f.store_key === p.key && f.confidence !== "low")
+      .reduce((n, f) => n + f.text.length, 0);
+    if (batch.length && (batch.length >= BRIEF_BATCH || chars + own > BRIEF_DEEP_DIVE_CHARS)) break;
+    batch.push(p);
+    chars += own;
+  }
+  return batch;
 }
 
 function numbersLine(p: PrepStore): string {
@@ -222,7 +231,7 @@ export async function writeBriefs(payload: RunPayload, batch: PrepStore[]): Prom
   });
   // Room for a full deep dive per store: four stores of bullets, not four
   // stores of two sentences.
-  const res = await askJSON<{ stores: (Brief & { key: string })[] }>(BRIEF_SYSTEM, blocks.join("\n\n"), 12000);
+  const res = await askJSON<{ stores: (Brief & { key: string })[] }>(BRIEF_SYSTEM, blocks.join("\n\n"), BRIEF_MAX_TOKENS);
   const out: Record<string, Brief> = {};
   for (const b of res.stores ?? []) {
     const p = batch.find((x) => x.key === b.key);

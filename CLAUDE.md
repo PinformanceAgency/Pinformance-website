@@ -288,6 +288,8 @@ ligature left gaps ("starti ng") — both are switched off in `FONT_OPTS`.
 The deck is pptxgenjs, and was checked shape by shape against the Python
 builder on the same data: 361 text shapes, 0 differences.
 
+**First real run, 30-09-2026 — three lessons.** A `--test` delivery used to move the run to `done`, so the real cron found nothing to do and Tycho got nothing; a test now leaves the run at `deliver`. Every Claude call runs at **effort `low`** (`ai.ts`): Sonnet 5 thinks by default and bills it as output, and at the default a 10k deep-dive chunk took 51 s and 4,853 tokens against 16 s and 1,526 at low, same findings — about **$0.55 a stream per week** at low. And brief batches are sized by deep-dive text (`BRIEF_DEEP_DIVE_CHARS`), not only store count, because one store can carry nineteen findings. The monday person is set again after creation (`assignPerson`): the first to-do came out on Tristan although it was created for Tycho.
+
 Env: `FATHOM_API_KEY` on top of the usual. Without it the prep is built
 without meeting notes or deep dive and says so. The key only sees recordings
 its owner made or that are shared with them or their team — Tycho's deep

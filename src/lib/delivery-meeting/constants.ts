@@ -77,6 +77,12 @@ export const FATHOM = {
   DEEP_DIVE_BY: "tycho",
   /** Characters of transcript per Claude call — one chunk per invocation. */
   CHUNK_CHARS: 45_000,
+  /** Deep dives are cut finer: every finding is kept in full, so the answer
+   *  outgrew 4,096 tokens on a 45k chunk (30-09-2026, first real branded run:
+   *  146 findings from three deep dives), and a 20k chunk took 60-70 s — more
+   *  than one cron tick (with thinking on; see ai.ts for effort). */
+  DEEP_DIVE_CHUNK_CHARS: 10_000,
+  DEEP_DIVE_MAX_TOKENS: 16_000,
 } as const;
 
 export const STORAGE_BUCKET = "delivery-meeting";
@@ -86,6 +92,11 @@ export const MODEL = "claude-sonnet-5";
 
 /** Briefs per step. Six took up to 48 s (29-09-2026), too close to the ~60 s an invocation gets. */
 export const BRIEF_BATCH = 4;
+/** Deep-dive text per brief step. Store count alone did not bound the answer:
+ *  on 30-09-2026 a store had 19 findings, and four such stores overflowed
+ *  12,000 tokens. A batch stops adding stores past this (always at least one). */
+export const BRIEF_DEEP_DIVE_CHARS = 6_000;
+export const BRIEF_MAX_TOKENS = 16_000;
 /** Stores per targets step. */
 export const TARGET_BATCH = 8;
 

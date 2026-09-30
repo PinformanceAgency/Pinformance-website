@@ -20,6 +20,11 @@ export async function askJSON<T>(system: string, user: string, maxTokens = 4096)
   const res = await getAnthropicClient().messages.create({
     model: MODEL,
     max_tokens: maxTokens,
+    // Sonnet 5 thinks by default and bills it as output. Measured 30-09-2026 on
+    // a 10k deep-dive chunk: 4,853 output tokens of which 3,653 thinking, 51 s;
+    // at low effort 1,526 tokens, 16 s, and the same findings text. Low keeps
+    // every step inside one cron tick and halves what a run costs (~$0.55).
+    output_config: { effort: "low" },
     system,
     messages: [{ role: "user", content: user }],
   });

@@ -126,7 +126,7 @@ export async function discover(
 }
 
 /** Transcript as lines, split on line boundaries into chunks. */
-async function transcriptChunks(recordingId: number): Promise<string[]> {
+async function transcriptChunks(recordingId: number, size: number): Promise<string[]> {
   const t = await fathom(`/recordings/${recordingId}/transcript`);
   const lines: string[] = (t.transcript ?? []).map(
     (l: any) => `[${l.timestamp ?? ""}] ${l.speaker?.display_name ?? "?"}: ${l.text ?? ""}`,
@@ -134,7 +134,7 @@ async function transcriptChunks(recordingId: number): Promise<string[]> {
   const chunks: string[] = [];
   let cur = "";
   for (const l of lines) {
-    if (cur.length + l.length > FATHOM.CHUNK_CHARS && cur) {
+    if (cur.length + l.length > size && cur) {
       chunks.push(cur);
       cur = "";
     }
@@ -165,7 +165,10 @@ export async function processNext(payload: RunPayload): Promise<boolean> {
     f.done = true;
     return false;
   }
-  const chunks = await transcriptChunks(item.recording_id);
+  const chunks = await transcriptChunks(
+    item.recording_id,
+    item.kind === "meeting" ? FATHOM.CHUNK_CHARS : FATHOM.DEEP_DIVE_CHUNK_CHARS,
+  );
   item.chunks_total = chunks.length;
   if (chunks.length === 0) {
     f.done = !f.queue.some((q) => q.chunks_total == null || q.chunks_done < q.chunks_total);
@@ -194,6 +197,7 @@ export async function processNext(payload: RunPayload): Promise<boolean> {
     const res = await askJSON<{ findings: { store: string | null; confidence: string; text: string }[] }>(
       DEEP_DIVE_SYSTEM,
       deepDiveUser(storeRefs(stores, true), chunks[i], part),
+      FATHOM.DEEP_DIVE_MAX_TOKENS,
     );
     for (const r of res.findings ?? []) {
       if (!r.text) continue;

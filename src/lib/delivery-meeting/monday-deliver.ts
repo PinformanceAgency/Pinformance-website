@@ -39,6 +39,25 @@ export async function createTodo(opts: {
   return String(data.create_item.id);
 }
 
+/**
+ * Set the person again after the item exists. The to-do created on 30-09-2026
+ * came out assigned to Tristan (the token's owner) although create_item was
+ * given Tycho, so something on the board overrides the person on creation.
+ */
+export async function assignPerson(itemId: string, personId: number): Promise<void> {
+  await monday(
+    `mutation ($b: ID!, $i: ID!, $c: String!, $v: JSON!) {
+       change_column_value(board_id: $b, item_id: $i, column_id: $c, value: $v) { id }
+     }`,
+    {
+      b: String(MONDAY_DELIVERY.BOARD),
+      i: itemId,
+      c: MONDAY_DELIVERY.COL_PERSON,
+      v: JSON.stringify({ personsAndTeams: [{ id: personId, kind: "person" }] }),
+    },
+  );
+}
+
 export async function createUpdate(itemId: string, html: string): Promise<string> {
   const data = await monday(`mutation ($i: ID!, $b: String!) { create_update(item_id: $i, body: $b) { id } }`, {
     i: itemId,

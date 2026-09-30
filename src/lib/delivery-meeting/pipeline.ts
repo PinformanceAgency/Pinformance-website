@@ -56,7 +56,7 @@ import { extractTargets, nextBriefBatch, prepStores, targetQueue, writeBriefs } 
 import { renderDeck } from "./render-deck";
 import { renderPrep } from "./render-prep";
 import { summaryFor } from "./summary";
-import { attachFile, createTodo, createUpdate, toUpdateHtml } from "./monday-deliver";
+import { assignPerson, attachFile, createTodo, createUpdate, toUpdateHtml } from "./monday-deliver";
 import type { RunPayload, RunRow } from "./types";
 import { addDays, amsterdamNow, meetingDates } from "./util";
 
@@ -247,6 +247,7 @@ async function step(
         return { payload: p, done: false, note: `monday to-do ${m.item_id} created` };
       }
       if (!m.update_id) {
+        await assignPerson(m.item_id, opts.test ? MONDAY_DELIVERY.PERSON_TRISTAN : MONDAY_DELIVERY.PERSON_TYCHO);
         m.update_id = await createUpdate(m.item_id, toUpdateHtml(summaryFor(run)));
         return { payload: p, done: false, note: `summary posted on ${m.item_id}` };
       }
@@ -256,6 +257,12 @@ async function step(
         if (m.uploaded.includes(f.name)) continue;
         await attachFile(m.update_id, f.name, await downloadFile(f.path));
         m.uploaded.push(f.name);
+      }
+      // A test hand-over must leave the run at deliver. It used to move it to
+      // done, and on 30-09-2026 the real branded run then found nothing left
+      // to do and Tycho got nothing.
+      if (opts.test) {
+        return { payload: p, done: false, wait: true, note: `test: ${m.uploaded.length} file(s) on monday item ${m.item_id}; run stays at deliver for Tycho` };
       }
       p.delivered_at = new Date().toISOString();
       p.delivered_files = [...m.uploaded];
@@ -305,6 +312,7 @@ export async function advance(opts: AdvanceOptions): Promise<AdvanceResult> {
           const { payload, done, note, wait } = await step(run, opts);
           if (wait) {
             blocked.add(s); // nothing to do until the hour; not an error
+            runs.set(s, await saveRun(run, { payload, status: "running", error: null }));
             result.streams[s].steps.push(`${run.stage}: ${note}`);
             log(`${s}: ${run.stage}: ${note}`);
             continue;
