@@ -8,9 +8,10 @@
  *
  * The waterfall math (deliberately verbatim in code so it's provable):
  *   • 16 pins per URL = 4 designs × 4 crops (copy variants A/B/C/D)
- *     Uitzondering sinds 22-09-2026: D4 (de CLICK-pin) mag een mp4 zijn. Een
- *     video wordt niet geknipt — sharp doet geen video — dus dragen die vier
- *     pins hetzelfde bestand op vier boards. De methode zegt over video niets;
+ *     Uitzondering: een design mag een mp4 zijn — sinds 22-09-2026 alleen D4,
+ *     sinds 01-10-2026 elk van de vier. Een video wordt niet geknipt — sharp
+ *     doet geen video — dus dragen de vier pins van dat design hetzelfde
+ *     bestand op vier boards. De methode zegt over video niets;
  *     dit is een bewuste uitbreiding, zie video.ts en migratie 103.
  *   • Sequence 1..16 is interleaved by design:
  *       s=1 → D1/A, s=2 → D2/A, s=3 → D3/A, s=4 → D4/A,
@@ -3909,7 +3910,7 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
   }
   // Een video-design heeft altijd een posterframe, dus de check hierboven laat
   // hem door terwijl de mp4 ontbreekt. Apart gemeld, want de handeling is een
-  // andere: niet "maak een design", maar "upload de video op D4".
+  // andere: niet "maak een design", maar "upload de video op dat design".
   const videoWithoutFile = pins.rows.filter((p) => p.media_type === "VIDEO" && !p.video_path);
   if (videoWithoutFile.length > 0) {
     const numbers = [...new Set(videoWithoutFile.map((p) => `D${p.design_number}`))].join(", ");
@@ -4393,7 +4394,7 @@ export async function saveDesignImage(
 }
 
 /* ------------------------------------------------------------------ */
-/* P4.2.4 — video op de CLICK-pin                                      */
+/* P4.2.4 — video op een design                                        */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -4437,13 +4438,10 @@ export async function signDesignVideoUpload(
   if (meta.rowCount === 0) throw new Error("Design not found for this org");
   const { design_number, intent, primary_keyword } = meta.rows[0];
 
-  // Alleen de CLICK-pin. D1-D3 houden hun micro-crops, en dat is de afspraak
-  // waar de hele freshness-ladder van de methode op staat — zie video.ts.
+  // Elk design mag video zijn sinds 01-10-2026; de check blijft staan zodat
+  // de regel één thuis heeft (video.ts) als hij ooit weer smaller wordt.
   if (!canBeVideo(intent)) {
-    throw new Error(
-      `D${design_number} is a ${intent} design. Only the CLICK pin takes video, so that ` +
-      `D1-D3 keep the micro-crops the method is built on — upload an image here.`
-    );
+    throw new Error(`D${design_number} is a ${intent} design and does not take video — upload an image here.`);
   }
 
   const verdict = checkVideoFile({
@@ -4510,7 +4508,7 @@ export async function saveDesignVideo(
   if (meta.rowCount === 0) throw new Error("Design not found for this org");
   const { design_number, intent } = meta.rows[0];
   if (!canBeVideo(intent)) {
-    throw new Error(`D${design_number} is a ${intent} design — only the CLICK pin takes video.`);
+    throw new Error(`D${design_number} is a ${intent} design and does not take video.`);
   }
 
   const dir = `organic/${orgId}/${designId}`;
@@ -4588,13 +4586,14 @@ export async function saveDesignVideo(
     const st = await cycleWorkState(orgId, urlId);
     await recordCycleWork(orgId, urlId, "P4.2.4",
       st.designs > 0 && st.withImage >= st.designs && st.videoDesignsWithFile >= st.videoDesigns,
-      `${st.withImage} of ${st.designs} designs have an image; D${design_number} is video.`);
+      `${st.withImage} of ${st.designs} designs have an image; ` +
+      `${st.videoDesigns} ${st.videoDesigns === 1 ? "is" : "are"} video.`);
   }
 
   const warnings = [
     `The four pins of D${design_number} carry this same video on four boards, with the same ` +
     `title and description — a video cannot be micro-cropped, so that difference is gone.`,
-    "Run P4.2.5 again so the video reaches the sixteen pins.",
+    "Run P4.2.5 again so the video reaches its four pins.",
   ];
   return { ok: true, asset_path: posterUrl, video_path: videoUrl, filename: videoName, warnings };
 }
@@ -4673,11 +4672,10 @@ export async function loadCycleFormats(orgId: string, urlId: string): Promise<Cy
   ]);
 
   const grid = gridRes.rows[0] ?? null;
-  const videoDesign = designsRes.rows.find((d) => d.media_type === "VIDEO");
   const mix = proposeFormatMix({
     gridFormats: formatsFromGrid(grid),
     gridKeyword: grid?.target_keyword ?? null,
-    videoDesignNumber: videoDesign?.design_number ?? null,
+    videoDesignNumbers: designsRes.rows.filter((d) => d.media_type === "VIDEO").map((d) => d.design_number),
   });
 
   const designs = designsRes.rows.map((d) => ({

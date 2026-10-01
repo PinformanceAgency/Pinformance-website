@@ -847,11 +847,10 @@ function DesignsPanel({
                     if (f) void upload(d.design_id, f);
                   }} />
               </label>
-              {/* Alleen op de CLICK-pin. D1-D3 houden hun micro-crops, en dat is
-                  waar de freshness-ladder van de methode op staat — een video
-                  kan niet geknipt worden, dus vier video-designs zouden zestien
-                  pins met vier bestanden opleveren in plaats van zestien
-                  verschillende. Zie video.ts. */}
+              {/* Elk design mag video zijn (01-10-2026). Een video kan niet
+                  geknipt worden, dus de vier pins van dat design dragen
+                  hetzelfde bestand — dat staat hieronder en in het
+                  readiness-paneel. Zie video.ts. */}
               {canBeVideo(d.intent) && (
                 <label className={cn(
                   "shrink-0 text-[11px] px-2.5 py-1.5 rounded-md cursor-pointer font-semibold border border-o-hairline hover:bg-o-sunk",
@@ -879,7 +878,7 @@ function DesignsPanel({
           <span className="text-[11px] text-muted-foreground">
             {missing === 0
               ? (rows.some((r) => r.media_type === "VIDEO")
-                  ? "All four are in — run P4.2.5 next: crops for the images, the file itself for the video."
+                  ? "All four are in — run P4.2.5 next: crops for the images, the file itself for each video."
                   : "All four have an image — cut the micro-crops next (P4.2.5).")
               : `${missing} of ${rows.length} still without their file.`}
           </span>
@@ -896,10 +895,11 @@ function DesignsPanel({
         it strips the C2PA metadata Pinterest reads to auto-flag AI content.
       </p>
       <p className="text-[11px] text-muted-foreground">
-        The CLICK pin also takes an <strong>mp4</strong> (up to {MAX_VIDEO_BYTES / 1048576} MB, 4s to
-        15 minutes, portrait). The cover frame is taken from the video itself and becomes the
-        thumbnail everywhere in here. A video cannot be micro-cropped, so its four pins carry the
-        same file on four boards — which is why only the CLICK design offers it.
+        Any design can be an <strong>mp4</strong> instead (up to {MAX_VIDEO_BYTES / 1048576} MB, 4s to
+        15 minutes, portrait) — all four, if the product says more moving than standing still. The
+        cover frame is taken from the video itself and becomes the thumbnail everywhere in here. A
+        video cannot be micro-cropped, so the four pins of a video design carry the same file on
+        four boards.
       </p>
       {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
       {note && <p className="text-xs text-emerald-700">{note}</p>}

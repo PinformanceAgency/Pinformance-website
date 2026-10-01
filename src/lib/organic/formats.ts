@@ -50,7 +50,7 @@ export const FORMAT_HINT: Record<CreativeFormat, string> = {
   INFOGRAPHIC: "numbers, steps or a comparison, drawn",
   LIFESTYLE: "the product in use, in a scene",
   TEXT_OVERLAY: "a photo with a headline over it, and a CTA",
-  VIDEO: "an mp4 — only on the CLICK pin",
+  VIDEO: "an mp4 — any of the four designs can be one",
   FLATLAY: "shot from above, arranged",
   COLLAGE: "several images in one frame",
   OTHER: "none of these",
@@ -116,8 +116,11 @@ export interface FormatMix {
  *     en de CTA horen bij de CLICK-pin. Een grid dat vol tekst staat verandert
  *     dus wél hoe de CLICK-pin wordt getekend, maar maakt geen overlay van een
  *     save-pin. Dat is de fout die `splitFromGrid` ook niet maakt.
- *   - **D4 is de CLICK-pin**, dus TEXT_OVERLAY — of VIDEO, als daar een mp4 op
- *     staat, want dat is de enige plek waar video mag.
+ *   - **D4 is de CLICK-pin**, dus TEXT_OVERLAY.
+ *   - **Een design dat al een mp4 draagt is VIDEO**, welke intent het ook
+ *     heeft. Sinds 01-10-2026 mag elk design video zijn (zie video.ts); het
+ *     voorstel beschrijft dan wat er staat in plaats van er iets anders van te
+ *     willen maken.
  *
  * Wat het grid wél doet is de drie save-pins kiezen: uit de formats die pagina
  * één voor dit keyword belóónt, in die volgorde, aangevuld met lifestyle.
@@ -128,14 +131,14 @@ export interface FormatMix {
 export function proposeFormatMix(input: {
   gridFormats: CreativeFormat[];
   gridKeyword: string | null;
-  /** Het designnummer dat al een video draagt, als er een is. */
-  videoDesignNumber: number | null;
+  /** De designnummers die al een video dragen. */
+  videoDesignNumbers: number[];
 }): FormatMix {
-  const { gridFormats, gridKeyword, videoDesignNumber } = input;
+  const { gridFormats, gridKeyword, videoDesignNumbers } = input;
   const isFallback = gridFormats.length === 0;
 
   // Voor de save-pins: wat het grid beloont, zonder de overlay (die hoort bij
-  // de click-pin) en zonder video (alleen D4).
+  // de click-pin) en zonder video (die volgt uit een geüpload bestand, niet uit een voorstel).
   const saveCandidates: CreativeFormat[] = gridFormats.filter(
     (f) => f !== "TEXT_OVERLAY" && f !== "VIDEO"
   );
@@ -167,26 +170,26 @@ export function proposeFormatMix(input: {
         : `to keep the four distinct; the grid did not ask for it`,
   }));
 
-  suggestions.push(
-    videoDesignNumber === 4
-      ? {
-          design_number: 4,
-          intent: "CLICK",
-          format: "VIDEO",
-          reason: "an mp4 is on this design, and the CLICK pin is the only one that takes video",
-        }
-      : {
-          design_number: 4,
-          intent: "CLICK",
-          format: "TEXT_OVERLAY",
-          reason:
-            "the CLICK pin carries the overlay and the CTA — 9:16, and the only design where text " +
-            "belongs over the image",
-        }
+  suggestions.push({
+    design_number: 4,
+    intent: "CLICK",
+    format: "TEXT_OVERLAY",
+    reason:
+      "the CLICK pin carries the overlay and the CTA — 9:16, and the only design where text " +
+      "belongs over the image",
+  });
+
+  // Een mp4 die er al op staat wint van elk voorstel: het format beschrijft
+  // dan het bestand, en een voorstel dat er iets anders van wil maken zou
+  // vragen om werk dat niemand van plan is.
+  const withVideo = suggestions.map((s) =>
+    videoDesignNumbers.includes(s.design_number)
+      ? { ...s, format: "VIDEO" as CreativeFormat, reason: "an mp4 is on this design" }
+      : s
   );
 
   return {
-    suggestions,
+    suggestions: withVideo,
     basis: isFallback
       ? "the method's own split — no grid reading for this URL's primary keyword yet (P2.1.3)"
       : `the grid reading for "${gridKeyword}": ${gridFormats.map((f) => FORMAT_LABEL[f].toLowerCase()).join(", ")}`,

@@ -27,17 +27,21 @@
  *     requirements for a video pin. Duration is refused (Pinterest rejects
  *     the pin outright); the aspect ratio is a warning as well as a refusal
  *     outside those bounds, because 2:3 and 9:16 are what the method asks for
- *     and 4:5 is legal but wrong for a CLICK pin.
+ *     and 4:5 is legal but renders smaller in the feed.
  */
 
-/** Only the CLICK design carries video — D4 in a four-design waterfall.
+/** Every design may carry video — SAVE and CLICK alike.
  *
- *  Decided 22-09-2026 (Tristan): D1-D3 stay images with their micro-crops, so
- *  the freshness ladder the method is built on stays intact and one cycle
- *  takes one video with it. The check is on the INTENT, not on the number:
- *  "design 4" is a position in a rotation, "the CLICK pin" is what it is for. */
-export function canBeVideo(intent: string): boolean {
-  return intent === "CLICK";
+ *  Until 01-10-2026 only the CLICK design (D4) could, so one cycle took one
+ *  video and D1-D3 kept their micro-crops. Widened by Tristan: for plenty of
+ *  brands the product is dull on its own and a single product photo does
+ *  nothing, so a waterfall of four videos is the better plan there. The cost
+ *  is stated on screen rather than hidden: a video cannot be micro-cropped,
+ *  so the four pins of a video design carry the same file on four boards.
+ *  Kept as a function (and on the intent) so the rule has one home if it is
+ *  ever narrowed again. */
+export function canBeVideo(_intent: string): boolean {
+  return true;
 }
 
 export const VIDEO_MIME_TYPES = [
@@ -135,7 +139,7 @@ export function checkVideoFile(f: VideoFacts): VideoVerdict {
       );
     } else if (ratio > 1) {
       warnings.push(
-        `${f.width}×${f.height} is landscape. A CLICK pin should be portrait (9:16 or 2:3); ` +
+        `${f.width}×${f.height} is landscape. A pin should be portrait (2:3 or 9:16); ` +
         `landscape renders small in the feed.`
       );
     }
