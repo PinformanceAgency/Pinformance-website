@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * Store Ranking — the delivery meeting on the dashboard. Same periods, same
- * rules and the same ON TRACK / OFF TRACK pills as the weekly deck; see
- * lib/media-buying/store-ranking.ts for the rules themselves.
+ * Store Ranking — the delivery meeting on the dashboard. Same rules and the
+ * same ON TRACK / OFF TRACK pills as the weekly deck, over the last seven
+ * days ending the day before yesterday (the deck keeps its Mon–Sun week);
+ * see lib/media-buying/store-ranking.ts for the rules themselves.
  */
 import { mediaBuyerOptions } from "@/lib/media-buying/config";
 import type {
@@ -23,14 +24,6 @@ interface ApiResponse {
 const DAY = 24 * 3600 * 1000;
 const addDays = (iso: string, n: number) =>
   new Date(new Date(iso + "T00:00:00Z").getTime() + n * DAY).toISOString().slice(0, 10);
-
-function isoWeek(iso: string): number {
-  // Thursday of this week decides which year the week belongs to.
-  const d = new Date(iso + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7));
-  const yearStart = Date.UTC(d.getUTCFullYear(), 0, 1);
-  return Math.ceil(((d.getTime() - yearStart) / DAY + 1) / 7);
-}
 
 const yesterdayIso = () => addDays(new Date().toISOString().slice(0, 10), -1);
 
@@ -97,8 +90,9 @@ function worstFirst(a: StoreRankingRow, b: StoreRankingRow): number {
 }
 
 export default function StoreRankingPage() {
-  const [week, setWeek] = useState<string | null>(null);
-  const [mode, setMode] = useState<"week" | "range">("week");
+  /** Last day of the seven shown; null = the latest (the day before yesterday). */
+  const [end, setEnd] = useState<string | null>(null);
+  const [mode, setMode] = useState<"last7" | "range">("last7");
   const [range, setRange] = useState(defaultRange);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -118,7 +112,7 @@ export default function StoreRankingPage() {
       return;
     }
     const qs =
-      mode === "range" ? `?from=${range.from}&to=${range.to}` : week ? `?week=${week}` : "";
+      mode === "range" ? `?from=${range.from}&to=${range.to}` : end ? `?end=${end}` : "";
     fetch(`/api/media-buying/store-ranking${qs}`, { signal: abort.signal })
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e.error))))
       .then((d) => setData(d as ApiResponse))
@@ -128,7 +122,7 @@ export default function StoreRankingPage() {
       })
       .finally(() => setLoading(false));
     return () => abort.abort();
-  }, [week, mode, range]);
+  }, [end, mode, range]);
 
   const buyers = useMemo(
     () => mediaBuyerOptions(data?.stores.map((s) => s.media_buyer) ?? []),
@@ -183,24 +177,25 @@ export default function StoreRankingPage() {
               {fmtDay(p.month_start)} – {fmtDay(p.month_end)} (today and yesterday are left out)
             </p>
           )}
-          {p && p.mode === "week" && (
+          {p && p.mode !== "range" && (
             <p className="mt-1 text-sm text-muted-foreground">
-              Week {isoWeek(p.week_start)} ({fmtDay(p.week_start)} – {fmtDay(p.week_end)}) vs week{" "}
-              {isoWeek(p.prev_week_start)} · month to date {fmtDay(p.month_start)} – {fmtDay(p.month_end)}
+              Last 7 days {fmtDay(p.week_start)} – {fmtDay(p.week_end)} vs {fmtDay(p.prev_week_start)} –{" "}
+              {fmtDay(p.prev_week_end)} · month to date {fmtDay(p.month_start)} – {fmtDay(p.month_end)} vs{" "}
+              {fmtDay(p.prev_month_start)} – {fmtDay(p.prev_month_end)}
               {p.latest && " (today and yesterday are left out: their numbers are still coming in)"}
             </p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <div className="inline-flex rounded-md border border-border bg-background overflow-hidden">
-            {(["week", "range"] as const).map((m) => (
+            {(["last7", "range"] as const).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setMode(m)}
                 className={cn("px-2.5 py-1.5 font-medium", mode === m ? "bg-foreground text-background" : "hover:bg-muted/40")}
               >
-                {m === "week" ? "Week + month" : "Custom range"}
+                {m === "last7" ? "Last 7 days + month" : "Custom range"}
               </button>
             ))}
           </div>
@@ -226,23 +221,25 @@ export default function StoreRankingPage() {
               />
             </div>
           )}
-          {mode === "week" && (
+          {mode === "last7" && (
           <div className="inline-flex items-center rounded-md border border-border bg-background">
             <button
               type="button"
-              onClick={() => p && setWeek(addDays(p.week_start, -7))}
+              onClick={() => p && setEnd(addDays(p.week_end, -7))}
               className="px-2 py-1.5 hover:bg-muted/40"
-              aria-label="Previous week"
+              aria-label="Seven days earlier"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2 font-medium tabular-nums">{p ? `Week ${isoWeek(p.week_start)}` : "…"}</span>
+            <span className="px-2 font-medium tabular-nums">
+              {p ? `${fmtDay(p.week_start)} – ${fmtDay(p.week_end)}` : "…"}
+            </span>
             <button
               type="button"
-              onClick={() => p && setWeek(p.latest ? null : addDays(p.week_start, 7))}
+              onClick={() => p && setEnd(p.latest ? null : addDays(p.week_end, 7))}
               disabled={!p || p.latest}
               className="px-2 py-1.5 hover:bg-muted/40 disabled:opacity-30"
-              aria-label="Next week"
+              aria-label="Seven days later"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
@@ -303,10 +300,10 @@ export default function StoreRankingPage() {
               label={
                 isRange
                   ? `${fmtDay(data.periods.week_start)} – ${fmtDay(data.periods.week_end)}`
-                  : `Week ${isoWeek(data.periods.week_start)}`
+                  : "Last 7 days"
               }
               value={`${weekOnTrack} / ${filtered.length}`}
-              caption={isRange ? "stores on track in this range" : "stores on track this week"}
+              caption={isRange ? "stores on track in this range" : "stores on track in the last 7 days"}
             />
           </div>
           {order === "worst" ? (
@@ -326,7 +323,9 @@ export default function StoreRankingPage() {
             </p>
           )}
           <p className="text-[11px] text-muted-foreground">
-            Week on track = ROAS ≥ invoice ROAS and revenue ≥ the weekly floor (€5,000; spend accounts
+            Last 7 days = the seven days ending the day before yesterday, against the seven before; the
+            month is compared with the same days of the month before. Last 7 days on track = ROAS ≥ invoice
+            ROAS and revenue ≥ the weekly floor (€5,000; spend accounts
             €1,726 spend), converted at the latest ECB rate. Month on track = ROAS MTD ≥ invoice ROAS and
             revenue MTD ≥ that floor × days / 7. The week&apos;s target is the floor: the target a buyer
             agreed in the Weekly Store Log is not in the dashboard, and below the floor is off track either way.
@@ -368,7 +367,7 @@ function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRan
             <tr className="text-[11px] uppercase tracking-wide">
               <th colSpan={2} />
               <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">
-                {range ? "Range" : "Week"}
+                {range ? "Range" : "Last 7 days"}
               </th>
               <th className="w-px bg-border" />
               <th colSpan={2} className="py-1.5 font-semibold border-t-2 border-red-600 bg-muted/40">Month</th>
@@ -377,7 +376,7 @@ function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRan
               <th className="py-2 pl-4 pr-2 font-medium">Store</th>
               <th className="py-2 px-2 font-medium">Buyer</th>
               <th className="py-2 px-2 font-medium normal-case">
-                <span className="uppercase">ROAS</span> {range ? "before" : "last"} → this (target = invoice)
+                <span className="uppercase">ROAS</span> {range ? "before" : "prev 7"} → {range ? "this" : "last 7"} (target = invoice)
               </th>
               <th className="py-2 px-2 font-medium normal-case">
                 <span className="uppercase">Revenue</span> actual / target
@@ -408,6 +407,7 @@ function Section({ kind, stores, range }: { kind: "on" | "off"; stores: StoreRan
 function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
   const cur = s.currency;
   const prevVolume = s.spend_account ? s.prev_week.spend : s.prev_week.revenue;
+  const prevMonthVolume = s.spend_account ? s.prev_month.spend : s.prev_month.revenue;
   return (
     <tr className="border-b border-border/40 last:border-b-0 even:bg-muted/20">
       <td className={cn("py-2.5 pl-4 pr-2 border-l-4", on ? "border-l-emerald-600" : "border-l-red-600")}>
@@ -441,6 +441,7 @@ function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
           <span className="tabular-nums">
             <span className="font-semibold">{fmtRoas(s.month.roas)}</span>
             <span className="text-xs text-muted-foreground"> / {fmtRoas(s.roas_target)}</span>
+            <Delta now={s.month.roas} before={s.prev_month.roas} />
           </span>
         </Cell>
       </td>
@@ -449,6 +450,7 @@ function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
           <span className="tabular-nums" title={`Target so far: ${fmtMoney(s.month.volume_target, cur)}`}>
             <span className="font-semibold">{fmtMoney(s.month.volume, cur)}</span>
             {s.spend_account && <span className="text-xs text-muted-foreground"> spend</span>}
+            <Delta now={s.month.volume} before={prevMonthVolume} />
           </span>
         </Cell>
       </td>
@@ -456,24 +458,18 @@ function Row({ s, on }: { s: StoreRankingRow; on: boolean }) {
   );
 }
 
-/** Change against the period before, in percent. Nothing when there is no
- *  "before" to compare with: +∞% against a week without revenue says nothing. */
+/** Change against the period before, in percent: the last 7 days against
+ *  the 7 before, month to date against the same days of the month before.
+ *  Plain coloured text in exactly the pill colours, no box and no arrow — the
+ *  sign already says which way (Tristan, 01-10-2026). Nothing when there is
+ *  no "before": +∞% against a period without revenue says nothing. */
 function Delta({ now, before }: { now: number | null; before: number | null }) {
   if (now == null || before == null || before <= 0) return null;
-  const pct = ((now - before) / before) * 100;
-  const shown = Math.round(pct);
-  const tone =
-    shown > 0
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
-      : shown < 0
-      ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
-      : "bg-muted text-muted-foreground";
+  const shown = Math.round(((now - before) / before) * 100);
+  const tone = shown > 0 ? "text-emerald-600" : shown < 0 ? "text-red-600" : "text-muted-foreground";
   return (
-    <span
-      className={cn("ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums", tone)}
-      title="Change against the period before"
-    >
-      {shown > 0 ? "▲ +" : shown < 0 ? "▼ " : ""}
+    <span className={cn("ml-1.5 text-[11px] font-semibold tabular-nums", tone)} title="Change against the period before">
+      {shown > 0 ? "+" : ""}
       {shown.toLocaleString("en-US")}%
     </span>
   );

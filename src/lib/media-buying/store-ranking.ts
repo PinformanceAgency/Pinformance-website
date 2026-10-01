@@ -27,6 +27,18 @@
  * to date stays beside it, unchanged: it is always wanted (Tristan,
  * 28-09-2026), and it still decides On track / Off track.
  *
+ * LAST 7 DAYS (storeRankingLast7Periods) — what the PAGE shows since
+ * 01-10-2026 (Tristan): the seven days ending the day BEFORE yesterday, for
+ * the same reason the month ends there — yesterday is still coming in. On a
+ * Monday that is Sunday through Saturday. Judged like the week, against the
+ * seven days before it. The delivery deck keeps the Mon–Sun week
+ * (storeRankingPeriods): it reports a calendar week, and changing what the
+ * deck shows needs its own decision.
+ *
+ * MONTH VS THE MONTH BEFORE: every mode also carries `prev_month_*`, the same
+ * days of the previous month (1st up to the same day number, capped at that
+ * month's length), so month to date has a like-for-like change next to it.
+ *
  * What the deck has and this does not: the target the buyer agreed for the
  * week (it lives in the Weekly Store Log on Monday, not here), so the week's
  * volume is shown against the floor. The deck never lets a lower agreed
@@ -58,6 +70,8 @@ export interface StoreRankingRow {
   /** The ROAS every pill is measured against — the invoice ROAS. */
   roas_target: number | null;
   prev_week: PeriodFigures;
+  /** The same days of the month before — what month to date is compared to. */
+  prev_month: PeriodFigures;
   week: PeriodFigures & {
     /** Revenue, or spend for a spend account. */
     volume: number;
@@ -78,7 +92,7 @@ export interface StoreRankingRow {
 export interface StoreRankingPeriods {
   /** "week": a Mon–Sun week plus month to date. "range": a chosen period in
    *  the week_* fields, with the same month to date beside it. */
-  mode: "week" | "range";
+  mode: "week" | "range" | "last7";
   /** Monday and Sunday of the week being reported. */
   week_start: string;
   week_end: string;
@@ -89,6 +103,9 @@ export interface StoreRankingPeriods {
   month_start: string;
   month_end: string;
   month_days: number;
+  /** The same days of the previous month: 1st up to month_days, capped. */
+  prev_month_start: string;
+  prev_month_end: string;
   /** True when this is the most recent full week (the default view). */
   latest: boolean;
 }
@@ -97,6 +114,22 @@ const DAY = 24 * 3600 * 1000;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (isoDate: string, n: number) =>
   iso(new Date(new Date(isoDate + "T00:00:00Z").getTime() + n * DAY));
+
+/** Month to date ending `monthEnd`, and the same days of the month before. */
+function monthPeriods(monthEnd: string) {
+  const monthStart = monthEnd.slice(0, 8) + "01";
+  const monthDays = Number(monthEnd.slice(8, 10));
+  const prevStart = addDays(monthStart, -1).slice(0, 8) + "01";
+  const prevLast = addDays(monthStart, -1);
+  const prevEnd = addDays(prevStart, monthDays - 1);
+  return {
+    month_start: monthStart,
+    month_end: monthEnd,
+    month_days: monthDays,
+    prev_month_start: prevStart,
+    prev_month_end: prevEnd > prevLast ? prevLast : prevEnd,
+  };
+}
 
 /**
  * The periods for a report. `weekStart` picks an older week (any date in it);
@@ -126,7 +159,6 @@ export function storeRankingPeriods(
   const latest = start === latestStart;
   const end = addDays(start, 6);
   const monthEnd = latest ? addDays(today, -2) : end;
-  const monthStart = monthEnd.slice(0, 8) + "01";
   return {
     mode: "week",
     week_start: start,
@@ -134,10 +166,36 @@ export function storeRankingPeriods(
     week_days: 7,
     prev_week_start: addDays(start, -7),
     prev_week_end: addDays(start, -1),
-    month_start: monthStart,
-    month_end: monthEnd,
-    month_days: Number(monthEnd.slice(8, 10)),
+    ...monthPeriods(monthEnd),
     latest,
+  };
+}
+
+/**
+ * The last seven days, leaving out today and yesterday: on a Monday, Sunday
+ * through Saturday. `end` picks an older seven days (the last day of them);
+ * it is capped at the day before yesterday. The month runs to the same day,
+ * so the two blocks on the page always describe the same moment.
+ */
+export function storeRankingLast7Periods(
+  end?: string | null,
+  now: Date = new Date(),
+): StoreRankingPeriods {
+  const latestEnd = addDays(iso(now), -2);
+  let last = latestEnd;
+  if (end && /^\d{4}-\d{2}-\d{2}$/.test(end) && !isNaN(Date.parse(end + "T00:00:00Z")) && end < latestEnd) {
+    last = end;
+  }
+  const start = addDays(last, -6);
+  return {
+    mode: "last7",
+    week_start: start,
+    week_end: last,
+    week_days: 7,
+    prev_week_start: addDays(start, -7),
+    prev_week_end: addDays(start, -1),
+    ...monthPeriods(last),
+    latest: last === latestEnd,
   };
 }
 
@@ -163,7 +221,7 @@ export function storeRankingRangePeriods(
   if (days > MAX_RANGE_DAYS) throw new Error(`A range can be at most ${MAX_RANGE_DAYS} days`);
   // Month to date is the same as in the week view: the current month up to
   // the day before yesterday, whatever range is chosen.
-  const { month_start, month_end, month_days } = storeRankingPeriods(null, now);
+  const month = monthPeriods(storeRankingPeriods(null, now).month_end);
   return {
     mode: "range",
     week_start: from,
@@ -171,9 +229,7 @@ export function storeRankingRangePeriods(
     week_days: days,
     prev_week_start: addDays(from, -days),
     prev_week_end: addDays(from, -1),
-    month_start,
-    month_end,
-    month_days,
+    ...month,
     latest: false,
   };
 }
@@ -222,7 +278,7 @@ export async function computeStoreRanking(
   const fxRates = await loadFxRates(supabase);
 
   // One read covering all three periods.
-  const from = [periods.prev_week_start, periods.month_start].sort()[0];
+  const from = [periods.prev_week_start, periods.prev_month_start].sort()[0];
   const to = [periods.week_end, periods.month_end].sort()[1];
   const PAGE = 1000;
   const rows: MetricRow[] = [];
@@ -253,13 +309,13 @@ export async function computeStoreRanking(
   const zero = (): Acc => ({ spend: 0, revenue: 0 });
   const perOrg = new Map<
     string,
-    { prev: Acc; week: Acc; month: Acc; currency: string | null }
+    { prev: Acc; week: Acc; month: Acc; prevMonth: Acc; currency: string | null }
   >();
   const inRange = (d: string, a: string, b: string) => d >= a && d <= b;
   for (const r of rows) {
     const acc =
       perOrg.get(r.org_id) ??
-      { prev: zero(), week: zero(), month: zero(), currency: null };
+      { prev: zero(), week: zero(), month: zero(), prevMonth: zero(), currency: null };
     const add = (t: Acc) => {
       t.spend += n(r.spend);
       t.revenue += n(r.revenue);
@@ -268,6 +324,7 @@ export async function computeStoreRanking(
     if (inRange(d, periods.prev_week_start, periods.prev_week_end)) add(acc.prev);
     if (inRange(d, periods.week_start, periods.week_end)) add(acc.week);
     if (inRange(d, periods.month_start, periods.month_end)) add(acc.month);
+    if (inRange(d, periods.prev_month_start, periods.prev_month_end)) add(acc.prevMonth);
     if (r.currency && !acc.currency) acc.currency = r.currency;
     perOrg.set(r.org_id, acc);
   }
@@ -280,7 +337,7 @@ export async function computeStoreRanking(
     if (!configured || !isActive || !o.pinterest_user_id) continue;
 
     const tot = perOrg.get(o.id as string) ??
-      { prev: zero(), week: zero(), month: zero(), currency: null };
+      { prev: zero(), week: zero(), month: zero(), prevMonth: zero(), currency: null };
     const currency =
       tot.currency ?? (s as { currency?: string } | undefined)?.currency ?? null;
     const invoicingModel: InvoicingModel =
@@ -321,6 +378,7 @@ export async function computeStoreRanking(
       spend_account: spendAccount,
       roas_target: target,
       prev_week: figures(tot.prev.spend, tot.prev.revenue),
+      prev_month: figures(tot.prevMonth.spend, tot.prevMonth.revenue),
       week: judge(tot.week, weekGate.floor),
       month: judge(tot.month, monthGate.floor),
     });
