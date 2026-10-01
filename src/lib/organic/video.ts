@@ -44,6 +44,13 @@ export function canBeVideo(_intent: string): boolean {
   return true;
 }
 
+/** De vier versies van een video-design, één per pin — de video-tegenhanger
+ *  van de micro-crops A-D. A staat op het design zelf, B/C/D in
+ *  organic.design_video_variants (migratie 116); een ontbrekende versie valt
+ *  terug op A. */
+export const VIDEO_VARIANTS = ["A", "B", "C", "D"] as const;
+export type VideoVariant = (typeof VIDEO_VARIANTS)[number];
+
 export const VIDEO_MIME_TYPES = [
   "video/mp4",
   "video/quicktime",
@@ -164,7 +171,10 @@ export function videoExtension(f: { type?: string | null; name?: string | null }
  * file name out of the URL — so a video keeps carrying its primary keyword
  * rather than arriving as "IMG_4821.mp4".
  */
-export function videoFileNameFor(primaryKeyword: string, designNumber: number, ext: string): string {
+export function videoFileNameFor(
+  primaryKeyword: string, designNumber: number, ext: string, variant: VideoVariant = "A"
+): string {
   const slug = primaryKeyword.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return `${slug || "pin"}-d${designNumber}.${ext}`;
+  const suffix = variant === "A" ? "" : `-${variant.toLowerCase()}`;
+  return `${slug || "pin"}-d${designNumber}${suffix}.${ext}`;
 }

@@ -1,7 +1,7 @@
 /**
  * POST /api/organic/phase4/<orgId>/design-video
  *
- * De mp4 voor de CLICK-pin, in twee stappen — en de twee stappen zijn de hele
+ * De mp4 voor een design (versie A, of B/C/D — migratie 116), in twee stappen — en de twee stappen zijn de hele
  * reden dat deze route bestaat naast `design-image`.
  *
  * Een videobestand is 5 tot 120 MB en Vercel kapt de body van een serverless
@@ -23,7 +23,8 @@
  * schrijven. Een signed upload URL is één pad, twee uur, en verder niets.
  */
 import { NextResponse } from "next/server";
-import { saveDesignVideo, signDesignVideoUpload } from "@/lib/organic/phase4";
+import { removeDesignVideoVariant, saveDesignVideo, signDesignVideoUpload } from "@/lib/organic/phase4";
+import type { VideoVariant } from "@/lib/organic/video";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,7 @@ export async function POST(
     const body = (await req.json()) as Record<string, unknown>;
     const designId = String(body.design_id ?? "");
     if (!designId) return NextResponse.json({ error: "design_id is required" }, { status: 400 });
+    const variant = String(body.variant ?? "A").toUpperCase() as VideoVariant;
 
     if (body.step === "sign") {
       const r = await signDesignVideoUpload(orgId, designId, {
@@ -45,7 +47,7 @@ export async function POST(
         duration: body.duration == null ? null : Number(body.duration),
         width: body.width == null ? null : Number(body.width),
         height: body.height == null ? null : Number(body.height),
-      });
+      }, variant);
       return NextResponse.json({ ok: true, ...r });
     }
 
@@ -56,8 +58,12 @@ export async function POST(
         duration_s: body.duration == null ? null : Number(body.duration),
         width: body.width == null ? null : Number(body.width),
         height: body.height == null ? null : Number(body.height),
-      });
+      }, variant);
       return NextResponse.json(r);
+    }
+
+    if (body.step === "remove") {
+      return NextResponse.json(await removeDesignVideoVariant(orgId, designId, variant));
     }
 
     return NextResponse.json({ error: `Unknown step "${String(body.step)}"` }, { status: 400 });

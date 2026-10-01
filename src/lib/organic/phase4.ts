@@ -50,7 +50,7 @@ import type { UrlReadiness } from "./structure";
 import { generateWithValidator, persistDraft } from "./ai";
 import { imageAudienceDirective, languageDirective, languageSummary, writingLanguage, type WritingLanguage } from "./language";
 import {
-  MAX_VIDEO_BYTES, canBeVideo, checkVideoFile, videoExtension, videoFileNameFor,
+  MAX_VIDEO_BYTES, VIDEO_VARIANTS, type VideoVariant, canBeVideo, checkVideoFile, videoExtension, videoFileNameFor,
 } from "./video";
 import {
   CREATIVE_FORMATS, FORMAT_LABEL, checkDimensions, formatsFromGrid, proposeFormatMix,
@@ -1439,6 +1439,7 @@ export async function generateWaterfall(
     // waterfall still holds its own copy of everything.
     const carried = superseded
       ? await client.query<{
+          old_design_id: string;
           design_number: number; asset_path: string | null; filename: string | null;
           route: string; text_overlay_keyword: string | null;
           qc_status: string; qc_notes: string | null;
@@ -1446,7 +1447,7 @@ export async function generateWaterfall(
           video_duration_s: string | null; video_bytes: string | null;
           title: string | null; description: string | null; tagline: string | null;
         }>(
-          `SELECT d.design_number, d.asset_path, d.filename, d.route::text AS route,
+          `SELECT d.id::text AS old_design_id, d.design_number, d.asset_path, d.filename, d.route::text AS route,
                   d.text_overlay_keyword, d.qc_status::text AS qc_status, d.qc_notes,
                   d.media_type::text AS media_type, d.video_path,
                   d.video_duration_s::text AS video_duration_s,
@@ -1509,6 +1510,17 @@ export async function generateWaterfall(
          prevVideo?.video_bytes ?? null]
       );
       designIds.push(dr.rows[0].id);
+      // De versies B/C/D komen met de video mee, om dezelfde reden als de
+      // video zelf: regenereren gaat over datums en boards, niet over bestanden.
+      if (prevVideo) {
+        await client.query(
+          `INSERT INTO organic.design_video_variants
+             (design_id, variant, video_path, poster_path, filename, video_duration_s, video_bytes, width, height)
+           SELECT $1, variant, video_path, poster_path, filename, video_duration_s, video_bytes, width, height
+             FROM organic.design_video_variants WHERE design_id = $2`,
+          [dr.rows[0].id, prevVideo.old_design_id]
+        );
+      }
     }
 
     // 3. 4 copy_sets, one per design. All 4 crops of a design share this text.
@@ -3927,6 +3939,16 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
   const cache = new Map<string, Buffer>();
   let cropped = 0;
   let videoPins = 0;
+  const versionRows = await pool.query<{
+    design_id: string; variant: string; video_path: string; poster_path: string;
+  }>(
+    `SELECT v.design_id::text AS design_id, v.variant, v.video_path, v.poster_path
+       FROM organic.design_video_variants v
+       JOIN organic.designs d ON d.id = v.design_id
+      WHERE d.waterfall_id = $1 AND d.media_type = 'VIDEO'::organic.media_kind`,
+    [liveId]
+  );
+  const versions = new Map(versionRows.rows.map((v) => [`${v.design_id}:${v.variant}`, v]));
 
   for (const p of pins.rows) {
     // Een video wordt niet geknipt: sharp doet geen mp4, en ffmpeg op Vercel
@@ -3936,9 +3958,11 @@ export async function generateMicroCrops(orgId: string, urlId: string) {
     // posterframe gaat mee als image_path: dat is de thumbnail op elk scherm
     // en de cover die Pinterest zelf ophaalt.
     if (p.media_type === "VIDEO") {
+      // Versie B/C/D als die er is, anders versie A (migratie 116).
+      const v = versions.get(`${p.design_id}:${p.copy_variant}`);
       await pool.query(
         `UPDATE organic.pins SET image_path = $2, video_path = $3 WHERE id = $1`,
-        [p.pin_id, p.asset_path, p.video_path]
+        [p.pin_id, v?.poster_path ?? p.asset_path, v?.video_path ?? p.video_path]
       );
       videoPins += 1;
       continue;
@@ -4365,6 +4389,8 @@ export async function saveDesignImage(
         WHERE design_id = $1 AND status IN ('PLANNED','SCHEDULED','FAILED')`,
       [designId]
     );
+    // De versies B/C/D horen bij de video die er net af ging.
+    await pool.query(`DELETE FROM organic.design_video_variants WHERE design_id = $1`, [designId]);
   }
 
   // Putting the image in IS P4.2.4, whichever way it got here. The task stays
@@ -4416,7 +4442,8 @@ export async function saveDesignImage(
 export async function signDesignVideoUpload(
   orgId: string,
   designId: string,
-  file: { name: string; type: string; size: number; duration?: number | null; width?: number | null; height?: number | null }
+  file: { name: string; type: string; size: number; duration?: number | null; width?: number | null; height?: number | null },
+  variant: VideoVariant = "A"
 ): Promise<{
   video: { path: string; signed_url: string; public_url: string };
   poster: { path: string; signed_url: string; public_url: string };
@@ -4424,10 +4451,13 @@ export async function signDesignVideoUpload(
   warnings: string[];
 }> {
   const pool = organicPool();
+  if (!VIDEO_VARIANTS.includes(variant)) throw new Error(`Unknown video version "${variant}"`);
   const meta = await pool.query<{
     design_number: number; intent: string; primary_keyword: string | null;
+    media_type: string; video_path: string | null;
   }>(
-    `SELECT d.design_number, d.intent::text AS intent, k.term AS primary_keyword
+    `SELECT d.design_number, d.intent::text AS intent, k.term AS primary_keyword,
+            d.media_type::text AS media_type, d.video_path
        FROM organic.designs d
        JOIN organic.waterfalls w ON w.id = d.waterfall_id
        LEFT JOIN organic.url_keywords uk ON uk.url_id = w.url_id AND uk.is_primary
@@ -4443,6 +4473,12 @@ export async function signDesignVideoUpload(
   if (!canBeVideo(intent)) {
     throw new Error(`D${design_number} is a ${intent} design and does not take video — upload an image here.`);
   }
+  // B/C/D zijn versies VAN een video-design: zonder versie A is er geen
+  // video-design, en dan is er niets om op terug te vallen voor de pins
+  // waarvan de versie ontbreekt.
+  if (variant !== "A" && !(meta.rows[0].media_type === "VIDEO" && meta.rows[0].video_path)) {
+    throw new Error(`Upload the main video (version A) on D${design_number} first — B, C and D are versions of it.`);
+  }
 
   const verdict = checkVideoFile({
     name: file.name, type: file.type, size: file.size,
@@ -4451,7 +4487,7 @@ export async function signDesignVideoUpload(
   if (verdict.errors.length > 0) throw new Error(verdict.errors.join(" "));
 
   const ext = videoExtension(file);
-  const wanted = videoFileNameFor(primary_keyword ?? "", design_number, ext);
+  const wanted = videoFileNameFor(primary_keyword ?? "", design_number, ext, variant);
   const posterName = wanted.replace(new RegExp(`\\.${ext}$`), "-poster.jpg");
   const dir = `organic/${orgId}/${designId}`;
 
@@ -4495,11 +4531,16 @@ export async function saveDesignVideo(
     duration_s?: number | null;
     width?: number | null;
     height?: number | null;
-  }
+  },
+  variant: VideoVariant = "A"
 ): Promise<{ ok: true; asset_path: string; video_path: string; filename: string; warnings: string[] }> {
   const pool = organicPool();
-  const meta = await pool.query<{ design_number: number; intent: string }>(
-    `SELECT d.design_number, d.intent::text AS intent
+  if (!VIDEO_VARIANTS.includes(variant)) throw new Error(`Unknown video version "${variant}"`);
+  const meta = await pool.query<{
+    design_number: number; intent: string; media_type: string; video_path: string | null;
+  }>(
+    `SELECT d.design_number, d.intent::text AS intent,
+            d.media_type::text AS media_type, d.video_path
        FROM organic.designs d
        JOIN organic.waterfalls w ON w.id = d.waterfall_id
       WHERE d.id = $1 AND w.org_id = $2`,
@@ -4548,6 +4589,45 @@ export async function saveDesignVideo(
 
   const videoUrl = bucket.getPublicUrl(reg.video_path).data.publicUrl;
   const posterUrl = bucket.getPublicUrl(reg.poster_path).data.publicUrl;
+  const duration = reg.duration_s && reg.duration_s > 0 ? reg.duration_s : null;
+  const width = reg.width && reg.width > 0 ? reg.width : null;
+  const height = reg.height && reg.height > 0 ? reg.height : null;
+
+  if (variant !== "A") {
+    if (!(meta.rows[0].media_type === "VIDEO" && meta.rows[0].video_path)) {
+      throw new Error(`Upload the main video (version A) on D${design_number} first.`);
+    }
+    await pool.query(
+      `INSERT INTO organic.design_video_variants
+         (design_id, variant, video_path, poster_path, filename, video_duration_s, video_bytes, width, height)
+       VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::bigint, $8, $9)
+       ON CONFLICT (design_id, variant) DO UPDATE
+         SET video_path = EXCLUDED.video_path, poster_path = EXCLUDED.poster_path,
+             filename = EXCLUDED.filename, video_duration_s = EXCLUDED.video_duration_s,
+             video_bytes = EXCLUDED.video_bytes, width = EXCLUDED.width, height = EXCLUDED.height,
+             created_at = now()`,
+      [designId, variant, videoUrl, posterUrl, videoName, duration, bytes > 0 ? bytes : null, width, height]
+    );
+    // Een nieuwe versie is nog door niemand bekeken, en QC staat per design.
+    await pool.query(
+      `UPDATE organic.designs SET qc_status = 'PENDING'::organic.qc_status, qc_notes = NULL WHERE id = $1`,
+      [designId]
+    );
+    // De pin van deze versie krijgt hem meteen: het is precies één pin, en
+    // hem eerst leegmaken om P4.2.5 te laten doen wat hier al vaststaat, is
+    // een extra klik zonder beslissing erin. Gepubliceerde pins blijven staan.
+    await pool.query(
+      `UPDATE organic.pins SET image_path = $3, video_path = $4
+        WHERE design_id = $1 AND copy_variant = $2
+          AND status IN ('PLANNED','SCHEDULED','FAILED')`,
+      [designId, variant, posterUrl, videoUrl]
+    );
+    const versions = await videoVersionCount(designId);
+    return {
+      ok: true, asset_path: posterUrl, video_path: videoUrl, filename: videoName,
+      warnings: [videoVersionNote(design_number, versions)],
+    };
+  }
 
   await pool.query(
     `UPDATE organic.designs
@@ -4564,11 +4644,7 @@ export async function saveDesignVideo(
             qc_status = 'PENDING'::organic.qc_status,
             qc_notes = NULL
       WHERE id = $1`,
-    [designId, videoUrl, posterUrl, videoName,
-     reg.duration_s && reg.duration_s > 0 ? reg.duration_s : null,
-     bytes > 0 ? bytes : null,
-     reg.width && reg.width > 0 ? reg.width : null,
-     reg.height && reg.height > 0 ? reg.height : null]
+    [designId, videoUrl, posterUrl, videoName, duration, bytes > 0 ? bytes : null, width, height]
   );
 
   // De pins van dit design dragen nu het verkeerde soort bestand (of nog het
@@ -4591,11 +4667,68 @@ export async function saveDesignVideo(
   }
 
   const warnings = [
-    `The four pins of D${design_number} carry this same video on four boards, with the same ` +
-    `title and description — a video cannot be micro-cropped, so that difference is gone.`,
-    "Run P4.2.5 again so the video reaches its four pins.",
+    videoVersionNote(design_number, await videoVersionCount(designId)),
+    "Run P4.2.5 again so the video reaches its pins.",
   ];
   return { ok: true, asset_path: posterUrl, video_path: videoUrl, filename: videoName, warnings };
+}
+
+/** Hoeveel unieke video's een design heeft: A plus de versies B/C/D. */
+async function videoVersionCount(designId: string): Promise<number> {
+  const r = await organicPool().query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM organic.design_video_variants WHERE design_id = $1`,
+    [designId]
+  );
+  return 1 + Number(r.rows[0]?.n ?? 0);
+}
+
+/** De zin die zegt wat het aantal versies voor de vier pins betekent. */
+function videoVersionNote(designNumber: number, versions: number): string {
+  if (versions >= 4) {
+    return `D${designNumber} has four versions — each of its four pins carries its own video.`;
+  }
+  const reused = 4 - versions;
+  return (
+    `D${designNumber} has ${versions} of 4 video versions, so ${reused} of its pins carry version A ` +
+    `again. A video cannot be micro-cropped; upload B, C or D (another cut, another opening ` +
+    `second, another overlay) to give those pins their own file.`
+  );
+}
+
+/**
+ * Eén versie (B/C/D) van een video-design weghalen. De pin van die versie
+ * valt terug op versie A, zoals elke pin waarvan de versie ontbreekt.
+ * Versie A gaat hier niet: die weghalen is van het design een beeld maken,
+ * en dat is een upload van een afbeelding.
+ */
+export async function removeDesignVideoVariant(
+  orgId: string, designId: string, variant: VideoVariant
+): Promise<{ ok: true; versions: number }> {
+  if (variant === "A" || !VIDEO_VARIANTS.includes(variant)) {
+    throw new Error("Only version B, C or D can be removed — upload an image to take the design off video.");
+  }
+  const pool = organicPool();
+  const d = await pool.query<{ asset_path: string | null; video_path: string | null }>(
+    `SELECT d.asset_path, d.video_path
+       FROM organic.designs d JOIN organic.waterfalls w ON w.id = d.waterfall_id
+      WHERE d.id = $1 AND w.org_id = $2`,
+    [designId, orgId]
+  );
+  if (d.rowCount === 0) throw new Error("Design not found for this org");
+  const del = await pool.query<{ video_path: string; poster_path: string }>(
+    `DELETE FROM organic.design_video_variants WHERE design_id = $1 AND variant = $2
+     RETURNING video_path, poster_path`,
+    [designId, variant]
+  );
+  if (del.rowCount === 0) throw new Error(`Version ${variant} is not on this design`);
+  await pool.query(
+    `UPDATE organic.pins SET image_path = $3, video_path = $4
+      WHERE design_id = $1 AND copy_variant = $2
+        AND status IN ('PLANNED','SCHEDULED','FAILED')
+        AND video_path IS NOT NULL`,
+    [designId, variant, d.rows[0].asset_path, d.rows[0].video_path]
+  );
+  return { ok: true, versions: await videoVersionCount(designId) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -4999,6 +5132,12 @@ export async function loadCycleAssets(orgId: string, urlId: string) {
      SELECT d.id::text AS design_id, d.design_number, d.intent::text AS intent,
             d.route::text AS route, d.asset_path, d.filename,
             d.media_type::text AS media_type, d.video_path, d.video_duration_s,
+            COALESCE((SELECT json_agg(json_build_object(
+                        'variant', v.variant, 'video_path', v.video_path,
+                        'poster_path', v.poster_path, 'video_duration_s', v.video_duration_s)
+                        ORDER BY v.variant)
+                        FROM organic.design_video_variants v WHERE v.design_id = d.id), '[]'::json)
+              AS video_versions,
             d.qc_status::text AS design_qc, d.qc_notes,
             cs.id::text AS copy_set_id, cs.tagline, cs.title, cs.description,
             cs.validator_status::text AS validator_status,

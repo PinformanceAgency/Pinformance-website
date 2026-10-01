@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { CycleView } from "@/lib/organic/phase4";
 // Pure regels, geen database — zie de kop van video.ts. De client en de route
 // checken hetzelfde bestand op dezelfde manier.
-import { MAX_VIDEO_BYTES, VIDEO_ACCEPT, canBeVideo } from "@/lib/organic/video";
+import { MAX_VIDEO_BYTES, VIDEO_ACCEPT, canBeVideo, type VideoVariant } from "@/lib/organic/video";
 import { CREATIVE_FORMATS, FORMAT_HINT, FORMAT_LABEL, type CreativeFormat } from "@/lib/organic/formats";
 import { formatBytes, formatDuration, putToSignedUrl, readVideoFacts } from "./videoUpload";
 
@@ -693,9 +693,9 @@ function DesignsPanel({
    * de bucket (een body van 120 MB komt niet door een serverless function) en
    * de laatste call is een paar honderd bytes JSON.
    */
-  async function uploadVideo(designId: string, file: File) {
+  async function uploadVideo(designId: string, file: File, variant: VideoVariant = "A") {
     setErr(null); setNote(null); setClash([]); setVideoNotes([]);
-    setBusy(designId); setProgress(0);
+    setBusy(variant === "A" ? designId : `${designId}:${variant}`); setProgress(0);
     try {
       const facts = await readVideoFacts(file);
       if (!facts.poster) {
@@ -708,7 +708,7 @@ function DesignsPanel({
       const signRes = await fetch(`/api/organic/phase4/${orgId}/design-video`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          step: "sign", design_id: designId,
+          step: "sign", design_id: designId, variant,
           name: file.name, type: file.type, size: file.size,
           duration: facts.duration, width: facts.width, height: facts.height,
         }),
@@ -729,7 +729,7 @@ function DesignsPanel({
       const regRes = await fetch(`/api/organic/phase4/${orgId}/design-video`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          step: "register", design_id: designId,
+          step: "register", design_id: designId, variant,
           video_path: sign.video.path, poster_path: sign.poster.path,
           duration: facts.duration, width: facts.width, height: facts.height,
         }),
@@ -747,6 +747,22 @@ function DesignsPanel({
       startTransition(() => router.refresh());
     } catch (e) { setErr((e as Error).message); }
     finally { setBusy(null); setProgress(null); }
+  }
+
+  async function removeVersion(designId: string, variant: VideoVariant) {
+    setErr(null); setNote(null); setVideoNotes([]); setBusy(`${designId}:${variant}`);
+    try {
+      const res = await fetch(`/api/organic/phase4/${orgId}/design-video`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ step: "remove", design_id: designId, variant }),
+      });
+      const data = await res.json() as { versions?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setNote(`Version ${variant} removed — that pin carries version A again.`);
+      await load();
+      startTransition(() => router.refresh());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
   }
 
   async function generate() {
@@ -812,6 +828,15 @@ function DesignsPanel({
                 <div className="text-[11px] text-muted-foreground truncate">{d.filename ?? "—"}</div>
                 {d.media_type === "VIDEO" && !d.video_path && (
                   <div className="text-[11px] text-o-neg">The mp4 is missing — upload it again.</div>
+                )}
+                {d.media_type === "VIDEO" && d.video_path && (
+                  <VideoVersions
+                    design={d}
+                    busy={busy}
+                    progress={progress}
+                    onUpload={(v, f) => void uploadVideo(d.design_id, f, v)}
+                    onRemove={(v) => void removeVersion(d.design_id, v)}
+                  />
                 )}
                 {busy === d.design_id && progress != null && (
                   <div className="mt-1 flex items-center gap-2">
@@ -898,8 +923,9 @@ function DesignsPanel({
         Any design can be an <strong>mp4</strong> instead (up to {MAX_VIDEO_BYTES / 1048576} MB, 4s to
         15 minutes, portrait) — all four, if the product says more moving than standing still. The
         cover frame is taken from the video itself and becomes the thumbnail everywhere in here. A
-        video cannot be micro-cropped, so the four pins of a video design carry the same file on
-        four boards.
+        video cannot be micro-cropped, so a video design takes up to four <strong>versions</strong> instead
+        — one per pin (A–D). A version does not have to be new footage: another cut, another opening
+        second or another overlay counts. A pin whose version is missing carries version A.
       </p>
       {err && <p className="text-xs text-o-neg break-words" role="alert">{err}</p>}
       {note && <p className="text-xs text-emerald-700">{note}</p>}
@@ -931,6 +957,70 @@ function DesignsPanel({
   );
 }
 
+const EXTRA_VERSIONS: VideoVariant[] = ["B", "C", "D"];
+
+/**
+ * De versies van een video-design: A staat op het design, B/C/D zijn
+ * optioneel en horen elk bij één pin (migratie 116). Wat ontbreekt staat er
+ * als "uses A", zodat hergebruik zichtbaar is in plaats van stil.
+ */
+function VideoVersions({ design, busy, progress, onUpload, onRemove }: {
+  design: CycleAsset;
+  busy: string | null;
+  progress: number | null;
+  onUpload: (v: VideoVariant, f: File) => void;
+  onRemove: (v: VideoVariant) => void;
+}) {
+  const have = new Map((design.video_versions ?? []).map((v) => [v.variant, v]));
+  const unique = 1 + have.size;
+  return (
+    <div className="mt-1.5 space-y-1">
+      <div className="text-[11px] text-muted-foreground">
+        {unique} of 4 versions — {unique === 4
+          ? "each pin carries its own video."
+          : `${4 - unique} pin${4 - unique === 1 ? "" : "s"} reuse${4 - unique === 1 ? "s" : ""} version A.`}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <span className="text-[10px] px-1.5 py-0.5 rounded border border-o-hairline bg-o-sunk">A · main</span>
+        {EXTRA_VERSIONS.map((v) => {
+          const row = have.get(v);
+          const key = `${design.design_id}:${v}`;
+          const isBusy = busy === key;
+          return (
+            <span key={v} className={cn(
+              "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border",
+              row ? "border-o-hairline bg-o-sunk" : "border-dashed border-o-hairline text-muted-foreground",
+            )}>
+              {row ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={row.poster_path} alt={`Version ${v}`} className="w-3 h-4 object-cover rounded-sm" />
+                  {v}
+                  <button type="button" disabled={busy !== null}
+                    onClick={() => onRemove(v)}
+                    className="ml-0.5 text-muted-foreground hover:text-o-neg disabled:opacity-50"
+                    aria-label={`Remove version ${v}`}>×</button>
+                </>
+              ) : (
+                <label className={cn("cursor-pointer", busy !== null && "opacity-50 cursor-not-allowed")}>
+                  {isBusy && progress != null ? `${v} · ${Math.round(progress * 100)}%` : `+ ${v} (uses A)`}
+                  <input type="file" accept={VIDEO_ACCEPT} className="hidden"
+                    disabled={busy !== null}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) onUpload(v, f);
+                    }} />
+                </label>
+              )}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 interface CycleAsset {
   design_id: string;
   design_number: number;
@@ -941,6 +1031,8 @@ interface CycleAsset {
   media_type?: string;
   video_path?: string | null;
   video_duration_s?: string | number | null;
+  /** Versies B/C/D van een video-design (migratie 116); A is video_path. */
+  video_versions?: Array<{ variant: VideoVariant; video_path: string; poster_path: string; video_duration_s: number | null }>;
   filename: string | null;
   design_qc: string;
   qc_notes: string | null;
@@ -1082,13 +1174,27 @@ function QcPanel({ orgId, urlId, mode }: { orgId: string; urlId: string; mode: "
               // design betekent: hem uitkijken.
               r.media_type === "VIDEO" && r.video_path ? (
                 <div className="mt-2.5 space-y-1.5">
-                  <video src={r.video_path} poster={r.asset_path ?? undefined}
-                         controls muted playsInline preload="metadata"
-                         className="rounded-md ring-1 ring-inset ring-o-hairline max-h-56" />
+                  {/* Elke versie wordt hier uitgekeken: QC staat per design,
+                      dus een versie die niemand zag is niet goedgekeurd. */}
+                  <div className="flex flex-wrap gap-2">
+                    {[{ variant: "A", video_path: r.video_path, poster_path: r.asset_path },
+                      ...(r.video_versions ?? [])].map((v) => (
+                      <figure key={v.variant} className="space-y-0.5">
+                        <video src={v.video_path} poster={v.poster_path ?? undefined}
+                               controls muted playsInline preload="metadata"
+                               className="rounded-md ring-1 ring-inset ring-o-hairline max-h-56" />
+                        {(r.video_versions?.length ?? 0) > 0 && (
+                          <figcaption className="text-[10px] text-o-ink-3">Version {v.variant}</figcaption>
+                        )}
+                      </figure>
+                    ))}
+                  </div>
                   <p className="text-[11px] text-o-ink-3">
                     Video pin{formatDuration(Number(r.video_duration_s)) ? ` · ${formatDuration(Number(r.video_duration_s))}` : ""}
-                    {" · "}the four pins of this design carry this same file on four boards, with the
-                    same title and description — a video cannot be micro-cropped.
+                    {" · "}{1 + (r.video_versions?.length ?? 0)} of 4 versions
+                    {(r.video_versions?.length ?? 0) >= 3
+                      ? " — each pin carries its own video, with the same title and description."
+                      : " — the pins without their own version carry version A, with the same title and description. A video cannot be micro-cropped."}
                   </p>
                 </div>
               ) : r.media_type === "VIDEO" ? (
