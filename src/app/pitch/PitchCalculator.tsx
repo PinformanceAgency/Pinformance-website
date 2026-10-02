@@ -50,6 +50,15 @@ function fmtRoas(n: number, lang: Lang): string {
   });
 }
 
+function fmtPct(n: number, lang: Lang): string {
+  return (
+    n.toLocaleString(lang === "en" ? "en-US" : "nl-NL", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }) + "%"
+  );
+}
+
 function parseAmount(s: string): number {
   // "25.000", "25,000" en "25000" moeten alle drie werken: tijdens een call
   // typt niemand netjes.
@@ -109,6 +118,22 @@ export default function PitchCalculator({ lang = "nl" }: { lang?: Lang }) {
       })),
     [q.bracketIndex]
   );
+
+  // Wat het oplevert, naast wat het kost. De omzet is een rekensom met het
+  // getal dat de prospect zelf heeft ingevuld, geen toezegging: de garantie
+  // zegt dat de performance fee vervalt, niet dat deze omzet gehaald wordt.
+  //
+  // Het effectieve percentage gaat over de OMZET en nooit over de ad spend.
+  // Dezelfde fee is 10% van de spend en 3,33% van de omzet; allebei waar, en
+  // twee percentages naast elkaar roepen alleen de vraag op welke telt. De
+  // omzet is de juiste noemer, want daaruit wordt de fee betaald.
+  const revenue =
+    kpi === "roas" && Number.isFinite(adspend) && adspend > 0 &&
+    Number.isFinite(minimum) && minimum > 0
+      ? adspend * minimum
+      : null;
+  const effectivePct =
+    revenue && revenue > 0 ? (q.totalOnTarget / revenue) * 100 : null;
 
   const note = q.capped
     ? t.capNote(eur(INVOICE_CAP, lang))
@@ -327,8 +352,27 @@ export default function PitchCalculator({ lang = "nl" }: { lang?: Lang }) {
             </div>
           )}
 
-          {/* Gehaald versus niet gehaald ---------------------------- */}
-          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+          {/* Opbrengst, gehaald en niet gehaald --------------------- */}
+          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
+            {/* Bij CPA bestaat er geen omzetcijfer: dan staat hier wat het
+                target in orders betekent, en vervalt het percentage. */}
+            <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6e6769]">
+                {kpi === "roas" ? t.revenueLabel : t.ordersLabel}
+              </div>
+              <div className="mt-1.5 text-xl font-semibold tabular-nums text-[#f2f1f6] sm:text-2xl">
+                {kpi === "roas"
+                  ? eur(revenue ?? NaN, lang)
+                  : implies
+                    ? num(implies.amount, lang)
+                    : "—"}
+              </div>
+              <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
+                {kpi === "roas"
+                  ? t.revenueSub(eur(adspend, lang), fmtRoas(minimum, lang))
+                  : t.ordersSub(eur(adspend, lang), eur(minimum, lang))}
+              </div>
+            </div>
             <div className="rounded-xl border border-[#E30613]/25 pitch-calc-card px-5 py-4 shadow-[0_22px_50px_-22px_rgba(227,6,19,0.35)]">
               <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#ff5c63]">
                 {kpi === "roas" ? t.hitRoas : t.hitCpa}
@@ -339,6 +383,11 @@ export default function PitchCalculator({ lang = "nl" }: { lang?: Lang }) {
               <div className="mt-0.5 min-h-[14px] text-[10px] font-medium text-[#6e6769]">
                 {t.hitSub}
               </div>
+              {effectivePct !== null && (
+                <div className="mt-1 text-[11px] font-semibold text-[#ff5c63]">
+                  {t.effectiveSub(fmtPct(effectivePct, lang))}
+                </div>
+              )}
             </div>
             <div className="rounded-xl border border-[rgba(200,155,160,0.14)] pitch-calc-card px-5 py-4">
               <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6e6769]">
@@ -417,6 +466,14 @@ export default function PitchCalculator({ lang = "nl" }: { lang?: Lang }) {
                           {eur(q.totalOnTarget, lang)}
                         </span>
                       </div>
+                      {effectivePct !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-[#a5a0a2]">{t.effectiveRow}</span>
+                          <span className="font-semibold tabular-nums text-[#ff5c63]">
+                            {fmtPct(effectivePct, lang)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

@@ -67,6 +67,12 @@ export interface Strings {
     offerLeadRoas: (spend: string, roas: string) => string;
     offerLeadCpa: (spend: string, cpa: string) => string;
     editAnswers: string;
+    revenueLabel: string;
+    revenueSub: (spend: string, roas: string) => string;
+    ordersLabel: string;
+    ordersSub: (spend: string, cpa: string) => string;
+    effectiveSub: (pct: string) => string;
+    effectiveRow: string;
     hitRoas: string;
     hitCpa: string;
     hitSub: string;
@@ -182,6 +188,15 @@ const nl: Strings = {
     offerLeadCpa: (spend, cpa) =>
       `Bij ${spend} ad spend per maand, met een maximale CPA van ${cpa}.`,
     editAnswers: "← Antwoorden aanpassen",
+    revenueLabel: "Omzet bij deze ROAS",
+    // Geen belofte: dit is wat de ingevulde ROAS bij deze spend betekent, niet
+    // wat wij toezeggen te halen. Daarom "bij deze ROAS" en nooit "minimaal".
+    revenueSub: (spend, roas) =>
+      `per maand, bij ${spend} ad spend en ROAS ${roas}`,
+    ordersLabel: "Orders bij deze CPA",
+    ordersSub: (spend, cpa) => `per maand, bij ${spend} ad spend en CPA ${cpa}`,
+    effectiveSub: (pct) => `effectief ${pct} van de omzet`,
+    effectiveRow: "Effectief over de omzet",
     hitRoas: "ROAS gehaald",
     hitCpa: "CPA gehaald",
     hitSub: "per maand, base fee plus performance fee",
@@ -308,6 +323,13 @@ const en: Strings = {
     offerLeadCpa: (spend, cpa) =>
       `At ${spend} ad spend per month, with a maximum CPA of ${cpa}.`,
     editAnswers: "← Change your answers",
+    revenueLabel: "Revenue at this ROAS",
+    revenueSub: (spend, roas) =>
+      `per month, at ${spend} ad spend and ROAS ${roas}`,
+    ordersLabel: "Orders at this CPA",
+    ordersSub: (spend, cpa) => `per month, at ${spend} ad spend and CPA ${cpa}`,
+    effectiveSub: (pct) => `${pct} of revenue, effectively`,
+    effectiveRow: "Effective, over revenue",
     hitRoas: "ROAS achieved",
     hitCpa: "CPA achieved",
     hitSub: "per month, base fee plus performance fee",
