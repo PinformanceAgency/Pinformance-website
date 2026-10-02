@@ -25,9 +25,15 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims, not getUser. getUser is a round trip to Supabase Auth on every
+  // request, prefetches included, and Auth shares the database with the
+  // snapshot crons: when those saturate it, getUser hangs and the whole
+  // dashboard answers 504 MIDDLEWARE_INVOCATION_TIMEOUT (02-10-2026, twice in
+  // a week). The project signs with ES256, so getClaims verifies the JWT
+  // locally against the cached JWKS and only goes to the network to refresh
+  // an expired token.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const user = claimsData?.claims?.sub ? { id: claimsData.claims.sub } : null;
 
   const { pathname } = request.nextUrl;
 
