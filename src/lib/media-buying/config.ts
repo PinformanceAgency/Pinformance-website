@@ -187,18 +187,20 @@ export const COUNTRY_OPTIONS: { code: string; label: string }[] = [
  * there is no way to assign them their first one. Louiza joined with none.
  *
  * Lowercase because that is what is in `store_settings.media_buyer` and what
- * the tables render verbatim — a capitalised "David" here would sit next to
+ * the tables render verbatim — a capitalised "Ryan" here would sit next to
  * "dylan" in the same column and read as a different kind of value.
  *
  * Someone who leaves is removed from this list, not from the stores: their
  * history stays readable because `mediaBuyerOptions()` unions the roster with
- * whatever is actually assigned.
+ * whatever is actually assigned. To take somebody out of every dropdown as
+ * well, clear their name on the stores and keep it in `store_settings.notes`
+ * — done for David and Jovita on 02-10-2026, whose stores were all inactive.
  */
 export const MEDIA_BUYERS = [
-  "david",
   "dylan",
   "louiza",
   "rens",
+  "ryan",
 ] as const;
 export type MediaBuyer = (typeof MEDIA_BUYERS)[number];
 
