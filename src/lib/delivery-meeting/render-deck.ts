@@ -53,7 +53,7 @@ const NL: Record<string, string> = {
   WEEK: "WEEK",
   MONTH: "MAAND",
   "ROAS  last → this  (target = invoice)": "ROAS  vorige → deze  (target = invoice)",
-  "REVENUE  actual / target ✓": "OMZET  actueel / target ✓",
+  "REVENUE  actual / target": "OMZET  actueel / target",
   "REVENUE MTD": "OMZET MTD",
   "ROAS MTD / TARGET": "ROAS MTD / TARGET",
   "New stores": "Nieuwe stores",
@@ -178,7 +178,7 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
     p == null ? [] : [[`  ${p > 0 ? "+" : ""}${p}%`, true, p > 0 ? GREEN : p < 0 ? ZRED : DGREY, 10]];
 
   // A cell is 1.33in wide, and with the % at the end the week revenue cell
-  // ("€12,345  / €10,000 ✓  +23%") no longer fits at its own sizes — it would
+  // ("€12,345  / €10,000  +23%") no longer fits at its own sizes — it would
   // wrap onto a second line and run into the row below. So the runs are
   // measured (Calibri advance widths, in em, with a margin for bold) and the
   // whole cell is scaled down just enough to stay on one line.
@@ -376,7 +376,7 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
     txt(s, xStore, hy, wStore, 200000, "STORE", 9, true, DGREY);
     txt(s, xBuyer, hy, wBuyer, 200000, "BUYER", 9, true, DGREY);
     const subs = [
-      [T("ROAS  last → this  (target = invoice)"), T("REVENUE  actual / target ✓")],
+      [T("ROAS  last → this  (target = invoice)"), T("REVENUE  actual / target")],
       ["ROAS MTD / TARGET", T("REVENUE MTD")],
     ];
     for (let bi = 0; bi < 2; bi++) {
@@ -398,7 +398,6 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
         [
           [(st.rev_wk_txt ?? "—").replace("CHF ", "CHF"), true, WHITE, 13],
           [st.rev_wk_tgt_txt ? "  / " + st.rev_wk_tgt_txt.replace("CHF ", "") : "", false, DGREY, 9],
-          [st.rev_tgt_hit == null ? "" : st.rev_tgt_hit ? " ✓" : " ✗", true, st.rev_tgt_hit ? GREEN : ZRED, 11],
           ...pctRun(st.rev_wk_pct),
         ],
         13,
