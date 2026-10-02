@@ -27,6 +27,10 @@ export interface CollectedStore {
   week: Money;
   prev: Money;
   month: Money;
+  /** the same days of the month before (Store Ranking's `prev_month`), for the
+   *  month % change. Absent on stores filled from monday and on runs collected
+   *  before 02-10-2026 — then no % is shown, never a guessed one. */
+  prev_month?: Money | null;
   /** Store Ranking's floors — the same numbers as the pills on the page */
   week_floor: number;
   month_floor: number;
@@ -133,6 +137,13 @@ export interface DeckStoreRow {
   roas_mtd: string;
   roas_target: string;
   roas_mtd_ok: boolean;
+  /** % change against the period before, rounded, as on Store Ranking:
+   *  week vs the week before, month to date vs the same days of the month
+   *  before. null when there is no "before" to compare with. */
+  roas_wk_pct?: number | null;
+  rev_wk_pct?: number | null;
+  roas_mtd_pct?: number | null;
+  mtd_pct?: number | null;
   month_ok: boolean;
   week_ok: boolean;
   source: CollectedStore["source"];

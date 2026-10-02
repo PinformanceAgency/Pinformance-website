@@ -258,6 +258,8 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
     }
     const r = rankByOrg.get(s.org_id);
     let week: Money, prev: Money, month: Money, currency: string | null, source: Single["source"];
+    // only the dashboard knows the month before; monday rows have no such cohort
+    let prevMonth: Money | null = null;
     let weekMissing = false;
     let weekFloor: number, monthFloor: number, spendAccount: boolean;
 
@@ -285,6 +287,7 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       week = { spend: r.week.spend, revenue: r.week.revenue };
       prev = { spend: r.prev_week.spend, revenue: r.prev_week.revenue };
       month = { spend: r.month.spend, revenue: r.month.revenue };
+      prevMonth = { spend: r.prev_month.spend, revenue: r.prev_month.revenue };
       currency = r.currency;
       source = "dashboard";
       // Store Ranking's own floors, so the pills on the slide are the pills on
@@ -324,6 +327,7 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       week: scale(week),
       prev: scale(prev),
       month: scale(month),
+      prev_month: prevMonth ? scale(prevMonth) : null,
       week_floor: weekFloor,
       month_floor: monthFloor,
       source,
@@ -371,6 +375,13 @@ export async function collect(stream: Stream, meetingDate: string): Promise<RunP
       week: add("week"),
       prev: add("prev"),
       month: add("month"),
+      // a blend is only comparable when every member has a month before
+      prev_month: members.every((m) => m.prev_month)
+        ? members.reduce(
+            (a, m) => ({ spend: a.spend + m.prev_month!.spend, revenue: a.revenue + m.prev_month!.revenue }),
+            { spend: 0, revenue: 0 },
+          )
+        : null,
       source: sources.size > 1 ? "mixed" : first.source,
       weekly_goal: members.some((m) => m.weekly_goal),
       week_missing: members.every((m) => m.week_missing),

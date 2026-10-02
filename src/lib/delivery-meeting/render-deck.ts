@@ -171,6 +171,33 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
     }
   };
 
+  // Store Ranking's % change: plain text in the pill colours, no arrow
+  // (Tristan, 02-10-2026 — the deck follows the page). Nothing when there is
+  // no period before to compare with.
+  const pctRun = (p: number | null | undefined): Run[] =>
+    p == null ? [] : [[`  ${p > 0 ? "+" : ""}${p}%`, true, p > 0 ? GREEN : p < 0 ? ZRED : DGREY, 10]];
+
+  // A cell is 1.33in wide, and with the % at the end the week revenue cell
+  // ("€12,345  / €10,000 ✓  +23%") no longer fits at its own sizes — it would
+  // wrap onto a second line and run into the row below. So the runs are
+  // measured (Calibri advance widths, in em, with a margin for bold) and the
+  // whole cell is scaled down just enough to stay on one line.
+  const EM: Record<string, number> = { " ": 0.226, ".": 0.252, ",": 0.25, "/": 0.386, "+": 0.498, "-": 0.306, "%": 0.715, "→": 0.8, "✓": 0.8, "✗": 0.8, "—": 0.9 };
+  const runWidthPt = (runs: Run[], base: number) =>
+    runs.reduce((w, [t, b, , sz]) => {
+      let em = 0;
+      for (const ch of t) em += EM[ch] ?? (/[0-9€$£]/.test(ch) ? 0.507 : 0.52);
+      return w + em * (sz ?? base) * (b ? 1.04 : 1);
+    }, 0);
+  // The factor is taken per column per slide, so the rows under one header
+  // keep one size instead of each row shrinking by its own amount.
+  const fitFactor = (runs: Run[], base: number, wEmu: number) =>
+    Math.min(1, ((wEmu / 12700) * 0.97) / runWidthPt(runs, base)); // EMU → pt, with a little air
+  const cell = (s: Slide, x: number, y: number, w: number, runs: Run[], base: number, f: number) => {
+    const sc = (n: number) => (f >= 1 ? n : Math.floor(n * f * 2) / 2);
+    txt(s, x, y, w, 300000, runs.map(([t, b, c, sz]) => [t, b, c, sc(sz ?? base)] as Run), sc(base), false, WHITE, "left", "middle");
+  };
+
   const arrow = (delta: number | null | undefined): [string, string] => {
     if (delta == null) return ["—", DGREY];
     if (delta > 0) return ["▲", GREEN];
@@ -363,6 +390,25 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
     const rh = 470000;
     const y0 = hy + 300000;
     rect(s, dvx - 6000, top, 12000, 320000 + 300000 + rh * rows.length, RED);
+    const tw = subW - PW - 140000;
+    // the four cells of a row, ROAS before revenue, week before month
+    const cellsOf = (st: DeckStoreRow): [Run[], number][] => [
+      [[[(st.roas_wk_prev ?? "—") + " → ", false, DGREY, 12], [st.roas_wk_now ?? "—", true, WHITE, 14], ...pctRun(st.roas_wk_pct)], 14],
+      [
+        [
+          [(st.rev_wk_txt ?? "—").replace("CHF ", "CHF"), true, WHITE, 13],
+          [st.rev_wk_tgt_txt ? "  / " + st.rev_wk_tgt_txt.replace("CHF ", "") : "", false, DGREY, 9],
+          [st.rev_tgt_hit == null ? "" : st.rev_tgt_hit ? " ✓" : " ✗", true, st.rev_tgt_hit ? GREEN : ZRED, 11],
+          ...pctRun(st.rev_wk_pct),
+        ],
+        13,
+      ],
+      [[[st.roas_mtd ?? "—", true, WHITE, 14], ["  /  " + (st.roas_target ?? "—"), false, DGREY, 12], ...pctRun(st.roas_mtd_pct)], 14],
+      [[[st.mtd_txt ?? "—", true, WHITE, 14], [st.spend_acct ? " spend" : "", false, GREY, 10], ...pctRun(st.mtd_pct)], 14],
+    ];
+    const colF = [0, 1, 2, 3].map((ci) =>
+      Math.min(1, ...rows.filter((st) => !st.new_store).map((st) => fitFactor(cellsOf(st)[ci][0], cellsOf(st)[ci][1], tw))),
+    );
     rows.forEach((st, i) => {
       const y = y0 + i * rh;
       const h = rh - 50000;
@@ -376,40 +422,13 @@ export async function renderDeck(d: DeckData): Promise<Buffer> {
         txt(s, blkX + 60000, cy, 2 * blkW + 120000 - 120000, 300000, T("No data yet  ·  what is the plan for this store?"), 14, false, GREY, "left", "middle");
         return;
       }
-      const tw = subW - PW - 140000;
-      // WEEK · ROAS
-      let x = blkX;
-      const [a, c] = arrow(st.week_delta);
-      txt(s, x + 60000, cy, tw, 300000, [[(st.roas_wk_prev ?? "—") + " → ", false, DGREY, 12], [(st.roas_wk_now ?? "—") + " ", true, WHITE, 14], [a, true, c, 11]], 14, false, WHITE, "left", "middle");
-      pill2(s, x + subW - PW - 40000, py, st.wk_roas_ok);
-      // WEEK · REVENUE (spend on spend accounts)
-      x = blkX + subW;
-      txt(
-        s,
-        x + 60000,
-        cy,
-        tw,
-        300000,
-        [
-          [(st.rev_wk_txt ?? "—").replace("CHF ", "CHF"), true, WHITE, 13],
-          [st.rev_wk_tgt_txt ? "  / " + st.rev_wk_tgt_txt.replace("CHF ", "") : "", false, DGREY, 9],
-          [st.rev_tgt_hit == null ? "" : st.rev_tgt_hit ? " ✓" : " ✗", true, st.rev_tgt_hit ? GREEN : ZRED, 11],
-        ],
-        13,
-        false,
-        WHITE,
-        "left",
-        "middle",
-      );
-      pill2(s, x + subW - PW - 40000, py, st.wk_rev_ok);
-      // MONTH · ROAS MTD / TARGET — first, same order as WEEK
-      x = blkX + blkW + 120000;
-      txt(s, x + 60000, cy, tw, 300000, [[st.roas_mtd ?? "—", true, WHITE, 14], ["  /  " + (st.roas_target ?? "—"), false, DGREY, 12]], 14, false, WHITE, "left", "middle");
-      pill2(s, x + subW - PW - 40000, py, st.roas_mtd_ok);
-      // MONTH · REVENUE MTD (spend MTD on spend accounts)
-      x = blkX + blkW + 120000 + subW;
-      txt(s, x + 60000, cy, tw, 300000, [[st.mtd_txt ?? "—", true, WHITE, 14], [st.spend_acct ? " spend" : "", false, GREY, 10]], 14, false, WHITE, "left", "middle");
-      pill2(s, x + subW - PW - 40000, py, st.mtd_ok);
+      const cs = cellsOf(st);
+      const xs = [blkX, blkX + subW, blkX + blkW + 120000, blkX + blkW + 120000 + subW];
+      const oks = [st.wk_roas_ok, st.wk_rev_ok, st.roas_mtd_ok, st.mtd_ok];
+      xs.forEach((x, ci) => {
+        cell(s, x + 60000, cy, tw, cs[ci][0], cs[ci][1], colF[ci]);
+        pill2(s, x + subW - PW - 40000, py, oks[ci]);
+      });
     });
   }
 

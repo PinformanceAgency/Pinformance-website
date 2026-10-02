@@ -29,6 +29,13 @@ export function spendDay(sd: Target["spend_day"], baseWeekSpend: number): number
   return sd > 0 ? sd : null;
 }
 
+/** % change, rounded — Store Ranking's `Delta`: nothing without a positive
+ *  "before", because +∞% against a period without revenue says nothing. */
+function pct(now: number | null, before: number | null): number | null {
+  if (now == null || before == null || before <= 0) return null;
+  return Math.round(((now - before) / before) * 100);
+}
+
 export interface PrevGoal {
   monthly: number | null;
   weekly: number | null;
@@ -100,6 +107,9 @@ export function computeDeck(opts: {
     const roNow = sn ? rn / sn : null;
     const roPrev = sp ? rp / sp : null;
     const romtd = msp ? mr / msp : 0;
+    const pm = s.prev_month ?? null;
+    const pmVal = pm ? (s.spend_account ? pm.spend : pm.revenue) : null;
+    const roPm = pm && pm.spend ? pm.revenue / pm.spend : null;
 
     // This week's target, set last week. ROAS = invoice, always; the volume
     // target comes from the log, and is the floor when there is none.
@@ -135,6 +145,10 @@ export function computeDeck(opts: {
       roas_mtd: romtd.toFixed(2),
       roas_target: inv.toFixed(2),
       roas_mtd_ok: romtd >= inv,
+      roas_wk_pct: pct(roNow, roPrev),
+      rev_wk_pct: pct(wkVal, wkPrev),
+      roas_mtd_pct: pct(msp ? romtd : null, roPm),
+      mtd_pct: pct(mtd, pmVal),
       month_ok: false,
       week_ok: false,
       source: s.source,

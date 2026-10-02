@@ -316,6 +316,16 @@ org name ("graceparkerjewelry", "ICON.", "by-willa"): matching goes through
 **The deck is pptxgenjs**, checked shape by shape against the Python builder
 on the same data: 361 text shapes, 0 differences.
 
+**The per-store cells carry Store Ranking's % change** (Tristan, 02-10-2026):
+week ROAS and week revenue against the week before, ROAS MTD and revenue MTD
+against the same days of the month before (`CollectedStore.prev_month`, from
+`computeStoreRanking`'s `prev_month`), at the end of the cell in the pill
+colours, no arrow, nothing without a positive "before". Stores filled from
+monday have no month before and get no month %. A cell is 1.33in wide and the
+week revenue cell no longer fits at its own sizes, so `render-deck.ts`
+measures the runs and scales a column down just enough to stay on one line —
+one factor per column per slide, so a column keeps one size.
+
 ## Read-only agent API (`/api/agent/*`)
 
 Viktor — the agency's Slack agent — reads the dashboard through here. One key
